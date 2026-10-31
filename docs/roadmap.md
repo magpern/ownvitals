@@ -26,7 +26,38 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
-None yet.
+### Amendment 2 (2026-10-31, Architect): keys of partitioned owned tables
+
+- **Changes:** PLAN §5 ("Every owned table has `owner_id`, `UNIQUE (owner_id, id)` and
+  owner-inclusive composite foreign keys") is refined for the monthly-partitioned tables
+  (`observations`, `sleep_series`, `intraday`): their key is
+  `PRIMARY KEY (owner_id, id, <partition key>)`; they must never be the target of a foreign key
+  (a guard enforces it); their own foreign keys stay owner-inclusive
+  (e.g. `(owner_id, connection_id) → connections(owner_id, id)`). Every other owned table keeps
+  `UNIQUE (owner_id, id)`.
+- **Evidence:** PostgreSQL requires every unique constraint and primary key on a partitioned
+  table to include all partition-key columns, so `UNIQUE (owner_id, id)` cannot exist there. The
+  rule's purpose, owner-inclusive foreign keys pointing at a row, is kept: the partitioned tables
+  are leaf tables nothing references. Raised by the review of ADR 0002 (PR #41).
+- **ADR:** ADR 0002 records the key rule and the guard 1 extension (#21).
+
+### Amendment 1 (2026-10-31, Architect): the authorization-code exchange runs in the web process
+
+- **Changes:** PLAN §2 ("The worker owns every outbound call") gains one Withings exception: the
+  web process makes the single authorization-code exchange inside the OAuth callback request,
+  `POST https://wbsapi.withings.net/v2/oauth2` with `action=requesttoken` and
+  `grant_type=authorization_code`, through a narrow, web-only egress entry limited to exactly that
+  request. Token refresh (`grant_type=refresh_token`), revoke and every other Withings call stay
+  in the worker. The call counts against the app's rate budget like any other.
+- **Web's outbound connections** are then exactly: the Google sign-in hosts and the configured
+  SMTP server, which the classbeat port already places in web (#6, ADR 0003; sign-in and email
+  flows run in the request), plus this one Withings request. Nothing else; #6 and #22 test
+  both processes' lists.
+- **Evidence:** a conflict inside the frozen spec. §4.3 requires the code to be exchanged "in
+  the request (it's valid for 30 s)", and withings-findings §2 says the callback "must exchange
+  it immediately (server-side, not via a queued job)". The callback request runs in web.
+  Raised in ADR 0004 (PR #41, issue #4).
+- **ADR:** ADR 0004 records the decision; #6 (egress) and #22 (connect) implement and test it.
 
 ## Pinned sources
 

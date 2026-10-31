@@ -1,0 +1,66 @@
+/*
+ * Design tokens: the one place for colour, spacing, type and shape. No other source file holds a
+ * colour literal (src/sources.test.ts fails if one does); they use var(--ov-...) only.
+ * Light by default, dark when the device asks for it. System fonts only: nothing is fetched from
+ * a font host (the CSP allows 'self' alone).
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Colour: light */
+  --ov-bg: #f5f6f8;
+  --ov-surface: #ffffff;
+  --ov-raised: #eceef2;
+  --ov-line: #d5d9e0;
+  --ov-text: #16181d;
+  --ov-muted: #566070;
+  --ov-brand: #1f6f78;
+  --ov-on-brand: #ffffff;
+  --ov-ok: #0f6e43;
+  --ov-bad: #b32d24;
+  --ov-paper: #ffffff;
+
+  /* Spacing */
+  --ov-space-1: 0.25rem;
+  --ov-space-2: 0.5rem;
+  --ov-space-3: 0.75rem;
+  --ov-space-4: 1rem;
+  --ov-space-5: 1.5rem;
+  --ov-space-6: 2rem;
+  --ov-space-7: 3rem;
+
+  /* Type */
+  --ov-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --ov-font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --ov-text-sm: 0.9375rem;
+  --ov-text-base: 1rem;
+  --ov-text-lg: 1.25rem;
+  --ov-text-xl: 1.5rem;
+  --ov-weight-medium: 500;
+  --ov-weight-bold: 700;
+  --ov-leading-tight: 1.2;
+  --ov-leading-base: 1.55;
+
+  /* Shape */
+  --ov-radius-sm: 0.5rem;
+  --ov-radius-md: 0.75rem;
+  --ov-radius-full: 999px;
+  --ov-target: 2.75rem;
+  --ov-content-width: 64rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ov-bg: #0e0f13;
+    --ov-surface: #17181e;
+    --ov-raised: #20222b;
+    --ov-line: #2c2f3b;
+    --ov-text: #f4f5f8;
+    --ov-muted: #a6abbb;
+    --ov-brand: #5cc0cb;
+    --ov-on-brand: #0e0f13;
+    --ov-ok: #3ddc97;
+    --ov-bad: #ff7a7a;
+  }
+}

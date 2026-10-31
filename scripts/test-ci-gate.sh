@@ -84,6 +84,21 @@ gate "job name with a newline"                1 "$(mutated 'del(.backend) | .["z
 gate "two JSON documents"                     1 "$docs $docs" "$four"
 gate "NEEDS is whitespace"                    1 "   " "$four"
 gate "valid input still passes"               0 "$docs" "$four"
+
+# The filter-value validation must be what rejects a bad filter, not only a later step: each
+# case fails with that check's message. (Without the check the gate still fails closed, so the
+# exit status alone can't show the check exists.)
+# gate_says <name> <message> <needs json> <results>
+gate_says() {
+  local name="$1" msg="$2" json="$3" results="$4" out got=0
+  out="$(NEEDS="$json" RESULTS="$results" "$here/ci-gate.sh" 2>&1)" || got=$?
+  if [ "$got" -eq 1 ] && grep -qF "$msg" <<< "$out"; then report ok "gate says: $name"; else report FAIL "gate says: $name (exit $got)"; fi
+}
+bad_filter="every filter output must be the string true or false"
+gate_says "filter is boolean false"   "$bad_filter" "$(mutated '.changes.outputs.backend = false')" "$four"
+gate_says "filter is False"           "$bad_filter" "$(mutated '.changes.outputs.frontend = "False"')" "$four"
+gate_says "filter is missing"         "$bad_filter" "$(mutated 'del(.changes.outputs.backend)')" "$four"
+gate_says "filter is an array"        "$bad_filter" "$(mutated '.changes.outputs.frontend = ["false"]')" "$four"
 gate "result count mismatch"                  1 "$docs" "success success"
 gate "three results for four jobs"            1 "$docs" "success success skipped"
 
