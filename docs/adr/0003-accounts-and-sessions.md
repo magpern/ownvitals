@@ -1,8 +1,8 @@
 # ADR 0003: Accounts, sessions, mandatory TOTP and step-up
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 (see "Amendments"). Its two open
-questions were decided by the Architect on 2026-10-31 (§3 session lifetimes, §4 step-up
-readings).
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 and #72 (see "Amendments"). Its
+two open questions were decided by the Architect on 2026-10-31 (§3 session lifetimes, §4
+step-up readings).
 
 ## Context
 
@@ -174,19 +174,20 @@ else changes.
   caveats and their accepted risks are not ported.
 - **Web's outbound connections** are exactly those of
   [roadmap Amendment 1](../roadmap.md): Google's OIDC hosts for sign-in (#6), the configured SMTP
-  server for the account mails, which run in the request as in classbeat, and, from M1, the one
-  Withings authorization-code exchange (ADR 0004 §7). Nothing else; #6 and #22 test both
-  processes' lists.
-- **SMTP never from the worker** (Architect decision, amended 2026-10-31, #49). Mail goes out
-  through one mail module, from web and from the operator CLI (for example the notices of the
-  KEK or seed wipe, which makes no Withings call, from its one-off container; ADR 0004 §3),
-  never from the worker, which never opens SMTP. **Mail that originates in the worker** (the
-  finding notifications of threat model T59 and O8; owner notices such as PLAN §4.3's) is
-  written to a **mail outbox**: owned rows under forced RLS, or a system row for an owner
-  notice. Web sends it with a background task in the web process, through the same
-  guard-listed mail module. The notifications issue (M6/M7) builds the outbox. PLAN §4.3's
-  "notify the owner" goes to the owner (the admin): in-app, plus mail through the outbox
-  (ADR 0004 §6).
+  server, for the account mails, which run in the request as in classbeat, and for the outbox
+  mail that a background task in the web process sends (ADR 0007; amended 2026-10-31, #72),
+  and, from M1, the one Withings authorization-code exchange (ADR 0004 §7). Nothing else; #6
+  and #22 test both processes' lists.
+- **SMTP never from the worker** (Architect decision, amended 2026-10-31, #49 and #72). Mail
+  goes out through one mail module, from web and from the operator CLI (for example the notices
+  of the KEK or seed wipe, which makes no Withings call, from its one-off container; ADR 0004
+  §3), never from the worker, which never opens SMTP. **Mail that originates in the worker**
+  (the finding notifications of threat model T59 and O8; owner notices such as PLAN §4.3's)
+  goes through the **mail outbox of [ADR 0007](0007-mail-outbox-and-owner-notices.md)**: its
+  rows name a fixed kind and a recipient, never an address or free text, and web sends them
+  through the same guard-listed mail module and SMTP server. The notifications issue (M6/M7)
+  builds the outbox; until then, in M1, PLAN §4.3's owner notice is in-app only (ADR 0007, ADR
+  0004 §6).
 - **Sign-up modes:** `invite` (default) and `closed`. **`open` is refused until the M8 gate**:
   the setting's validation rejects it, and the stored flag can only tighten what the environment
   allows (stricter wins, #12).
@@ -262,3 +263,11 @@ accepted risk.
   operator CLI's one-off containers; mail that originates in the worker goes through an outbox
   that web sends, and PLAN §4.3's owner notice is in-app plus mail (Architect decisions). The
   earlier text called the mail module a web-only path.
+
+### 2026-10-31 (#72): follow-ups of the #58 review
+
+- §6: the outbox is ADR 0007's: a row names a fixed kind and a recipient, never an address or
+  free text, and web's background task sends it through the same mail module and SMTP server,
+  which web's outbound connections now name. In M1, PLAN §4.3's owner notice is in-app only;
+  mail through the outbox starts with the notifications issue (M6/M7). The earlier text had the
+  M1 notice mailed through the outbox (Architect decisions).
