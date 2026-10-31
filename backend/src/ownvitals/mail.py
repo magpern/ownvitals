@@ -26,18 +26,22 @@ never the recipient, the subject, the body or the exception text (an SMTP server
 address back).
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import smtplib
-import socket
-import ssl
 import time
 from dataclasses import dataclass
 from email.message import EmailMessage
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from ownvitals.config import Settings
 from ownvitals.egress import check_total_seconds, refuse_in_worker, tls_client_context
+
+if TYPE_CHECKING:  # annotations only: the guard lets mail import smtplib alone at run time
+    import socket
+    import ssl
 
 logger = logging.getLogger(__name__)
 

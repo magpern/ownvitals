@@ -18,14 +18,15 @@ each one's list is chosen here.
 |---|---|---|
 | ``withings_async_client`` | worker | ``wbsapi.withings.net``, ``account.withings.com`` |
 | ``model_async_client`` | worker, AI enabled | ``api.anthropic.com`` |
-| ``google_signin_transport``, ``google_async_client`` | web | Google's token endpoint and JWKS |
-| ``withings_code_exchange_client`` (``code_exchange``) | web | one ``POST`` (roadmap Amendment 1) |
+| ``google_oauth_client``, ``google_async_client`` | web | Google's token endpoint and JWKS |
+| ``exchange_withings_code`` (``code_exchange``) | web | one ``POST`` (roadmap Amendment 1) |
 """
 
 import asyncio
 import time
+import warnings
 from collections.abc import AsyncIterator, Callable
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, cast
 
 import certifi
 import httpx
@@ -48,6 +49,15 @@ from ownvitals.egress.core import (
     tls_client_context,
     worker_only,
 )
+
+if TYPE_CHECKING:
+    from authlib.integrations.httpx_client import AsyncOAuth2Client
+
+    class GoogleOAuthClient(AsyncOAuth2Client, httpx.AsyncClient):  # pyright: ignore[reportIncompatibleMethodOverride]
+        """What ``google_oauth_client`` returns, as a type checker should see it: Authlib's
+        client on httpx (Authlib's shim hides its httpx base; the helper checks it at run time).
+        """
+
 
 Role = Literal["web", "worker"]
 MODEL_TIMEOUT_SECONDS: Final = 120.0
@@ -215,18 +225,15 @@ def model_async_client(
     return _client(AllowlistTransport(allowlist, network, refused, role="worker"), timeout)
 
 
-def google_signin_transport(
-    *,
-    total_seconds: float = GOOGLE_TOTAL_SECONDS,
-    inner: httpx.AsyncBaseTransport | None = None,
+def _google_signin_transport(
+    total_seconds: float, inner: httpx.AsyncBaseTransport | None
 ) -> AllowlistTransport:
-    """The transport of Google sign-in (web only): Authlib's ``AsyncOAuth2Client`` takes it as
-    ``transport=`` with ``trust_env=False`` (the guard requires both). Its list is Google's token
-    endpoint and JWKS hosts; refused in the worker."""
-    seconds = check_total_seconds(total_seconds)
+    """The transport of Google sign-in (web only): Google's token endpoint and JWKS hosts."""
     refuse_in_worker(GOOGLE_TOKEN_HOST)
     network = inner if inner is not None else _network_transport()
-    return AllowlistTransport(GOOGLE_SIGNIN_ALLOWLIST, network, total_seconds=seconds, role="web")
+    return AllowlistTransport(
+        GOOGLE_SIGNIN_ALLOWLIST, network, total_seconds=total_seconds, role="web"
+    )
 
 
 def google_async_client(
@@ -234,6 +241,51 @@ def google_async_client(
     total_seconds: float = GOOGLE_TOTAL_SECONDS,
     inner: httpx.AsyncBaseTransport | None = None,
 ) -> httpx.AsyncClient:
-    """An ``httpx.AsyncClient`` over ``google_signin_transport`` (the JWKS fetch; web only)."""
+    """Google sign-in's plain client (the JWKS fetch; web only, refused in the worker)."""
     seconds = check_total_seconds(total_seconds)
-    return _client(google_signin_transport(total_seconds=seconds, inner=inner), seconds)
+    return _client(_google_signin_transport(seconds, inner), seconds)
+
+
+def google_oauth_client(
+    *,
+    client_id: str,
+    client_secret: str,
+    scope: str,
+    redirect_uri: str,
+    total_seconds: float = GOOGLE_TOTAL_SECONDS,
+    inner: httpx.AsyncBaseTransport | None = None,
+) -> "GoogleOAuthClient":
+    """Authlib's ``AsyncOAuth2Client`` for Google sign-in (ADR 0003 §5; web only, refused in the
+    worker), as classbeat builds it: PKCE S256, ``client_secret_post``. It runs over Google's
+    sign-in transport (the token endpoint and JWKS hosts, the total deadline) with
+    ``trust_env=False`` and no redirects. Outside this package nothing may import Authlib's
+    integrations (the guard), so this is the only way sign-in reaches Google.
+
+    Authlib is imported here, not at module level, so the worker never loads it. Authlib runs
+    its client on ``httpx2`` when that is installed: then the client would not be an
+    ``httpx.AsyncClient`` and could not take this transport, so it is refused (``TypeError``)."""
+    seconds = check_total_seconds(total_seconds)
+    transport = _google_signin_transport(seconds, inner)
+    with warnings.catch_warnings():
+        # Authlib 1.9 warns, through its own "always" filter, that its client runs on httpx
+        # rather than httpx2: the filter goes in first, so this one can take precedence.
+        from authlib.deprecate import AuthlibDeprecationWarning
+
+        warnings.simplefilter("ignore", AuthlibDeprecationWarning)
+        from authlib.integrations.httpx_client import AsyncOAuth2Client
+
+    if not issubclass(AsyncOAuth2Client, httpx.AsyncClient):
+        raise TypeError("Authlib's OAuth client must run on httpx")
+    client = AsyncOAuth2Client(
+        client_id=client_id,
+        client_secret=client_secret,
+        scope=scope,
+        redirect_uri=redirect_uri,
+        token_endpoint_auth_method="client_secret_post",  # noqa: S106 - a method name
+        code_challenge_method="S256",
+        transport=transport,
+        trust_env=False,
+        timeout=seconds,
+        follow_redirects=False,
+    )
+    return cast("GoogleOAuthClient", client)

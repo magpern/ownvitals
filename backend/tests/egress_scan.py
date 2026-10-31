@@ -1,48 +1,142 @@
-"""Guard of PLAN §2 and roadmap Amendment 1: outbound clients are built only in
-``ownvitals.egress`` (the package and its submodules; nothing outside it).
+"""Guard of PLAN §2 and roadmap Amendment 1: only ``ownvitals.egress`` reaches the network (the
+package and its submodules; nothing outside it), and ``ownvitals.mail`` only through ``smtplib``.
 
-``scan_source(source, module)`` returns what ``module`` (a dotted name under ``ownvitals``) may
-not do outside the egress package:
+It **denies by default**. ``scan_source(source, module)`` returns what ``module`` (a dotted name
+under ``ownvitals``) may not do outside the egress package:
 
-- call anything that builds an HTTP client, an opener or a raw connection, or sends a request on
-  its own: ``urllib.request.urlopen``, ``build_opener``, ``install_opener``, ``OpenerDirector``,
-  the ``urllib`` handlers, ``httpx.Client``, ``AsyncClient``, the transports and the module-level
-  ``httpx.get`` and friends, ``http.client`` connections, ``socket.socket`` and
-  ``create_connection``, ``smtplib``, ``ftplib``, Authlib's httpx clients and the Anthropic and
-  OpenAI SDK clients (those build their own httpx client); subclass a client, transport,
-  handler or connection;
-- import a client library that bypasses the package (``requests``, ``aiohttp``, ``urllib3``,
-  ``httpcore``, ``http.client``, ``pycurl``, ``websockets``, ``ftplib``, ``telnetlib`` ...), also
-  through ``importlib.import_module`` or ``__import__`` with a constant name;
+- **import** a network-capable module, a submodule or a name from one (``NETWORK_MODULES``:
+  ``socket``, ``ssl``, ``http.client``, ``urllib.request``, ``smtplib``, ``httpx``, ``requests``,
+  ``aiohttp``, ``websockets``, ``multiprocessing.connection``, ``authlib.integrations``,
+  ``anthropic``, ``openai``, ``asyncio.streams`` ...), also through ``importlib.import_module`` or
+  ``__import__`` with a constant name, or **use** a name under one, also through a module that
+  imported it (``ownvitals.egress.clients.httpx.AsyncClient``, ``ownvitals.mail.smtplib.SMTP``).
+  ``ALLOWED_IMPORTS`` lists the exceptions, each with its reason: only ``smtplib`` in
+  ``ownvitals.mail``, which may still build no client but ``EXEMPT``'s. Imports inside an
+  ``if TYPE_CHECKING:`` block are allowed: they do not exist at run time;
+- **call** (or import) a connection function of the packages too broad to ban at import
+  (``CONNECTION_FUNCTIONS``: ``asyncio``'s ``open_connection``, ``loop.create_connection``,
+  ``loop.create_datagram_endpoint``, ``loop.sock_connect`` ..., ``anyio``'s ``connect_tcp``,
+  ``connect_unix``, ``create_udp_socket`` ...), on whatever object;
 - build an allowlist, a transport or an opener of the package itself (``Allowlist``,
   ``AllowlistTransport``, ``build_allowlist_opener``, the deadline handlers), hand a client
-  builder an allowlist, or touch any private name of the package (``_network_transport``,
-  ``_worker_list`` ...): every list is chosen inside the package, never widened by a caller.
-
-Two clients from libraries are allowed when they are handed the package's own: the Anthropic
-SDK's ``AsyncAnthropic(http_client=model_async_client(...))`` (or a variable, checked in review),
-and Authlib's ``AsyncOAuth2Client(transport=google_signin_transport(...), trust_env=False)`` with
-no ``proxy``, ``mounts`` or ``**`` argument (those would route around the transport).
+  builder an allowlist, or use a **private name** of ``ownvitals.egress`` or ``ownvitals.mail``
+  (``_network_transport``, ``_worker_list``, ``_DeadlineSMTP`` ...);
+- use ``install_worker_allowlist``, which makes a process the worker: only the worker's entry
+  point and the probe CLI may (``WORKER_ROLE_MODULES``), and tests.
 
 Names are resolved through imports and aliases (``import httpx as h``, ``from urllib import
-request``, ``from httpx import AsyncClient as C``, ``from ownvitals.egress.core import X``). Like
-the other guards this catches accidental use and makes the rest visible in review; it cannot stop
-obfuscated code.
+request``, ``from ownvitals.egress.core import X``, relative imports). Like the other guards this
+catches accidental use and makes the rest visible in review; it cannot stop obfuscated code.
 
-``EXEMPT`` lists the web-only call sites allowed a connection of their own, each with its reason:
-only account mail, whose SMTP host is a setting (roadmap Amendment 1). A worker module never
-imports one (``WORKER_PACKAGES``, ``WORKER_ENTRYPOINTS``, checked by the tests), and each calls
-``refuse_in_worker`` itself (``test_egress_runtime.py``).
+A worker module never imports ``ownvitals.mail`` (``WORKER_PACKAGES``, ``WORKER_ENTRYPOINTS``,
+checked by the tests), and every web-only site calls ``refuse_in_worker`` itself
+(``test_egress_runtime.py``).
 """
 
 import ast
+from collections.abc import Iterable
 from pathlib import Path
 
 EGRESS = "ownvitals.egress"
+MAIL = "ownvitals.mail"
+# Modules whose private names no other module may use.
+SEALED = (EGRESS, MAIL)
 _EGRESS_DIR = Path(__file__).resolve().parent.parent / "src" / "ownvitals" / "egress"
 # The package's submodules: ``ownvitals.egress.core.Allowlist`` is ``ownvitals.egress.Allowlist``.
 EGRESS_SUBMODULES = frozenset(p.stem for p in _EGRESS_DIR.glob("*.py") if p.stem != "__init__")
-# Packages that run in the worker: they may never import an exempt module.
+
+# Network-capable modules: outside the egress package nothing imports or uses one.
+NETWORK_MODULES = frozenset(
+    {
+        "socket",
+        "ssl",
+        "http.client",
+        "urllib.request",
+        "smtplib",
+        "httpx",
+        "httpx2",
+        "httpcore",
+        "requests",
+        "aiohttp",
+        "urllib3",
+        "pycurl",
+        "websocket",
+        "websockets",
+        "multiprocessing.connection",
+        "multiprocessing.managers",
+        "authlib.integrations",
+        "anthropic",
+        "openai",
+        "asyncio.streams",
+        "ftplib",
+        "telnetlib",
+        "imaplib",
+        "poplib",
+        "nntplib",
+        "smtpd",
+        "xmlrpc.client",
+    }
+)
+# module -> network modules it may import and use, with the reason.
+ALLOWED_IMPORTS: dict[str, dict[str, str]] = {
+    MAIL: {"smtplib": "web only: account mail; the SMTP host is a setting (Amendment 1)"},
+}
+# module -> the clients it may build from those (a call or a subclass), with the reason.
+EXEMPT: dict[str, dict[str, str]] = {
+    MAIL: {
+        "smtplib.SMTP": "web only: account mail, with its total deadline",
+        "smtplib.SMTP_SSL": "web only: account mail over implicit TLS",
+    },
+}
+# The client classes of the allowed modules: a module allowed the module builds only EXEMPT's.
+_CLIENT_CLASSES = frozenset({"smtplib.SMTP", "smtplib.SMTP_SSL", "smtplib.LMTP"})
+# Connection functions of asyncio and anyio (too broad to ban at import): refused as a call on
+# any object, as an import and as a name under either package.
+CONNECTION_FUNCTIONS = frozenset(
+    {
+        "open_connection",
+        "open_unix_connection",
+        "create_connection",
+        "create_unix_connection",
+        "create_datagram_endpoint",
+        "sock_connect",
+        "connect_tcp",
+        "connect_unix",
+        "create_udp_socket",
+        "create_connected_udp_socket",
+        "create_unix_datagram_socket",
+        "create_connected_unix_datagram_socket",
+    }
+)
+# The lists and what applies them are built inside the package only (a call or a subclass).
+_EGRESS_CONSTRUCTORS = frozenset(
+    {
+        f"{EGRESS}.Allowlist",
+        f"{EGRESS}.AllowlistTransport",
+        f"{EGRESS}.build_allowlist_opener",
+        f"{EGRESS}.DeadlineHTTPSHandler",
+        f"{EGRESS}.DeadlineHTTPSConnection",
+    }
+)
+# The package's entry points: called only without an allowlist (each list is its own).
+_NO_ALLOWLIST_ARGUMENT = frozenset(
+    {
+        f"{EGRESS}.withings_async_client",
+        f"{EGRESS}.model_async_client",
+        f"{EGRESS}.google_async_client",
+        f"{EGRESS}.google_oauth_client",
+        f"{EGRESS}.exchange_withings_code",
+    }
+)
+INSTALL_WORKER = f"{EGRESS}.install_worker_allowlist"
+# The modules that may make their process the worker. Neither exists yet: the names are the ones
+# their issues give.
+WORKER_ROLE_MODULES: dict[str, str] = {
+    "ownvitals.worker.__main__": "the worker process's entry point (#9, not written yet)",
+    "ownvitals.withings.probe": "the probe CLI, a worker-side one-off (#29, not written yet)",
+}
+
+# Packages that run in the worker: they may never import the web-only mail module.
 WORKER_PACKAGES = (
     "ownvitals.worker",
     "ownvitals.jobs",
@@ -57,7 +151,7 @@ WORKER_PACKAGES = (
 )
 # What the worker process imports at start. Add each new worker entry point here (the worker
 # loop, the job runner, the Withings client ...); the reachability test imports them all in a
-# fresh interpreter and fails if an exempt module, or a client library they use, is loaded.
+# fresh interpreter and fails if mail, or a client library they use, is loaded.
 WORKER_ENTRYPOINTS = (
     "ownvitals.egress",
     "ownvitals.config",
@@ -65,168 +159,47 @@ WORKER_ENTRYPOINTS = (
     "ownvitals.db",
     "ownvitals.jobs",
 )
-
-_CALLS = frozenset(
-    {
-        "urllib.request.urlopen",
-        "urllib.request.build_opener",
-        "urllib.request.install_opener",
-        "urllib.request.OpenerDirector",
-        "urllib.request.HTTPHandler",
-        "urllib.request.HTTPSHandler",
-        "urllib.request.ProxyHandler",
-        "urllib.request.FTPHandler",
-        "urllib.request.FileHandler",
-        "urllib.request.DataHandler",
-        "urllib.request.URLopener",
-        "urllib.request.FancyURLopener",
-        "urllib.request.urlretrieve",
-        "httpx.Client",
-        "httpx.AsyncClient",
-        "httpx.HTTPTransport",
-        "httpx.AsyncHTTPTransport",
-        "httpx.request",
-        "httpx.stream",
-        "httpx.get",
-        "httpx.post",
-        "httpx.put",
-        "httpx.patch",
-        "httpx.delete",
-        "httpx.head",
-        "httpx.options",
-        "http.client.HTTPConnection",
-        "http.client.HTTPSConnection",
-        "socket.socket",
-        "socket.create_connection",
-        "socket.socketpair",
-        "socket.fromfd",
-        "smtplib.SMTP",
-        "smtplib.SMTP_SSL",
-        "smtplib.LMTP",
-        "ftplib.FTP",
-        "ftplib.FTP_TLS",
-        "asyncio.open_connection",
-        "asyncio.open_unix_connection",
-        "authlib.integrations.httpx_client.AsyncOAuth2Client",
-        "authlib.integrations.httpx_client.OAuth2Client",
-        "authlib.integrations.httpx_client.AsyncOAuth1Client",
-        "authlib.integrations.httpx_client.OAuth1Client",
-        "anthropic.Anthropic",
-        "anthropic.AsyncAnthropic",
-        "anthropic.AnthropicBedrock",
-        "anthropic.AsyncAnthropicBedrock",
-        "anthropic.AnthropicVertex",
-        "anthropic.AsyncAnthropicVertex",
-        "anthropic.DefaultHttpxClient",
-        "anthropic.DefaultAsyncHttpxClient",
-        "openai.OpenAI",
-        "openai.AsyncOpenAI",
-        "ssl.get_server_certificate",
-        "xmlrpc.client.ServerProxy",
-        # The lists and what applies them are built inside the package only.
-        f"{EGRESS}.Allowlist",
-        f"{EGRESS}.AllowlistTransport",
-        f"{EGRESS}.build_allowlist_opener",
-        f"{EGRESS}.DeadlineHTTPSHandler",
-        f"{EGRESS}.DeadlineHTTPSConnection",
-    }
-)
-# The package's client builders: allowed only without an allowlist (each list is its own).
-_NO_ALLOWLIST_ARGUMENT = frozenset(
-    {
-        f"{EGRESS}.withings_async_client",
-        f"{EGRESS}.model_async_client",
-        f"{EGRESS}.google_signin_transport",
-        f"{EGRESS}.google_async_client",
-        f"{EGRESS}.withings_code_exchange_client",
-    }
+# What the worker must not load (the egress package itself runs on ssl, socket, http.client,
+# urllib.request, httpx and httpcore).
+_REACHABILITY_WATCHED = (
+    MAIL,
+    "authlib",
+    "smtplib",
+    "requests",
+    "aiohttp",
+    "urllib3",
+    "pycurl",
+    "websocket",
+    "websockets",
+    "httpx2",
+    "openai",
+    "ftplib",
+    "telnetlib",
+    "imaplib",
+    "poplib",
+    "nntplib",
+    "smtpd",
+    "xmlrpc.client",
 )
 
-# Any call by these attribute names, whatever the object (an event loop, a socket): raw
-# connections around the package.
-_CALL_ATTRIBUTES = frozenset(
-    {
-        "create_connection",
-        "create_unix_connection",
-        "create_datagram_endpoint",
-        "sock_connect",
-        "open_connection",
-        "open_unix_connection",
-    }
-)
-# Subclassing these builds a client or transport outside the allowlist.
-_BASES = frozenset(
-    {
-        "httpx.Client",
-        "httpx.AsyncClient",
-        "httpx.HTTPTransport",
-        "httpx.AsyncHTTPTransport",
-        "httpx.BaseTransport",
-        "httpx.AsyncBaseTransport",
-        "urllib.request.BaseHandler",
-        "urllib.request.OpenerDirector",
-        "urllib.request.HTTPSHandler",
-        "urllib.request.HTTPHandler",
-        "http.client.HTTPConnection",
-        "http.client.HTTPSConnection",
-        "socket.socket",
-        "smtplib.SMTP",
-        "smtplib.SMTP_SSL",
-        "smtplib.LMTP",
-        "authlib.integrations.httpx_client.AsyncOAuth2Client",
-        f"{EGRESS}.Allowlist",
-        f"{EGRESS}.AllowlistTransport",
-    }
-)
-MODEL_CLIENT = f"{EGRESS}.model_async_client"
-GOOGLE_TRANSPORT = f"{EGRESS}.google_signin_transport"
-_MODEL_SDK_CLIENT = "anthropic.AsyncAnthropic"
-_OAUTH_CLIENT = "authlib.integrations.httpx_client.AsyncOAuth2Client"
-# Arguments that would let Authlib's client route around its transport (``None`` is ``**``).
-_ROUTING_KEYWORDS = frozenset({None, "proxy", "proxies", "mounts", "app"})
-_MODULES = frozenset(
-    {
-        "requests",
-        "aiohttp",
-        "urllib3",
-        "httpcore",
-        "http.client",
-        "pycurl",
-        "websocket",
-        "websockets",
-        "ftplib",
-        "telnetlib",
-        "httpx2",
-        "xmlrpc.client",
-        "imaplib",
-        "poplib",
-        "nntplib",
-        "smtpd",
-    }
-)
 
-# module -> clients it may build (by a call or a subclass), with the reason.
-EXEMPT: dict[str, dict[str, str]] = {
-    "ownvitals.mail": {
-        "smtplib.SMTP": "web only: account mail; the SMTP host is a setting (Amendment 1)",
-        "smtplib.SMTP_SSL": "web only: account mail",
-    },
-}
+def _under(name: str, prefixes: Iterable[str]) -> bool:
+    return any(name == p or name.startswith(p + ".") for p in prefixes)
 
 
 def in_egress(module: str) -> bool:
-    return module == EGRESS or module.startswith(EGRESS + ".")
+    return _under(module, (EGRESS,))
 
 
-def _blocked_module(name: str) -> bool:
-    return any(name == m or name.startswith(m + ".") for m in _MODULES)
-
-
-def _private_egress_name(name: str) -> bool:
-    if not in_egress(name):
-        return False
-    parts = name[len(EGRESS) + 1 :].split(".") if name != EGRESS else []
-    return any(p.startswith("_") and not (p.startswith("__") and p.endswith("__")) for p in parts)
+def _private_sealed(name: str, module: str) -> bool:
+    for sealed in SEALED:
+        if _under(name, (sealed,)) and not _under(module, (sealed,)):
+            parts = name[len(sealed) + 1 :].split(".") if name != sealed else []
+            if any(
+                p.startswith("_") and not (p.startswith("__") and p.endswith("__")) for p in parts
+            ):
+                return True
+    return False
 
 
 def _resolve_from(node: ast.ImportFrom, module: str) -> str:
@@ -236,10 +209,37 @@ def _resolve_from(node: ast.ImportFrom, module: str) -> str:
     return ".".join([*base, node.module] if node.module else base)
 
 
-def _aliases(tree: ast.AST, module: str) -> dict[str, str]:
-    """Local name -> the dotted name it stands for, from every import in the file."""
+def _type_only(tree: ast.AST, aliases: dict[str, str]) -> set[int]:
+    """``id``s of the import nodes inside ``if TYPE_CHECKING:`` (``typing``'s, by any alias);
+    the ``else`` branch runs and is not one."""
+    nodes: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and _dotted(node.test, aliases) == "typing.TYPE_CHECKING":
+            for statement in node.body:
+                for inner in ast.walk(statement):
+                    if isinstance(inner, ast.Import | ast.ImportFrom):
+                        nodes.add(id(inner))
+    return nodes
+
+
+def _annotations(tree: ast.AST) -> set[int]:
+    """``id``s of every node inside an annotation: the only place a name imported for type
+    checking may appear (anywhere else it would run, and could only work if rebound)."""
+    roots: list[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.returns:
+            roots.append(node.returns)
+        elif isinstance(node, ast.arg | ast.AnnAssign) and node.annotation:
+            roots.append(node.annotation)
+    return {id(inner) for root in roots for inner in ast.walk(root)}
+
+
+def _aliases(tree: ast.AST, module: str, skip: set[int] | None = None) -> dict[str, str]:
+    """Local name -> the dotted name it stands for, from every import in the file but ``skip``."""
     names: dict[str, str] = {}
     for node in ast.walk(tree):
+        if skip and id(node) in skip:
+            continue
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.asname:
@@ -267,14 +267,16 @@ def _dotted(node: ast.expr, aliases: dict[str, str]) -> str | None:
     return ".".join([head, *reversed(parts)])
 
 
-_AUTHLIB = "authlib.integrations.httpx_client."
-
-
 def _canonical(name: str) -> str:
-    # ``from urllib import request`` gives ``urllib.request.urlopen`` already; ``import
-    # urllib.request`` binds ``urllib``, so ``urllib.request.urlopen`` too. Authlib re-exports,
-    # and so does ``ownvitals.egress`` for its submodules.
-    name = name.replace("authlib.integrations.httpx_client.oauth2_client.", _AUTHLIB)
+    """One spelling per name: a network module reached through an ``ownvitals`` module that
+    imported it (``ownvitals.mail.smtplib.SMTP`` is ``smtplib.SMTP``), and the egress package's
+    re-exports of its submodules."""
+    parts = name.split(".")
+    if parts[0] == "ownvitals":
+        for i in range(1, len(parts)):
+            suffix = ".".join(parts[i:])
+            if _under(suffix, NETWORK_MODULES):
+                return suffix
     prefix = EGRESS + "."
     if name.startswith(prefix):
         head, _, rest = name[len(prefix) :].partition(".")
@@ -283,9 +285,11 @@ def _canonical(name: str) -> str:
     return name
 
 
-def _imports(tree: ast.AST, module: str) -> list[tuple[int, str]]:
+def _imports(tree: ast.AST, module: str, skip: set[int]) -> list[tuple[int, str]]:
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
+        if id(node) in skip:
+            continue
         if isinstance(node, ast.Import):
             found += [(node.lineno, a.name) for a in node.names]
         elif isinstance(node, ast.ImportFrom):
@@ -302,93 +306,73 @@ def _imports(tree: ast.AST, module: str) -> list[tuple[int, str]]:
     return found
 
 
+def _problems(name: str, module: str, verb: str) -> list[str]:
+    """What is wrong with ``module`` importing or using ``name`` (canonical)."""
+    found: list[str] = []
+    if _under(name, NETWORK_MODULES) and not _under(name, ALLOWED_IMPORTS.get(module, {})):
+        found.append(f"{verb} {name}: network modules are used only in {EGRESS}")
+    elif name in _CLIENT_CLASSES and name not in EXEMPT.get(module, {}):
+        found.append(f"{verb} {name}: outbound clients live in {EGRESS}")
+    if name.rsplit(".", 1)[-1] in CONNECTION_FUNCTIONS and (
+        verb == "imports" or _under(name, ("asyncio", "anyio"))
+    ):
+        found.append(f"{verb} {name}: raw connections live in {EGRESS}")
+    if _private_sealed(name, module):
+        found.append(f"{verb} {name}: private to its module")
+    if name == INSTALL_WORKER and module not in WORKER_ROLE_MODULES:
+        found.append(f"{verb} {name}: only the worker's entry point makes a process the worker")
+    return found
+
+
 def scan_source(source: str, module: str) -> list[tuple[int, str]]:
-    """``(line, why)`` for every outbound client ``module`` builds outside the allowlist."""
+    """``(line, why)`` for everything ``module`` does outside the outbound allowlist."""
     if in_egress(module):
         return []
     tree = ast.parse(source)
-    aliases = _aliases(tree, module)
-    exempt = EXEMPT.get(module, {})
+    every = _aliases(tree, module)
+    skip = _type_only(tree, every)
+    # In an annotation a name means what the run-time imports bind; anywhere else a name bound
+    # only for type checking still counts (it could only run if rebound).
+    typed = _annotations(tree)
+    runtime = _aliases(tree, module, skip)
+    aliases = every | runtime
     found: list[tuple[int, str]] = []
-    for line, name in _imports(tree, module):
-        if _blocked_module(name):
-            found.append((line, f"imports {name}: outbound clients live in {EGRESS}"))
-        if _private_egress_name(name):
-            found.append((line, f"imports {name}: private to {EGRESS}"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
+            source_module = _resolve_from(node, module)
+            found.append((node.lineno, f"imports {source_module}.*: names must be visible"))
+    for line, raw in _imports(tree, module, skip):
+        found += [(line, why) for why in _problems(_canonical(raw), module, "imports")]
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute | ast.Name):
-            name = _dotted(node, aliases)
-            if name is not None and _private_egress_name(name):
-                found.append((node.lineno, f"uses {name}: private to {EGRESS}"))
-            continue
-        if isinstance(node, ast.ClassDef):
+            name = _dotted(node, runtime if id(node) in typed else aliases)
+            if name is not None:
+                found += [(node.lineno, w) for w in _problems(_canonical(name), module, "uses")]
+        elif isinstance(node, ast.ClassDef):
             for base in node.bases:
                 name = _dotted(base, aliases)
-                if name is None:
-                    continue
-                name = _canonical(name)
-                if name in _BASES and name not in exempt:
-                    found.append((node.lineno, f"subclasses {name}: clients live in {EGRESS}"))
-            continue
-        if not isinstance(node, ast.Call):
-            continue
-        found += _scan_call(node, aliases, exempt)
+                if name is not None and _canonical(name) in _EGRESS_CONSTRUCTORS:
+                    found.append((node.lineno, f"subclasses {name}: lists live in {EGRESS}"))
+        elif isinstance(node, ast.Call):
+            found += _scan_call(node, aliases)
     return sorted(set(found))
 
 
-def _scan_call(
-    node: ast.Call, aliases: dict[str, str], exempt: dict[str, str]
-) -> list[tuple[int, str]]:
+def _scan_call(node: ast.Call, aliases: dict[str, str]) -> list[tuple[int, str]]:
     func = node.func
-    if isinstance(func, ast.Attribute) and func.attr in _CALL_ATTRIBUTES:
-        return [(node.lineno, f"calls .{func.attr}: raw connections live in {EGRESS}")]
+    called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+    if called in CONNECTION_FUNCTIONS:
+        return [(node.lineno, f"calls {called}: raw connections live in {EGRESS}")]
     name = _dotted(func, aliases)
     if name is None:
         return []
     name = _canonical(name)
-    if name in _NO_ALLOWLIST_ARGUMENT:
-        if node.args or any(k.arg in (None, "allowlist") for k in node.keywords):
-            return [(node.lineno, f"hands {name} an allowlist: lists live in {EGRESS}")]
-        return []
-    if name not in _CALLS or name in exempt:
-        return []
-    if name == _MODEL_SDK_CLIENT and _hands_the_model_client(node, aliases):
-        return []
-    if name == _OAUTH_CLIENT and _hands_the_google_transport(node, aliases):
-        return []
-    return [(node.lineno, f"calls {name}: outbound clients live in {EGRESS}")]
-
-
-def _is_call_of(value: ast.expr, target: str, aliases: dict[str, str]) -> bool:
-    if not isinstance(value, ast.Call):
-        return False
-    name = _dotted(value.func, aliases)
-    return name is not None and _canonical(name) == target
-
-
-def _hands_the_model_client(call: ast.Call, aliases: dict[str, str]) -> bool:
-    """``http_client=`` is a variable (built by ``model_async_client``, checked in review) or a
-    direct call of it; ``None``, another constant or any other expression is refused."""
-    for keyword in call.keywords:
-        if keyword.arg == "http_client":
-            value = keyword.value
-            return isinstance(value, ast.Name) or _is_call_of(value, MODEL_CLIENT, aliases)
-    return False
-
-
-def _hands_the_google_transport(call: ast.Call, aliases: dict[str, str]) -> bool:
-    """``transport=google_signin_transport(...)`` (a direct call), ``trust_env=False``, and no
-    argument that routes around the transport."""
-    if any(k.arg in _ROUTING_KEYWORDS for k in call.keywords):
-        return False
-    given = {k.arg: k.value for k in call.keywords}
-    transport, trust_env = given.get("transport"), given.get("trust_env")
-    return (
-        transport is not None
-        and _is_call_of(transport, GOOGLE_TRANSPORT, aliases)
-        and isinstance(trust_env, ast.Constant)
-        and trust_env.value is False
-    )
+    widened = node.args or any(k.arg in (None, "allowlist") for k in node.keywords)
+    if name in _NO_ALLOWLIST_ARGUMENT and widened:
+        return [(node.lineno, f"hands {name} an allowlist: lists live in {EGRESS}")]
+    if name in _EGRESS_CONSTRUCTORS:
+        return [(node.lineno, f"calls {name}: lists live in {EGRESS}")]
+    return []
 
 
 def module_name(path: Path, src: Path) -> str:
@@ -415,11 +399,12 @@ def scan_tree(src: Path) -> list[tuple[str, int, str]]:
     ]
 
 
-def exempt_calls_used(source: str, module: str) -> set[str]:
-    """The exempt clients ``module`` still builds, by a call or a subclass (so a stale exemption
-    is noticed)."""
+def exempt_uses(source: str, module: str) -> tuple[set[str], set[str]]:
+    """The exempt clients ``module`` still builds (a call or a subclass) and the allowed modules
+    it still imports, so a stale exemption is noticed."""
     tree = ast.parse(source)
-    aliases = _aliases(tree, module)
+    skip = _type_only(tree, _aliases(tree, module))
+    aliases = _aliases(tree, module, skip)
     used: set[str] = set()
     for node in ast.walk(tree):
         exprs: list[ast.expr] = []
@@ -431,12 +416,18 @@ def exempt_calls_used(source: str, module: str) -> set[str]:
             name = _dotted(expr, aliases)
             if name is not None:
                 used.add(_canonical(name))
-    return used & set(EXEMPT.get(module, {}))
+    imported = {raw for _, raw in _imports(tree, module, skip)}
+    allowed = {m for m in ALLOWED_IMPORTS.get(module, {}) if _under_any(imported, m)}
+    return used & set(EXEMPT.get(module, {})), allowed
 
 
-def loaded_exempt_modules(entry_modules: tuple[str, ...]) -> list[str]:
-    """Import ``entry_modules`` in a fresh interpreter; the exempt modules (and their client
-    libraries) that end up in ``sys.modules``.
+def _under_any(names: set[str], prefix: str) -> bool:
+    return any(_under(n, (prefix,)) for n in names)
+
+
+def loaded_watched_modules(entry_modules: tuple[str, ...]) -> list[str]:
+    """Import ``entry_modules`` in a fresh interpreter; the web-only and client-library modules
+    (``_REACHABILITY_WATCHED``) that end up in ``sys.modules``.
 
     This sees import-time loads only. A deferred import inside a function is not seen: only the
     runtime refusal covers it (``test_egress_runtime.py``). Any new web-only outbound call site
@@ -455,12 +446,11 @@ def loaded_exempt_modules(entry_modules: tuple[str, ...]) -> list[str]:
         [sys.executable, "-c", probe], capture_output=True, text=True, timeout=60, check=True
     )
     loaded = set(json.loads(result.stdout.splitlines()[-1]))
-    # ``http.client`` and ``httpcore`` are what the allowlisted urllib and httpx paths run on.
-    libraries = sorted(_MODULES - {"http.client", "httpcore"})
-    watched = (*EXEMPT, "authlib", "smtplib", *libraries)
-    return sorted(m for m in loaded if any(m == w or m.startswith(w + ".") for w in watched))
+    return sorted(m for m in loaded if _under(m, _REACHABILITY_WATCHED))
 
 
 def imported_modules(source: str, module: str) -> set[str]:
-    """Every dotted name ``module`` imports (and each ``from`` source)."""
-    return {name for _, name in _imports(ast.parse(source), module)}
+    """Every dotted name ``module`` imports at run time (and each ``from`` source)."""
+    tree = ast.parse(source)
+    skip = _type_only(tree, _aliases(tree, module))
+    return {name for _, name in _imports(tree, module, skip)}

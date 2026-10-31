@@ -9,11 +9,12 @@ test reaches Withings over the network: ``netguard`` stops the real network tran
 import contextlib
 import inspect
 import io
+import sys
 import urllib.request
 import urllib.response
 from collections.abc import Awaitable, Callable
 from email.message import Message
-from typing import Any, ClassVar, get_type_hints
+from typing import Any, ClassVar
 
 import httpx
 import pytest
@@ -24,24 +25,29 @@ from ownvitals.config import Settings
 from ownvitals.egress import (
     OutboundBlocked,
     core,
+    exchange_withings_code,
     google_async_client,
-    google_signin_transport,
+    google_oauth_client,
     install_worker_allowlist,
     model_async_client,
     withings_async_client,
-    withings_code_exchange_client,
 )
 from ownvitals.mail import Mailer, MailMessage
 from smtpfake import SmtpFake
 
 API = "https://wbsapi.withings.net"
-EXCHANGE = {
-    "action": "requesttoken",
-    "grant_type": "authorization_code",
+VALUES: dict[str, Any] = {
     "client_id": "synthetic-client",
     "client_secret": "synthetic-secret",
     "code": "synthetic-code",
     "redirect_uri": "https://ownvitals.example/api/oauth/withings/callback",
+}
+EXCHANGE = {"action": "requesttoken", "grant_type": "authorization_code", **VALUES}
+GOOGLE_VALUES: dict[str, Any] = {
+    "client_id": "synthetic-client",
+    "client_secret": "synthetic-secret",
+    "scope": "openid email",
+    "redirect_uri": "https://ownvitals.example/api/oauth/google/callback",
 }
 MESSAGE = MailMessage(to="someone@example.com", subject="s", body="b")
 
@@ -67,9 +73,9 @@ def test_the_worker_flag_is_set_only_by_installing_the_allowlist() -> None:
 
 
 WEB_ONLY: list[tuple[Callable[..., Any], str]] = [
-    (google_signin_transport, "oauth2.googleapis.com"),
     (google_async_client, "oauth2.googleapis.com"),
-    (withings_code_exchange_client, "wbsapi.withings.net"),
+    (lambda: google_oauth_client(**GOOGLE_VALUES), "oauth2.googleapis.com"),
+    (lambda: exchange_withings_code(**VALUES), "wbsapi.withings.net"),
 ]
 WORKER_ONLY: list[tuple[Callable[..., Any], str]] = [
     (withings_async_client, "wbsapi.withings.net"),
@@ -78,10 +84,18 @@ WORKER_ONLY: list[tuple[Callable[..., Any], str]] = [
 
 
 @pytest.mark.parametrize(("builder", "host"), WEB_ONLY)
-def test_a_web_only_client_is_refused_in_the_worker(builder: Callable[..., Any], host: str) -> None:
+async def test_a_web_only_entry_point_is_refused_in_the_worker(
+    builder: Callable[..., Any], host: str
+) -> None:
     install_worker_allowlist(ai_enabled=True)
+
+    async def call() -> None:
+        result = builder()
+        if inspect.isawaitable(result):
+            await result
+
     with pytest.raises(OutboundBlocked) as raised:
-        builder()
+        await call()
     assert raised.value.host == host
 
 
@@ -109,6 +123,61 @@ class Recorder:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.seen.append(str(request.url))
         return httpx.Response(200, json={"status": 0})
+
+
+# --- Google sign-in through the package's OAuth helper (ADR 0003 §5, #10) -------------------
+
+
+async def test_the_google_oauth_client_is_authlibs_over_the_signin_transport() -> None:
+    def answer(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        token = {"access_token": "synthetic", "token_type": "Bearer", "expires_in": 3600}
+        return httpx.Response(200, json=token)
+
+    seen: list[httpx.Request] = []
+    async with google_oauth_client(**GOOGLE_VALUES, inner=httpx.MockTransport(answer)) as client:
+        assert type(client).__name__ == "AsyncOAuth2Client"
+        assert (client.trust_env, client.follow_redirects) == (False, False)
+        assert client._mounts == {}  # pyright: ignore[reportPrivateUsage]
+        assert client.timeout == httpx.Timeout(egress.GOOGLE_TOTAL_SECONDS)
+        assert client.code_challenge_method == "S256"
+        assert client.token_endpoint_auth_method == "client_secret_post"
+        transport = client._transport  # pyright: ignore[reportPrivateUsage]
+        assert isinstance(transport, egress.AllowlistTransport)
+        assert getattr(transport, "_allowlist") is egress.GOOGLE_SIGNIN_ALLOWLIST  # noqa: B009
+        assert getattr(transport, "_role") == "web"  # noqa: B009
+        assert getattr(transport, "_total_seconds") == egress.GOOGLE_TOTAL_SECONDS  # noqa: B009
+        token = await client.fetch_token(
+            "https://oauth2.googleapis.com/token", code="synthetic-code", code_verifier="v" * 43
+        )
+        assert token["access_token"] == "synthetic"
+        with pytest.raises(OutboundBlocked):
+            await client.fetch_token("https://evil.example/token", code="synthetic-code")
+    assert [r.url.host for r in seen] == ["oauth2.googleapis.com"]
+
+
+async def test_the_google_oauth_client_refuses_a_redirect_to_another_host() -> None:
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": "https://evil.example/token"})
+
+    async with google_oauth_client(**GOOGLE_VALUES, inner=httpx.MockTransport(answer)) as client:
+        with pytest.raises(OutboundBlocked):
+            await client.fetch_token("https://oauth2.googleapis.com/token", code="synthetic-code")
+
+
+def test_the_google_oauth_client_must_run_on_httpx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Authlib runs on httpx2 when that is installed: then its client could not take the
+    package's transport, and the helper refuses to build it."""
+    google_oauth_client(**GOOGLE_VALUES)  # imports Authlib's httpx integration
+    authlib_httpx = sys.modules["authlib.integrations.httpx_client"]
+
+    class OnAnotherLibrary:
+        def __init__(self, **_: Any) -> None:
+            raise AssertionError("never built")
+
+    monkeypatch.setattr(authlib_httpx, "AsyncOAuth2Client", OnAnotherLibrary)
+    with pytest.raises(TypeError, match="must run on httpx"):
+        google_oauth_client(**GOOGLE_VALUES)
 
 
 async def test_each_request_checks_the_role_again() -> None:
@@ -184,10 +253,13 @@ HTTPX_ENTRY_POINTS: dict[str, Callable[[httpx.AsyncBaseTransport], httpx.AsyncCl
     "withings_async_client": lambda inner: withings_async_client(inner=inner),
     "model_async_client": lambda inner: model_async_client(inner=inner),
     "google_async_client": lambda inner: google_async_client(inner=inner),
-    "google_signin_transport": lambda inner: httpx.AsyncClient(
-        transport=google_signin_transport(inner=inner), trust_env=False
-    ),
-    "withings_code_exchange_client": lambda inner: withings_code_exchange_client(inner=inner),
+    "google_oauth_client": lambda inner: google_oauth_client(**GOOGLE_VALUES, inner=inner),
+}
+# Authlib's client sends no request without a token unless told to withhold it.
+REQUEST_OPTIONS: dict[str, dict[str, Any]] = {"google_oauth_client": {"withhold_token": True}}
+# Entry points that send one request they build themselves: called once, as a caller would.
+FIXED_REQUESTS: dict[str, Callable[[httpx.AsyncBaseTransport], Awaitable[httpx.Response]]] = {
+    "exchange_withings_code": lambda inner: exchange_withings_code(**VALUES, inner=inner),
 }
 
 
@@ -207,7 +279,7 @@ async def _reach_over_httpx() -> set[str]:
         reached.add(_what(request))
         return httpx.Response(200, json={"status": 0})
 
-    for build in HTTPX_ENTRY_POINTS.values():
+    for name, build in HTTPX_ENTRY_POINTS.items():
         try:
             client = build(httpx.MockTransport(record))
         except OutboundBlocked:
@@ -215,7 +287,10 @@ async def _reach_over_httpx() -> set[str]:
         async with client:
             for method, url, form in CANDIDATES:
                 with contextlib.suppress(OutboundBlocked):
-                    await client.request(method, url, data=form)
+                    await client.request(method, url, data=form, **REQUEST_OPTIONS.get(name, {}))
+    for send in FIXED_REQUESTS.values():
+        with contextlib.suppress(OutboundBlocked):
+            await send(httpx.MockTransport(record))
     return reached
 
 
@@ -295,17 +370,22 @@ def test_web_reaches_withings_only_through_the_code_exchange() -> None:
     }
 
 
+def _returns(function: Callable[..., Any]) -> str:
+    """The name of what ``function`` returns, also when it is annotated as a string."""
+    annotation = inspect.signature(function).return_annotation
+    return annotation if isinstance(annotation, str) else getattr(annotation, "__name__", "")
+
+
 def test_the_enumeration_covers_every_client_the_package_builds() -> None:
-    """A new client builder in ``ownvitals.egress`` must join the enumeration above."""
-    built = (httpx.AsyncClient, egress.AllowlistTransport)
+    """A new client builder or request sender in ``ownvitals.egress`` must join the enumeration
+    above (by what it returns: a client, a transport, or an answer)."""
+    built = {"AsyncClient", "GoogleOAuthClient", "AllowlistTransport", "Response"}
     builders = {
         name
         for name, value in vars(egress).items()
-        if inspect.isfunction(value)
-        and not name.startswith("_")
-        and get_type_hints(value).get("return") in built
+        if inspect.isfunction(value) and not name.startswith("_") and _returns(value) in built
     }
-    assert builders == set(HTTPX_ENTRY_POINTS)
+    assert builders == set(HTTPX_ENTRY_POINTS) | set(FIXED_REQUESTS)
 
 
 # --- no Withings network access in tests (netguard) -------------------------------------------
@@ -319,8 +399,13 @@ async def _raises_network_blocked(call: Callable[[], Awaitable[Any]]) -> None:
 async def test_the_real_withings_transport_is_stopped_by_the_netguard() -> None:
     """Without ``inner`` the clients use the real network transport: in a test, ``netguard``
     refuses the lookup before a packet leaves, whatever the allowlist let through."""
-    async with withings_code_exchange_client() as client:
-        await _raises_network_blocked(lambda: client.post(f"{API}/v2/oauth2", data=EXCHANGE))
+    await _raises_network_blocked(lambda: exchange_withings_code(**VALUES))
+    async with google_oauth_client(**GOOGLE_VALUES) as google:
+        await _raises_network_blocked(
+            lambda: google.request(
+                "POST", "https://oauth2.googleapis.com/token", withhold_token=True
+            )
+        )
     install_worker_allowlist()
     async with withings_async_client() as client:
         await _raises_network_blocked(lambda: client.post(f"{API}/measure", data={"a": "b"}))

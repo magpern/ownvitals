@@ -1,17 +1,22 @@
 """The outbound allowlist (PLAN §2 "The worker owns every outbound call", roadmap Amendment 1).
 
 This package is the only place in ``ownvitals`` that builds an HTTP client, a transport or a
-``urllib`` opener (the guard in ``tests/egress_scan.py`` fails on any other, and on any use of a
-private name of the package from outside it). The lists are code; nothing in the environment
-widens one.
+``urllib`` opener. The guard in ``tests/egress_scan.py`` denies by default: outside this package
+(and ``ownvitals.mail`` for ``smtplib``) no module imports a network-capable module, calls an
+``asyncio`` or ``anyio`` connection function, uses a private name of the package or of
+``ownvitals.mail``, or calls ``install_worker_allowlist`` (the worker's entry point and the probe
+CLI excepted). The lists are code; nothing in the environment widens one. Callers catch the
+package's own exceptions (``OutboundBlocked``, ``RequestDeadline``, ``RequestBudgetExhausted``);
+a network library's exception class a caller needs is re-exported here, never imported from the
+library (none is needed yet).
 
 **What each process can reach** (``tests/test_egress_runtime.py`` enumerates it):
 
 - **worker**: ``wbsapi.withings.net`` and ``account.withings.com`` (``withings_async_client`` and
   the process-wide urllib opener), and ``api.anthropic.com`` only when AI is enabled
   (``install_worker_allowlist(ai_enabled=...)``, ``model_async_client``);
-- **web**: Google's sign-in hosts (``google_signin_transport``, ``google_async_client``), the one
-  Withings authorization-code exchange (``withings_code_exchange_client``) and the configured
+- **web**: Google's sign-in hosts (``google_oauth_client``, ``google_async_client``), the one
+  Withings authorization-code exchange (``exchange_withings_code``) and the configured
   SMTP server through ``ownvitals.mail``, the one module the guard lets open a connection of its
   own (its host is a setting, so it is not a list entry). Each refuses in the worker
   (``refuse_in_worker``).
@@ -30,15 +35,17 @@ from ownvitals.egress.clients import (
     WITHINGS_TOTAL_SECONDS,
     AllowlistTransport,
     google_async_client,
-    google_signin_transport,
+    google_oauth_client,
     model_async_client,
     withings_async_client,
 )
 from ownvitals.egress.code_exchange import (
     CODE_EXCHANGE_FIELDS,
+    CODE_EXCHANGE_HEADERS,
     CODE_EXCHANGE_TOTAL_SECONDS,
+    encode_code_exchange,
+    exchange_withings_code,
     is_code_exchange_form,
-    withings_code_exchange_client,
 )
 from ownvitals.egress.core import (
     CODE_EXCHANGE_ALLOWLIST,
@@ -86,6 +93,7 @@ from ownvitals.egress.opener import (
 __all__ = [
     "CODE_EXCHANGE_ALLOWLIST",
     "CODE_EXCHANGE_FIELDS",
+    "CODE_EXCHANGE_HEADERS",
     "CODE_EXCHANGE_TOTAL_SECONDS",
     "GOOGLE_JWKS_HOST",
     "GOOGLE_SIGNIN_ALLOWLIST",
@@ -119,8 +127,10 @@ __all__ = [
     "call_deadline",
     "call_deadline_until",
     "check_total_seconds",
+    "encode_code_exchange",
+    "exchange_withings_code",
     "google_async_client",
-    "google_signin_transport",
+    "google_oauth_client",
     "install_worker_allowlist",
     "installed_worker_hosts",
     "is_code_exchange_form",
@@ -130,7 +140,6 @@ __all__ = [
     "request_deadline",
     "tls_client_context",
     "withings_async_client",
-    "withings_code_exchange_client",
     "worker_allowlist",
     "worker_allowlist_installed",
     "worker_hosts",

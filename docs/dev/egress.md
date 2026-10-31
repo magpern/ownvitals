@@ -13,8 +13,8 @@ change in `egress/core.py` and a security-critical review.
 | worker | `withings_async_client()` | `wbsapi.withings.net`, `account.withings.com` (every Withings call: sync, refresh, revoke, notify) |
 | worker | the process-wide urllib opener (`install_worker_allowlist`) | the same, for any library that calls `urlopen` |
 | worker, AI enabled | `model_async_client()` | `api.anthropic.com` (M7) |
-| web | `google_signin_transport()`, `google_async_client()` | `oauth2.googleapis.com` (token), `www.googleapis.com` (JWKS) |
-| web | `withings_code_exchange_client()` (`egress/code_exchange.py`) | one request: `POST https://wbsapi.withings.net/v2/oauth2`, `action=requesttoken`, `grant_type=authorization_code` |
+| web | `google_oauth_client()`, `google_async_client()` | `oauth2.googleapis.com` (token), `www.googleapis.com` (JWKS) |
+| web | `exchange_withings_code()` (`egress/code_exchange.py`) | one request it builds itself: `POST https://wbsapi.withings.net/v2/oauth2`, `action=requesttoken`, `grant_type=authorization_code` |
 | web | `ownvitals.mail.Mailer` | the configured SMTP server (`smtp_host`, a setting, not a list entry) |
 
 `tests/test_egress_runtime.py` enumerates it: every entry point against every candidate request,
@@ -22,7 +22,10 @@ in web and in the worker with AI off and on. A new client builder in the package
 until it joins the enumeration.
 
 **Process roles.** `install_worker_allowlist(ai_enabled=settings.ai_insights)` makes the process
-the worker: call it first thing at worker start (the job queue issue wires it). From then on the
+the worker. Only two modules may call it (the guard's `WORKER_ROLE_MODULES`): the worker's entry
+point `ownvitals.worker.__main__` (#9), first thing at start, and the probe CLI
+`ownvitals.withings.probe` (#29); tests may too. Neither module exists yet: an issue that names
+its entry point differently changes that list in its PR. From then on the
 web-only entry points (Google, the code exchange, mail) raise `OutboundBlocked` before any
 connection (`refuse_in_worker`), and the worker-only clients work only there: in the web process
 `withings_async_client()` and `model_async_client()` raise `OutboundBlocked`, so web can make no
@@ -38,16 +41,33 @@ from ownvitals import egress
 async with egress.withings_async_client() as client:
     response = await client.post("https://wbsapi.withings.net/measure", data=form, headers=auth)
 
-# Web: the OAuth callback's code exchange (#22). Anything but that one request is refused.
-async with egress.withings_code_exchange_client() as client:
-    response = await client.post(egress.WITHINGS_TOKEN_URL, data=exchange_form)
+# Web: the OAuth callback's code exchange (#22). The caller hands in four values; the package
+# builds the request (body, headers, URL) and returns the answer, body read.
+response = await egress.exchange_withings_code(
+    client_id=cid, client_secret=secret, code=code, redirect_uri=callback_url
+)
 
-# Web: Google sign-in (#10). Authlib's client takes the transport; the guard requires both
-# arguments and refuses proxy=, mounts= and ** on it.
-AsyncOAuth2Client(..., transport=egress.google_signin_transport(inner=t), trust_env=False)
-async with egress.google_async_client(inner=t) as client:  # the JWKS fetch
+# Web: Google sign-in (#10): Authlib's AsyncOAuth2Client, built by the package (PKCE S256,
+# client_secret_post) over Google's sign-in transport. Nothing else may import Authlib's
+# network integrations (authlib.jose and authlib.oauth2 are fine).
+async with egress.google_oauth_client(
+    client_id=cid, client_secret=secret, scope="openid email", redirect_uri=callback_url
+) as client:
+    url, state = client.create_authorization_url(GOOGLE_AUTHORIZE_URL, code_verifier=verifier)
+    token = await client.fetch_token(GOOGLE_TOKEN_URL, code=code, code_verifier=verifier)
+async with egress.google_async_client() as client:  # the JWKS fetch
     ...
 ```
+
+**The code exchange's request.** Each value must be a non-empty string of printable ASCII without
+a space, `;`, `&`, `=` or `#` (so no CR, LF or other control character), checked before anything
+is encoded. The body is `urlencode` of exactly `action`, `grant_type`, `client_id`,
+`client_secret`, `code`, `redirect_uri`, and must parse back to exactly those fields. The
+headers are `Content-Type` (form), `Accept`, `User-Agent` and httpx's own `Host` and
+`Content-Length`. The transport checks the final bytes again: method, raw path, the header names
+(each once, `Host` the API host, a matching `Content-Length`), and a body of at most 4 KiB that
+is the canonical encoding of its own fields, with the fixed action and grant type and no
+forbidden character in any decoded value. No redirect is followed.
 
 - Every client has `trust_env=False`, follows no redirect, refuses a redirect answer to another
   host (the code exchange refuses every redirect), verifies TLS against `certifi` and never
@@ -85,12 +105,33 @@ with `MailError("delivery failed (deadline passed)")`. It is a module constant i
 
 ## The guard
 
-`tests/egress_scan.py`, run by `tests/test_egress_guard.py` over the whole source tree. Outside
-the `ownvitals.egress` package it refuses building a client, transport, opener, socket or SMTP
-connection, importing a client library that bypasses it (`requests`, `aiohttp`, `urllib3`,
-`httpcore`, `http.client` ...), building an `Allowlist` or `AllowlistTransport`, handing a
-client builder a list, and using any private name of the package. `EXEMPT` holds only
-`ownvitals.mail` (`smtplib.SMTP`, `SMTP_SSL`, built by a call or subclassed for the deadline).
+`tests/egress_scan.py`, run by `tests/test_egress_guard.py` over the whole source tree. It
+**denies by default**: outside the `ownvitals.egress` package a module may not
+
+- import a network-capable module, a submodule or a name from one (`NETWORK_MODULES`: `socket`,
+  `ssl`, `http.client`, `urllib.request`, `smtplib`, `httpx`, `httpcore`, `requests`, `aiohttp`,
+  `urllib3`, `websockets`, `multiprocessing.connection`, `authlib.integrations`, `anthropic`,
+  `openai`, `asyncio.streams` ...), also through `importlib.import_module` or `__import__`, nor
+  use a name under one through a module that holds it (`egress.clients.httpx.AsyncClient`,
+  `mail.smtplib.SMTP`);
+- call or import a connection function of `asyncio` or `anyio` (`CONNECTION_FUNCTIONS`:
+  `open_connection`, `loop.create_connection`, `loop.create_datagram_endpoint`,
+  `loop.sock_connect`, `anyio.connect_tcp`, `create_udp_socket` ...), on whatever object;
+- build an `Allowlist`, `AllowlistTransport`, opener or deadline handler, hand an entry point a
+  list, or use a private name of `ownvitals.egress` or `ownvitals.mail`;
+- call `install_worker_allowlist` (only `WORKER_ROLE_MODULES`, above);
+- star-import anything.
+
+Exceptions, each with its reason in the guard: `ALLOWED_IMPORTS` lets `ownvitals.mail` import
+`smtplib`, and `EXEMPT` lets it build `smtplib.SMTP` and `SMTP_SSL` (a call or a subclass, for
+the deadline) and nothing else. An import inside `if TYPE_CHECKING:` is allowed when its names
+appear only in annotations (anywhere else they would run). Each name of the lists has a refused
+snippet in the guard test, which fails when the name is removed.
+
+**Exceptions callers catch.** The package's own (`OutboundBlocked`, `RequestDeadline`,
+`RequestBudgetExhausted`) come from `ownvitals.egress`. A caller that needs an exception class of
+a network library (an httpx transport error, say) gets it re-exported by `ownvitals.egress` in
+its own PR, with the reason in the guard test; it never imports the library. None is needed yet.
 
 - `WORKER_PACKAGES`: packages that run in the worker never import `ownvitals.mail`.
 - `WORKER_ENTRYPOINTS`: imported in a fresh interpreter, they must not load `ownvitals.mail`,
@@ -132,12 +173,15 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
 2. **The model host is gated through the installed list.** `model_async_client` builds only in a
    worker installed with `ai_enabled=True` (`ai_insights`); `ai_enabled` must be a real `bool`.
 3. **Google sign-in has a host list in web**: the token endpoint and JWKS hosts, not
-   `accounts.google.com` (the browser's authorize page). Authlib's `AsyncOAuth2Client` is allowed
-   only with `transport=google_signin_transport(...)` and `trust_env=False`, without `proxy`,
-   `mounts` or `**`, so sign-in needs no guard exemption.
+   `accounts.google.com` (the browser's authorize page). *Revised in review:* the package builds
+   Authlib's client itself (`google_oauth_client`); outside it nothing imports
+   `authlib.integrations`, so sign-in needs no guard exemption. This supersedes #10's
+   `transport=` wording. Authlib 1.9 runs its client on `httpx2` when that is installed; the
+   helper then refuses to build it (`TypeError`), since the transport is httpx's.
 4. **The code-exchange form is strict**: unknown or repeated fields are refused, not ignored
    (a PHP-style server folds `grant.type` and `grant_type[]` into `grant_type`). Allowed:
    `action`, `grant_type`, `client_id`, `client_secret`, `code`, `redirect_uri`. Withings'
-   signature/nonce variant would widen it here, under review.
+   signature/nonce variant would widen it here, under review. *Revised in review:* the caller
+   passes values, never a body or headers (`exchange_withings_code`).
 5. **Mail errors carry no exception context**: `MailError` is raised after the `except` block,
    with the exception class only.

@@ -409,11 +409,15 @@ async def test_a_slow_answer_ends_at_the_total_deadline(worker: None) -> None:
 
 
 @pytest.mark.parametrize("seconds", [0, -1.0, float("nan"), float("inf"), True, "10"])
-def test_a_total_deadline_is_positive_and_finite(worker: None, seconds: Any) -> None:
+async def test_a_total_deadline_is_positive_and_finite(worker: None, seconds: Any) -> None:
+    """Checked first, in the worker (the web-only entry points refuse only after it)."""
+    values: dict[str, Any] = {"client_id": "i", "client_secret": "s", "redirect_uri": "https://r"}
     for builder in (
         withings_async_client,
         egress.google_async_client,
-        egress.withings_code_exchange_client,
+        lambda **kw: egress.google_oauth_client(**values, scope="openid", **kw),  # pyright: ignore[reportUnknownLambdaType]
     ):
         with pytest.raises(ValueError, match="positive, finite"):
             builder(total_seconds=seconds)
+    with pytest.raises(ValueError, match="positive, finite"):
+        await egress.exchange_withings_code(**values, code="c", total_seconds=seconds)
