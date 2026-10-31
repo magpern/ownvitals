@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  ACCEPTED_LICENCES,
+  ACCEPTED_LICENCE_IDS,
   type LockPackage,
   type Lockfile,
   licenceAccepted,
@@ -135,6 +137,91 @@ describe('the licence rule', () => {
       'node_modules/p': { version: '1.0.0', license: 'Unlicense' },
     })
     expect(unacceptedLicences(planted)).toEqual(['o@1.0.0: "LGPL-3.0"', 'p@1.0.0: "Unlicense"'])
+  })
+
+  // The bundler decides what ships, not the lockfile: Vite follows a shipped package's imports into
+  // node_modules, optional peer or not, so an installed peer is always checked, whatever its flags.
+  describe('an optional peer dependency', () => {
+    /** `a` (ships) allows the optional peer `p`; `tool` (build only) asks for `p` and `c`. */
+    function withOptionalPeer(p: LockPackage, meta: { optional?: boolean } | null = { optional: true }): Lockfile {
+      return lockWith({
+        'node_modules/a': {
+          version: '1.0.0',
+          license: 'MIT',
+          dependencies: { b: '^1.0.0' },
+          peerDependencies: { p: '1.0.0' },
+          peerDependenciesMeta: meta === null ? undefined : { p: meta },
+        },
+        'node_modules/tool': {
+          version: '1.0.0',
+          license: 'MPL-2.0',
+          dev: true,
+          dependencies: { c: '^1.0.0', p: '1.0.0' },
+        },
+        'node_modules/p': p,
+      })
+    }
+
+    it('is followed and checked when it is installed as a non-dev package', () => {
+      const planted = withOptionalPeer({ version: '1.0.0', license: 'GPL-3.0' })
+      expect(productionClosure(planted).map(nameOf)).toEqual(['a', 'b', 'p'])
+      expect(productionClosure(planted)).toEqual(notFlaggedDev(planted))
+      expect(unacceptedLicences(planted)).toEqual(['p@1.0.0: "GPL-3.0"'])
+    })
+
+    it('is followed and checked when a dev tool installed it too, as npm writes it (devOptional)', () => {
+      // npm flags a package that a dev tool and an optional peer both want `devOptional`, never
+      // `dev`, so `npm ci --omit=dev` still installs it and it counts as not dev-only.
+      const planted = withOptionalPeer({ version: '1.0.0', license: 'GPL-3.0', devOptional: true })
+      expect(productionClosure(planted).map(nameOf)).toEqual(['a', 'b', 'p'])
+      expect(productionClosure(planted)).toEqual(notFlaggedDev(planted))
+      expect(unacceptedLicences(planted)).toEqual(['p@1.0.0: "GPL-3.0"'])
+    })
+
+    it.each([
+      ['optional', { optional: true }],
+      ['optional: false', { optional: false }],
+      ['no flag', {}],
+      ['no entry in peerDependenciesMeta', null],
+    ])('is reported even when a hand-set dev: true hides it from npm\'s flags (%s)', (_what, meta) => {
+      const planted = withOptionalPeer({ version: '1.0.0', license: 'GPL-3.0', dev: true }, meta)
+      expect(productionClosure(planted).map(nameOf)).toEqual(['a', 'b', 'p'])
+      expect(unacceptedLicences(planted)).toEqual(['p@1.0.0: "GPL-3.0"'])
+      // ... and the cross-check against npm's flags, which the suite runs on the real lockfile,
+      // fails on it: this is how a flag set by hand is noticed.
+      expect(productionClosure(planted)).not.toEqual(notFlaggedDev(planted))
+    })
+
+    it('is ignored when it is not installed at all', () => {
+      const planted = withOptionalPeer({ version: '1.0.0' })
+      delete planted.packages['node_modules/p']
+      planted.packages['node_modules/tool'] = { version: '1.0.0', license: 'MPL-2.0', dev: true }
+      expect(productionClosure(planted).map(nameOf)).toEqual(['a', 'b'])
+      expect(unacceptedLicences(planted)).toEqual([])
+    })
+  })
+
+  it('has one list of accepted licences, which the lockfile check and package.json check both read', () => {
+    // src/packageJson.test.ts imports ACCEPTED_LICENCE_IDS too. Adding an id (OFL-1.1-RFN, say) is
+    // a deliberate decision, so it has to change this line.
+    expect([...ACCEPTED_LICENCE_IDS]).toEqual(['MIT', 'ISC', 'Apache-2.0', 'OFL-1.1'])
+    for (const id of ACCEPTED_LICENCE_IDS) expect(licenceAccepted(id), id).toBe(true)
+    expect([...ACCEPTED_LICENCES].sort()).toEqual(ACCEPTED_LICENCE_IDS.map((id) => id.toLowerCase()).sort())
+  })
+
+  it('has packageJson.test.ts read that list as it is, and name no licence of its own', () => {
+    // The pin test above guards the constant, not the import: without this, packageJson.test.ts
+    // could add an id to its own copy (`new Set([...ACCEPTED_LICENCE_IDS, 'BSD-3-Clause'])`) and
+    // every test would pass. A structural check on its source, comments left out.
+    const source = readFileSync(join(ROOT, 'src', 'packageJson.test.ts'), 'utf8')
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '')
+    expect(code).toMatch(/^import \{ ACCEPTED_LICENCE_IDS \} from '\.\/test\/licenceScan'$/m)
+    expect(code.match(/\bACCEPTED_LICENCE_IDS\b/g)).toHaveLength(2) // the import and one use ...
+    expect(code).toContain('new Set(ACCEPTED_LICENCE_IDS)') // ... which takes the list whole
+    // No string in the file names a licence (an id is a word of the string: MIT, BSD-3-Clause ...).
+    const licenceWord = /\b(?:MIT|ISC|BSD|GPL|LGPL|AGPL|MPL|EPL|Apache|OFL|CC0|CC-BY|Unlicense|BlueOak|Zlib|0BSD)\b/
+    const strings = code.match(/'[^'\n]*'|"[^"\n]*"|`[^`]*`/g) ?? []
+    expect(strings.filter((text) => licenceWord.test(text))).toEqual([])
   })
 
   it.each([
