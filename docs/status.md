@@ -127,7 +127,6 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 | 2026-10-31 | Guard 5 (ADR 0002 §1 "anywhere"): `object.__setattr__(self, …)` is allowed only inside a frozen dataclass's `__post_init__` on the bare `self`; every other form stays refused (it can't build a `UserContext`) | #5 (PR #65 body, `docs/dev/isolation.md`) |
 | 2026-10-31 | Analysis core (#37): plausibility ranges are labelled engineering bounds unless findings cite one; a metric without a range is refused; values are `Decimal`, floats refused | #37 |
 | 2026-10-31 | Dependabot: TypeScript 7 ignored until typescript-eslint supports it (Dependabot closed #59 after `@dependabot ignore typescript major version`); Dependabot titles over the 100-character header are shortened through group names (#57) or retitled by the Architect before merge | #59, #57 |
-
 | 2026-10-31 | Frontend licence closure (from the #64 review; #52 item 4 reverted): an optional peer dependency is never skipped as dev-only. npm marks such a package `devOptional`, not `dev`, and a GPL package that Vite ships would hide behind the skip | #52, #64 |
 
 ## Architect tasks
@@ -142,12 +141,12 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
   bump issue).
 - Removing the "Is there a backend/frontend yet?" skip steps is part of #42.
 - Dependabot PRs go through the same gate with a fresh Sonnet reviewer.
-- ADR 0004 is at 498 lines: its next change splits it or goes in a new ADR.
 - Frontend licence closure tests: add an `optionalDependencies` row (a mutation survived in the
   #64 review; the same gap is on `main`). It goes into the next frontend issue.
 - After #46, #55, #58 and #65 merge: record the decisions they carry (ECG round 4, the egress
   API names for #9, #10, #22 and #29, the webhook-secret and partition decisions, the
-  role-membership rule).
+  role-membership rule). Once #58 merges, ADR 0004 is at 498 lines: its next change splits it
+  or goes in a new ADR.
 
 ## Shared-file locks
 
