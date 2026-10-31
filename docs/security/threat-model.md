@@ -255,9 +255,10 @@ development machine: agents, fakes and the demo account only; no real health dat
 Each holds only while every user is a household member; the M8 gate re-decides all of them.
 Items 1, 3, 4, 5, 14 and 17 follow from the specification (§9.2, §4.4, §7.1, §10.2). Items 19
 to 21 follow from Architect decisions (2026-10-31; #49 extended 20 and 21; #72 bounded 21 by
-the compromise order and added the rotation lock to it); the others are proposed by this model,
-most of them carried over from classbeat's accepted risks. The owner confirms or rejects every
-item that doesn't come from the specification before the M2 real-data gate (O15).
+the compromise order and added the rotation lock and the cross-user cancel to it); the others
+are proposed by this model, most of them carried over from classbeat's accepted risks. The owner
+confirms or rejects every item that doesn't come from the specification before the M2 real-data
+gate (O15).
 
 1. **Shared home host.** A co-tenant with the Docker socket is root on the host and can read the
    database, the KEK files and every secret (T60). Revisited with the VPS move before M8 (§9.2).
@@ -336,6 +337,11 @@ item that doesn't come from the specification before the M2 real-data gate (O15)
     steps then fail on `lock_timeout` and alert, and the rotation stalls (#72). That gives it
     nothing more, since code running in web already decides how webhooks are answered.
 
+    And it could call the queue's definer function that cancels a routine rotation's queued
+    `notify update` jobs (ADR 0008; #18 builds it) and so stall a routine rotation (amended
+    2026-10-31, #72). Like the cases above, that is denial of service, never a secret
+    disclosure, and it surfaces through the stuck-rotation alert.
+
     The function's own role holds no DDL right, no other column and no health table (ADR 0002
     §3), so a bug in it reaches nothing more; the guard keeps every module but the worker's
     rotation from calling it (T38, ADR 0004 §4).
@@ -351,7 +357,7 @@ item that doesn't come from the specification before the M2 real-data gate (O15)
 | O12 | Disk encryption on the home server; Cloudflare proxied or DNS-only (T60, T64) | owner, M2 gate |
 | O13 | After the port: confirm each M0 mitigation against the merged code, replace every planned test name, close or re-home every open item | #16 |
 | O14 | Answer an unknown or retired webhook secret with the generic 200 before any database work, ignore it and count it; run the request checks before the lookup; answer a `POST` with 503 while the entry cache is stale or not yet read, and `HEAD` with 200 (T38; amended 2026-10-31, #49 and #72) | #24 |
-| O15 | Confirm or reject the accepted risks that don't come from the specification (2, 6 to 13, 15, 16, 18 to 21; #49 extended 20 and 21, 21 now covering denial of service; #72 added the rotation lock to 21; amended 2026-10-31, #72) | owner, before the M2 real-data gate |
+| O15 | Confirm or reject the accepted risks that don't come from the specification (2, 6 to 13, 15, 16, 18 to 21; #49 extended 20 and 21, 21 now covering denial of service; #72 added the rotation lock and the cross-user cancel to 21; amended 2026-10-31, #72) | owner, before the M2 real-data gate |
 
 Decided by the Architect on 2026-10-31 (numbers kept so earlier references stay valid):
 
