@@ -16,7 +16,12 @@ from ownvitals.admin.routes import router as admin_router
 from ownvitals.auth.routes import router as auth_router
 from ownvitals.config import Settings
 from ownvitals.connections.routes import router as connections_router
-from ownvitals.db import check_ready, create_engine, create_session_factory
+from ownvitals.db import (
+    check_ready,
+    create_engine,
+    create_session_factory,
+    verify_database_role,
+)
 from ownvitals.flags.routes import router as flags_router
 from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
@@ -89,13 +94,18 @@ def _add_single_page_app(app: FastAPI, static_dir: Path) -> None:
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    """Build the app. The database engine is created in the lifespan, not here."""
+    """Build the app. The database engine is created in the lifespan, not here.
+
+    The lifespan refuses to start when the database role could bypass row-level security
+    (``DatabaseRoleError``, ADR 0002 section 5); the engine checks every later connection too.
+    """
     settings = settings if settings is not None else Settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_engine(settings)
         try:
+            await verify_database_role(engine)
             app.state.engine = engine
             app.state.session_factory = create_session_factory(engine)
             yield

@@ -30,9 +30,25 @@ def test_counts_coverage_and_span() -> None:
     q = summarise(EXAMPLE, window_end=END, window_days=30)
     assert (q.window_start, q.window_end, q.window_days) == (jun(1), jun(30), 30)
     assert (q.n_readings, q.n_days) == (9, 6)
-    assert (q.first_day, q.last_day, q.span_days) == (jun(3), jun(20), 18)  # both ends counted
+    assert (q.first_day, q.last_day, q.span_days) == (jun(3), jun(20), 17)  # days elapsed
     assert q.coverage == Fraction(6, 30)
-    assert q.span_fraction == Fraction(18, 30) == Fraction(3, 5)
+    assert q.span_fraction == Fraction(17, 30)
+
+
+@pytest.mark.parametrize(("last_day", "span"), [(28, 27), (29, 28), (30, 29)])
+def test_the_span_is_the_days_elapsed_between_the_first_and_last_day(
+    last_day: int, span: int
+) -> None:
+    q = summarise(daily_on(jun(1), jun(last_day)), window_end=END, window_days=30)
+    assert q.span_days == span == (jun(last_day) - jun(1)).days
+    assert q.span_fraction == Fraction(span, 30)
+
+
+def test_data_on_the_1st_and_the_29th_is_a_span_of_exactly_four_weeks() -> None:
+    q = summarise(daily_on(jun(1), jun(29)), window_end=END, window_days=30)
+    assert q.span_days == 28
+    assert (jun(29) - jun(1)).days == 4 * 7
+    assert q.n_days == 2  # a span is not a count of days: only two days have data
 
 
 def test_gaps_are_runs_of_missing_days_including_the_edges() -> None:
@@ -76,14 +92,16 @@ def test_days_outside_the_window_are_ignored() -> None:
     inside = daily_on(jun(10), jun(12))
     outside = daily_on(jun(9), jun(13), date(2026, 5, 31), date(2026, 7, 1))
     q = summarise([*outside, *inside], window_end=jun(12), window_days=3)  # 10 to 12 June
-    assert (q.window_start, q.n_days, q.n_readings, q.span_days) == (jun(10), 2, 2, 3)
+    assert (q.window_start, q.n_days, q.n_readings, q.span_days) == (jun(10), 2, 2, 2)
     assert q.gaps == ()
     assert q.longest_gap_days == 1
 
 
 def test_the_window_edges_are_inclusive() -> None:
     q = summarise(daily_on(jun(1), jun(30)), window_end=END, window_days=30)
-    assert (q.n_days, q.span_days, q.coverage, q.span_fraction) == (2, 30, Fraction(1, 15), 1)
+    assert (q.n_days, q.coverage) == (2, Fraction(1, 15))
+    # first to last day of a 30-day window: 29 days elapsed, so the fraction stays below 1
+    assert (q.span_days, q.span_fraction) == (29, Fraction(29, 30))
     assert q.gaps == (Gap(jun(2), jun(29)),)
 
 
@@ -96,15 +114,16 @@ def test_no_data_is_one_gap_the_size_of_the_window() -> None:
     assert q.readings_per_week == 0
 
 
-def test_a_single_day_has_a_span_of_one_and_no_interval() -> None:
+def test_a_single_day_has_a_span_of_zero_and_no_interval() -> None:
     q = summarise(daily_on(jun(7)), window_end=END, window_days=30)
-    assert (q.n_days, q.span_days, q.median_days_between) == (1, 1, None)
+    assert (q.n_days, q.span_days, q.span_fraction, q.median_days_between) == (1, 0, 0, None)
 
 
 def test_no_gaps_when_every_day_has_data() -> None:
     days = [jun(d) for d in range(1, 8)]
     q = summarise(daily_on(*days), window_end=jun(7), window_days=7)
-    assert (q.gaps, q.longest_gap_days, q.coverage, q.span_fraction) == ((), 0, 1, 1)
+    assert (q.gaps, q.longest_gap_days, q.coverage) == ((), 0, 1)
+    assert (q.span_days, q.span_fraction) == (6, Fraction(6, 7))
 
 
 def test_two_daily_values_for_one_day_are_refused() -> None:
@@ -125,7 +144,8 @@ def test_as_dict_is_json_safe_and_complete() -> None:
     assert as_dict["window_start"] == "2026-06-01"
     assert as_dict["gaps"][0] == {"start": "2026-06-06", "end": "2026-06-09", "days": 4}
     assert as_dict["coverage"] == 0.2
-    assert as_dict["span_fraction"] == 0.6
+    assert as_dict["span_days"] == 17
+    assert as_dict["span_fraction"] == 0.5667
     assert as_dict["algo_version"] == dataquality.ALGO_VERSION
     empty = summarise([], window_end=END, window_days=30).as_dict()
     assert empty["first_day"] is None
