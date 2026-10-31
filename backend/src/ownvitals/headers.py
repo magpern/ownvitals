@@ -6,9 +6,10 @@
   ``'self'`` only, so nothing is fetched from a third party.
 - ``Referrer-Policy: no-referrer``, page-wide, so no link or request carries an ownvitals URL
   (webhook paths and mail-link tokens must never leak through a ``Referer``).
+- ``X-Content-Type-Options: nosniff``, so a browser never guesses a type for a file we served.
 
-``SecurityHeaders`` is a plain ASGI middleware, so it adds both to every HTTP response (the SPA,
-its files, the API, errors and event streams) without buffering a body.
+``SecurityHeaders`` is a plain ASGI middleware, so it adds all three to every HTTP response (the
+SPA, its files, the API, errors and event streams) without buffering a body.
 """
 
 from typing import Final
@@ -34,6 +35,7 @@ CSP_DIRECTIVES: Final = (
 )
 CONTENT_SECURITY_POLICY: Final = "; ".join(CSP_DIRECTIVES)
 REFERRER_POLICY: Final = "no-referrer"
+CONTENT_TYPE_OPTIONS: Final = "nosniff"
 
 
 class SecurityHeaders:
@@ -50,6 +52,7 @@ class SecurityHeaders:
                 headers = MutableHeaders(scope=message)
                 headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
                 headers["Referrer-Policy"] = REFERRER_POLICY
+                headers["X-Content-Type-Options"] = CONTENT_TYPE_OPTIONS
             await send(message)
 
         await self.app(scope, receive, with_headers)

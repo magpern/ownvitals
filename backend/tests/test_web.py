@@ -7,7 +7,7 @@ from typing import NoReturn
 import httpx
 import pytest
 from fastapi import APIRouter, FastAPI
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
 
 from ownvitals import __version__, web
 from ownvitals.config import Settings
@@ -108,8 +108,16 @@ async def test_api_docs_live_under_api_and_are_off_in_prod(
         assert (await client.get("/api/openapi.json")).status_code == 200
         assert (await client.get("/openapi.json")).status_code == 404
         assert (await client.get("/docs")).status_code == 404
+    # In prod the password comes from its file (here the database_password setting), not the URL.
+    url = make_url(unreachable_database_url)
+    passwordless = URL.create(
+        url.drivername, username=url.username, host=url.host, port=url.port, database=url.database
+    )
     async with make_client(
-        unreachable_database_url, environment="prod", public_base_url="https://ownvitals.example"
+        passwordless.render_as_string(hide_password=False),
+        environment="prod",
+        public_base_url="https://ownvitals.example",
+        database_password=url.password,
     ) as client:
         assert (await client.get("/api/openapi.json")).status_code == 404
         assert (await client.get("/api/docs")).status_code == 404
@@ -241,13 +249,15 @@ def csp_of(response: httpx.Response) -> dict[str, list[str]]:
 def assert_secure_headers(response: httpx.Response, path: str) -> None:
     assert csp_of(response) == CSP_EXPECTED, path
     assert response.headers.get_list("referrer-policy") == ["no-referrer"], path
+    assert response.headers.get_list("x-content-type-options") == ["nosniff"], path
 
 
 async def test_every_response_carries_the_csp_and_no_referrer(
     unreachable_database_url: str, static_dir: Path
 ) -> None:
     """The SPA page, its files and the fallback, and the API (200, 404 and 503) all carry the
-    one policy: everything from our own origin, nothing inline, no framing, and no referrer."""
+    one policy: everything from our own origin, nothing inline, no framing, no referrer, and no
+    type sniffing."""
     async with make_client(unreachable_database_url, static_dir=static_dir) as client:
         for path in ("/", "/dashboard/42", "/assets/app.js", "/index.html"):
             response = await client.get(path)

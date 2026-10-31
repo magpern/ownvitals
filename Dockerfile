@@ -11,7 +11,10 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    OWNVITALS_ENVIRONMENT=prod
+# The image fails closed: prod (https public URL, no API docs, no password inside a database URL)
+# unless the stack sets OWNVITALS_ENVIRONMENT itself, as compose.yaml does for the local stack.
 
 RUN groupadd --system --gid 10001 ownvitals \
     && useradd --system --uid 10001 --gid ownvitals --no-create-home --shell /usr/sbin/nologin ownvitals

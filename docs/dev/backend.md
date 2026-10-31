@@ -52,7 +52,10 @@ docker stop ownvitals-2-pg
 `OWNVITALS_TEST_DATABASE_URL` is a superuser URL of the throwaway database. Until the database
 roles exist (tenant isolation issue) the code under test connects with it too. Without the
 variable the database tests skip with a reason; with `CI=true` a missing variable **fails** the
-run (`tests/dbtools.py: unavailable`), so they can never be skipped silently in CI.
+run (`tests/dbtools.py: unavailable`), so they can never be skipped silently in CI. The URL must
+point at this machine (loopback, `localhost` or a socket directory, also in `?host=` and
+`?hostaddr=`): the `database_url` fixture fails the test otherwise, because libpq connects on its
+own, outside the network guard below.
 
 ## No network in tests
 
@@ -61,6 +64,11 @@ run (`tests/dbtools.py: unavailable`), so they can never be skipped silently in 
 (`127.0.0.0/8`, `::1`, `localhost`) or a Unix socket. The throwaway Postgres, in-process fakes and
 local servers stay on loopback. A test that needs more must carry `@pytest.mark.allow_network`;
 none does, and none should. Fixtures are synthetic; there is no real health data anywhere.
+
+Known limits of the guard, which patches Python's socket layer only: it does not see UDP
+(`sendto`), `gethostbyname*`, or connections libpq makes itself (sync psycopg to any host, async
+psycopg to an IP literal). So a test must never open such a connection: the database fixture
+enforces a loopback URL, and anything else that talks to a network is a fake on loopback.
 
 `conftest.py` also removes every `OWNVITALS_*` variable (except the test database URL) from the
 environment and points `OWNVITALS_SECRETS_DIR` at an empty directory, so a developer's shell or
@@ -79,7 +87,7 @@ All settings of the platform milestone exist already, so the issues that use the
 
 | Setting | Default | Notes |
 |---|---|---|
-| `environment` | `dev` | `dev`, `test`, `prod`; `prod` needs an `https://` `public_base_url` and hides `/api/docs` |
+| `environment` | `dev` | `dev`, `test`, `prod`; the **image** sets `prod`, compose sets `dev`. `prod` needs an `https://` `public_base_url`, hides `/api/docs` and refuses a password inside `database_url`, `migrations_database_url` or `maint_database_url` (passwords come from their secret files) |
 | `log_level` | `INFO` | |
 | `database_url` | `postgresql+psycopg://ownvitals_app@127.0.0.1:5432/ownvitals` | app role (web, worker) |
 | `migrations_database_url` | `...//ownvitals_owner@127.0.0.1:5432/ownvitals` | owner role, Alembic only |
@@ -90,7 +98,7 @@ All settings of the platform milestone exist already, so the issues that use the
 | `session_idle_days`, `session_absolute_days` | 7, 30 | |
 | `password_hash_workers` | 4 | |
 | `signup_mode` | `invite` | `invite`, `closed`, `open` |
-| `stepup_window_minutes` | 10 | how long a fresh TOTP check authorises a sensitive action (1 to 60) |
+| `stepup_window_minutes` | 10 | how long a fresh TOTP check authorises a sensitive action (PLAN §6: 10 minutes; 1 to 10, so the environment can only shorten it) |
 | `purge_interval_seconds` | 3600 | |
 | `connection_kek_id` | `kek-1` | `kek-[a-z0-9-]{1,28}`; the key is the secret file `connection_kek` |
 | `smtp_host`, `smtp_port`, `smtp_sender`, `smtp_tls`, `smtp_username` | unset, 587, `ownvitals@localhost`, `starttls` | `smtp_tls=none` only for loopback or `mailpit` |
@@ -130,8 +138,8 @@ uvx uv@0.13.6 run alembic downgrade base
 | `__main__.py` | `python -m ownvitals`: uvicorn with JSON logs, access log and proxy headers off, 5 s graceful shutdown; or a subcommand |
 | `cli.py` | subcommand registry (`add_subcommands`, `COMMANDS`, `run_command`); later issues add theirs here |
 | `config.py` | settings (above) |
-| `log.py` | JSON logs and the redaction filter: cookies, credential headers, OAuth query strings and `code`/`state`, mail-link tokens, the secret part of `/api/webhooks/<provider>/<secret>`, secret keys in `extra`; DB errors reduce to class and SQLSTATE |
-| `headers.py` | `Content-Security-Policy` (`'self'` only) and `Referrer-Policy: no-referrer` on every response |
+| `log.py` | JSON logs and the redaction filter: cookies, credential headers, OAuth query strings and `code`/`state`, mail-link tokens, the secret part of `/api/webhooks/<provider>/<secret>`, secret keys in `extra`; strings in dict **keys** too; DB errors reduce to class and SQLSTATE. It fails closed: a record that cannot be formatted becomes a line with the redacted message text, the logger and the error type (`log_error`), and a failing write prints only the error type to stderr (`SafeStreamHandler`), never the raw message or arguments |
+| `headers.py` | `Content-Security-Policy` (`'self'` only), `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff` on every response |
 | `web.py` | app factory; `/api/health` (no database), `/api/ready` (`SELECT 1`, 503 without detail); serves the built SPA from `static_dir`; includes `FEATURE_ROUTERS` |
 | `emailnorm.py` | email normalisation (trim, ASCII lower case) |
 | `db/engine.py` | async engine (`DISCARD ALL` on pool return), the migrations engine, session factory, readiness query |

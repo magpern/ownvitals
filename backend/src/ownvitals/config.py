@@ -140,8 +140,9 @@ class Settings(BaseSettings):
     password_hash_workers: int = 4
     # Who may create an account: ``invite`` (default), ``closed`` or ``open``.
     signup_mode: Literal["invite", "closed", "open"] = "invite"
-    # How long a fresh TOTP check authorises a sensitive action (step-up, PLAN §6).
-    stepup_window_minutes: int = Field(default=10, ge=1, le=60)
+    # How long a fresh TOTP check authorises a sensitive action (step-up, PLAN §6: within 10
+    # minutes). The environment can shorten the window, never lengthen it.
+    stepup_window_minutes: int = Field(default=10, ge=1, le=10)
     # How often the worker purges expired auth rows.
     purge_interval_seconds: float = 3600.0
 
@@ -253,6 +254,23 @@ class Settings(BaseSettings):
     def _prod_needs_https(self) -> "Settings":
         if self.environment == "prod" and not self.public_base_url.startswith("https://"):
             raise ValueError("public_base_url must be https:// when environment is prod")
+        return self
+
+    @model_validator(mode="after")
+    def _prod_takes_passwords_only_from_files(self) -> "Settings":
+        # The image defaults to prod, so a stack that forgets to say otherwise fails closed. In
+        # prod a password embedded in a database URL (an environment variable, visible in
+        # ``docker inspect`` and process listings) is refused: the passwords come from the
+        # secret files, and the URLs carry the user only. The message names the field, never
+        # the URL.
+        if self.environment == "prod":
+            for name in ("database_url", "migrations_database_url", "maint_database_url"):
+                url: SecretStr | None = getattr(self, name)
+                if url is not None and make_url(url.get_secret_value()).password is not None:
+                    raise ValueError(
+                        f"{name} must not embed a password when environment is prod; "
+                        "the password comes from its secret file"
+                    )
         return self
 
     @model_validator(mode="after")

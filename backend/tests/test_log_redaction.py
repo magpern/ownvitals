@@ -149,3 +149,95 @@ def test_session_cookies_and_credential_headers_are_masked(
     logging.getLogger("ownvitals.test").warning("request: %s", text)
     assert SESSION not in logs.text
     assert "X" * 24 not in logs.text
+
+
+# --- the secret part of a webhook path in its encoded forms ------------------------------------
+
+ENCODED_WEBHOOK_TEXTS = [
+    # Percent-encoded: the last slash, or all of them (a path inside a query value).
+    f"GET /api/webhooks/withings%2F{WEBHOOK_SECRET} 200",
+    f"GET /api/webhooks/withings%2f{WEBHOOK_SECRET} 200",
+    f"redirect_to=%2Fapi%2Fwebhooks%2Fwithings%2F{WEBHOOK_SECRET}&x=1",
+    f"redirect_to=%2fapi%2fwebhooks%2fwithings%2f{WEBHOOK_SECRET}",
+    f"redirect_to=%252Fapi%252Fwebhooks%252Fwithings%252F{WEBHOOK_SECRET}",
+    # JSON with escaped slashes.
+    f'{{"path": "\\/api\\/webhooks\\/withings\\/{WEBHOOK_SECRET}"}}',
+    f'{{"path": "\\/api\\/webhooks\\/withings\\/{WEBHOOK_SECRET}\\/more", "n": 1}}',
+    # Another case and a mix.
+    f"GET /API/Webhooks/Withings/{WEBHOOK_SECRET}",
+    f"GET \\/api/webhooks%2Fwithings\\/{WEBHOOK_SECRET}",
+]
+
+
+@pytest.mark.parametrize("text", ENCODED_WEBHOOK_TEXTS)
+def test_encoded_and_escaped_webhook_paths_are_masked(
+    logs: pytest.LogCaptureFixture, text: str
+) -> None:
+    redacted = redact(text)
+    assert WEBHOOK_SECRET not in redacted
+    assert "W" * 24 not in redacted
+    assert "[redacted]" in redacted
+    logger = logging.getLogger("ownvitals.test")
+    logger.warning(text)
+    logger.warning("formatted %s", text)
+    logger.warning("in a field", extra={"detail": text, "nested": {"url": text}})
+    assert "W" * 24 not in logs.text
+    assert len(logs.records) == 3
+
+
+def test_the_encoded_pattern_keeps_text_around_the_secret() -> None:
+    assert redact(f"a=1&u=%2Fapi%2Fwebhooks%2Fwithings%2F{WEBHOOK_SECRET}&b=2") == (
+        "a=1&u=%2Fapi%2Fwebhooks%2Fwithings%2F[redacted]&b=2"
+    )
+    assert redact("see /api/webhooks for the list") == "see /api/webhooks for the list"
+    assert redact("GET /api/health 200") == "GET /api/health 200"
+
+
+# --- dict keys are redacted like values --------------------------------------------------------
+
+SECRET_TEXT_KEYS = {
+    "a webhook path": f"/api/webhooks/withings/{WEBHOOK_SECRET}",
+    "a cookie": f"__Host-ownvitals_session={SESSION}",
+    "an oauth query": f"code={CODE}",
+    "a token in a link": f"https://ownvitals.example/reset#token={SESSION}",
+}
+
+
+@pytest.mark.parametrize("key", SECRET_TEXT_KEYS.values(), ids=SECRET_TEXT_KEYS.keys())
+def test_a_secret_used_as_a_nested_dict_key_is_masked(
+    logs: pytest.LogCaptureFixture, key: str
+) -> None:
+    logger = logging.getLogger("ownvitals.test")
+    logger.warning("hits", extra={"by_key": {key: 3}})
+    logger.warning("deeper", extra={"a": {"b": [{key: 1}, ({key: 2},)]}})
+    for planted in (WEBHOOK_SECRET, SESSION, CODE):
+        assert planted not in logs.text
+    for tail in ("W" * 24, "X" * 24, "C" * 20):
+        assert tail not in logs.text
+    assert len(logs.records) == 2
+    first = json.loads(logs.text.splitlines()[0])
+    assert list(first["by_key"].values()) == [3]  # the value is kept, the key is redacted
+
+
+@pytest.mark.parametrize("key", SECRET_TEXT_KEYS.values(), ids=SECRET_TEXT_KEYS.keys())
+def test_a_secret_used_as_a_top_level_extra_key_is_masked(
+    logs: pytest.LogCaptureFixture, key: str
+) -> None:
+    logging.getLogger("ownvitals.test").warning("hit", extra={key: 1})
+    for planted in (WEBHOOK_SECRET, SESSION, CODE):
+        assert planted not in logs.text
+    for tail in ("W" * 24, "X" * 24, "C" * 20):
+        assert tail not in logs.text
+    line = json.loads(logs.text)
+    assert line["message"] == "hit"
+    if not key.startswith("_"):  # a field named with a leading underscore is never logged
+        assert 1 in line.values()
+
+
+def test_keys_that_hold_no_secret_are_kept_as_they_are(logs: pytest.LogCaptureFixture) -> None:
+    logging.getLogger("ownvitals.test").warning(
+        "ok", extra={"route": "/api/health", "counts": {"/api/health": 4, "get": 2}}
+    )
+    line = json.loads(logs.text)
+    assert line["route"] == "/api/health"
+    assert line["counts"] == {"/api/health": 4, "get": 2}

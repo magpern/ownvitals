@@ -8,6 +8,7 @@ from sqlalchemy.engine import make_url
 from ownvitals.config import Settings, read_secret_files
 
 URL = "postgresql+psycopg://app:url-password@db.example:5433/ownvitals"
+PASSWORDLESS_URL = "postgresql+psycopg://app@db.example:5433/ownvitals"
 
 
 def test_defaults() -> None:
@@ -24,14 +25,14 @@ def test_reads_environment_with_prefix(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setenv("OWNVITALS_ENVIRONMENT", "prod")
     monkeypatch.setenv("OWNVITALS_PUBLIC_BASE_URL", "https://ownvitals.example")
     monkeypatch.setenv("OWNVITALS_LOG_LEVEL", "debug")
-    monkeypatch.setenv("OWNVITALS_DATABASE_URL", URL)
+    monkeypatch.setenv("OWNVITALS_DATABASE_URL", PASSWORDLESS_URL)  # prod: no password in a URL
     monkeypatch.setenv("OWNVITALS_STATIC_DIR", str(tmp_path))
     monkeypatch.setenv("OWNVITALS_WORKER_POLL_SECONDS", "0.5")
     monkeypatch.setenv("ENVIRONMENT", "dev")  # unprefixed names are ignored
     settings = Settings()
     assert settings.environment == "prod"
     assert settings.log_level == "DEBUG"
-    assert settings.database_url.get_secret_value() == URL
+    assert settings.database_url.get_secret_value() == PASSWORDLESS_URL
     assert settings.static_dir == tmp_path
     assert settings.worker_poll_seconds == 0.5
 

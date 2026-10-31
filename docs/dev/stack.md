@@ -71,3 +71,8 @@ dependencies (`uv sync --locked --no-dev`) into `python:3.12.16-slim-bookworm`, 
 the non-root user `ownvitals`: `python -m ownvitals --host 0.0.0.0 --port 8000`. The single-page-app
 build stage is added with the end-to-end harness. `.dockerignore` keeps `.git`, `.env*`,
 `secrets/`, virtualenvs, caches and docs out of the build context.
+
+The image **defaults to `OWNVITALS_ENVIRONMENT=prod`**, so a container started without settings
+fails closed: it needs an `https://` public URL, serves no API docs and refuses a password inside a
+database URL. `compose.yaml` sets `OWNVITALS_ENVIRONMENT: dev` for the local stack explicitly, and
+its database URLs carry the user only (the password is a secret file); `test_image.py` checks both.

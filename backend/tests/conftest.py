@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 import netguard
-from dbtools import unavailable
+from dbtools import require_loopback_database, unavailable
 
 if sys.platform == "win32":
     # psycopg's async mode does not run on the default Windows (proactor) event loop.
@@ -66,6 +66,7 @@ def database_url() -> str:
     """URL of the throwaway test Postgres (``postgresql+psycopg://...``), a superuser's.
 
     For test setup and probes, and until the database roles exist also for the code under test.
+    It must be a loopback host: libpq connects natively, outside the network guard.
     """
     url = os.environ.get("OWNVITALS_TEST_DATABASE_URL")
     if not url:
@@ -73,6 +74,7 @@ def database_url() -> str:
             "OWNVITALS_TEST_DATABASE_URL is not set (start a throwaway Postgres, "
             "see docs/dev/backend.md)"
         )
+    require_loopback_database(url)
     return url
 
 

@@ -166,7 +166,7 @@ def test_smtp_port_is_a_port(port: int) -> None:
         ("jobs_per_user", (1, 100), (0, 101)),
         ("job_busy_requeue_limit", (0, 100), (-1, 101)),
         ("worker_shutdown_wait_seconds", (0, 25), (-1, 26)),
-        ("stepup_window_minutes", (1, 60), (0, 61)),
+        ("stepup_window_minutes", (1, 10), (0, 11)),
     ],
 )
 def test_numeric_settings_have_bounds(
@@ -182,3 +182,71 @@ def test_numeric_settings_have_bounds(
 def test_the_worker_maintenance_interval_must_be_positive() -> None:
     with pytest.raises(ValidationError):
         Settings(worker_maintenance_seconds=0)
+
+
+def test_the_step_up_window_cannot_be_longer_than_the_specified_ten_minutes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert Settings().stepup_window_minutes == 10  # PLAN section 6
+    assert Settings(stepup_window_minutes=3).stepup_window_minutes == 3  # shorter is allowed
+    monkeypatch.setenv("OWNVITALS_STEPUP_WINDOW_MINUTES", "30")
+    with pytest.raises(ValidationError, match="stepup_window_minutes"):
+        Settings()
+
+
+# --- prod takes passwords only from files ------------------------------------------------------
+
+PROD = {"environment": "prod", "public_base_url": "https://ownvitals.example"}
+DATABASE_URL_FIELDS = ("database_url", "migrations_database_url", "maint_database_url")
+
+
+@pytest.mark.parametrize("name", DATABASE_URL_FIELDS)
+def test_prod_refuses_a_password_embedded_in_a_database_url(name: str) -> None:
+    url = "postgresql+psycopg://user:leaky-secret@db.example/ownvitals"
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(**PROD, **{name: url})  # pyright: ignore[reportArgumentType]
+    assert name in str(excinfo.value)
+    assert "must not embed a password" in str(excinfo.value)
+    assert "leaky-secret" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("name", DATABASE_URL_FIELDS)
+def test_prod_refuses_such_a_url_from_the_environment_too(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    monkeypatch.setenv("OWNVITALS_ENVIRONMENT", "prod")
+    monkeypatch.setenv("OWNVITALS_PUBLIC_BASE_URL", "https://ownvitals.example")
+    monkeypatch.setenv(f"OWNVITALS_{name.upper()}", "postgresql+psycopg://u:leaky-secret@db/x")
+    with pytest.raises(ValidationError) as excinfo:
+        Settings()
+    assert "leaky-secret" not in str(excinfo.value)
+
+
+def test_prod_accepts_urls_without_a_password_and_the_passwords_from_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for name in ("database_password", "database_owner_password", "database_maint_password"):
+        (tmp_path / name).write_text(f"{name}-from-the-file\n", encoding="utf-8")
+    monkeypatch.setenv("OWNVITALS_SECRETS_DIR", str(tmp_path))
+    settings = Settings(
+        **PROD,  # pyright: ignore[reportArgumentType]
+        database_url="postgresql+psycopg://ownvitals_app@db/ownvitals",  # pyright: ignore[reportArgumentType]
+        migrations_database_url="postgresql+psycopg://ownvitals_owner@db/ownvitals",  # pyright: ignore[reportArgumentType]
+        maint_database_url="postgresql+psycopg://ownvitals_maint@db/ownvitals",  # pyright: ignore[reportArgumentType]
+    )
+    assert settings.sqlalchemy_url().password == "database_password-from-the-file"
+    assert settings.migrations_sqlalchemy_url().password == "database_owner_password-from-the-file"
+    maint = settings.maint_sqlalchemy_url()
+    assert maint is not None
+    assert maint.password == "database_maint_password-from-the-file"
+
+
+def test_prod_accepts_the_default_urls() -> None:
+    assert Settings(**PROD)  # pyright: ignore[reportArgumentType]
+
+
+@pytest.mark.parametrize("environment", ["dev", "test"])
+def test_other_environments_may_embed_a_password(environment: str) -> None:
+    url = "postgresql+psycopg://user:dev-password@127.0.0.1/ownvitals"
+    settings = Settings(environment=environment, database_url=url)  # pyright: ignore[reportArgumentType]
+    assert settings.sqlalchemy_url().password == "dev-password"
