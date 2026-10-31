@@ -13,10 +13,12 @@ Each has its own allowlist, of packages (the package and everything under it) an
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
   through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
-  account tables are system tables reached only through it, ADR 0003 section 1), and
+  account tables are system tables reached only through it, ADR 0003 section 1),
   ``ownvitals.jobs.queue`` (#9: the calls of the queue's ``SECURITY DEFINER`` functions, the
-  maintenance context of ADR 0002 section 4; the session itself reaches no owned row). The KEK
-  check (#8) and the flags and admin area (#12) add their exact modules in their own PRs.
+  maintenance context of ADR 0002 section 4; the session itself reaches no owned row), and the
+  exact module ``ownvitals.crypto.keks`` (#8: the key ring records and compares its
+  ``connection_keks`` check rows at startup, before any user is known, ADR 0004 section 3). The
+  flags and admin area (#12) add their exact modules in their own PR.
 
 A later package joins a list in its own PR, with its reason, and the tests in
 ``test_session_guard.py`` that pin both lists change with it. Anything else fails
@@ -50,6 +52,8 @@ class Allowlist:
 # The exact modules of ``ownvitals.jobs`` (#9) that may open each session; see the docstring.
 JOBS_USER_SESSION = ("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvitals.jobs.progress")
 JOBS_SYSTEM_SESSION = ("ownvitals.jobs.queue",)
+# The key ring's startup check (#8), the one module of ``ownvitals.crypto`` that may.
+KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
 
 USER_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
@@ -57,7 +61,7 @@ USER_SESSION = Allowlist(
 )
 SYSTEM_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth"),
-    modules=JOBS_SYSTEM_SESSION,
+    modules=(*JOBS_SYSTEM_SESSION, *KEYS_SYSTEM_SESSION),
 )
 # Each guarded name and who may use it; the private helper behind both is the session module's
 # own (only ``ownvitals.db`` may name it).

@@ -104,6 +104,7 @@ def migrated(owner_url: str, revision: str = "head") -> Iterator[None]:
     patch = pytest.MonkeyPatch()
     patch.setenv("OWNVITALS_MIGRATIONS_DATABASE_URL", owner_url)
     try:
+        forget_check_rows(owner_url)
         command.downgrade(alembic_config(), "base")
         # Alembic keeps its own table at base; a fresh one gets the owner's default privileges
         # again, so what the migrations revoke on it is checked every time, not inherited.
@@ -111,8 +112,19 @@ def migrated(owner_url: str, revision: str = "head") -> Iterator[None]:
         command.upgrade(alembic_config(), revision)
         yield
     finally:
+        forget_check_rows(owner_url)
         command.downgrade(alembic_config(), "base")
         patch.undo()
+
+
+def forget_check_rows(owner_url: str) -> None:
+    """Empty the key ring's check table, when it exists, as its owner. Migration 0004 refuses
+    its downgrade while the table holds rows (a retired key's row could never be recreated);
+    in the tests, every web or worker a test starts records them."""
+    with owner_connection(owner_url) as connection:
+        exists = connection.execute(text("SELECT to_regclass('public.connection_keks')")).scalar()
+        if exists is not None:
+            connection.execute(text("DELETE FROM public.connection_keks"))
 
 
 def public_tables(database_url: str) -> set[str]:

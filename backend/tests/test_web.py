@@ -9,8 +9,10 @@ import pytest
 from fastapi import APIRouter, FastAPI
 from sqlalchemy.engine import URL, make_url
 
+from dbtools import public_tables
 from ownvitals import __version__, web
 from ownvitals.config import Settings
+from ownvitals.crypto.keks import KeyRingError
 from ownvitals.db import DatabaseRoleError
 from ownvitals.web import FEATURE_ROUTERS, create_app
 
@@ -62,6 +64,7 @@ async def test_health_does_not_touch_the_database(unreachable_database_url: str)
     assert response.json() == {"status": "ok", "version": __version__}
 
 
+@pytest.mark.usefixtures("schema")  # web reads connection_keks at startup
 async def test_ready_is_200_with_a_real_database(app_database_url: str) -> None:
     async with make_client(app_database_url) as client:
         response = await client.get("/api/ready")
@@ -69,6 +72,23 @@ async def test_ready_is_200_with_a_real_database(app_database_url: str) -> None:
     assert response.json() == {"status": "ready"}
 
 
+async def test_web_refuses_to_start_on_an_unmigrated_database(
+    database_url: str, app_database_url: str
+) -> None:
+    """The key ring's check (ADR 0004 section 3) needs ``connection_keks``: on a database the
+    migrations haven't reached, web doesn't start, and the error names the migration."""
+    assert "connection_keks" not in public_tables(database_url)
+    with pytest.raises(
+        KeyRingError,
+        match=r"^the connection_keks table is missing: run the migrations \(up to "
+        r"0004_connection_keks\) before starting web or the worker$",
+    ) as refused:
+        async with make_client(app_database_url):
+            pytest.fail("the app must not start")
+    assert refused.value.__context__ is None  # no SQL statement or parameters attached
+
+
+@pytest.mark.usefixtures("schema")  # web reads connection_keks at startup
 async def test_the_database_password_file_replaces_the_url_password(
     app_database_url: str, caplog: pytest.LogCaptureFixture
 ) -> None:
