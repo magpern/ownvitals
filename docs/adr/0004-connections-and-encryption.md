@@ -240,8 +240,8 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   - the operation is one of append, retire, retire-all, rehash or delete-retired; a rehash
     changes only an entry's `pepper_id` and `hmac`; retire-all retires every non-retired entry
     of the app in one call, atomically;
-  - it takes the rotation lock (below) and then locks the row (`SELECT … FOR UPDATE`) before any
-    check, and reads the request itself under that lock (amended 2026-10-31, #72);
+  - it takes the rotation lock (ADR 0008 §2) and then locks the row (`SELECT … FOR UPDATE`)
+    before any check, and reads the request itself under that lock (amended 2026-10-31, #72);
   - **compare-and-clear** (amended 2026-10-31, #72): retire-all and append take the
     `rotation_requested_at` and `rotation_reason` that the step read when it started. The
     function refuses the call with `stale_request` if `rotation_requested_at` no longer holds
@@ -270,21 +270,11 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 
   It is pinned like the other definer functions (ADR 0005 §3). Web shares the app role, so code
   running in web could still call it: accepted risk 21 of the threat model.
-- **Single flight** (amended 2026-10-31, #72). Each step a rotation takes in the upkeep (ADR
-  0005 §8) is one short transaction that first takes `pg_advisory_xact_lock(4, <app id>)`
-  (namespace 4, webhook-secret rotation, ADR 0005 §9), then reads the request and the entries,
-  then makes its one call to the function **inside that same transaction**, so the lock is held
-  from the read to the commit. The function takes the same lock itself before its row lock, so
-  no call runs outside it; within the worker's transaction that second take stacks on the
-  first (advisory transaction locks are re-entrant within a session) and both are released at
-  the commit. A step makes no Withings call. Each step decides from
-  what it read under the lock, never from an earlier read, so several workers act on one app
-  one step at a time, each on what the step before left; a `rotate` that lands between a
-  step's read and its call is refused as `stale_request` (above).
 - **The entry lifecycle, the routine and compromise rotations, pepper rotation, lingering
   subscriptions and `notify list` responses** are in
   [ADR 0008](0008-webhook-secret-lifecycle.md) §1, moved there verbatim by #72 to keep this
-  file within 500 lines.
+  file within 500 lines; **single flight**, the rotation lock every rotation step takes, is in
+  ADR 0008 §2 (moved there in #72's first review round; amended 2026-10-31, #72).
 - **M0 (#8):** the ring defines both slots and validates the files if present; nothing uses them.
   **M1:** web requires the pepper, the worker the seed and the pepper.
 - **Why the ring and not keys derived from `app_secret_key`:** rotating `app_secret_key` (CSRF,

@@ -298,7 +298,7 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
 - **Owner-less upkeep** (retention purges such as the 30-day `webhook_events` purge, creating
   partitions ahead through `ensure_month_partitions` (ADR 0002 §2), secret rotation scheduling,
   and picking up a rotation request in the order its `rotation_reason` names, one step at a
-  time under the rotation lock (ADR 0008, ADR 0004 §4, §9 below; amended 2026-10-31, #49 and
+  time under the rotation lock (ADR 0008, §9 below; amended 2026-10-31, #49 and
   #72)) runs as maintenance tasks in the worker loop, like reap and purge,
   never as queue rows without an owner: `jobs` stays an owned table.
 - **Partitions before every write** (amended 2026-10-31, #49 and #72): every run that writes a
@@ -319,7 +319,7 @@ the SQL in `db-functions` uses the same numbers. A UUID key is hashed to `int4`
 | 1, job creation | `pg_advisory_xact_lock` | the owner id, hashed | §2 |
 | 2, token refresh | `pg_advisory_lock` (session-scoped) | the connection id, hashed | ADR 0004 §6 |
 | 3, partitions | `pg_advisory_xact_lock` | the parent table's oid, as `int4` | ADR 0002 §2 |
-| 4, webhook-secret rotation (amended 2026-10-31, #72) | `pg_advisory_xact_lock` | the `withings_apps` id, hashed | ADR 0004 §4 (each rotation step, and the function) |
+| 4, webhook-secret rotation (amended 2026-10-31, #72) | `pg_advisory_xact_lock` | the `withings_apps` id, hashed | ADR 0008 §2 (each rotation step), ADR 0004 §4 (the function) |
 
 A new advisory lock adds its row here in the PR that introduces it.
 

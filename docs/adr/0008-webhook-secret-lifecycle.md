@@ -93,6 +93,23 @@ end of its §4 as #49 left it. Read it with these conventions:
   stored (not in `raw`, job rows or events) and never logged or used as a metric label; a
   log-redaction test covers them (#22).
 
+### 2. Single flight (moved from ADR 0004 §4)
+
+Moved from ADR 0004 §4 in #72's first review round, to make room there. "The function" is
+ADR 0004 §4's webhook-secret function, and "(above)" points to its compare-and-clear.
+
+- **Single flight** (amended 2026-10-31, #72). Each step a rotation takes in the upkeep (ADR
+  0005 §8) is one short transaction that first takes `pg_advisory_xact_lock(4, <app id>)`
+  (namespace 4, webhook-secret rotation, ADR 0005 §9), then reads the request and the entries,
+  then makes its one call to the function **inside that same transaction**, so the lock is held
+  from the read to the commit. The function takes the same lock itself before its row lock, so
+  no call runs outside it; within the worker's transaction that second take stacks on the
+  first (advisory transaction locks are re-entrant within a session) and both are released at
+  the commit. A step makes no Withings call. Each step decides from
+  what it read under the lock, never from an earlier read, so several workers act on one app
+  one step at a time, each on what the step before left; a `rotate` that lands between a
+  step's read and its call is refused as `stale_request` (above).
+
 ## Alternatives
 
 - **Keep the text in ADR 0004:** with #72's amendments the file would pass 500 lines.
