@@ -1,0 +1,11 @@
+# Findings the Trivy repository scan (the "Trivy repository scan" step of ci.yml) must not fail on.
+# Upgrade first (AGENTS.md, "CI"): an entry is only for a finding with no fix, or in code that
+# cannot be reached. One ID per line, a "# reason" comment above it and an expiry in Trivy's
+# format, for example:
+#
+#   # Not reachable: the vulnerable function is never called.
+#   CVE-2099-0001 exp:2027-01-31
+#
+# An expired entry is removed in the next PR that touches this file. Never ignore without a reason.
+#
+# No entries today: the first scan found nothing.

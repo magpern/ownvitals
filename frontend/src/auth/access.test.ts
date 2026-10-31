@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionState } from '../api/auth'
-import { accessOf, pathFor, withReturnTo } from './access'
+import { accessOf, isAdmin, pathFor, withReturnTo } from './access'
 
 function state(overrides: Partial<SessionState> = {}, mfa = true): SessionState {
   return {
@@ -44,5 +44,26 @@ describe('pathFor and withReturnTo', () => {
     expect(withReturnTo('/signin', '/a?b=1#c')).toBe('/signin?return_to=%2Fa%3Fb%3D1%23c')
     expect(withReturnTo('/signin', '/')).toBe('/signin')
     expect(withReturnTo('/signin', null)).toBe('/signin')
+  })
+})
+
+describe('isAdmin', () => {
+  const as = (role: string) => state({ user: { id: 'u1', email: 'ann@example.test', role } })
+
+  it('is true for the admin role only', () => {
+    expect(isAdmin(as('admin'))).toBe(true)
+    expect(isAdmin(as('user'))).toBe(false)
+    expect(isAdmin(as('Admin'))).toBe(false)
+    expect(isAdmin(as(''))).toBe(false)
+  })
+
+  it('is false before the session is known, for a signed-out visitor and for a session with no user', () => {
+    expect(isAdmin(null)).toBe(false)
+    expect(isAdmin({ authenticated: false, user: null, session: null, totpEnabled: false })).toBe(false)
+    expect(isAdmin(state({ user: null }))).toBe(false)
+  })
+
+  it('does not depend on the second factor: it only says what to show, and the guards say who may see it', () => {
+    expect(isAdmin(state({ ...as('admin') }, false))).toBe(true)
   })
 })

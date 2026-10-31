@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests scripts/ci-gate.sh and scripts/ci-changes.sh with sample inputs. Run by the `checks` job.
+# Tests scripts/ci-gate.sh and scripts/ci-changes.sh with sample inputs, and scripts/ci-uv-version.sh
+# on scratch trees. Run by the `checks` job.
 # Ported from classbeat (d8060510) for the jobs changes, checks, backend and frontend.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -208,6 +209,95 @@ if command -v yq > /dev/null; then
   wf="$(yq -r '.jobs.ci.needs | sort | join(" ")' "$here/../.github/workflows/ci.yml")"
   gs="$(sed -n "s/^JOBS='\(.*\)'$/\1/p" "$here/ci-gate.sh" | jq -r 'sort | join(" ")')"
   if [ -n "$wf" ] && [ "$wf" = "$gs" ]; then report ok "gate jobs match ci.yml needs ($wf)"; else report FAIL "gate jobs '$gs' differ from ci.yml needs '$wf'"; fi
+elif [ -n "${CI:-}" ]; then
+  report FAIL "yq is missing on the CI runner"
+else
+  echo "skip: no yq here (CI has it)"
+fi
+
+# scripts/ci-uv-version.sh on scratch trees: the Dockerfile's uv tag, the setup-uv steps and the
+# uv commands in docs/dev/backend.md must agree. Needs yq (on the CI runners; skipped locally
+# without it).
+uvdir="$tmp/uv"
+# uv_tree <Dockerfile tag> <setup-uv version> <docs version>: a consistent tree when all three match
+uv_tree() {
+  rm -rf "$uvdir"
+  mkdir -p "$uvdir/.github/workflows" "$uvdir/docs/dev"
+  printf 'FROM ghcr.io/astral-sh/uv:%s AS uv\nFROM python:3.12 AS runtime\n' "$1" > "$uvdir/Dockerfile"
+  cat > "$uvdir/.github/workflows/ci.yml" <<EOF
+name: CI
+on: pull_request
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v1.0.0
+      - uses: astral-sh/setup-uv@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb # v1.0.0
+        with:
+          version: $2
+EOF
+  printf 'CI runs the commands below with uv %s.\n\n    uvx uv@%s sync --locked\n' "$3" "$3" > "$uvdir/docs/dev/backend.md"
+}
+# uv_case <name> <expected exit> <text the output must hold, or empty>
+uv_case() {
+  local name="$1" want="$2" msg="$3" out got=0
+  out="$(cd "$uvdir" && "$here/ci-uv-version.sh" 2>&1)" || got=$?
+  if [ "$got" -eq "$want" ] && { [ -z "$msg" ] || grep -qF -- "$msg" <<< "$out"; }; then
+    report ok "uv version: $name"
+  else
+    report FAIL "uv version: $name (exit $got, want $want)"
+  fi
+}
+if command -v yq > /dev/null; then
+  uv_tree 0.13.6 0.13.6 0.13.6
+  uv_case "all agree" 0 "uv 0.13.6 everywhere"
+
+  uv_tree 0.13.6 0.13.7 0.13.6
+  uv_case "setup-uv differs from the Dockerfile" 1 "setup-uv version '0.13.7' is not the Dockerfile uv tag 0.13.6"
+  # shellcheck disable=SC2016  # a literal GitHub expression, not shell
+  uv_tree 0.13.6 '${{ env.UV_VERSION }}' 0.13.6
+  uv_case "setup-uv version is computed" 1 "is not the Dockerfile uv tag"
+  uv_tree 0.13.6 0.13 0.13.6
+  uv_case "setup-uv version is a number" 1 "is not the Dockerfile uv tag"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  sed -i 's/^          version: 0.13.6$/          version-file: uv.toml/' "$uvdir/.github/workflows/ci.yml"
+  uv_case "setup-uv uses version-file" 1 "must not set version-file"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  sed -i '/setup-uv/,$d' "$uvdir/.github/workflows/ci.yml"
+  uv_case "no setup-uv step" 1 "no setup-uv step found"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  mkdir -p "$uvdir/.github/actions/x"
+  printf 'name: x\nruns:\n  using: composite\n  steps:\n    - uses: astral-sh/setup-uv@cccccccccccccccccccccccccccccccccccccccc # v1.0.0\n      with:\n        version: 0.13.5\n' \
+    > "$uvdir/.github/actions/x/action.yml"
+  uv_case "a composite action differs" 1 "(composite action)"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  printf '  frontend:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: astral-sh/setup-uv@dddddddddddddddddddddddddddddddddddddddd # v1.0.0\n        with:\n          version: 0.13.5\n' \
+    >> "$uvdir/.github/workflows/ci.yml"
+  uv_case "a second job differs" 1 "job 'frontend'"
+
+  uv_tree 0.13.7 0.13.6 0.13.6
+  uv_case "Dockerfile differs from both" 1 "is not the Dockerfile uv tag 0.13.7"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  sed -i 's/uv:0.13.6/uv:latest/' "$uvdir/Dockerfile"
+  uv_case "Dockerfile has no uv tag" 1 "no uv tag found in the Dockerfile"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  echo 'FROM ghcr.io/astral-sh/uv:0.13.5 AS uv2' >> "$uvdir/Dockerfile"
+  uv_case "Dockerfile has two uv tags" 1 "more than one uv tag"
+
+  uv_tree 0.13.6 0.13.6 0.13.7
+  uv_case "docs differ in both references" 1 "is not the Dockerfile uv tag 0.13.6"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  sed -i 's/uvx uv@0.13.6/uvx uv@0.13.5/' "$uvdir/docs/dev/backend.md"
+  uv_case "docs differ in a uvx command only" 1 "'uv@0.13.5' is not the Dockerfile uv tag"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  sed -i 's/with uv 0.13.6/with uv 0.13.5/' "$uvdir/docs/dev/backend.md"
+  uv_case "docs differ in the sentence only" 1 "'with uv 0.13.5' is not the Dockerfile uv tag"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  echo 'No version here.' > "$uvdir/docs/dev/backend.md"
+  uv_case "docs name no uv version" 1 "no uv version found"
+  uv_tree 0.13.6 0.13.6 0.13.6
+  rm "$uvdir/docs/dev/backend.md"
+  uv_case "docs file is missing" 1 "docs/dev/backend.md is missing"
 elif [ -n "${CI:-}" ]; then
   report FAIL "yq is missing on the CI runner"
 else

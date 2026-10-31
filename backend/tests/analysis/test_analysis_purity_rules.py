@@ -58,6 +58,23 @@ NAME_LOOKUPS = [
     ("import runpy\ngetattr(runpy, 'run_module')", "lookup by name of run_module"),
     ("import pkgutil\ngetattr(pkgutil, 'resolve_name')", "lookup by name of resolve_name"),
     ("from unittest import mock\ngetattr(mock, 'patch')", "lookup by name of patch"),
+    # `eval`, `compile` and `run_path` (#99), the names a narrowed rule would skip: each as a bare
+    # string, as a lookup, and as a lookup whose result is called
+    ("NAME = 'eval'", "lookup by name of eval"),
+    ("NAME = 'compile'", "lookup by name of compile"),
+    ("NAME = 'run_path'", "lookup by name of run_path"),
+    ("import builtins\ngetattr(builtins, 'eval')", "lookup by name of eval"),
+    ("import builtins\ngetattr(builtins, 'eval')('1')", "lookup by name of eval"),
+    ("import builtins\nbuiltins.__dict__['eval']('1')", "lookup by name of eval"),
+    ("import builtins\ngetattr(builtins, 'compile')", "lookup by name of compile"),
+    (
+        "import builtins\ngetattr(builtins, 'compile')('1', 's', 'eval')",
+        "lookup by name of compile",
+    ),
+    ("import builtins\nvars(builtins)['compile']('1', 's', 'eval')", "lookup by name of compile"),
+    ("import runpy\ngetattr(runpy, 'run_path')", "lookup by name of run_path"),
+    ("import runpy\ngetattr(runpy, 'run_path')('somewhere.py')", "lookup by name of run_path"),
+    ("import runpy\nrunpy.__dict__['run_path']('somewhere.py')", "lookup by name of run_path"),
 ]
 
 # --- functions that import or run the module a string names ------------------------------------
@@ -167,6 +184,8 @@ ADDED = [
     "ownvitals.config",
     "ownvitals.log",
     "ownvitals.headers",
+    # the entry point: it imports the web server, the web app, the configuration and logging (#99)
+    "ownvitals.__main__",
 ]
 
 

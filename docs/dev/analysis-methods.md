@@ -15,9 +15,10 @@ cd backend
 uvx uv@0.13.6 run pytest -q tests/analysis_methods tests/test_analysis_purity.py
 ```
 
-No database is needed. The 286 tests take about 30 s of test time (36 s wall, measured on Windows
-while other work ran), most of it the seeded simulations. The long calibration runs behind the
-tables below are a script that CI does not run (see Tests).
+No database is needed. The 287 tests take about 42 s on an idle Windows machine (41.6 s, measured
+in the #87 review), most of it the seeded simulations, and longer while other work runs. Keep the
+suite under a minute: a new simulation takes its run count from that budget. The long calibration
+runs behind the tables below are a script that CI does not run (see Tests).
 
 ## Modules
 
@@ -143,9 +144,15 @@ it at every lag. The candidates the issue named, and why this one:
 
 | Candidate | Verdict |
 |---|---|
-| Variance correction with an AR(1)-fitted effective sample size (Bayley and Hammersley 1946; for Mann-Kendall Yue and Wang 2004) | **Chosen.** Keeps `S`, `Var(S)`, the slope and its interval those of the data, pure and deterministic, and is one number to audit (`ar1_phi`) |
+| Variance correction with an effective sample size from a fitted AR(1) coefficient (Bayley and Hammersley 1946 give the effective sample size of an AR(1) series) | **Chosen.** Keeps `S`, `Var(S)`, the slope and its interval those of the data, pure and deterministic, and is one number to audit (`ar1_phi`) |
 | Trend-free prewhitening (Yue et al. 2002) | Not chosen, not simulated: it tests a different series (the prewhitened one), so `S`, `tau` and Sen's interval would no longer describe the data shown |
 | Block bootstrap | Not chosen: needs random numbers (the package has none) and hundreds of resamples per call |
+
+Yue and Wang (2004) also modify the Mann-Kendall variance by an effective sample size, but they
+take it from the sample serial correlation of the detrended series, with no model of it. Here the
+sample correlations are replaced by `rho_k = phi^k` with one fitted `phi`, in the Hamed-Rao
+weights below; the fit, the bias term and the margin are ours. `Correction.AR1` borrows the idea
+of an effective sample size from them and is not their method.
 
 The factor is the Hamed-Rao formula with `rho_k = phi^k` at all lags (a long series tends to
 `(1 + phi)/(1 - phi)`, the effective sample size of Bayley and Hammersley). `phi` comes from the
@@ -155,7 +162,7 @@ detrended series in four steps:
    bound the influence of an outlier.
 2. `r_1`, the lag-1 autocorrelation of the ranks, mapped to the Gaussian scale,
    `r = 2 sin(pi r_1 / 6)` (the relation between a rank and a product-moment correlation of
-   normal data, Pearson 1907, Kruskal 1958). For AR(1) data `r` is then near `phi`.
+   normal data, Kruskal 1958, eq. 6.4). For AR(1) data `r` is then near `phi`.
 3. `phi = r + (6 + 6 r)/n`. The added term is the **bias** of `r` after a mean and a trend have
    been removed, measured here as about `-(2 + 5.5 phi)/n` (compare Kendall 1954 and Marriott and
    Pope 1954 for the mean alone), plus a **safety margin** of about `4/n`: in a short series `phi` is not
@@ -163,66 +170,94 @@ detrended series in four steps:
    (`calibrate_autocorrelation.py`), not taken from a paper.
 4. `phi` is limited to 0 to 0.95 (never below 0, so the test is only ever made more cautious).
 
-What it costs, and a decision for the Architect: **power**. The margin that holds the level at
-`phi` 0.6 for 8 to 30 days with data also inflates the variance of independent noise (white noise
-is flagged in 1.8 % to 3.6 % of series up to 100 points and 4.5 % to 4.8 % at 200 and 365, at a
-level of 5 %; the plain test flags 4 % to 5 %), so a real trend
-is found less often in short series (power table). A curved but monotone trend leaves
-smooth residuals after the linear detrending, which look like persistence, so it is penalised the same way: 30
+What it costs, and a decision for the Architect: **power**. The margin that holds the level
+near alpha at `phi` 0.6 for 8 to 30 days with data also inflates the variance of independent
+noise (white noise is flagged in 1.6 % to 3.8 % of series up to 100 points and 4.2 % to 4.3 % at
+200 and 365, at a level of 5 %; the plain test flags 3.2 % to 5.0 %), so a real trend is found
+less often in short series (power table). A curved but monotone trend leaves smooth residuals
+after the linear detrending, which look like persistence, so it is penalised the same way: 30
 perfectly monotone readings (a sorted normal sample) get `n/n*` 5 to 11 instead of 2 to 3 and
 `p` between 8e-4 and 0.02 instead of 1e-9 to 1e-5 (test
 `test_a_monotone_series_is_a_significant_trend`).
 
 ### What the correction achieves (measured)
 
-`calibrate_autocorrelation.py trend`, seed 20261031, 5000 series per cell (2500 at n = 200, 1000
-at n = 365), no trend at all, alpha 0.05, AR(1) in reading order at irregular days (the test
-uses the order, the detrending the times). Percent of series called a trend; standard error 0.2
-to 0.7 points up to n = 100, 0.9 at 200, 1.5 at 365. The bound of the acceptance criterion is
-alpha plus three standard errors: 5.97 % at 5000 series.
+`calibrate_autocorrelation.py --runs 40000 trend`, seed 20261031, **40,000 series per cell**
+(20,000 at n = 200 and 8,000 at n = 365), no trend at all, alpha 0.05, AR(1) in reading order at
+irregular days (the test uses the order, the detrending the times). Percent of series called a
+trend; the standard error is 0.1 to 0.2 points (0.1 to 0.5 at n = 200 and 365), so the tables
+are good to a few tenths of a point. Every cell has its own generator, seeded from the seed and
+the cell (`cell_seed`), so the cells are independent and the result does not depend on the
+number of workers. The bound of the acceptance criterion is alpha plus three standard errors of
+the series made: 5.33 % at 40,000 series (5.46 % at 20,000, 5.73 % at 8,000).
 
 | n | phi 0: plain / Hamed-Rao / AR(1) | phi 0.3: plain / Hamed-Rao / AR(1) | phi 0.6: plain / Hamed-Rao / AR(1) |
 |---|---|---|---|
-| 8 | 3.1 / 3.1 / 1.8 | 7.4 / 7.3 / 3.2 | 15.4 / 15.3 / **5.5** |
-| 12 | 4.1 / 4.0 / 1.8 | 11.1 / 10.8 / 3.7 | 24.4 / 23.6 / **5.8** |
-| 20 | 4.9 / 4.7 / 2.6 | 12.6 / 11.7 / 4.1 | 29.3 / 23.4 / **5.6** |
-| 30 | 4.6 / 4.4 / 2.8 | 12.9 / 11.4 / 3.7 | 29.0 / 18.7 / **4.5** |
-| 60 | 4.9 / 4.6 / 3.5 | 14.6 / 11.0 / 4.3 | 31.0 / 15.4 / **4.2** |
-| 100 | 4.6 / 4.0 / 3.6 | 14.1 / 9.2 / 4.5 | 32.5 / 15.1 / **4.3** |
-| 200 | 5.4 / 4.8 / 4.8 | 14.0 / 8.5 / 4.4 | 29.4 / 12.0 / **4.2** |
-| 365 | 4.6 / 4.0 / 4.5 | 14.1 / 6.8 / 4.4 | 31.1 / 12.6 / **5.5** |
+| 8 | 3.2 / 3.2 / 1.6 | 7.2 / 7.2 / 3.1 | 15.4 / 15.3 / **5.9** |
+| 10 | 4.8 / 4.7 / 2.0 | 10.8 / 10.7 / 3.5 | 22.4 / 22.1 / **6.4** |
+| 12 | 4.4 / 4.3 / 1.9 | 11.2 / 11.0 / 3.7 | 23.9 / 23.1 / **6.2** |
+| 15 | 4.6 / 4.5 / 2.2 | 11.8 / 11.4 / 3.9 | 25.9 / 23.4 / **5.9** |
+| 20 | 4.7 / 4.5 / 2.3 | 12.4 / 11.7 / 3.9 | 27.8 / 22.5 / **5.4** |
+| 30 | 4.8 / 4.6 / 2.8 | 13.5 / 11.9 / 4.0 | 29.5 / 19.9 / **5.0** |
+| 60 | 4.7 / 4.4 / 3.3 | 13.9 / 10.4 / 4.2 | 30.8 / 16.2 / **4.3** |
+| 100 | 4.8 / 4.4 / 3.8 | 14.3 / 9.2 / 4.3 | 31.0 / 14.8 / **4.4** |
+| 200 | 5.0 / 4.4 / 4.3 | 14.4 / 8.5 / 4.5 | 31.7 / 13.5 / **4.5** |
+| 365 | 4.7 / 4.0 / 4.2 | 15.0 / 8.3 / 4.8 | 31.6 / 13.2 / **4.8** |
+
+**At `phi` 0.6 and fewer than 20 points the corrected test calls a trend in about 6 % of series,
+not 5 %**: 5.9, 6.4, 6.2 and 5.9 % at 8, 10, 12 and 15 points, 5.4 % at 20, 5.0 % at 30, and 4.3
+to 4.8 % from 60 points on. That is about one point above alpha and above the bound of 5.33 %
+for 40,000 series (the bound shrinks as the number of series grows; 6.4 % is inside it only for
+up to about 2,000 series). It is still far below the 15 to 26 % of the plain test and the 15 to
+23 % of Hamed-Rao at 8 to 15 points, and at `phi` 0.3 the rate is 3.1 % to 3.9 % at 8 to 20
+points. The same cells had 5.5 % (8 points) and 5.8 % (12) in the earlier version of this table,
+which was the first 5,000 series of each cell here (the same seed): a few tenths of a point
+low by chance (the standard error of 5,000 series is 0.3). The #87 review's independent run (its
+own generator, 42,000 series per cell) gave 5.8 to 6.4 % at 8 to 15 points, as here. The
+Architect accepted the method and did not raise the margin, which would cost power where it is
+already weakest. M4's findings treat a trend on fewer than 20 points with `phi` above 0.5 as
+low-confidence.
 
 These re-baseline the rates of #38 (8.7 % and 13.5 % for Hamed-Rao at 100 points, from one
-1000-series run with a shared seed, were 1 to 2 standard errors optimistic: 9.2 % and 15.1 %
-here). Other noise, same bound, 5000 series (standard error 0.2 to 0.3), `phi` 0.6; plain / Hamed-Rao / AR(1) in percent:
+1000-series run with a shared seed, were 0.6 and 1.2 standard errors below the 9.2 % and 14.8 %
+here). Other noise, same bound, 40,000 series (standard error 0.1 to 0.2), `phi` 0.6; plain /
+Hamed-Rao / AR(1) in percent:
 
 | Noise | n | plain / Hamed-Rao / AR(1) |
 |---|---|---|
-| consecutive days instead of irregular ones | 8, 30, 100 | 14.9 / 14.8 / 5.7;  30.6 / 20.8 / 5.4;  32.7 / 15.7 / 5.0 |
-| continuous-time AR(1), `phi` 0.6 **per day**, irregular days | 12, 30, 100 | 18.0 / 17.4 / 4.7;  21.9 / 16.5 / 4.5;  23.8 / 12.5 / 4.1 |
-| heavy tails: AR(1) with t(3) innovations | 12, 30, 100 | 25.1 / 24.0 / 6.2;  30.5 / 19.4 / 4.1;  33.7 / 16.1 / 4.0 |
+| consecutive days instead of irregular ones | 8, 30, 100 | 15.2 / 15.2 / 5.8;  29.9 / 20.2 / 5.0;  31.3 / 15.2 / 4.5 |
+| continuous-time AR(1), `phi` 0.6 **per day**, irregular days | 12, 30, 100 | 18.0 / 17.4 / 5.0;  22.3 / 16.5 / 4.2;  23.4 / 12.0 / 4.1 |
+| heavy tails: AR(1) with t(3) innovations | 12, 30, 100 | 25.5 / 24.4 / 6.5;  31.2 / 20.1 / 4.4;  32.5 / 15.4 / 3.9 |
 
-The one cell above the bound is the heavy-tailed series of 12 points (6.2 %, bound 5.97 %); all
-the others are inside it. The continuous-time row is the case the model does not describe exactly
-(the autocorrelation then depends on the gap between readings, and the fit sees the average).
+Of these, the cells above the bound of 5.33 % are the same short, strongly autocorrelated series:
+the consecutive-day series of 8 points (5.8 %) and the heavy-tailed series of 12 points (6.5 %);
+the others are at 5.0 % or below. The continuous-time row is the case the model does not describe
+exactly (the autocorrelation then depends on the gap between readings, and the fit sees the
+average).
 
 Power: white noise plus a straight trend of `drift` standard deviations over the series
-(percent of series called a trend; standard error 0.5 to 1.0):
+(percent of series called a trend; 40,000 series per cell, 8,000 at n = 365; standard error 0.1
+to 0.4):
 
 | n | drift | plain | Hamed-Rao | AR(1) |
 |---|---|---|---|---|
-| 12 | 3.5 | 86.1 | 85.6 | 55.8 |
-| 20 | 2.5 | 84.4 | 83.8 | 63.5 |
-| 30 | 2.0 | 85.8 | 85.0 | 71.9 |
-| 60 | 1.6 | 92.6 | 91.8 | 88.2 |
-| 200 | 0.8 | 88.6 | 86.9 | 86.7 |
-| 365 | 0.6 | 90.0 | 88.5 | 89.6 |
+| 12 | 3.5 | 86.2 | 85.7 | 56.3 |
+| 20 | 2.5 | 85.0 | 84.3 | 65.5 |
+| 30 | 2.0 | 85.5 | 84.5 | 72.1 |
+| 60 | 1.6 | 92.9 | 92.0 | 88.8 |
+| 200 | 0.8 | 88.9 | 87.2 | 87.2 |
+| 365 | 0.6 | 89.8 | 88.1 | 88.8 |
 
 The tests pin the target on fixed seeds with fewer series (1000, fewer at long lengths) so the
 suite stays fast: `phi` 0.3 and 0.6 at n = 8, 15 and 100, and 0.6 at n = 365, within alpha plus
-three standard errors of the number of series used, with a floor (a rate of at least alpha/4) so that "under the
-bound" is not "never rejects", and a regression test that independent noise keeps at least 90 % of
-the plain test's power at n = 60. They are the acceptance test; the tables are the evidence.
+three standard errors of the number of series used (7.07 % at 1000), with a floor (a rate of at
+least alpha/4) so that "under the bound" is not "never rejects", and a regression test that
+independent noise keeps at least 90 % of the plain test's power at n = 60 (88.8 % against 92.9 %
+above). They are the acceptance test; the tables are the evidence. At `phi` 0.6 and 8 or 15
+points the true rate is about 6 %, so those two cells pass with a margin of about one point (the
+seeded runs give 6.4 % and 5.4 %): they guard against a regression of the margin, not against a
+rate of 6 %, and their number of series must not grow past about 2,000 without the bound being
+reconsidered.
 
 The acceptance criterion "white noise: no trend in at least 95 % of seeded runs at the stated
 alpha" is tested two ways: at alpha = 0.01 the literal 95 % holds; at alpha = 0.05 the rate must
@@ -235,11 +270,12 @@ PELT (Killick, Fearnhead and Eckley 2012) finds the segmentation of the points i
 that minimises `sum cost(segment) + penalty * (number of change points)`, pruning the candidates
 that can never be optimal again (their Theorem 3.1, `K = 0`). It is **exact**: the tests compare
 it with the unpruned O(n^2) optimal-partitioning recursion (Jackson et al. 2005) on random series
-with planted shifts and minimum segment lengths 1 to 5, and it returns the same optimum. One
-case is written out by hand and needs no random numbers
-(`test_the_minimum_segment_delay_by_hand_without_a_random_generator`): it is returned wrongly by
-a version that prunes at once, so a change of numpy's random stream cannot stop covering the
-delay.
+with planted shifts and minimum segment lengths 1 to 5, and it returns the same optimum. Two
+cases are written out by hand and need no random numbers, with a minimum segment of 2 and of 3
+(`test_the_minimum_segment_delay_by_hand_without_a_random_generator`), each checked against the
+unpruned recursion and against every partition. A version that prunes at once is returned wrongly
+by both, and one that hard-codes the delay to 2 only by the second, so a change of numpy's random
+stream cannot stop covering the delay.
 
 The model and its parameters (ours; the paper leaves them open):
 
@@ -269,9 +305,12 @@ With it a split's gain on noise alone is about chi-squared with one degree of fr
 `phi` is, which the penalty `3 ln n` is a margin over.
 
 It has to be estimated without being fooled by the shifts it is there to find. It uses
-**differences**, which a shift touches at a few places (Chakar, Lebarbier, Levy-Leduc and Robin
-2017 estimate the AR(1) coefficient of a series with mean shifts robustly from differences; this
-is the same idea with simpler estimators):
+**differences**, which a shift touches at a few places, as Chakar, Lebarbier, Levy-Leduc and Robin
+(2017) do to estimate the AR(1) coefficient of a series with mean shifts: theirs is the squared
+ratio of the medians of the lag-2 and lag-1 absolute differences, minus 1. The estimator here is
+**not simpler than theirs but more elaborate** (five lags, trimmed variances instead of medians,
+a curve fit, then a margin and a ceiling), and it is ours. The `v_2/v_1 - 1` variant that was
+tried first, below, is the closer analogue of their estimator. The steps:
 
 1. `v_h`, h = 1 to 5: the variance of the lag-h differences `y[i+h] - y[i]`, robust: a value
    beyond 3 robust standard deviations (1.4826 MAD) of the median is left out, and the variance
@@ -353,8 +392,8 @@ the old inclusive count is refused now.
   slope, interval and intercept of a five-point series, the Hamed-Rao factor of ranks 1 to 10,
   the interval ranks of Sen, the split and penalty boundary of PELT, the AR(1) factor
   (n = 5, phi 0.5: 1.45) and coefficient (ranks 1 3 6 2 5 4), the trimmed variance, the
-  variogram fit (phi 0.5, g 1), and a PELT case that needs no random numbers and catches a
-  missing minimum-segment delay.
+  variogram fit (phi 0.5, g 1), and two PELT cases (minimum segment 2 and 3) that need no random
+  numbers and catch a missing or too short minimum-segment delay.
 - **Cross-checks**: `scipy.stats.kendalltau` (S, tie-corrected variance, uncorrected p) and
   `scipy.stats.theilslopes` (slope on irregular times); a plain loop implementation of the
   baseline windows and of equation 9 of Hamed and Rao; the O(n^2) recursion for PELT.
@@ -368,9 +407,13 @@ the old inclusive count is refused now.
   the white-noise tests of `test_methods_trend.py`): the error rates above, on fixed seeds with
   the bound stated in each test (alpha plus three binomial standard errors of the runs made, or
   the 5 % of the issue). `calibrate_autocorrelation.py` is **not a test** and CI does not run
-  it: it prints the tables above from larger runs (`trend` about 5000 series per cell,
-  `changepoint` 2000; a few minutes with 8 processes) and is how the constants were chosen.
-  Its output with seed 20261031 is what is recorded in this document.
+  it: it prints the tables above from larger runs and is how the constants were chosen. The
+  trend tables are `--runs 40000 trend` (40,000 series per cell up to 100 points, 20,000 at 200,
+  8,000 at 365, the power table 40,000 up to 200): 8,320 s of CPU time summed over its 10
+  workers, 43 minutes of wall time on a shared 16-core Windows machine. The change-point tables
+  are `changepoint` at its default of 2000 series per cell, a few minutes with 8 processes. Both
+  use seed 20261031, and their output is what is recorded in this document (the script prints
+  its CPU and wall time on the last line).
 - **Irregular sampling and gaps**: windows with too few points are invalid and never invented;
   clustered readings do not dominate the EWMA; the slope is unbiased on gapped calendars; PELT
   is unmoved by a six-week hole.
@@ -390,13 +433,14 @@ the old inclusive count is refused now.
 - Bayley and Hammersley (1946), The "effective" number of independent observations in an
   autocorrelated time series, Journal of the Royal Statistical Society, Supplement 8. Yue and
   Wang (2004), The Mann-Kendall test modified by effective sample size to detect trend in serially
-  correlated hydrological series, Water Resources Management 18. Yue, Pilon, Phinney and Cavadias
+  correlated hydrological series, Water Resources Management 18 (the effective sample size comes
+  from the sample serial correlation of the detrended series). Yue, Pilon, Phinney and Cavadias
   (2002), The influence of autocorrelation on the ability to detect trend in hydrological series,
   Hydrological Processes 16 (trend-free prewhitening, not used).
 - Kendall (1954), Note on bias in the estimation of autocorrelation, Biometrika 41. Marriott and
   Pope (1954), Bias in the estimation of autocorrelations, Biometrika 41. Kruskal (1958), Ordinal
-  measures of association, JASA 53 (Pearson 1907 gave the relation between a rank and a
-  product-moment correlation of normal data).
+  measures of association, JASA 53 (eq. 6.4 is the relation between a rank and a product-moment
+  correlation of normal data).
 - Newey and West (1987), A simple, positive semi-definite, heteroskedasticity and autocorrelation
   consistent covariance matrix, Econometrica 55. Chakar, Lebarbier, Levy-Leduc and Robin (2017), A
   robust approach for estimating change-points in the mean of an AR(1) process, Bernoulli 23.
