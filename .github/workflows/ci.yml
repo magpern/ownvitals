@@ -1,0 +1,220 @@
+name: CI
+
+# Not on push to main: main only receives squashes of pull requests that passed here with the
+# branch up to date (the main ruleset requires it). A pull request runs what its diff needs; the
+# weekly run (and a manual one) runs everything, which also picks up new advisories.
+on:
+  pull_request:
+  schedule:
+    - cron: '0 4 * * 1' # Monday 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push cancels a pull request's older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Which jobs does this change need? See scripts/ci-changes.sh (tested by scripts/test-ci-gate.sh).
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      stack: ${{ steps.filter.outputs.stack }}
+      all: ${{ steps.filter.outputs.all }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: scripts/ci-changes.sh
+
+  # Everything cheap that must run on every change, as steps of one runner. gitleaks is a
+  # checksum-verified release binary.
+  checks:
+    name: Checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The specification is frozen at Revision 3 (docs/roadmap.md). Amendments go in the roadmap,
+      # never into these files.
+      - name: Frozen specification unchanged
+        env:
+          FROZEN: 635901dd167c0c3fd2dbb6ccdc504386ad7b69f3
+        run: |
+          set -euo pipefail
+          git cat-file -e "${FROZEN}^{commit}"
+          git diff --exit-code --stat "$FROZEN" HEAD -- \
+            docs/PLAN.md docs/PLAN-operations.md docs/withings-findings.md \
+            || { echo "::error::the frozen specification changed; amend it in docs/roadmap.md instead"; exit 1; }
+
+      - name: Install gitleaks
+        env:
+          VERSION: 8.30.1
+          SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o gitleaks.tgz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          echo "${SHA256}  gitleaks.tgz" | sha256sum --check
+          tar -xzf gitleaks.tgz gitleaks
+
+      # A pull request's own commits; the weekly and manual runs scan the whole history.
+      - name: Secret scan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = pull_request ]; then
+            # A missing SHA or an empty range would make gitleaks report "no leaks" over 0
+            # commits: fail instead. --diff-merges=first-parent makes `git log -p` show the diff
+            # of a merge commit, so a secret added only in a hand-resolved merge is scanned.
+            git cat-file -e "${BASE_SHA}^{commit}"
+            git cat-file -e "${HEAD_SHA}^{commit}"
+            count="$(git rev-list --count "${BASE_SHA}..${HEAD_SHA}")"
+            [ "$count" -gt 0 ] || { echo "secret scan: no commits in ${BASE_SHA}..${HEAD_SHA}" >&2; exit 1; }
+            "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 \
+              --log-opts="--diff-merges=first-parent ${BASE_SHA}..${HEAD_SHA}" .
+          else
+            "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .
+          fi
+
+      - name: bash -n
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+
+      # koalaman/shellcheck v0.11.0, pinned by its index digest. Dependabot does not track an
+      # image used in a `run:` step: bump the tag and digest here by hand.
+      - name: shellcheck
+        run: |
+          docker run --rm -v "$PWD:/mnt:ro" -w /mnt \
+            koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
+            scripts/*.sh
+
+      - name: CI gate and change-filter tests
+        run: scripts/test-ci-gate.sh
+
+      # rhysd/actionlint v1.7.12 (includes shellcheck), pinned by its index digest. Dependabot
+      # does not track an image used in a `run:` step: bump the tag and digest here by hand.
+      - name: actionlint
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" -w /repo \
+            rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -color
+
+  # The backend skeleton issue makes this job real; the isolation and jobs issues add the
+  # database roles and the queue functions to it.
+  backend:
+    name: Backend
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          # Throwaway database of this job only; not a secret.
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OWNVITALS_TEST_DATABASE_URL: postgresql+psycopg://postgres:test@127.0.0.1:5432/ownvitals
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Create the application database
+        env:
+          PGHOST: 127.0.0.1
+          PGUSER: postgres
+          PGPASSWORD: test
+        run: psql -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE ownvitals'
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: 0.13.6
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Format check
+        run: uv run ruff format --check
+
+      - name: Type check
+        run: uv run pyright
+
+      - name: Tests
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  # The one required check besides `pr-title`. `changes` and `checks` must succeed. Every other job
+  # must succeed, or be skipped while its filter output is false (scripts/ci-gate.sh, tested in
+  # `checks`). A job that is needed but skipped, cancelled or failed fails the gate.
+  ci:
+    name: ci
+    if: always()
+    needs: [changes, checks, backend, frontend]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: All needed jobs passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: scripts/ci-gate.sh

@@ -1,0 +1,61 @@
+name: PR title
+
+# PRs are squash-merged, so the PR title becomes the commit on main: check it against
+# commitlint.config.cjs. A separate workflow, so editing the title re-runs only this check.
+#
+# The title is linted with " (#<number>)" appended: exactly the subject the squash gets.
+# header-max-length is 100, so a title of 94 to 100 characters would otherwise pass here and
+# give main a subject over the limit. scripts/commitlint-subject.sh does the lint; the self-test
+# step shows a 100-character title failing with the suffix.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-24.04
+    steps:
+      # No token left in .git/config while third-party lint code runs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The lint is tested before it is trusted: a 100-character title passes alone and must fail
+      # with the suffix the squash adds; a short title passes with it.
+      - name: Self-test the subject lint
+        run: |
+          set -euo pipefail
+          title="ci: $(printf 'x%.0s' $(seq 1 96))"
+          [ "${#title}" -eq 100 ] || { echo "::error::the self-test title is ${#title} characters"; exit 1; }
+          SUBJECT="$title" scripts/commitlint-subject.sh > /dev/null \
+            || { echo "::error::a 100-character title must pass on its own"; exit 1; }
+          # It must fail for that rule, not for any other reason (a script that does not run).
+          if out="$(SUBJECT="$title (#123)" scripts/commitlint-subject.sh 2>&1)"; then
+            echo "::error::a 100-character title with ' (#123)' must fail header-max-length"
+            exit 1
+          fi
+          grep -q 'header-max-length' <<< "$out" \
+            || { echo "::error::the suffixed title failed, but not on header-max-length"; exit 1; }
+          SUBJECT="ci: a short title (#123)" scripts/commitlint-subject.sh > /dev/null \
+            || { echo "::error::a short title with its PR number must pass"; exit 1; }
+          echo "self-test passed: the PR number suffix is linted"
+
+      # The title goes through an environment variable, never into the script text. It is linted
+      # as the squash subject, with " (#<number>)" appended.
+      - name: Check the title with commitlint
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ $PR_NUMBER =~ ^[1-9][0-9]*$ ]] || { echo "::error::no PR number"; exit 1; }
+          SUBJECT="$PR_TITLE (#$PR_NUMBER)" scripts/commitlint-subject.sh
