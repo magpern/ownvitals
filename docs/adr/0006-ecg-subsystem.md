@@ -24,9 +24,10 @@ automated validation is synthetic (AGENTS.md); and **estimated values are never 
 equivalent to Withings' certified measurements** (PLAN §7.3 step 4).
 
 In this ADR "§n" is section n of the Decision below; PLAN and findings sections are named as such.
-Values marked "our choice" are engineering choices with no literature source. Version 1 is
-**descriptive only**: #40 implements §4 to §9 and the CI part of §13 as a pure library
-(`backend/src/ownvitals/ecg/`); interpretation (§12) is deferred.
+Values marked "our choice" are engineering choices with no literature source. **Bounds are
+inclusive**: every "within", "±" and range here and in the test specification includes its ends.
+Version 1 is **descriptive only**: #40 implements §4 to §9 and the CI part of §13 as a pure
+library (`backend/src/ownvitals/ecg/`); interpretation (§12) is deferred.
 
 ## Decision
 
@@ -70,7 +71,7 @@ categorical output, never samples, values or timestamps. Agents never mark an as
 | A4 | The stored signal may already be band-limited by the device (findings §3) | OC3: the spectrum above 40 Hz is ≥ 30 dB (our choice) below the 5–15 Hz band (device low-pass: yes/no); a 50/60 Hz line is present (yes/no) | Nothing in §5 to §9 (re-filtering at the same corners only steepens the roll-off); interval estimates (§12) wait for it |
 | A5 | One array per recording (findings §3) | Probe: ECG array count and lengths. If > 1, OC4: equal length and rate, and R-peaks coincide within 20 ms (our choice) for ≥ 95 % of beats. R-peak times differ between leads, so it errs toward "not simultaneous", the safe direction | All arrays are stored; analysis uses the first; six-lead stays off (§10) |
 | A6 | Strips last about 30 s | Probe: array length and sampling rate | Strips without a 20-s beat span never pass the gate (§7) |
-| A7 | `getmeas` intervals (135–138) and AFib result (130) belong to the ECG with the same device and timestamp (findings §5 question 5) | Probe: counts of 135–138 against the ECG count. OC5: every ECG has a matching group (yes/no, count without) | E4 and E6 still run on the measures; only the link to a strip (viewer, §11 suppression) is lost |
+| A7 | `getmeas` intervals (135–138) and AFib result (130) belong to the ECG with the same device and timestamp (findings §5 question 5) | Probe: counts of 135–138 against the ECG count. OC5: every ECG has a matching group (yes/no, count without) | E4 and E6 still run on the measures; only the link to a strip (viewer, §11 overlay) is lost, and their notifications go out "not evaluated by ownvitals" as soon as no recording can be linked (§11), without waiting for the 24-hour bound |
 | A8 | `heart_rate` from `heart list` is the strip's mean rate | V3 (§14), which also validates our HR: a V3 failure needs a follow-up to tell which | Only V3's comparison |
 
 ### 3. Preserve and display (PLAN §7.3 step 2)
@@ -95,15 +96,19 @@ categorical output, never samples, values or timestamps. Agents never mark an as
 ### 4. Processing overview
 
 ```
-signal (int32 µV) ─▶ float64 mV
+signal (int32 µV) ─▶ input: checks, lead, float64 mV, window bounds
   ─▶ §5 conditioning: HP 0.5 Hz, notches 50 + 60 Hz, LP 40 Hz, all zero phase
   ─▶ §6 R-peaks: Pan–Tompkins (primary) and Elgendi (secondary), one fiducial rule
   ─▶ §7 SQI per 10-s window ─▶ gate on the longest beat span ─▶ fail: QualityRejected, stop
   ─▶ §8 RR ─▶ range check ─▶ 20 % rule ─▶ HR, RMSSD, SDNN, pNN50 ─▶ §9 `estimated`
 ```
 
-Each step is a pure function of the samples, the sampling rate and the module versions (float64, no
-I/O, randomness or clock). Supported rates: 300 and 500 Hz (A3). Analysed lead: the first (A5).
+Every step, a new one included, belongs to one versioned module (§15): `input` (the `signal_missing`
+check, the supported rates 300 and 500 Hz (A3), the analysed lead (the first, A5), µV → mV and §7's
+window bounds), `filters` (§5), `rpeaks` (§6), `sqi` (§7's indices, beat span and gate) and `hrv`
+(§8). The first four, the **gate modules**, hold every step up to and including the gate, so any
+change that can alter a gate result bumps one (§11). Each step is a pure function of the samples,
+the sampling rate and the module versions (float64, no I/O, randomness or clock).
 
 ### 5. Conditioning filters
 
@@ -121,18 +126,7 @@ with `tf2sos`; the `tf` form is numerically unsafe at 0.5 Hz) and run forward–
   need nothing above it. Interval estimates would need a wider band (Kligfield 2007: ≥ 150 Hz for
   diagnostic ECG, here capped by Nyquist), set with §12.
 
-#40 tests the composed forward–backward magnitude at 300 and 500 Hz:
-
-| Frequency | Requirement (expected value) |
-|---|---|
-| 1–30 Hz | between −1.0 and 0 dB (about −0.5 dB at 1 Hz; at 30 Hz −0.7 dB at 300 Hz, −0.8 dB at 500 Hz) |
-| 0.5 Hz and 40 Hz | −6.0 ± 0.3 dB |
-| 50 and 60 Hz, ± 0.1 Hz | ≤ −40 dB |
-| 50 and 60 Hz, ± 0.5 Hz | ≤ −25 dB (about −28 to −30 dB at 49.5 Hz) |
-| 0.05 Hz | ≤ −60 dB |
-
-It also checks that a symmetric Gaussian pulse keeps its peak within 0.5 sample (zero phase) and
-that sinusoids filtered by the real function, measured mid-signal, match the design within 1 dB.
+#40 tests the composed response at 300 and 500 Hz against the test specification's table (§13).
 
 ### 6. R-peak detection
 
@@ -184,7 +178,8 @@ when every row holds:
 
 Recorded per window but **not gating** in version 1, for §14 to judge: kSQI (kurtosis; clean
 ECG > 5, Li 2008), pSQI (power 5–15 / 5–40 Hz), basSQI (1 − power 0–1 / 0–40 Hz of the
-unfiltered window); Welch, 4-s Hann segments, 50 % overlap (Clifford 2012).
+unfiltered window); Welch, 4-s Hann segments, 50 % overlap (Clifford 2012), on the window minus
+its mean and with no further detrending (our choice: a DC offset doesn't count as baseline power).
 
 - **Rhythm-agnostic by design.** Orphanidou's max/min RR ratio rule is left out and no index uses
   RR regularity: a gate that rejects irregular rhythm would bias any later rhythm analysis (E5)
@@ -237,7 +232,7 @@ unfiltered window); Welch, 4-s Hann segments, 50 % overlap (Clifford 2012).
 `estimated` is canonical JSON (sorted keys, the rounding above):
 
 - `algo_version` (the pipeline, e.g. `ecg-1.0.0`) and `modules` (each module's `ALGO_VERSION`:
-  `filters`, `rpeaks`, `sqi`, `hrv`);
+  `input`, `filters`, `rpeaks`, `sqi`, `hrv`; §4);
 - `input_fingerprint` (SHA-256 over `signalid`, `payload_hash` and `sampling_hz`) and
   `input_revision` (PLAN §5);
 - `lead` (index analysed) and `sqi` (`result`, `reasons`, `span_s`, per-window component values);
@@ -253,6 +248,10 @@ How it is shown:
 - **Only behind the owner-only flag**: HR, HRV, R-peak markers, SQI component values and gate
   reasons. PLAN §7.2 lists "independent estimates" in the experimental tier; showing them to
   anyone else is blocked on the owner (open question 1).
+- **Only up-to-date estimates, in every output** (the viewer, API, JSON/CSV export, doctor PDF and
+  AI context), read through §11's read function: HR and HRV only from an `estimated` that isn't
+  stale (§15); R-peak markers, SQI values and gate reasons only from one that §11's rule doesn't
+  make absent. The rest is left out until the recompute, never shown with a mark.
 - **In every output** (viewer and the §11 consumers): labelled "Estimated by ownvitals from the
   raw signal; not a Withings measurement", in a panel or section of their own, never in a Withings
   slot or column, never filling a missing Withings value. An output that can't keep that label
@@ -276,9 +275,9 @@ formulas and an amendment. Analysis stays on recorded leads.
 | E1 | device | `afib` = 1 or `afib_details` ∈ {1, 11, 12}: highlighted, strip shown, "share with a doctor"; evidence holds both raw codes | Never hidden |
 | E2 | device | ≥ 3 of the user's last 10 recordings (by `recorded_at`, not deleted) with `afib_details` ∈ {2, 5}; with fewer than 10, the same count over those that exist | Never hidden |
 | E3 | device | `afib_details` ∈ {6, 7} | Never hidden |
-| E4 | experimental | QTc (138) > 450 ms (men) / 460 ms (women) and > 500 ms; PR (136) > 200 ms; QRS (135) ≥ 120 ms. Sex unknown: QTc uses only > 500 ms; PR and QRS as usual | Hidden on a gate failure of the linked (A7) recording |
+| E4 | experimental | QTc (138) > 450 ms (men) / 460 ms (women) and > 500 ms; PR (136) > 200 ms; QRS (135) ≥ 120 ms. Sex unknown: QTc uses only > 500 ms; PR and QRS as usual | Hidden on a gate failure of its trigger's linked (A7) recording |
 | E5 | experimental | Our irregularity index against Withings' `afib` | Deferred (§12): nothing in version 1 |
-| E6 | trend | QTc or QRS above the personal 90-day range, with M4's baseline and minimum-data policy (PLAN §7.1 steps 4–5) | Hidden when at least half of its linked recordings failed the gate |
+| E6 | trend | QTc or QRS above the personal 90-day range, with M4's baseline and minimum-data policy (PLAN §7.1 steps 4–5) | Hidden when at least half of its trigger recordings failed the gate; its baseline's never count |
 
 Architect's decisions (2026-10-31):
 
@@ -288,33 +287,45 @@ Architect's decisions (2026-10-31):
   the Withings fields they read. No finding stores our gate outcome or `estimated.algo_version`.
 - **Our gate is a read-time overlay.** A pure function, `ecg_gate_overlay`, decides whenever a
   finding is read, from the recordings linked to it:
-  - **Linked**: the A7 link is resolved at read time from the finding's measure groups, never
-    stored; a soft-deleted recording counts as no link. E4 has one measure group; an E6 finding's
-    inputs may span several, and every linked recording counts.
+  - **Trigger**: the measure groups whose values make the finding fire, listed in its evidence:
+    for E4 the one group with a value in a band; for E6 every group behind a QTc (138) or QRS
+    (135) value above the personal range in its window (for a daily value, all its groups).
+    Never the groups behind its 90-day baseline (its other PLAN §5 inputs).
+  - **Linked**: only the trigger's recordings, through the A7 link resolved at read time, never
+    stored; a soft-deleted recording counts as no link. Baseline recordings are never linked and
+    count toward neither the overlay nor the hold below; a gate on the baseline would be a rule
+    of its own, by amendment.
   - **Current**: an `estimated` counts as absent when its `input_fingerprint` differs from the
-    row's or its gate modules (`modules.filters`, `rpeaks`, `sqi`) differ from the running ones
-    (§15). A recording has a **gate result** (pass or fail) only from a current `estimated`;
-    `unsupported_sampling_rate` and `signal_missing` give none.
+    row's or its gate modules (`modules.input`, `filters`, `rpeaks`, `sqi`; §4) differ from the
+    running ones (§15). A recording has a **gate result** (pass or fail) only from a current
+    `estimated`; `unsupported_sampling_rate` and `signal_missing` give none.
   - E4, E6: hidden when at least half of the linked recordings **failed** (PLAN §7.3 step 3: "a
-    trace that fails the SQI produces no … findings"); shown, marked "not evaluated by
-    ownvitals", when none has a gate result (no link included); otherwise shown.
+    trace that fails the SQI produces no … findings"), so a single failing trigger strip hides
+    E6 as it hides E4; shown, marked "not evaluated by ownvitals", when none has a gate result
+    (no link included); otherwise shown.
   - E1 to E3: never hidden, since they relay Withings' classification and hiding a positive AFib
     result is the unsafe direction. Our gate outcome shows on them only behind the owner-only
     flag, so that it can't invite anyone to dismiss a Withings-reported result.
-- **One read function.** Findings are read only through one function, which loads the linked
-  recordings and calls `ecg_gate_overlay` (in `ownvitals.ecg`, which the purity guard of
-  `docs/dev/analysis.md` keeps free of database imports); a guard test fails if any other module
-  queries the findings table. Consumers: the dashboard and API; notifications (below); the
-  JSON/CSV export, with every finding and its overlay state (the user's complete data); the doctor
-  PDF and the AI context (M7), which leave hidden findings out. A link that appears later, a
-  deleted recording, a recomputed `estimated` and a new gate version are therefore current by
-  construction, and writing `estimated` re-evaluates nothing (§15).
-- **E4 and E6 notifications wait for the gate.** One is held until every linked recording (at least
-  one) has a current `estimated`, for at most 24 hours (a setting) after the finding's first
-  revision. The overlay then decides once: hidden sends nothing, ever; shown sends it, marked "not
-  evaluated by ownvitals" when there is no gate result. A new revision during the hold restarts
-  it for that revision, the bound still counted from the first; a finding withdrawn during the
-  hold sends nothing. E1 to E3 notify at once. A sent notification is never recalled.
+- **One read function.** Findings, and our estimates for every output (§9), are read only through
+  one function, which loads the linked recordings, calls `ecg_gate_overlay` (in `ownvitals.ecg`,
+  which the purity guard of `docs/dev/analysis.md` keeps free of database imports) and applies
+  §9's up-to-date rule. A guard test fails if any other module reads findings or `estimated` for
+  presentation; allowed by name: the rules engine's writes, the `estimated` recompute and its
+  sweep (§15), and the account-delete and purge path. Consumers: the dashboard and API;
+  notifications (below); the JSON/CSV export, with every finding and its overlay state (the
+  user's complete data); the doctor PDF and the AI context (M7), which leave hidden findings out.
+  A link that appears later, a deleted recording, a recomputed `estimated` and a new gate version
+  are therefore current by construction, and writing `estimated` re-evaluates nothing (§15).
+- **E4 and E6 notifications wait for the gate.** One is held while a trigger group can still be
+  linked or a linked recording lacks a current `estimated`, for at most 24 hours (a setting) after
+  the finding's first revision. A group can't be linked any more once the connection's `ecg`
+  capability is `unsupported`, `not_authorized` or `not_available` (PLAN §4.2), or a sync of the
+  `ecg` stream started after the group was stored has completed without a match; a finding with
+  no linkable recording thus ends its hold at once. The overlay then decides once: hidden sends
+  nothing, ever; shown sends it, marked "not evaluated by ownvitals" when there is no gate result.
+  A new revision during the hold restarts it for that revision, the bound still counted from the
+  first; a finding withdrawn during the hold sends nothing. E1 to E3 notify at once. A sent
+  notification is never recalled.
 - Every finding carries `rule_id`, `rule_version`, tier, `data_quality` and `origin`: an E1
   found while backfilling goes to the history view without a notification (PLAN §7.1 step 7).
   Only documented codes trigger a rule; a missing value never counts as negative.
@@ -343,25 +354,13 @@ Agents never mark the gate passed.
 
 ### 13. Validation in CI: synthetic signals only (#40)
 
-**Generator** (`backend/tests/ecgsynth.py`): **30-s strips** from the dynamical model of McSharry
-et al. (2003) with the paper's PQRST parameters and heart-rate scaling; RR from its bimodal
-spectrum (LF 0.1 Hz, HF 0.25 Hz; default RR SD about 2 %) or an explicit RR series. Output at 300
-and 500 Hz, median R amplitude A (default 1 mV), rounded to int µV like the API. Ground truth:
-R-event times and beat types. Fixed seeds; files and data labelled synthetic. Options:
-
-- AF-like: P amplitude 0, 0.05 mV f-waves at 5–7 Hz, independent lognormal RR with CV 0.25, mean
-  HR 100–150 bpm;
-- ectopic beats: a premature interval at 60–70 % of the preceding sinus interval and a full
-  compensatory pause (the two sum to twice it), QRS twice as wide, inverted T; sinus background
-  modulated by ± 2 % at 0.1 Hz and ± 2 % at 0.25 Hz;
-- respiratory modulation of the RR intervals (not of instantaneous HR), a sinusoidal series alone;
-- the noise models of the test specification below.
-
 **The test specification** is [0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md), part
-of this ADR: noise models and SNR, beat matching (±150 ms, ANSI/AAMI EC57; Se and +P pooled per
-condition and rate, with a 95 % floor per accepted strip), the gate conditions, HR and HRV
-tolerances, the ectopic, respiratory and AF-like assertions, SQI bounds and components, seeds and
-other CI tests, a simulation note, and §11's overlay and notification-hold assertions. Its
+of this ADR: the synthetic generator (`backend/tests/ecgsynth.py`: 30-s strips from the dynamical
+model of McSharry et al. 2003, with AF-like, ectopic and respiratory options), noise models and
+SNR, beat matching (±150 ms, ANSI/AAMI EC57; Se and +P pooled per condition and rate, with a 95 %
+floor per accepted strip), the gate conditions, §5's filter responses, HR and HRV tolerances, the
+ectopic, respiratory and AF-like assertions, SQI bounds and components, seeds and other CI tests,
+a simulation note, and §11's overlay, read-function and notification-hold assertions. Its
 thresholds are our choices; every seeded case must meet them. An unreachable threshold is
 reported to the Architect; tests never loosen silently.
 
@@ -388,8 +387,8 @@ owner** (open question 2).
 
 ### 15. Versioning and reproducibility (PLAN §5 provenance)
 
-- Each module has an `ALGO_VERSION` (SemVer), and the pipeline version changes with any of them: a
-  change that can alter any output bumps the major version, an added field the minor.
+- Each module (§4) has an `ALGO_VERSION` (SemVer), and the pipeline version changes with any of
+  them: a change that can alter any output bumps the major version, an added field the minor.
 - **Staleness, a deliberate reading of PLAN §5.** PLAN §5 calls a derived row stale when its input
   revision or fingerprint differs. `estimated` derives from its own row only, so it is stale when
   its `algo_version` or `input_fingerprint` differs: the `ecg` revision counter is stream-wide and
@@ -397,10 +396,9 @@ owner** (open question 2).
   this row's payload. `input_revision` is still stored. A backfill-lane job recomputes it
   (`origin=backfill`, no notifications), enqueued by a new or rewritten signal and by the sweep
   after a module version bump. Until then §11's rule applies: an `estimated` counts as absent
-  when its `input_fingerprint` differs from the row's or its gate modules (`modules.filters`,
-  `rpeaks`, `sqi`) differ from the running ones, so an `hrv`-only bump keeps the gate results.
-  The viewer hides our R-peak markers and SQI values while that rule makes `estimated` absent,
-  and shows HR and HRV only from an `estimated` that isn't stale.
+  when its `input_fingerprint` differs from the row's or its gate modules (`modules.input`,
+  `filters`, `rpeaks`, `sqi`) differ from the running ones, so an `hrv`-only bump keeps the gate
+  results. Every output shows only up-to-date estimates (§9).
 - **No revision bump and no re-evaluation, also deliberate.** `estimated` is derived output kept
   on the source row; bumping `data_revisions` on its write would make each analysis stale its own
   input. The revision bump (#21, #25) ignores updates that touch only `estimated`, and since no
@@ -431,13 +429,14 @@ owner** (open question 2).
 - Version 1 is descriptive. #40 implements §4 to §9 and §13's CI part; #21 adds `payload_hash`;
   #25 implements the rest of §1 (validation, zstd encoding, `zstandard`) and, with #21, a revision
   bump that ignores `estimated`-only updates (§15); the M5 viewer/PDF issue implements §3; the M5
-  rules issue implements §11 (E1 to E4, E6, `ecg_gate_overlay` and the one findings read
-  function with its guard test), which every later consumer uses; the M6/M7 notification issue
-  implements §11's hold of E4 and E6 notifications; #47 implements §14. E5 and the rest of §12
-  wait for the later revision, their own issue and the owner's gate.
+  rules issue implements §11 (E1 to E4, E6, `ecg_gate_overlay` and the one read function for
+  findings and estimates, with its guard test), which every later consumer uses; the M6/M7
+  notification issue implements §11's hold of E4 and E6 notifications; #47 implements §14. E5
+  and the rest of §12 wait for the later revision, their own issue and the owner's gate.
 - The Architect adds A1 to A8 to `docs/status.md` with their settling items.
 - `estimated` carries its versions and fingerprint, so a changed parameter recomputes history
-  instead of mixing versions; findings never depend on it, so they need no recompute.
+  instead of mixing versions, and no output shows a superseded one meanwhile (§9); findings never
+  depend on it, so they need no recompute.
 
 ## Open questions
 
@@ -450,10 +449,10 @@ owner** (open question 2).
    licences and outside the repository, CI and agent contexts (§14).
 
 **Decided by the Architect (2026-10-31).** Findings hold Withings data only; our gate is a
-read-time overlay behind one read function, with a hold on E4/E6 notifications (§11). E4 with
-unknown sex applies only > 500 ms to QTc (§11). `ownvitals ecg validate` is owner-run, #47 (§14).
-Other rates such as 250 Hz are decided after the probe and stay assumption A3 (§2). Version 1 has
-no interpretation; the E5 index is deferred (§12).
+read-time overlay over a finding's trigger recordings only, behind one read function, with a hold
+on E4/E6 notifications (§11). E4 with unknown sex applies only > 500 ms to QTc (§11). The
+owner-run `ownvitals ecg validate` is #47 (§14). Other rates such as 250 Hz are decided after the
+probe and stay assumption A3 (§2). Version 1 has no interpretation; the E5 index is deferred (§12).
 
 ## References
 
