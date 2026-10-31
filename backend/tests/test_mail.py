@@ -256,6 +256,20 @@ async def test_a_server_that_stalls_after_the_greeting_is_cut_at_the_total_deadl
     assert (smtp.connections, smtp.messages) == (1, [])
 
 
+async def test_a_send_the_server_never_reads_is_cut_at_the_total_deadline() -> None:
+    """N6: the server stops reading after ``354`` and a 4 MB message fills every buffer, so
+    the client's ``sendall`` blocks; the time left bounds it like every receive."""
+    body = "a synthetic line of an oversized message\n" * 100_000
+    async with SmtpFake(stall_in_data=True) as smtp:
+        mailer = Mailer(_local(smtp.port), total_seconds=1.5)
+        started = time.monotonic()
+        with pytest.raises(MailError) as raised:
+            await mailer.send(MailMessage("to@example.com", "Big", body))
+        assert 1.4 <= time.monotonic() - started < 4
+    assert str(raised.value) == "delivery failed (deadline passed)"
+    assert (smtp.connections, smtp.messages) == (1, [])
+
+
 async def test_mutation_a_socket_timeout_alone_never_ends_a_trickle() -> None:
     """Plain ``smtplib`` with a 0.3 s timeout per operation: the 0.8 s greeting still arrives,
     because each byte comes within the timeout. The deadline above is what bounds it."""

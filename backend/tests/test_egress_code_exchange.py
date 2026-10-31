@@ -271,6 +271,8 @@ REFUSED_HEADERS: list[list[tuple[str, str]]] = [
     [("Content-Type", FORM_TYPE), ("X-Forwarded-For", "203.0.113.1")],
     [("Content-Type", FORM_TYPE), ("Connection", "keep-alive")],
     [("Content-Type", FORM_TYPE), ("Content-Type", FORM_TYPE)],
+    # httpx keeps both: only the uniqueness check refuses this one.
+    [("Content-Type", FORM_TYPE), ("Accept", "application/json"), ("Accept", "application/json")],
     [("Content-Type", FORM_TYPE), ("Host", "evil.example")],
     [("Content-Type", FORM_TYPE), ("Content-Length", "5")],
     [("Content-Type", FORM_TYPE), ("Content-Encoding", "identity")],

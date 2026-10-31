@@ -22,8 +22,9 @@ The transport checks the **final bytes on the wire** again, whatever reaches it:
 https://wbsapi.withings.net/v2/oauth2`` (no other method, host, port, raw path or query), only
 the header names above (each once, ``Host`` the API host, the form content type, a matching
 ``Content-Length``), and a body of at most 4 KiB that is the canonical ``urlencode`` of its own
-parsed fields, with exactly the allowed fields, each at most once, the fixed action and grant
-type, a non-empty code and no forbidden character in any decoded value. Any redirect answer is
+parsed fields, with only allowed fields, each at most once, the fixed action and grant
+type, a non-empty code and no forbidden character in any decoded value (a subset of the six
+fields passes this check; the encoder above always sends all six). Any redirect answer is
 refused, never followed.
 
 Anything else raises ``OutboundBlocked`` before the network transport sees the request, and logs

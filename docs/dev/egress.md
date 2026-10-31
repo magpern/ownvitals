@@ -48,8 +48,8 @@ response = await egress.exchange_withings_code(
 )
 
 # Web: Google sign-in (#10): Authlib's AsyncOAuth2Client, built by the package (PKCE S256,
-# client_secret_post) over Google's sign-in transport. Nothing else may import Authlib's
-# network integrations (authlib.jose and authlib.oauth2 are fine).
+# client_secret_post) over Google's sign-in transport. PKCE takes effect only when the caller
+# passes code_verifier to both calls, as here. Nothing else may import authlib.integrations.
 async with egress.google_oauth_client(
     client_id=cid, client_secret=secret, scope="openid email", redirect_uri=callback_url
 ) as client:
@@ -74,8 +74,8 @@ forbidden character in any decoded value. No redirect is followed.
   writes a TLS key log (`SSLKEYLOGFILE` is ignored, `tls_client_context`).
 - `total_seconds` (positive and finite) bounds a whole request with its body
   (`RequestDeadline`, a `TimeoutError`): Withings 30 s, Google 10 s, the code exchange 10 s (the
-  code is valid for 30 s). urllib requests get theirs from `timeout` (fallback 60 s) and
-  `call_deadline` / `call_deadline_until`.
+  code is valid for 30 s), the model 300 s (`MODEL_TOTAL_SECONDS`; each read 120 s). urllib
+  requests get theirs from `timeout` (fallback 60 s) and `call_deadline` / `call_deadline_until`.
 - `RequestBudget(hosts, limit, used)` with `request_budget(budget)` counts every request and
   redirect hop to `hosts` before it is sent; the one over the limit raises
   `RequestBudgetExhausted` and is never sent (per-job budgets, #18).
@@ -99,42 +99,93 @@ implicit-TLS modes).
 `SMTP_TOTAL_SECONDS` (20 s; `Mailer(settings, total_seconds=...)`, positive and finite). The
 deadline is taken before the thread is scheduled, and every socket operation gets the time left
 as its timeout: the connection, each `recv` of a reply, each send and the TLS handshake. A server
-that trickles its replies a byte at a time, or stalls after the greeting, ends at the deadline
-with `MailError("delivery failed (deadline passed)")`. It is a module constant in `mail.py` until
+that trickles its replies a byte at a time, stalls after the greeting, or stops reading during
+`DATA` (so the client's send blocks) ends at the deadline with
+`MailError("delivery failed (deadline passed)")`. It is a module constant in `mail.py` until
 `config.py` can take a setting (the Architect moves it once the shared-file lock allows).
 
 ## The guard
 
-`tests/egress_scan.py`, run by `tests/test_egress_guard.py` over the whole source tree. It
-**denies by default**: outside the `ownvitals.egress` package a module may not
+`tests/egress_scan.py`, run by `tests/test_egress_guard.py` and `tests/test_egress_closure.py`
+over the whole source tree. It is **closed-world**: which modules can reach the network is
+computed from the locked environment, and every one that `src/` uses is classified in one
+reviewed table. Outside `ownvitals.egress`, `ownvitals.mail` included, a capable module that is
+not classified is refused.
 
-- import a network-capable module, a submodule or a name from one (`NETWORK_MODULES`: `socket`,
-  `ssl`, `http.client`, `urllib.request`, `smtplib`, `httpx`, `httpcore`, `requests`, `aiohttp`,
-  `urllib3`, `websockets`, `multiprocessing.connection`, `authlib.integrations`, `anthropic`,
-  `openai`, `asyncio.streams` ...), also through `importlib.import_module` or `__import__`, nor
-  use a name under one through a module that holds it (`egress.clients.httpx.AsyncClient`,
-  `mail.smtplib.SMTP`);
-- call or import a connection function of `asyncio` or `anyio` (`CONNECTION_FUNCTIONS`:
-  `open_connection`, `loop.create_connection`, `loop.create_datagram_endpoint`,
-  `loop.sock_connect`, `anyio.connect_tcp`, `create_udp_socket` ...), on whatever object;
-- build an `Allowlist`, `AllowlistTransport`, opener or deadline handler, hand an entry point a
-  list, or use a private name of `ownvitals.egress` or `ownvitals.mail`;
-- call `install_worker_allowlist` (only `WORKER_ROLE_MODULES`, above);
-- star-import anything.
+**Network-capable** (`tests/egress_closure.py`; nothing is imported or executed, modules are
+found on `sys.path` and read with `ast`, parses are cached for the run):
 
-Exceptions, each with its reason in the guard: `ALLOWED_IMPORTS` lets `ownvitals.mail` import
-`smtplib`, and `EXEMPT` lets it build `smtplib.SMTP` and `SMTP_SSL` (a call or a subclass, for
-the deadline) and nothing else. An import inside `if TYPE_CHECKING:` is allowed when its names
-appear only in annotations (anywhere else they would run). Each name of the lists has a refused
-snippet in the guard test, which fails when the name is removed.
+- a seed: `socket`, `_socket`, `ssl`, `_ssl`, `select`;
+- a module whose **module-level** imports include a capable module (`try`/`except`, `if`/`else`,
+  `with`, loops and class bodies are followed; `if TYPE_CHECKING:` and `if __name__ ==
+  "__main__":` are not; importing `a.b` imports `a`);
+- a module in which a **function body** imports a seed. Other function-level imports are not
+  followed (`os.popen` imports `subprocess` lazily; following that makes nearly everything
+  capable).
+
+**Edge cuts** (`EDGE_CUTS` in `tests/egress_classified.py`) stop propagation, each with a reason
+and a test that proves it: `typing_extensions` imports `_socket` only to read the type of its
+CAPI capsule and binds no socket API. A chain through a cut (`typing_extensions._socket`) is
+still refused.
+
+**The table** (`TABLE` in `tests/egress_classified.py`; a key `x.*` covers a package, the most
+specific key wins, `only_in` scopes an entry):
+
+| Class | Entries |
+|---|---|
+| denied | `starlette.testclient` |
+| by design (inbound or driver code) | `fastapi`, `fastapi.responses`, `starlette.*`, `uvicorn`, `sqlalchemy.*` |
+| allowed names | `asyncio`: `AbstractEventLoop`, `SelectorEventLoop`, `run`, `timeout`, `to_thread`; `email.message`: `EmailMessage`; `importlib.metadata`: `PackageNotFoundError`, `version`; `pydantic.fields`: `FieldInfo`; `pydantic_settings`: `BaseSettings`, `PydanticBaseSettingsSource`, `SettingsConfigDict`; `smtplib`, only in `ownvitals.mail`: `SMTP`, `SMTP_SSL` and its exception classes |
+
+Any other name of an allowed module is refused wherever it is referenced: an import, a call, a
+bare reference, an attribute value, a `partial` argument, an alias or a chain.
+
+What else the guard refuses outside the package:
+
+- **chains**: a dotted name is resolved to its longest module prefix and followed through what
+  each module bound by an import (`asyncio.base_events.socket` is `socket`,
+  `logging.handlers.socket` too); inside `ownvitals` re-exported names are followed as well
+  (`mail.smtplib.SMTP`, `egress.clients.httpx`). Every capable module on the way is classified;
+- **event-loop network methods on any object**, called or not: every method of
+  `asyncio.AbstractEventLoop` outside `LOOP_METHODS` (`create_connection`, `sock_connect`,
+  `getaddrinfo` ...) and the functions of `asyncio.streams`, read from the locked stdlib. A loop
+  object cannot be told apart statically, so `retry(loop.sock_connect)` is refused too;
+- **strings** that name a dotted path to a capable module or to a name outside its allowed names
+  (`ext://` stripped; `"handlers.X"` is also read as `logging.handlers.X`, the `fileConfig`
+  form), as `dictConfig` would import it;
+- an import that does **not resolve** in the locked environment ("not in the locked
+  environment"), except inside `if TYPE_CHECKING:`;
+- **dynamic imports** with a computed name, a `package` or a `fromlist` (a constant name is an
+  ordinary import), and `pkgutil.resolve_name`. `getattr(x, "name")` is the reference `x.name`;
+- **assigning to** or deleting any attribute of `ownvitals.egress` or `ownvitals.mail` (also by
+  `setattr`/`delattr`), and any private name of either;
+- building an `Allowlist`, `AllowlistTransport`, opener or deadline handler, or handing an entry
+  point a list;
+- calling `install_worker_allowlist` (only `WORKER_ROLE_MODULES`, above);
+- star-importing anything.
+
+An import inside `if TYPE_CHECKING:` is allowed when its names appear only in annotations.
+
+**Adding a dependency or an import.** The guard names the path to the network
+(`x can reach the network (x -> y -> socket); not classified`). The PR adds a table entry with
+its reason, and only the names it uses; that is a security-critical change. #10 classifies
+`authlib.jose` this way (it is capable through `cryptography.x509` -> `email.utils` -> `socket`);
+`authlib.oauth2` is not capable.
+
+**Platforms.** An unclassified capable import fails everywhere. A table entry or cut that
+nothing needs fails on Linux only, where CI runs; an allowed name nothing uses fails everywhere.
+Modules that cannot be found on the platform are skipped and counted, and the test prints them
+(Windows 8, Linux 10: platform modules and optional JSON and multipart libraries). The two files
+take about 17 s locally, 6 s of it the two reachability subprocesses.
 
 **Exceptions callers catch.** The package's own (`OutboundBlocked`, `RequestDeadline`,
 `RequestBudgetExhausted`) come from `ownvitals.egress`. A caller that needs an exception class of
 a network library (an httpx transport error, say) gets it re-exported by `ownvitals.egress` in
 its own PR, with the reason in the guard test; it never imports the library. None is needed yet.
 
-- `WORKER_PACKAGES`: packages that run in the worker never import `ownvitals.mail`.
-- `WORKER_ENTRYPOINTS`: imported in a fresh interpreter, they must not load `ownvitals.mail`,
+- `WORKER_PACKAGES` (`tests/egress_worker.py`): packages that run in the worker never import
+  `ownvitals.mail`.
+- `WORKER_ENTRYPOINTS` (`tests/egress_worker.py`): imported in a fresh interpreter, they must not load `ownvitals.mail`,
   `smtplib`, `authlib` or another client library. **Add each new worker entry module here**
   (the worker loop, the job runner, the Withings client ...).
 - Tests that call `install_worker_allowlist` reset the process state afterwards with an autouse
@@ -144,7 +195,7 @@ its own PR, with the reason in the guard test; it never imports the library. Non
 ```bash
 cd backend
 uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
-  tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
+  tests/test_egress_closure.py tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
   tests/test_egress_budget.py tests/test_mail.py
 ```
 
@@ -152,6 +203,18 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
 
 - The checks run inside the process: code in it could still open a socket around them (the guard
   makes that visible in review); a network-level egress rule is the deployment's.
+- The guard is static, and the review gate covers what it cannot see:
+  - deliberate indirection (N9): `sys.modules`, a computed `getattr`, `exec`/`eval`,
+    `importlib.util` loaders, `ctypes`. The cheap partial closes are in: dynamic imports,
+    `pkgutil.resolve_name`, constant `getattr`, and `_socket`/`_ssl` as seeds;
+  - process execution (N10): `subprocess` is capable (it imports `select`) and so refused, as
+    are `asyncio.create_subprocess_*` and `anyio`; `os.system`, `os.popen`, `os.exec*` and
+    `os.spawn*` pass. The runtime image has no curl or wget;
+  - out of scope by design (N13): the database driver's host is a setting, like the SMTP host
+    (`sqlalchemy.*` is by design); inbound listeners are not egress (`uvicorn` is by design;
+    `socketserver`, `http.server` and `logging.config` are refused as unclassified);
+    `xml.sax.parse(url)` goes through `urlopen`, which the worker's opener covers (and `xml.sax`
+    is refused as unclassified).
 - The web process installs no process-wide urllib opener yet: a third-party library calling
   `urlopen` in web is not stopped at run time (our own code is kept out by the guard). A
   deny-all opener at web start goes to #10, the next issue to take `web.py`.

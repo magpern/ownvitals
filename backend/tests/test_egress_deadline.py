@@ -400,6 +400,20 @@ async def test_a_stalled_body_ends_at_the_total_deadline(worker: None) -> None:
     assert time.monotonic() - started < 2
 
 
+async def test_the_model_client_ends_at_its_total_deadline() -> None:
+    """N4: a model answer that never ends is cut at the total deadline, not after each read's
+    timeout (120 s)."""
+    install_worker_allowlist(ai_enabled=True)
+    started = time.monotonic()
+    async with egress.model_async_client(total_seconds=0.2, inner=Slow()) as client:
+        with pytest.raises(RequestDeadline):
+            await client.post("https://api.anthropic.com/v1/messages")
+    assert time.monotonic() - started < 2
+    async with egress.model_async_client() as client:
+        transport = client._transport  # pyright: ignore[reportPrivateUsage]
+        assert getattr(transport, "_total_seconds") == egress.MODEL_TOTAL_SECONDS == 300.0  # noqa: B009
+
+
 async def test_a_slow_answer_ends_at_the_total_deadline(worker: None) -> None:
     started = time.monotonic()
     async with withings_async_client(total_seconds=0.2, inner=Slow()) as client:
@@ -415,6 +429,7 @@ async def test_a_total_deadline_is_positive_and_finite(worker: None, seconds: An
     for builder in (
         withings_async_client,
         egress.google_async_client,
+        egress.model_async_client,
         lambda **kw: egress.google_oauth_client(**values, scope="openid", **kw),  # pyright: ignore[reportUnknownLambdaType]
     ):
         with pytest.raises(ValueError, match="positive, finite"):

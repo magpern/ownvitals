@@ -1,0 +1,130 @@
+"""The reviewed classification of every network-capable module ``src/`` uses (PR #55 round 2).
+
+``egress_closure`` computes which modules can reach the network; this table says what ``src/``
+may do with each one it imports or references. A capable module that is not here is refused
+("not classified"): a new dependency or a new import cannot slip in unreviewed. Changing this
+file is a security-critical change.
+
+- **denied**: refused wherever it is imported or referenced (a carve-out of a by-design prefix);
+- **by_design**: the whole module is allowed, for inbound or driver code only (the web
+  framework, the server, the database toolkit: their hosts are the listener or a setting);
+- **allowed**: only ``names`` (and, with ``exceptions``, the module's own exception classes) may
+  be referenced from it, by an import, a call, a bare reference, an attribute value, an alias, a
+  ``partial`` argument or a chain; anything else in the module is refused, so a new connection
+  API in it is refused by default.
+
+A key ending in ``.*`` covers the package and its submodules; the most specific key wins.
+``only_in`` limits an entry to those modules (elsewhere the module is unclassified).
+
+``EDGE_CUTS``: modules whose imports are reviewed as not a network path, with the reason; the
+closure does not propagate through them (``test_egress_closure.py`` proves each reason).
+
+``LOOP_METHODS``: the methods of ``asyncio.AbstractEventLoop`` (read from the locked stdlib) that
+any object may use. Every other method of it (``create_connection``, ``sock_connect``,
+``getaddrinfo`` ...) is refused as an attribute of any object, since a loop object cannot be
+told apart statically.
+
+Stale entries, names and cuts fail the guard test (entries and cuts only on Linux, where CI runs
+and the closure is authoritative).
+"""
+
+from dataclasses import dataclass
+from typing import Literal
+
+Kind = Literal["denied", "by_design", "allowed"]
+
+
+@dataclass(frozen=True)
+class Entry:
+    kind: Kind
+    reason: str
+    names: frozenset[str] = frozenset()
+    exceptions: bool = False
+    only_in: tuple[str, ...] = ()
+
+
+def _allowed(reason: str, *names: str, exceptions: bool = False, only_in: tuple[str, ...] = ()):
+    return Entry("allowed", reason, frozenset(names), exceptions, only_in)
+
+
+TABLE: dict[str, Entry] = {
+    # (b) by design: inbound or driver code.
+    "fastapi": Entry("by_design", "the web framework: inbound HTTP, served by uvicorn"),
+    "fastapi.responses": Entry("by_design", "response classes of the web framework"),
+    "starlette.*": Entry("by_design", "the ASGI toolkit under FastAPI: inbound HTTP"),
+    "uvicorn": Entry("by_design", "the ASGI server: it listens, it does not connect out"),
+    "sqlalchemy.*": Entry(
+        "by_design", "the database toolkit; it connects only to the configured database (N13)"
+    ),
+    # (a) denied: carve-outs of a by-design prefix.
+    "starlette.testclient": Entry("denied", "an httpx client; tests use their own"),
+    # (c) allowed names.
+    "asyncio": _allowed(
+        "the event loop and threads; connections, servers and loop network methods are refused",
+        "AbstractEventLoop",  # a type, for the Windows selector loop policy (db.engine)
+        "SelectorEventLoop",  # psycopg on Windows (db.engine); its methods: LOOP_METHODS
+        "run",
+        "timeout",
+        "to_thread",
+    ),
+    "email.message": _allowed(
+        "building a message; email.utils' make_msgid (a DNS lookup) is not used",
+        "EmailMessage",
+    ),
+    "importlib.metadata": _allowed(
+        "the installed version; its email parsing never connects",
+        "PackageNotFoundError",
+        "version",
+    ),
+    "pydantic.fields": _allowed("field metadata (uuid makes it capable)", "FieldInfo"),
+    "pydantic_settings": _allowed(
+        "settings from the environment and secret files; no remote sources",
+        "BaseSettings",
+        "PydanticBaseSettingsSource",
+        "SettingsConfigDict",
+    ),
+    "smtplib": _allowed(
+        "account mail, web only (roadmap Amendment 1): the two clients and their errors",
+        "SMTP",
+        "SMTP_SSL",
+        exceptions=True,
+        only_in=("ownvitals.mail",),
+    ),
+}
+
+EDGE_CUTS: dict[str, str] = {
+    "typing_extensions": (
+        "imports _socket only to read the type of its CAPI capsule (CapsuleType); "
+        "it binds no socket API"
+    ),
+}
+
+LOOP_METHODS: frozenset[str] = frozenset(
+    {
+        "call_at",
+        "call_exception_handler",
+        "call_later",
+        "call_soon",
+        "call_soon_threadsafe",
+        "close",
+        "create_future",
+        "create_task",
+        "default_exception_handler",
+        "get_debug",
+        "get_exception_handler",
+        "get_task_factory",
+        "is_closed",
+        "is_running",
+        "run_forever",
+        "run_in_executor",
+        "run_until_complete",
+        "set_debug",
+        "set_default_executor",
+        "set_exception_handler",
+        "set_task_factory",
+        "shutdown_asyncgens",
+        "shutdown_default_executor",
+        "stop",
+        "time",
+    }
+)

@@ -1,34 +1,28 @@
-"""The outbound guard (``egress_scan``) over the whole source tree, and proof it can fail."""
+"""The outbound guard (``egress_scan``) over the whole source tree, and proof it can fail.
+The closure and the table themselves: ``test_egress_closure.py``."""
 
 from pathlib import Path
 
 import pytest
 
-import egress_scan
+from egress_classified import TABLE
 from egress_scan import (
-    ALLOWED_IMPORTS,
-    CONNECTION_FUNCTIONS,
     EGRESS_SUBMODULES,
-    EXEMPT,
-    NETWORK_MODULES,
-    WORKER_ENTRYPOINTS,
-    WORKER_PACKAGES,
     WORKER_ROLE_MODULES,
-    exempt_uses,
     imported_modules,
-    loaded_watched_modules,
     scan_source,
     scan_tree,
     sources,
 )
+from egress_worker import WORKER_ENTRYPOINTS, WORKER_PACKAGES, loaded_watched_modules
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 M = "ownvitals.withings.client"
 WEB = "ownvitals.auth.routes"
-NETWORK = "network modules are used only in ownvitals.egress"
+NOT_CLASSIFIED = "can reach the network"
 
 
-def _plant(root: Path, module: str, source: str) -> None:
+def plant(root: Path, module: str, source: str) -> None:
     *packages, name = module.split(".")
     directory = root.joinpath(*packages)
     directory.mkdir(parents=True, exist_ok=True)
@@ -49,26 +43,28 @@ def test_the_guard_fails_when_a_planted_module_builds_its_own_client(tmp_path: P
         "    async with httpx.AsyncClient() as client:\n"
         "        return await client.get(url)\n"
     )
-    _plant(tmp_path, "ownvitals.withings.planted", source)
+    plant(tmp_path, "ownvitals.withings.planted", source)
     found = scan_tree(tmp_path)
-    module = "ownvitals.withings.planted"
-    assert (module, 1, f"imports httpx: {NETWORK}") in found
-    assert {line for _, line, _ in found} == {1, 4}
+    assert {(m, line) for m, line, _ in found} == {
+        ("ownvitals.withings.planted", 1),
+        ("ownvitals.withings.planted", 4),
+    }
+    assert any(why.startswith(f"imports httpx: httpx {NOT_CLASSIFIED}") for _, _, why in found)
 
 
 def test_the_guard_fails_when_a_planted_module_only_imports_a_network_name(
     tmp_path: Path,
 ) -> None:
     """The import alone is refused: deny by default, whatever the module does with it."""
-    _plant(tmp_path, "ownvitals.web.planted", "from ssl import create_connection\n")
-    _plant(tmp_path, "ownvitals.web.fine", "from urllib.parse import urlsplit\n")
+    plant(tmp_path, "ownvitals.web.planted", "from ssl import create_connection\n")
+    plant(tmp_path, "ownvitals.web.fine", "from urllib.parse import urlsplit\n")
     found = scan_tree(tmp_path)
     assert {(m, line) for m, line, _ in found} == {("ownvitals.web.planted", 1)}
-    assert ("ownvitals.web.planted", 1, f"imports ssl: {NETWORK}") in found
+    assert any(why.startswith(f"imports ssl: ssl {NOT_CLASSIFIED}") for _, _, why in found)
 
 
 def test_the_planted_module_is_allowed_only_inside_the_egress_package(tmp_path: Path) -> None:
-    _plant(tmp_path, "ownvitals.egress.planted", "import httpx\nhttpx.AsyncClient()\n")
+    plant(tmp_path, "ownvitals.egress.planted", "import httpx\nhttpx.AsyncClient()\n")
     assert scan_tree(tmp_path) == []
     assert scan_source("import httpx\nhttpx.AsyncClient()\n", "ownvitals.egressive") != []
 
@@ -84,79 +80,6 @@ def test_the_egress_package_itself_is_scanned_as_allowed() -> None:
 
 def test_the_submodules_are_found() -> None:
     assert {"core", "opener", "clients", "code_exchange"} <= EGRESS_SUBMODULES
-
-
-# B1: every name the review required. Removing one from the guard fails this test, and the
-# per-name tests below show each one is what refuses its snippet.
-REQUIRED_NETWORK_MODULES = {
-    "socket",
-    "ssl",
-    "http.client",
-    "urllib.request",
-    "smtplib",
-    "httpx",
-    "requests",
-    "aiohttp",
-    "websockets",
-    "multiprocessing.connection",
-    "authlib.integrations",
-    "anthropic",
-    "openai",
-    "asyncio.streams",
-}
-REQUIRED_CONNECTION_FUNCTIONS = {
-    "open_connection",
-    "open_unix_connection",
-    "create_connection",
-    "create_datagram_endpoint",
-    "sock_connect",
-    "connect_tcp",
-    "connect_unix",
-    "create_udp_socket",
-    "create_connected_udp_socket",
-}
-
-
-def test_the_required_names_are_listed() -> None:
-    assert REQUIRED_NETWORK_MODULES <= NETWORK_MODULES
-    assert REQUIRED_CONNECTION_FUNCTIONS <= CONNECTION_FUNCTIONS
-
-
-@pytest.mark.parametrize("name", sorted(NETWORK_MODULES))
-def test_each_network_module_is_refused_by_its_own_entry(
-    name: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    head, _, tail = name.rpartition(".")
-    snippets = [
-        f"import {name}",
-        f"from {name} import x",
-        f"import importlib\nimportlib.import_module('{name}')",
-    ]
-    if head:
-        snippets.append(f"from {head} import {tail}")
-    for snippet in snippets:
-        assert scan_source(snippet, M) != [], snippet
-    monkeypatch.setattr(egress_scan, "NETWORK_MODULES", NETWORK_MODULES - {name})
-    for snippet in snippets:
-        assert scan_source(snippet, M) == [], snippet
-
-
-@pytest.mark.parametrize("name", sorted(CONNECTION_FUNCTIONS))
-def test_each_connection_function_is_refused_by_its_own_entry(
-    name: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    snippets = [
-        f"async def f(loop):\n    await loop.{name}(p, 'x', 443)",
-        f"import asyncio\nasyncio.get_running_loop().{name}()",
-        f"import anyio\nanyio.{name}",
-        f"from asyncio import {name}",
-        f"from anyio import {name} as c",
-    ]
-    for snippet in snippets:
-        assert scan_source(snippet, M) != [], snippet
-    monkeypatch.setattr(egress_scan, "CONNECTION_FUNCTIONS", CONNECTION_FUNCTIONS - {name})
-    for snippet in snippets:
-        assert scan_source(snippet, M) == [], snippet
 
 
 REFUSED = [
@@ -200,6 +123,7 @@ REFUSED = [
     "import smtplib\nsmtplib.SMTP('x')",
     "from smtplib import SMTP_SSL as S\nclass M(S): pass",
     "import importlib\nimportlib.import_module('requests')",
+    "import importlib\nimportlib.import_module('http.client')",
     "from importlib import import_module\nimport_module('httpx')",
     "__import__('aiohttp')",
     "import urllib.request\nclass H(urllib.request.BaseHandler): pass",
@@ -232,6 +156,10 @@ REFUSED = [
     "import anyio\nanyio.connect_tcp('x', 443)",
     "from anyio import connect_unix",
     "import anyio\nawait anyio.create_udp_socket()",
+    "import anyio\nanyio.to_thread.run_sync(f)",  # anyio is not classified at all
+    "import multiprocessing\nmultiprocessing.cpu_count()",  # capable: classify it first
+    "import subprocess\nsubprocess.run(['curl', 'x'])",  # select makes it capable
+    "import uuid\nuuid.uuid4()",  # its getnode imports socket in a function
     # Star imports would hide what they bring in.
     "from ownvitals.egress.clients import *",
     "from os import *",
@@ -283,10 +211,14 @@ ALLOWED = [
     "from urllib.error import HTTPError, URLError",
     "from urllib.parse import urlsplit\nurlsplit('https://x')",
     "import asyncio\nasyncio.to_thread(f)\nasyncio.timeout(1.0)",
-    "import anyio\nanyio.to_thread.run_sync(f)",
-    "from authlib.jose import JsonWebToken",
     "from authlib.oauth2.rfc6749 import OAuth2Error",
-    "import multiprocessing\nmultiprocessing.cpu_count()",
+    "import os.path\nos.path.join('a', 'b')",
+    "import json, re, logging, os, typing, datetime, dataclasses",
+    "x = 'uvicorn.error'\ny = 'wbsapi.withings.net'",
+    "from fastapi import FastAPI\nFastAPI()",
+    "from sqlalchemy.ext.asyncio import create_async_engine",
+    "import asyncio\nasyncio.run(main())",
+    "loop.run_in_executor(None, f)\nloop.close()",
     "from ownvitals.egress import WITHINGS_ALLOWLIST\nWITHINGS_ALLOWLIST.check_url(u)",
     "from ownvitals.egress import OutboundBlocked, RequestDeadline, refuse_in_worker",
     "from ownvitals import egress\negress.__name__",
@@ -401,28 +333,23 @@ def test_the_guard_fails_when_a_planted_web_module_installs_the_worker_list(
     source = (
         "from ownvitals import egress\n\n\ndef start():\n    egress.install_worker_allowlist()\n"
     )
-    _plant(tmp_path, "ownvitals.web.startup", source)
+    plant(tmp_path, "ownvitals.web.startup", source)
     assert [(m, line) for m, line, _ in scan_tree(tmp_path)] == [("ownvitals.web.startup", 5)]
     (tmp_path / "ownvitals" / "web" / "startup.py").unlink()
-    _plant(tmp_path, "ownvitals.worker.__main__", source)
+    plant(tmp_path, "ownvitals.worker.__main__", source)
     assert scan_tree(tmp_path) == []
 
 
 # The one exemption: account mail over smtplib (roadmap Amendment 1).
 def test_mail_is_the_only_module_allowed_a_connection_of_its_own() -> None:
-    assert set(EXEMPT) == set(ALLOWED_IMPORTS) == {"ownvitals.mail"}
-    assert set(EXEMPT["ownvitals.mail"]) == {"smtplib.SMTP", "smtplib.SMTP_SSL"}
-    assert set(ALLOWED_IMPORTS["ownvitals.mail"]) == {"smtplib"}
-
-
-def test_every_exemption_is_still_used() -> None:
-    found = dict(sources(SRC))
-    for module, calls in EXEMPT.items():
-        assert module in found, f"{module} no longer exists; drop its exemption"
-        assert exempt_uses(found[module], module) == (set(calls), set(ALLOWED_IMPORTS[module]))
+    limited = {key: entry.only_in for key, entry in TABLE.items() if entry.only_in}
+    assert limited == {"smtplib": ("ownvitals.mail",)}
+    assert TABLE["smtplib"].names == {"SMTP", "SMTP_SSL"}
+    assert TABLE["smtplib"].exceptions
 
 
 def test_an_exemption_is_per_module_and_per_name() -> None:
+    """N12: inside mail, only the two clients and smtplib's exception classes."""
     call = "import smtplib\nsmtplib.SMTP('x')"
     assert scan_source(call, "ownvitals.mail") == []
     assert scan_source(call, WEB) != []
@@ -434,8 +361,14 @@ def test_an_exemption_is_per_module_and_per_name() -> None:
         "import socket",
         "import ssl\nssl.create_default_context()",
         "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import ssl\nssl.SSLContext()",
+        "import smtplib\nsmtplib.socket.socket()",
+        "import smtplib\nsmtplib.ssl.create_default_context()",
+        "from smtplib import socket",
+        "import smtplib\nsmtplib.SMTP_PORT",
     ):
         assert scan_source(other, "ownvitals.mail") != [], other
+    errors = "import smtplib\nraise smtplib.SMTPDataError(1, 'x')\nsmtplib.SMTPException"
+    assert scan_source(errors, "ownvitals.mail") == []
     subclass = "import smtplib\nclass Deadline(smtplib.SMTP_SSL): ..."
     assert scan_source(subclass, "ownvitals.mail") == []
     assert scan_source(subclass, WEB) != []

@@ -6,7 +6,8 @@ password comes from the ``smtp_password`` secret file. Locally the host is mailp
 in-process SMTP fake (``tests/smtpfake.py``).
 
 This is the one module the outbound guard lets open a connection outside ``ownvitals.egress``
-(``tests/egress_scan.py``, ``EXEMPT``): the SMTP host is a setting, not an allowlist entry. The
+(``tests/egress_classified.py``: ``smtplib.SMTP``, ``SMTP_SSL`` and smtplib's exception classes,
+only here): the SMTP host is a setting, not an allowlist entry. The
 account mails run in the web process; ``refuse_in_worker`` refuses a send in the worker before
 any connection. TLS uses ``egress.tls_client_context()``: verifying, and never a key log.
 

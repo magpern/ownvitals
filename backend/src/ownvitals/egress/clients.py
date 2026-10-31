@@ -61,6 +61,9 @@ if TYPE_CHECKING:
 
 Role = Literal["web", "worker"]
 MODEL_TIMEOUT_SECONDS: Final = 120.0
+# Total deadline of one model request, its answer included. A constant until the AI work
+# (M7) makes it a setting; the SDK retries a request with a fresh deadline.
+MODEL_TOTAL_SECONDS: Final = 300.0
 # Total deadline of one Withings API request unless the caller gives one.
 WITHINGS_TOTAL_SECONDS: Final = 30.0
 # Total deadline of one Google sign-in request (classbeat's 10 s OAuth timeout).
@@ -214,15 +217,21 @@ def withings_async_client(
 def model_async_client(
     *,
     timeout: float = MODEL_TIMEOUT_SECONDS,
+    total_seconds: float = MODEL_TOTAL_SECONDS,
     inner: httpx.AsyncBaseTransport | None = None,
     refused: Callable[[OutboundBlocked], Exception] | None = None,
 ) -> httpx.AsyncClient:
     """The model SDK's client (M7: ``AsyncAnthropic(http_client=...)``). Built only in a worker
     whose list holds the model host, that is with AI enabled; otherwise ``OutboundBlocked``. Its
-    list is the model host alone, although the worker's is wider."""
+    list is the model host alone, although the worker's is wider. ``timeout`` bounds each read;
+    every request with its answer ends within ``total_seconds``."""
+    seconds = check_total_seconds(total_seconds)
     allowlist = worker_only(MODEL_ALLOWLIST.hosts, MODEL_HOST)
     network = inner if inner is not None else _network_transport()
-    return _client(AllowlistTransport(allowlist, network, refused, role="worker"), timeout)
+    transport = AllowlistTransport(
+        allowlist, network, refused, total_seconds=seconds, role="worker"
+    )
+    return _client(transport, timeout)
 
 
 def _google_signin_transport(

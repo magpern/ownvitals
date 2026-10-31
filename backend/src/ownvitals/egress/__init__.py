@@ -1,11 +1,13 @@
 """The outbound allowlist (PLAN §2 "The worker owns every outbound call", roadmap Amendment 1).
 
 This package is the only place in ``ownvitals`` that builds an HTTP client, a transport or a
-``urllib`` opener. The guard in ``tests/egress_scan.py`` denies by default: outside this package
-(and ``ownvitals.mail`` for ``smtplib``) no module imports a network-capable module, calls an
-``asyncio`` or ``anyio`` connection function, uses a private name of the package or of
-``ownvitals.mail``, or calls ``install_worker_allowlist`` (the worker's entry point and the probe
-CLI excepted). The lists are code; nothing in the environment widens one. Callers catch the
+``urllib`` opener. The guard in ``tests/egress_scan.py`` is closed-world: which modules can
+reach the network is computed from the locked environment, and outside this package a module
+may use one only as the reviewed table ``tests/egress_classified.py`` classifies it (inbound and
+driver code by design, a few allowed names, ``smtplib``'s two clients only in ``ownvitals.mail``).
+Nothing outside uses a private name of the package or of ``ownvitals.mail``, assigns to either,
+or calls ``install_worker_allowlist`` (the worker's entry point and the probe CLI excepted).
+The lists are code; nothing in the environment widens one. Callers catch the
 package's own exceptions (``OutboundBlocked``, ``RequestDeadline``, ``RequestBudgetExhausted``);
 a network library's exception class a caller needs is re-exported here, never imported from the
 library (none is needed yet).
@@ -32,6 +34,7 @@ makes that visible in review; a network-level egress rule is the deployment's).
 from ownvitals.egress.clients import (
     GOOGLE_TOTAL_SECONDS,
     MODEL_TIMEOUT_SECONDS,
+    MODEL_TOTAL_SECONDS,
     WITHINGS_TOTAL_SECONDS,
     AllowlistTransport,
     google_async_client,
@@ -104,6 +107,7 @@ __all__ = [
     "MODEL_ALLOWLIST",
     "MODEL_HOST",
     "MODEL_TIMEOUT_SECONDS",
+    "MODEL_TOTAL_SECONDS",
     "REQUEST_FALLBACK_SECONDS",
     "WITHINGS_ACCOUNT_HOST",
     "WITHINGS_ALLOWLIST",

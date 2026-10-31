@@ -10,6 +10,7 @@ import asyncio
 import datetime
 import ipaddress
 import re
+import socket
 import ssl
 from dataclasses import dataclass, field
 from email import message_from_bytes
@@ -87,28 +88,39 @@ class Received:
 class SmtpFake:
     """``reply_delay``: send every reply one byte at a time, this many seconds apart (a
     trickling server). ``greeting``: the banner after ``220``. ``stall_after_greeting``:
-    greet, then never answer again. ``tls``:
-    offer STARTTLS with this server context, or speak TLS at once with ``implicit_tls``."""
+    greet, then never answer again. ``stall_in_data``: answer ``354`` to ``DATA``, then read
+    nothing more until the fake closes (a 4 KiB receive buffer, so the client's send blocks).
+    ``tls``: offer STARTTLS with this server context, or speak TLS at once with
+    ``implicit_tls``."""
 
     port: int = 0
     messages: list[Received] = field(default_factory=lambda: list[Received]())
     reply_delay: float = 0.0
     greeting: str = "fake ESMTP"
     stall_after_greeting: bool = False
+    stall_in_data: bool = False
     tls: ssl.SSLContext | None = None
     implicit_tls: bool = False
     connections: int = 0
     tls_upgrades: int = 0
     _server: asyncio.Server | None = None
+    _release: asyncio.Event = field(default_factory=asyncio.Event)
 
     async def __aenter__(self) -> Self:
         context = self.tls if self.implicit_tls else None
-        self._server = await asyncio.start_server(self._serve, "127.0.0.1", 0, ssl=context)
+        listener = socket.socket()
+        if self.stall_in_data:  # accepted sockets inherit it
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        listener.bind(("127.0.0.1", 0))
+        self._server = await asyncio.start_server(
+            self._serve, sock=listener, ssl=context, limit=1024
+        )
         self.port = self._server.sockets[0].getsockname()[1]
         return self
 
     async def __aexit__(self, *_: object) -> None:
         assert self._server is not None
+        self._release.set()
         self._server.close()
         await self._server.wait_closed()
 
@@ -157,6 +169,9 @@ class SmtpFake:
                     await say("250 ok")
                 elif verb == "DATA":
                     await say("354 go")
+                    if self.stall_in_data:
+                        await asyncio.wait_for(self._release.wait(), 30)
+                        return
                     raw = await reader.readuntil(b"\r\n.\r\n")
                     body = raw[: -len(b"\r\n.\r\n")].replace(b"\r\n..", b"\r\n.")
                     self.messages.append(Received(sender, recipients, message_from_bytes(body)))
@@ -166,7 +181,7 @@ class SmtpFake:
                     break
                 else:
                     await say("250 ok")
-        except (ConnectionError, asyncio.IncompleteReadError, ssl.SSLError):
+        except (ConnectionError, asyncio.IncompleteReadError, ssl.SSLError, TimeoutError):
             pass
         finally:
             writer.close()
