@@ -15,7 +15,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | M3 | Identity additions | not started | — |
 | M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67) and #56 (#74) merged; #68 in progress; #76 ready | — |
 | M5 | ECG & nerve health | ADR 0006 (#46) in a fix round after its sixth FAIL (root cause of the trigger rule changed); #40 after it; #47 created | — |
-| M6 | MVP UI | not started; the UI design is chosen ([docs/design/](design/README.md), #85) | — |
+| M6 | MVP UI | not started; the UI design is chosen ([docs/design/](design/README.md), #85; spec corrections in #91) | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
 
@@ -26,6 +26,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | #6 | Egress allowlist and mail | Opus | #55 | second FAIL (`efae7bb`); root cause changed: network capability derived from the locked environment and one reviewed table; fix round |
 | #39 | ADR 0006: ECG subsystem spec | Opus | #46 | sixth FAIL (`222579e`, B7); root cause changed: the trigger is the provenance of the triggering value; fix round |
 | #8 | Envelope encryption and KEK ring | Opus | — | in progress |
+| #91 | Align the design mock-ups with the spec (follow-ups from the #86 review) | Architect | #92 | fresh Sonnet review |
 | #9 | Job queue, leases, fencing and worker | Opus | — | in progress |
 | #75 | Role-check follow-ups from the #65 review | Opus | — | in progress |
 | #68 | Autocorrelation-robust trend test and change points | Sonnet | — | in progress |
@@ -180,7 +181,7 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/src/ownvitals/cli.py` | #9 |
 | `compose.yaml` | #9 |
 | `Dockerfile` | — (#57 next) |
-| `AGENTS.md` | #85 |
+| `AGENTS.md` | — |
 | `backend/src/ownvitals/web.py` | #8 |
 | `backend/src/ownvitals/db/engine.py` | — |
 | `backend/src/ownvitals/db/tables.py` | #8 |
@@ -199,6 +200,7 @@ review.
 
 ## Completed
 
+- 2026-10-31: #85 the chosen UI design and its mock-ups merged as #86 (Sonnet PASS `d01ff96`, merge check `2bb7dc4`); the review's spec findings go into #91.
 - 2026-10-31: #72 ADR hardening merged as #73 (Opus PASS `293d818` after FAIL `cb9f7f6`, merge check `5fc8520`); ADRs 0007 and 0008 added.
 - 2026-10-31: #56 analysis follow-ups merged as #74 (Sonnet PASS `ce28f28`, merge check `8f483aa`) → IMPLEMENTED.
 - 2026-10-31: #5 tenant isolation merged as #65 (Opus PASS `5a994d1` after FAIL `46264a4`) → IMPLEMENTED.
