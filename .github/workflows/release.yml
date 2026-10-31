@@ -1,0 +1,208 @@
+name: Release
+
+# A version tag pushed to this repository builds the image, pushes it to GHCR, attests its build
+# provenance and creates the GitHub Release. Nothing else starts it: pull requests never reach it,
+# and there is no manual trigger. The deploy (PLAN-operations §9.2) accepts only an image digest
+# whose attestation this workflow signed for a protected v* tag. docs/dev/release.md says how to
+# cut a release, what each job checks, and what the deploy must check on its own side.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/magpern/ownvitals
+
+jobs:
+  verify:
+    name: Verify tag
+    if: github.repository == 'magpern/ownvitals'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # SemVer 2.0.0 without build metadata (a Docker tag cannot hold "+"): numeric parts without
+      # leading zeros; pre-release identifiers are non-empty, and numeric ones have no leading zero.
+      - name: Tag is a SemVer version on main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C # ASCII ranges in the pattern, whatever the runner's locale
+          if [[ "$GITHUB_REF" != "refs/tags/$TAG" ]]; then
+            echo "::error::'$GITHUB_REF' is not a tag ref"
+            exit 1
+          fi
+          num='(0|[1-9][0-9]*)'
+          ident='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+          semver="^v${num}\.${num}\.${num}(-${ident}(\.${ident})*)?$"
+          if ! [[ "$TAG" =~ $semver ]]; then
+            echo "::error::Tag '$TAG' is not vMAJOR.MINOR.PATCH[-prerelease]"
+            exit 1
+          fi
+          # fetch-depth: 0 fetched every branch; no credentials are needed (or kept) here.
+          if ! git rev-parse --verify --quiet refs/remotes/origin/main >/dev/null; then
+            echo "::error::origin/main is missing from the checkout"
+            exit 1
+          fi
+          # Exit status 1 (not an ancestor) and 128 (an error) both refuse the tag.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::Tag commit $GITHUB_SHA is not on main"
+            exit 1
+          fi
+          echo "$TAG ($GITHUB_SHA) is a SemVer tag on main"
+
+  image:
+    name: Image
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The emulator that runs the linux/arm64 build steps, and the BuildKit that builds both
+      # platforms, are images that shape what gets attested: both are pinned by digest and nothing
+      # is restored from the Actions cache. Dependabot does not track images given as action
+      # inputs: bump the tag and digest here by hand (docs/dev/release.md).
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm64
+          cache-image: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+          cache-binary: false
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # X.Y.Z, X.Y (a pre-release gets only its full version: the semver type extends nothing
+      # else for it) and sha-<short>. `latest` is never published: deployments pin a digest.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      # No build cache (no cache-from or cache-to): every release builds from the tagged source
+      # and the pinned base images, so no cache entry written by another run can reach it.
+      # BuildKit's own provenance and SBOM go into the image index as classbeat's do; the
+      # attestation the deploy trusts is the next job's.
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: generator=docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+
+  # Separate from the build so the OIDC token (id-token: write) is never available while the
+  # build runs; this job runs only first-party actions and gh.
+  attest:
+    name: Attest
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write # the Sigstore signing certificate
+      attestations: write # store the attestation in this repository
+      packages: write # push the attestation next to the image in GHCR
+    steps:
+      - name: Digest is a sha256 digest
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
+            || { echo "::error::the image job returned no sha256 digest: '$DIGEST'"; exit 1; }
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The subject is the multi-platform index digest, the one the deploy pulls. Storage records
+      # exist only for organisation-owned repositories, so none is requested.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ needs.image.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      # The release exists only if the attestation verifies with the deploy's own checks, from the
+      # GitHub API and from the copy in the registry.
+      - name: Attestation verifies as the deploy checks it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          policy=(
+            --repo magpern/ownvitals
+            --cert-identity "https://github.com/magpern/ownvitals/.github/workflows/release.yml@refs/tags/$TAG"
+            --cert-oidc-issuer https://token.actions.githubusercontent.com
+            --source-ref "refs/tags/$TAG"
+            --source-digest "$GITHUB_SHA"
+            --deny-self-hosted-runners
+          )
+          gh attestation verify "oci://$IMAGE@$DIGEST" "${policy[@]}"
+          gh attestation verify "oci://$IMAGE@$DIGEST" "${policy[@]}" --bundle-from-oci
+
+  release:
+    name: GitHub Release
+    needs: [image, attest]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [[ "$TAG" == *-* ]]; then flags+=(--prerelease); fi
+          # Prepended to the generated notes: the digest to deploy and how to check it (the
+          # indented line is a Markdown code block). The deploy runs its own checks
+          # (docs/dev/release.md); these notes are only a convenience.
+          notes="Image: $IMAGE@$DIGEST
+
+          Check its build provenance before deploying it:
+
+              gh attestation verify oci://$IMAGE@$DIGEST --repo $GH_REPO --cert-identity https://github.com/$GH_REPO/.github/workflows/release.yml@refs/tags/$TAG --source-ref refs/tags/$TAG --source-digest $GITHUB_SHA --deny-self-hosted-runners
+          "
+          gh release create "$TAG" --verify-tag --generate-notes --notes "$notes" "${flags[@]}"

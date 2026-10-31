@@ -9,12 +9,12 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #3 merged (#34); #35 backend and #41 ADRs in fix rounds | — |
-| M1 | Withings core | not started; backlog #18–#30 (dependency graph below) | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41) merged; wave 2: #5, #6, #7 in progress; #45 in review (#48); #49 ready; #42 waits for the `ci.yml` lock | — |
+| M1 | Withings core | #19 (in-process fake) in progress; backlog #18, #20–#30, #36 (dependency graph below) | — |
 | M2 | Home deploy (early) | not started; mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
-| M4 | Analysis v1 | analysis core pulled forward (#37, #38; pure libraries, start after #2) | — |
-| M5 | ECG & nerve health | ECG spec ADR 0006 in progress (#39); signal-processing core #40 after it | — |
+| M4 | Analysis v1 | analysis core pulled forward: #37 in progress, #38 ready (pure libraries) | — |
+| M5 | ECG & nerve health | ECG spec ADR 0006 in review (#46, third review); #40 after it; #47 (`ecg validate`) created | — |
 | M6 | MVP UI | not started | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
@@ -23,11 +23,14 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #2 | Backend skeleton, config, Alembic baseline, local stack (+ numpy, scipy) | Sonnet | #35 | finishing |
-| #4 | ADRs 0001–0005, health-data threat model | Opus | #41 | decisions applied (`acbf086`); Opus review; merges before this PR |
-| #45 | Frontend test hardening (from the #34 review) | Sonnet | — | in progress |
-| #39 | ADR 0006: ECG subsystem spec (pulled forward) | Opus | — | in progress |
-| #43 | Status after wave 1 (this update) | Architect | #44 | in review |
+| #5 | Tenant isolation: UserContext, forced RLS, roles, guards (+ #35 review follow-ups) | Opus | — | in progress |
+| #6 | Egress allowlist and mail | Opus | — | in progress |
+| #7 | Release workflow (attestation), Dependabot ecosystems | Opus | — | in progress |
+| #19 | In-process fake-withings and synthetic data generator | Sonnet | — | in progress |
+| #37 | Analysis core (pulled forward) | Sonnet | — | in progress |
+| #45 | Frontend test hardening (from the #34 review) | Sonnet | #48 | Sonnet review |
+| #39 | ADR 0006: ECG subsystem spec | Opus | #46 | two FAILs fixed; fresh Opus review |
+| #50 | Status at the start of wave 2 (this update) | Architect | #51 | in review |
 
 ## M0 dependency graph
 
@@ -48,7 +51,8 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | #14 | E2E harness, auth flows, image scan | Sonnet | #3, #11 | 6 |
 | #15 | RLS tests in every execution context | Opus | #9, #12, #13 | 7 |
 | #16 | Threat-model update, M0 acceptance | Opus | #4, #14, #15 | 8 |
-| #42 | CI dependency audits (pip-audit, npm audit, Trivy repo scan); remove the skip steps | Sonnet | #2, #3 | 2 |
+| #42 | CI dependency audits (pip-audit, npm audit, Trivy repo scan); remove the skip steps | Sonnet | #2, #3; the `ci.yml` lock (#5) | 2 |
+| #49 | ADR follow-ups from the #41 review (webhook-secret lifecycle, re-pointing, definer-function role, partitions for past months) | Opus | #41 | 2 |
 
 ## M1 dependency graph
 
@@ -81,6 +85,9 @@ Pure libraries with synthetic-data tests; no database, I/O or Withings imports (
 | #39 | ADR 0006: ECG subsystem spec (PLAN §7.3: spec before code) | Opus | — |
 | #40 | M5 ECG signal-processing core: filters, R-peaks, SQI gate, HRV | Sonnet | #2, #39 |
 
+Also created early in M5: #47, the owner-run `ownvitals ecg validate` command (ADR 0006 §14;
+Opus; depends on #39, #40, #21, #25).
+
 Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #10 → #11 → #13 →
 #15 → #16) and #6 come first, the pulled-forward issues fill free slots.
 
@@ -90,7 +97,7 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 |---|---|---|
 | 2026-10-31 | numpy and scipy join #2's dependencies so #37, #38 and #40 don't need the `pyproject.toml` lock | #2 |
 | 2026-10-31 | Roadmap Amendment 2: partitioned owned tables keyed `(owner_id, id, partition key)`, never FK targets | roadmap, ADR 0002 |
-| 2026-10-31 | Webhook secrets are derived, never stored: secret = HMAC(seed key from the KEK ring, app_id ‖ secret_id); the database keeps only HMAC(pepper, secret) (PLAN §4.4, §5). The worker holds the seed (subscribe, `notify update`); web holds only the pepper. After a KEK compromise, subscriptions that can't be updated (tokens wiped) keep the old secret until reconnect; the receiver retires it, payloads are only hints and polling covers the gap (D3): accepted risk | ADR 0004, #8, #24 |
+| 2026-10-31 | Webhook secrets are derived, never stored: `secret = HMAC-SHA256(seed[seed_id], "ownvitals-webhook-v1" ‖ app_id ‖ secret_id)`; each entry keeps `{secret_id, seed_id, pepper_id, hmac, active_from, retire_at}` with hmac = HMAC(pepper, secret) (PLAN §4.4, §5). The worker holds seed and pepper; web holds only the pepper. A seed rotation is a secret rotation. After a seed compromise (or a compromise of the KEK ring holding it), subscriptions whose tokens were wiped keep the old URL until reconnect; the retired secret gets the generic 200 and is ignored: accepted risk 20 | ADR 0004, #8, #24 |
 | 2026-10-31 | Roadmap Amendment 1: the code exchange in the OAuth callback runs in web through a web-only egress entry | roadmap, ADR 0004 |
 | 2026-10-31 | Partitioned owned tables allowed only with forced RLS on parent and partitions, no app-role privileges on partitions, partitions created by one reviewed `SECURITY DEFINER` function; guard 1 extended by #21 | ADR 0002 |
 | 2026-10-31 | Reversible default until the owner says otherwise (ADR 0004 had left it to the owner): disconnect keeps imported data, with an explicit delete option; linking another Withings account requires disconnecting first; a failed upstream revoke still deletes local secrets | ADR 0004, #27 |
@@ -103,11 +110,17 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 | 2026-10-31 | Licence rule (MIT, ISC, Apache-2.0, OFL) covers direct dependencies and everything shipped; transitive dev-only tooling under other permissive or weak-copyleft licences (BSD, MPL-2.0 unmodified, MIT-0, CC0, BlueOak, CC-BY-4.0 data) is accepted, as in classbeat | #34 |
 | 2026-10-31 | npm audit gates at `high`; moderate dev-only findings (ESLint chain) don't fail CI | #42 |
 
+| 2026-10-31 | `withings_apps` writes: app configuration only by #22's CLI under the owner role (one-off operator containers), with its audit row; the app role has column-level SELECT only. "Rotate" sets `rotation_requested_at`; the worker's owner-less maintenance loop derives the secret and writes entries through one narrow `SECURITY DEFINER` function (single caller, guard); each `notify update` is an owned job. Code execution in web could call that function: accepted risk 21 | ADR 0002, 0004, 0005, #21, #22, #24 |
+| 2026-10-31 | #41 review follow-ups: entries deleted once no subscription uses them, pepper retired when unreferenced; old seed kept worker-side until re-pointing ends (≤ 14 days); `active_from` ≥ web cache TTL; `notify list` on (re)connect revokes stale subscriptions; webhook-secret function owned by a dedicated `NOLOGIN` role with input rules; client-secret rewrap is an operator step; `ownvitals_maint` can't write `withings_apps`; `ensure_month_partitions(table, from, to)` also called by backfill | #49, #21, #22, #24, #25 |
+| 2026-10-31 | ECG (ADR 0006): the E5 irregularity index is out of v1; E4–E6 suppressed only on an explicit gate failure ("not evaluated" is shown); E1–E3 never suppressed and don't show our gate outcome to everyone; E4 with unknown sex uses the > 500 ms band only; SQI component values, HR, HRV and markers only behind the owner flag; writing `estimated` doesn't bump `data_revisions`, and E4/E6 fold `estimated.algo_version` into their fingerprint | ADR 0006 (#46), #25 |
+| 2026-10-31 | From the #35 review: prod also refuses a DSN `password`/`passfile` query parameter; the test-DSN check refuses an empty host and `service=` | #5 |
 ## Architect tasks
 
 - Removing the "Is there a backend/frontend yet?" skip steps is now part of #42 (bootstrap
   review, finding 1).
 - Dependabot PRs (e.g. #31) go through the same gate with a fresh Sonnet reviewer.
+- When #46 merges: record ADR 0006's assumptions A1–A8 under "Assumptions" with their
+  settling items, and the ADR 0006 row in `docs/adr/README.md` (through #49 if still open).
 
 ## Shared-file locks
 
@@ -116,15 +129,18 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `.github/workflows/ci.yml` | — |
-| `backend/src/ownvitals/config.py` | #2 |
-| `backend/pyproject.toml`, `backend/uv.lock` | #2 |
-| `backend/src/ownvitals/cli.py` | #2 |
-| `compose.yaml` | #2 |
-| `Dockerfile` | #2 |
-| `AGENTS.md` | #44 |
-| `backend/src/ownvitals/web.py` | — (any issue that wires startup checks takes it; #5 first) |
-| `backend/src/ownvitals/db/engine.py` | — (#5 first) |
+| `.github/workflows/ci.yml` | #5 (backend job); #42 next |
+| `backend/src/ownvitals/config.py` | #5 |
+| `backend/pyproject.toml`, `backend/uv.lock` | — |
+| `backend/src/ownvitals/cli.py` | — |
+| `compose.yaml` | #5 |
+| `Dockerfile` | — |
+| `AGENTS.md` | #50 |
+| `backend/src/ownvitals/web.py` | #5 |
+| `backend/src/ownvitals/db/engine.py` | #5 |
+| `backend/tests/dbtools.py` | #5 |
+| `backend/tests/conftest.py`, `backend/tests/test_web.py` | #5 |
+| `docs/dev/backend.md`, `docs/dev/stack.md` | #5 |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
 migration merges first, it renumbers and re-chains on its update, which needs a fresh scoped
@@ -132,6 +148,9 @@ review.
 
 ## Completed
 
+- 2026-10-31: #4 ADRs 0001–0005 and the threat model merged as #41 (Opus PASS `04d634d`, merge check `f1580ec`).
+- 2026-10-31: #2 backend skeleton merged as #35 (Opus PASS `4ffaef8`, merge check `5c22d98`) → IMPLEMENTED.
+- 2026-10-31: #43 status after wave 1 and roadmap Amendments 1–2 merged as #44 (Sonnet PASS `a21399c`, merge check `f7ef585`).
 - 2026-10-31: specification Revision 3 frozen at `635901d` ([roadmap.md](roadmap.md)).
 - 2026-10-31: #3 frontend skeleton merged as #34 (Opus PASS `0e41e7c`, merge check `fc8641f`) → IMPLEMENTED.
 - 2026-10-31: #32 bootstrap review follow-ups merged as #33; Dependabot #31 merged.
@@ -152,9 +171,10 @@ assumptions below.
 | Connect your Withings account and run `ownvitals probe` on the home server | M1 → INTEGRATION_VERIFIED | Run it; paste the shape-only output into the issue |
 | Written clarification from Withings on Developer Agreement §4 and D2 (BYO, user cap) | M8 | Contact Withings |
 | Human security review, legal checklist (§9.3), medical-claims review | M8 | Owner or a trusted reviewer |
-| Threat model O6: SWAG settings for ownvitals as the threat model lists them (no buffering for SSE, the webhook location's access log without the URI, `CF-Connecting-IP` trusted only via SWAG, port 8096 firewalled to SWAG only) | M2 | Confirm or apply (192.168.1.151 and 192.168.1.222) |
+| Threat model O6: SWAG settings for ownvitals as the threat model lists them (no buffering for SSE, the webhook location's access log without the URI, `CF-Connecting-IP` honoured only on connections from Cloudflare's ranges (SWAG's real-IP settings), port 8096 firewalled to SWAG only) | M2 | Confirm or apply (192.168.1.151 and 192.168.1.222) |
 | Threat model O12: disk encryption on 192.168.1.222; whether Cloudflare proxies `withings.pernemark.se` | M2 | Decide and tell the Architect |
-| Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section once #41 merges |
+| Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section of `docs/security/threat-model.md` (merged with #41; risks 20 and 21 are new, #49 extends 21) |
+| ECG (ADR 0006, in review in #46): whether our ECG estimates may be shown to anyone but the owner; whether public research ECG datasets may ever be used | M5 | Decide when M5 reaches them |
 
 ## Assumptions (unverified; each needs the probe or the owner)
 
