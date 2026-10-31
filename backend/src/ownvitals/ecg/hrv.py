@@ -1,0 +1,124 @@
+"""RR intervals, artefact handling, HR and HRV (ADR 0006 section 8).
+
+Input: the refined R-peaks of the beat span that passed the gate, as sample positions.
+
+* RR = differences of consecutive R-peaks, in ms.
+* Exclusions, in order: (a) outside 272.7-2,000 ms (30-220 bpm), ``rr_out_of_range``; (b) more
+  than 20 % from the last accepted interval, ``rr_deviation``, the reference starting at the
+  median of the span's first five intervals. Excluded intervals are deleted, not interpolated.
+* HR = 60,000 / the mean of the intervals left after (a), ectopic beats included.
+* HRV on the accepted (NN) intervals: SDNN with n - 1; RMSSD over adjacent NN pairs only (both
+  accepted, sharing a beat); pNN50 = 100 * (pairs with |dNN| > 50 ms) / pairs.
+* HRV needs at least 15 NN intervals, 10 pairs and an excluded fraction of at most 20 %.
+
+Version 1 does not say whether an excluded interval is ectopic or an artefact: that would be
+interpretation (ADR 0006 section 12). Rounding: HR, RMSSD, SDNN and pNN50 to 0.1.
+
+Pure: numpy only. A change that can alter an output bumps ``ALGO_VERSION`` (ADR 0006 section
+15).
+"""
+
+from dataclasses import dataclass
+from typing import NamedTuple
+
+import numpy as np
+from numpy.typing import NDArray
+
+ALGO_VERSION = "1.0.0"
+
+RR_MIN_MS = 60_000.0 / 220.0
+RR_MAX_MS = 2_000.0
+MAX_DEVIATION = 0.20
+REFERENCE_INTERVALS = 5
+MIN_NN, MIN_PAIRS = 15, 10
+MAX_EXCLUDED_FRACTION = 0.20
+PNN_THRESHOLD_MS = 50.0
+
+
+class Excluded(NamedTuple):
+    """Interval ``i`` runs from R-peak ``i`` to R-peak ``i + 1`` of the span."""
+
+    i: int
+    reason: str  # "rr_out_of_range" or "rr_deviation"
+
+
+@dataclass(frozen=True)
+class Hrv:
+    rmssd_ms: float
+    sdnn_ms: float
+    pnn50_pct: float
+    n_nn: int
+    n_pairs: int
+    excluded_fraction: float
+
+
+@dataclass(frozen=True)
+class RrAnalysis:
+    """HR and, when the minimums hold, HRV; otherwise ``hrv`` is ``None`` with its reasons
+    (``too_many_excluded`` before ``insufficient_nn``)."""
+
+    n_rr: int
+    excluded: tuple[Excluded, ...]
+    hr_bpm: float | None
+    hrv: Hrv | None
+    hrv_reasons: tuple[str, ...]
+
+
+def classify(rr_ms: NDArray[np.float64]) -> list[str | None]:
+    """The exclusion reason of each interval, ``None`` for an accepted (NN) interval."""
+    reasons: list[str | None] = [None] * rr_ms.shape[0]
+    reference = float(np.median(rr_ms[:REFERENCE_INTERVALS])) if rr_ms.shape[0] else 0.0
+    for i, rr in enumerate(rr_ms):
+        if not RR_MIN_MS <= rr <= RR_MAX_MS:
+            reasons[i] = "rr_out_of_range"
+        elif abs(rr - reference) > MAX_DEVIATION * reference:
+            reasons[i] = "rr_deviation"
+        else:
+            reference = float(rr)
+    return reasons
+
+
+def hrv_metrics(
+    rr_ms: NDArray[np.float64], reasons: list[str | None]
+) -> tuple[Hrv | None, tuple[str, ...]]:
+    """HRV from the NN intervals, or ``None`` with the reasons it is not computed."""
+    accepted = np.array([r is None for r in reasons], dtype=bool)
+    n_all = rr_ms.shape[0]
+    n_nn = int(accepted.sum())
+    pairs = np.flatnonzero(accepted[:-1] & accepted[1:])
+    fraction = (n_all - n_nn) / n_all if n_all else 0.0
+    failing: list[str] = []
+    if fraction > MAX_EXCLUDED_FRACTION:
+        failing.append("too_many_excluded")
+    if n_nn < MIN_NN or pairs.shape[0] < MIN_PAIRS:
+        failing.append("insufficient_nn")
+    if failing:
+        return None, tuple(failing)
+    steps = rr_ms[pairs + 1] - rr_ms[pairs]
+    return (
+        Hrv(
+            rmssd_ms=round(float(np.sqrt(np.mean(steps**2))), 1),
+            sdnn_ms=round(float(np.std(rr_ms[accepted], ddof=1)), 1),
+            pnn50_pct=round(100.0 * float(np.mean(np.abs(steps) > PNN_THRESHOLD_MS)), 1),
+            n_nn=n_nn,
+            n_pairs=int(pairs.shape[0]),
+            excluded_fraction=round(fraction, 4),
+        ),
+        (),
+    )
+
+
+def analyse(rpeaks: NDArray[np.float64], sampling_hz: int) -> RrAnalysis:
+    """HR and HRV of the R-peaks (sample positions) of one beat span."""
+    rr_ms = np.diff(rpeaks) * (1000.0 / sampling_hz)
+    reasons = classify(rr_ms)
+    in_range = (rr_ms >= RR_MIN_MS) & (rr_ms <= RR_MAX_MS)
+    hr = round(60_000.0 / float(np.mean(rr_ms[in_range])), 1) if in_range.any() else None
+    hrv, hrv_reasons = hrv_metrics(rr_ms, reasons)
+    return RrAnalysis(
+        n_rr=int(rr_ms.shape[0]),
+        excluded=tuple(Excluded(i, r) for i, r in enumerate(reasons) if r is not None),
+        hr_bpm=hr,
+        hrv=hrv,
+        hrv_reasons=hrv_reasons,
+    )
