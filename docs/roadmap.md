@@ -28,16 +28,21 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ### Amendment 1 (2026-10-31, Architect): the authorization-code exchange runs in the web process
 
-- **Changes:** PLAN §2 ("The worker owns every outbound call") gains one exception: the web
-  process may make the single `oauth2 requesttoken` call that exchanges an authorization code
-  inside the OAuth callback request, through a narrow, web-only egress entry limited to that
-  call and host. Token refresh, revoke and every other Withings call stay in the worker.
+- **Changes:** PLAN §2 ("The worker owns every outbound call") gains one Withings exception: the
+  web process makes the single authorization-code exchange inside the OAuth callback request,
+  `POST https://wbsapi.withings.net/v2/oauth2` with `action=requesttoken` and
+  `grant_type=authorization_code`, through a narrow, web-only egress entry limited to exactly that
+  request. Token refresh (`grant_type=refresh_token`), revoke and every other Withings call stay
+  in the worker. The call counts against the app's rate budget like any other.
+- **Web's outbound connections** are then exactly: the Google sign-in hosts and the configured
+  SMTP server, which the classbeat port already places in web (#6, ADR 0003; sign-in and email
+  flows run in the request), plus this one Withings request. Nothing else; #6 and #22 test
+  both processes' lists.
 - **Evidence:** a conflict inside the frozen spec. §4.3 requires the code to be exchanged "in
-  the request (it's valid for 30 s)", and the callback request runs in web; withings-findings §2
-  records the 30 s validity. Handing the code to a worker job and waiting would race that window.
+  the request (it's valid for 30 s)", and withings-findings §2 says the callback "must exchange
+  it immediately (server-side, not via a queued job)". The callback request runs in web.
   Raised in ADR 0004 (PR #41, issue #4).
-- **ADR:** ADR 0004 records the decision; the egress guard (#6) and the connect issue (#22)
-  implement and test that web can reach nothing else.
+- **ADR:** ADR 0004 records the decision; #6 (egress) and #22 (connect) implement and test it.
 
 ## Pinned sources
 

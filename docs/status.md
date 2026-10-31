@@ -24,8 +24,8 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
 | #2 | Backend skeleton, config, Alembic baseline, local stack (+ numpy, scipy) | Sonnet | #35 | finishing |
-| #3 | Frontend skeleton | Sonnet | #34 | Opus review |
-| #4 | ADRs 0001–0005, health-data threat model | Opus | #41 | applying Architect decisions, then Opus review |
+| #4 | ADRs 0001–0005, health-data threat model | Opus | #41 | decisions applied (`acbf086`); Opus review; merges before this PR |
+| #45 | Frontend test hardening (from the #34 review) | Sonnet | — | in progress |
 | #39 | ADR 0006: ECG subsystem spec (pulled forward) | Opus | — | in progress |
 | #43 | Status after wave 1 (this update) | Architect | #44 | in review |
 
@@ -91,9 +91,9 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 | 2026-10-31 | numpy and scipy join #2's dependencies so #37, #38 and #40 don't need the `pyproject.toml` lock | #2 |
 | 2026-10-31 | Roadmap Amendment 1: the code exchange in the OAuth callback runs in web through a web-only egress entry | roadmap, ADR 0004 |
 | 2026-10-31 | Partitioned owned tables allowed only with forced RLS on parent and partitions, no app-role privileges on partitions, partitions created by one reviewed `SECURITY DEFINER` function; guard 1 extended by #21 | ADR 0002 |
-| 2026-10-31 | Disconnect keeps imported data by default, with an explicit delete option; linking another Withings account requires disconnecting first; a failed upstream revoke still deletes local secrets | ADR 0004, #27 |
+| 2026-10-31 | Reversible default until the owner says otherwise (ADR 0004 had left it to the owner): disconnect keeps imported data, with an explicit delete option; linking another Withings account requires disconnecting first; a failed upstream revoke still deletes local secrets | ADR 0004, #27 |
 | 2026-10-31 | After a KEK compromise, upstream revocation is the owner's runbook step (rotate the Withings client secret); stolen access tokens live up to 3 h: accepted risk | ADR 0004 |
-| 2026-10-31 | Step-up: a recovery code counts as a fresh second factor; "disable 2FA" returns the account to enrolment; replacing an authenticator needs step-up | ADR 0003 |
+| 2026-10-31 | Reading of PLAN §6's "fresh TOTP": a recovery code counts as a fresh second factor; "disable 2FA" returns the account to enrolment; replacing an authenticator needs step-up | ADR 0003 |
 | 2026-10-31 | Session defaults: idle 72 h, absolute 30 days (settings) | ADR 0003 |
 | 2026-10-31 | `webhook_events` retained 30 days | ADR 0002 |
 | 2026-10-31 | Job queue: only claim, reap and stats are `SECURITY DEFINER`; heartbeat and finish are fenced writes in the owner's session (#9 aligned) | ADR 0005 |
@@ -120,7 +120,9 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/src/ownvitals/cli.py` | #2 |
 | `compose.yaml` | #2 |
 | `Dockerfile` | #2 |
-| `AGENTS.md` | — |
+| `AGENTS.md` | #44 |
+| `backend/src/ownvitals/web.py` | — (startup wiring: #5, #8, #9, #10, #12 take it in turn) |
+| `backend/src/ownvitals/db/engine.py` | — (#5 first) |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
 migration merges first, it renumbers and re-chains on its update, which needs a fresh scoped
@@ -129,6 +131,7 @@ review.
 ## Completed
 
 - 2026-10-31: specification Revision 3 frozen at `635901d` ([roadmap.md](roadmap.md)).
+- 2026-10-31: #3 frontend skeleton merged as #34 (Opus PASS `0e41e7c`, merge check `fc8641f`) → IMPLEMENTED.
 - 2026-10-31: #32 bootstrap review follow-ups merged as #33; Dependabot #31 merged.
 - 2026-10-31: #1 bootstrap merged as #17 (Opus PASS `31fc85c`). Rulesets set: `main` (PR, `ci` + `pr-title` strict, squash only, linear history, no force push or deletion, 0 approvals) and `release tags` (`v*` protected); squash-only merges, branches deleted on merge; secret scanning and push protection on.
 
@@ -147,7 +150,7 @@ assumptions below.
 | Connect your Withings account and run `ownvitals probe` on the home server | M1 → INTEGRATION_VERIFIED | Run it; paste the shape-only output into the issue |
 | Written clarification from Withings on Developer Agreement §4 and D2 (BYO, user cap) | M8 | Contact Withings |
 | Human security review, legal checklist (§9.3), medical-claims review | M8 | Owner or a trusted reviewer |
-| Threat model O6: SWAG settings for ownvitals (headers, body limits, the webhook location's access log without the URI) | M2 | Confirm or apply on 192.168.1.151 (ADR/threat model in #41) |
+| Threat model O6: SWAG settings for ownvitals: security headers, body limits, no buffering for SSE, the webhook location's access log without the URI, and port 8096 firewalled to SWAG only | M2 | Confirm or apply (192.168.1.151 and 192.168.1.222) |
 | Threat model O12: disk encryption on 192.168.1.222; whether Cloudflare proxies `withings.pernemark.se` | M2 | Decide and tell the Architect |
 | Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section once #41 merges |
 
