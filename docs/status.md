@@ -9,12 +9,12 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #7 (#53), #45 (#48) merged; #5 (#65), #52 (#64) in review; #6 (#55) and #49 (#58) in fix and delta rounds; #42 and #57 wait for the `ci.yml` lock | — |
-| M1 | Withings core | #19 (in-process fake) in review (#63); backlog #18, #20–#30, #36 (dependency graph below) | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #7 (#53), #45 (#48), #52 (#64) merged; #5 (#65) in a fix round after an Opus FAIL; #6 (#55) in an Opus delta review; #49 (#58) in a fresh Opus review; #42 and #57 wait for the `ci.yml` lock | — |
+| M1 | Withings core | #19 merged (#63); #66 (fake tightening from the #63 review) in progress; backlog #18, #20–#30, #36 (dependency graph below) | — |
 | M2 | Home deploy (early) | not started; mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
-| M4 | Analysis v1 | pulled forward: #37 merged (#54); #38 in progress; #56 after #38 | — |
-| M5 | ECG & nerve health | ADR 0006 (#46) in a fix round after the root-cause change (read-time gate overlay); #40 after it; #47 created | — |
+| M4 | Analysis v1 | pulled forward: #37 merged (#54); #38 in review (#67); #56 and #68 after #38 | — |
+| M5 | ECG & nerve health | ADR 0006 (#46) in a fresh Opus review after its fourth fix round; #40 after it; #47 created | — |
 | M6 | MVP UI | not started | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
@@ -23,15 +23,13 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #5 | Tenant isolation: UserContext, forced RLS, roles, guards (+ #35 review follow-ups) | Opus | #65 | Opus review |
-| #6 | Egress allowlist and mail | Opus | #55 | Opus FAIL (guard gaps); fix round |
-| #49 | ADR follow-ups from the #41 review | Opus | #58 | fix round pushed (`a86f571`); fresh Opus delta review |
-| #39 | ADR 0006: ECG subsystem spec | Opus | #46 | root cause changed by the Architect after three FAILs; fourth FAIL (B5, stale gate version); fix round, then a fresh Opus review |
-| #19 | In-process fake-withings and synthetic data generator | Sonnet | #63 | Sonnet review |
-| #38 | Analysis methods (pulled forward) | Sonnet | — | in progress |
-| #52 | Frontend test follow-ups (from the #48 review) | Sonnet | #64 | Sonnet review |
-| — | Dependabot: TypeScript 7 | — | #59 | to be ignored (typescript-eslint doesn't support it yet) |
-| #61 | Status after the wave 2 merges (this update) | Architect | #62 | in review |
+| #5 | Tenant isolation: UserContext, forced RLS, roles, guards (+ #35 review follow-ups) | Opus | #65 | Opus FAIL (the startup role check misses role memberships); fix round |
+| #6 | Egress allowlist and mail | Opus | #55 | fix round pushed (`efae7bb`); fresh Opus delta review |
+| #49 | ADR follow-ups from the #41 review | Opus | #58 | fix round after the second FAIL pushed (`f15a46d`); fresh Opus review |
+| #39 | ADR 0006: ECG subsystem spec | Opus | #46 | fix round after the fourth FAIL pushed (`e3c6ccb`); fresh Opus full review |
+| #38 | Analysis methods (pulled forward) | Sonnet | #67 | Sonnet review |
+| #66 | Fake tightening from the #63 review | Sonnet | — | in progress |
+| #69 | Status after the #63 and #64 merges (this update) | Architect | this PR | in review |
 
 At most five Developers work on issues at once; a fix round on an open PR may run while five
 are busy, and no new issue starts until fewer than five are.
@@ -67,11 +65,12 @@ are busy, and no new issue starts until fewer than five are.
 | #18 | Jobs for Withings: system/webhook kinds, lanes, singletons, retry budget, dead-letter | Opus | #9, #12 |
 | #19 | In-process fake-withings and the synthetic data generator (split 2026-10-31) | Sonnet + Explorer | #2 |
 | #36 | fake-withings e2e service (split from #19) | Sonnet | #19, #14 |
-| #20 | Withings API client, error taxonomy, models | Opus | #6, #19 |
+| #66 | Fake tightening from the #63 review (POST-only secrets, 2xx webhooks, callback rules) | Sonnet | #19 |
+| #20 | Withings API client, error taxonomy, models | Opus | #6, #19, #66 |
 | #21 | Raw Withings data model, forced RLS, partitions | Opus | #5, #13 |
-| #22 | Connect Withings, crash-safe token rotation | Opus | #18, #20, #21 |
+| #22 | Connect Withings, crash-safe token rotation | Opus | #18, #20, #21, #66 |
 | #23 | Rate limiter | Opus | #18, #21 |
-| #24 | Webhook receiver | Opus | #18, #21, #22 |
+| #24 | Webhook receiver | Opus | #18, #21, #22, #66 |
 | #25 | Sync engine | Opus | #20, #21, #22, #23 |
 | #26 | Reconciliation, deletions, subscription drift | Opus | #24, #25 |
 | #27 | Disconnect and account delete with upstream revoke | Opus | #22, #25 |
@@ -91,6 +90,7 @@ Pure libraries with synthetic-data tests; no database, I/O or Withings imports (
 | #39 | ADR 0006: ECG subsystem spec (PLAN §7.3: spec before code) | Opus | — |
 | #40 | M5 ECG signal-processing core: filters, R-peaks, SQI gate, HRV | Sonnet | #2, #39 |
 | #56 | Analysis follow-ups from the #54 review (purity-guard gaps, nerve baseline span) | Sonnet | #37; after #38 merges (both touch `test_analysis_purity.py` and `policy.py` semantics) |
+| #68 | Autocorrelation-robust trend test and change points (follow-up from #38; before trend or change-point findings go live) | Sonnet | #38 |
 
 Also created early in M5: #47, the owner-run `ownvitals ecg validate` command (ADR 0006 §14;
 Opus; depends on #39, #40, #21, #25).
@@ -126,7 +126,8 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 | 2026-10-31 | From the #58 review: compromise rotation retires first, then appends (routine: append, re-point, retire); `withings_apps.rotation_reason` (`routine`/`compromise`); the webhook-secret role gets `USAGE` on `public`, column-level SELECT it needs, no client-secret or token column; guard 11 uses `has_any_column_privilege`; `ensure_month_partitions` takes an advisory lock and accepts months from 13 months back to 3 ahead; owner notices from the worker are in-app only (SMTP never from the worker; the operator CLI may mail); `notify list` clean-up: #22 on (re)connect, #26 after the 14-day deadline, #27 on disconnect | #49, #21, #22, #24–#27 |
 | 2026-10-31 | Guard 5 (ADR 0002 §1 "anywhere"): `object.__setattr__(self, …)` is allowed only inside a frozen dataclass's `__post_init__` on the bare `self`; every other form stays refused (it can't build a `UserContext`) | #5 (PR #65 body, `docs/dev/isolation.md`) |
 | 2026-10-31 | Analysis core (#37): plausibility ranges are labelled engineering bounds unless findings cite one; a metric without a range is refused; values are `Decimal`, floats refused | #37 |
-| 2026-10-31 | Dependabot: TypeScript 7 to be ignored until typescript-eslint supports it (`@dependabot ignore typescript major version` requested on #59; if Dependabot doesn't act, #57 adds the ignore to `dependabot.yml`); Dependabot titles over the 100-character header are shortened through group names (#57) or retitled by the Architect before merge | #59, #57 |
+| 2026-10-31 | Dependabot: TypeScript 7 ignored until typescript-eslint supports it (Dependabot closed #59 after `@dependabot ignore typescript major version`); Dependabot titles over the 100-character header are shortened through group names (#57) or retitled by the Architect before merge | #59, #57 |
+| 2026-10-31 | Frontend licence closure (from the #64 review; #52 item 4 reverted): an optional peer dependency is never skipped as dev-only. npm marks such a package `devOptional`, not `dev`, and a GPL package that Vite ships would hide behind the skip | #52, #64 |
 
 ## Architect tasks
 
@@ -140,6 +141,12 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
   bump issue).
 - Removing the "Is there a backend/frontend yet?" skip steps is part of #42.
 - Dependabot PRs go through the same gate with a fresh Sonnet reviewer.
+- Frontend licence closure tests: add an `optionalDependencies` row (a mutation survived in the
+  #64 review; the same gap is on `main`). It goes into the next frontend issue.
+- After #46, #55, #58 and #65 merge: record the decisions they carry (ECG round 4, the egress
+  API names for #9, #10, #22 and #29, the webhook-secret and partition decisions, the
+  role-membership rule). Once #58 merges, ADR 0004 is at 498 lines: its next change splits it
+  or goes in a new ADR.
 
 ## Shared-file locks
 
@@ -154,7 +161,7 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/src/ownvitals/cli.py` | — |
 | `compose.yaml` | #5 |
 | `Dockerfile` | — |
-| `AGENTS.md` | #61 |
+| `AGENTS.md` | #69 |
 | `backend/src/ownvitals/web.py` | #5 |
 | `backend/src/ownvitals/db/engine.py` | #5 |
 | `backend/tests/dbtools.py` | #5 |
@@ -167,6 +174,10 @@ review.
 
 ## Completed
 
+- 2026-10-31: #52 frontend test follow-ups merged as #64 (Sonnet PASS `12851d6`) → IMPLEMENTED.
+- 2026-10-31: #19 in-process fake-withings and synthetic data generator merged as #63 (Sonnet PASS `61b1d18`, merge check `8394ea6`) → IMPLEMENTED; synthetic only, nothing verified against Withings.
+- 2026-10-31: #61 status after the wave 2 merges merged as #62 (Sonnet PASS `d55e6db`, merge check `5be3d07`).
+- 2026-10-31: Dependabot #59 (TypeScript 7) closed by Dependabot after the major-version ignore.
 - 2026-10-31: Dependabot #60 (pydantic-settings 2.16.2, `uv.lock` only) merged (Sonnet PASS `55f0657`).
 - 2026-10-31: #7 release workflow merged as #53 (Opus PASS `e693f54`, merge check `f21b511`) → IMPLEMENTED; it has never run: the first real tag exercises the attestation push and self-verification.
 - 2026-10-31: #37 analysis core merged as #54 (Sonnet PASS `93d6312`, merge check `2cef0fa`) → IMPLEMENTED.
@@ -207,9 +218,11 @@ assumptions below.
 | Withings' time-zone fields are IANA zone names (PLAN §5 `source_tz`) | #37 day assignment | the owner's first real sync (M1); the probe's shape-only scope (PLAN-operations §10.4) doesn't cover it |
 | `attrib = 1` means "device, ambiguous (could be another household member)" (findings §2), so #37 excludes it as unconfirmed | #37 quality gate | the probe (attrib values seen) |
 | The API hosts are `wbsapi.withings.net` and `account.withings.com`, and the token endpoint is `POST /v2/oauth2` with `action=requesttoken` (findings §2) | #6 egress lists and code exchange | the owner's first real connect (M1) |
+| The fake's readings where the public spec is silent (`backend/tests/withingscore.py`, `withingswire.py`): status 2553 for a bad refresh token and 214 for a missing scope; the OAuth scope each data endpoint needs (`DATA_ROUTES`); the signed string of `revoke` and its answer for an unknown user | #19's fake, so every M1 client test (#20, #22, #24) | the owner's first real connect and sync (M1) |
 
-ADR 0006's ECG assumptions A1–A8 are added when #46 merges. M1 adds a row per Withings behaviour
-the code relies on but no real account has confirmed.
+ADR 0006's ECG assumptions A1–A8 are added when #46 merges, and #66's modelled behaviours when it
+merges. M1 adds a row per Withings behaviour the code relies on but no real account has
+confirmed.
 
 ## External dependencies
 

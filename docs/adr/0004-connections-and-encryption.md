@@ -1,9 +1,9 @@
 # ADR 0004: Provider connections, envelope encryption and the KEK ring
 
-Status: Accepted (2026-10-31, #4). Its three open questions were decided by the Architect on
-2026-10-31 (§7 the code exchange, recorded as [roadmap Amendment 1](../roadmap.md); §7 reconnect
-and disconnect; §3 revocation after a KEK compromise), and so was the source of the webhook
-secrets (§4), raised in review.
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 (see "Amendments"). Its three open
+questions were decided by the Architect on 2026-10-31 (§7 the code exchange, recorded as
+[roadmap Amendment 1](../roadmap.md); §7 reconnect and disconnect; §3 revocation after a KEK
+compromise), and so was the source of the webhook secrets (§4), raised in review.
 
 ## Context
 
@@ -108,22 +108,30 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   `needs_reconnect` by a conditional update (§6). Only the category and row id are logged; no
   other key is tried.
 - **Rotation (routine):** install the new KEK as `connection_kek` with a new id and keep the old
-  one as `connection_kek_<old id>`, restart, run `python -m ownvitals keys rewrap`; once it reports
-  zero rows for the old id in connections, TOTP seeds and (M1) the app secret, remove the old file
-  from the stack. Keep one copy with the backups until every backup taken before the rotation has
-  aged out, then destroy it.
+  one as `connection_kek_<old id>`, restart, run `python -m ownvitals keys rewrap` and, from M1,
+  the client-secret rewrap of #22's tool (below; amended 2026-10-31, #49); once both report zero
+  rows for the old id (connections, TOTP seeds, the app secrets), remove the old file from the
+  stack. Keep one copy with the backups until every backup taken before the rotation has aged
+  out, then destroy it.
 - **Rewrap mechanics** (#13 `test_keys_rewrap.py`): connections per owner as `ownvitals_app`
   with `app.user_id` set (no RLS bypass); TOTP seeds through `ownvitals.auth` (guard 8). Per row,
   its own transaction: `SELECT … FOR UPDATE`, unwrap,
   wrap under the current KEK, `UPDATE … WHERE id = :id AND key_id = :old`. It changes only the
   wrap, never the payload or `token_generation`, prints counts per `key_id` only, and is
   resumable.
+- **The app client secret is an operator step** (M1; amended 2026-10-31, #49). The app role
+  can't write `withings_apps` (ADR 0002 §3), so the app-role `keys rewrap` covers connection
+  tokens (and TOTP seeds), never the app client secret. #22's `withings_apps` tool rewraps it
+  the same way, row by row, as `ownvitals_owner`, in the same one-off operator container that
+  writes the app configuration.
 - **After a suspected KEK compromise, everything goes** (classbeat ADR 0004 §2): rewrap does not
   re-encrypt payloads, so an old KEK plus an old dump still reads a rewrapped row. The response:
   1. stop web and worker;
   2. install a new KEK under a new id and remove every old KEK file. A compromise of the KEK
-     ring counts as a seed compromise too, so install a new webhook seed and pepper the same way
-     (§4); if the secrets directory leaked, also rotate `app_secret_key` and the database
+     ring counts as a seed compromise too, so install a new webhook seed and pepper as current;
+     the old seed and pepper files go only at the end of §4's compromise order (amended
+     2026-10-31, #49), and since they are already known, keeping them until then adds no
+     exposure. If the secrets directory leaked, also rotate `app_secret_key` and the database
      passwords;
   3. `docker compose --profile maint run --rm maint python -m ownvitals keys wipe --confirm`, as
      the owner role (never given to web or worker), with no KEK. It refuses while any app-role
@@ -139,21 +147,19 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
      the new one (M1 runbook step, owner): a stolen refresh token can't be used without it;
   5. backups taken before the wipe, WAL archives included, count as compromised: destroy them,
      or wipe again after restoring one;
-  6. start web and worker; run #22's `rotate`: the worker adds a webhook secret derived from the
-     new seed and **retires every old webhook secret at once** (§4); users reconnect and
-     re-enrol.
+  6. start web and worker; run #22's `rotate` with the reason `compromise`: the worker **retires
+     every old webhook secret first**, then adds one derived from the new seed (§4's compromise
+     rotation; amended 2026-10-31, #49); users reconnect and re-enrol. The wipe left no token to
+     re-point with, so reconnect revokes each old subscription (§4, lingering subscriptions).
 - **Revocation after a compromise is not attempted** (Architect decision, 2026-10-31). The wipe
-  has no KEK and no outbound access, so it can't revoke at Withings. Step 4 makes every stolen
+  has no KEK and makes no Withings call, so it can't revoke at Withings; its notices go by mail
+  from the operator CLI (ADR 0003 §6; amended 2026-10-31, #49). Step 4 makes every stolen
   refresh token useless; a stolen access token stays valid for up to its 3-hour lifetime
   (withings-findings §2). That window is an accepted risk (threat model, accepted risk 19).
 - **Webhook subscriptions after a seed compromise (or a compromise of the KEK ring that holds
-  the seed)** (Architect decision, 2026-10-31): the seed and the pepper are rotated and the old
-  secret retired at once. Re-pointing a subscription (`notify update`) needs the user's access
-  token: where the connection still has one, the worker re-points it; where the wipe removed it,
-  the subscription keeps the old callback URL until the user reconnects, and reconnect
-  subscribes with the new secret (§4). Until then, notifications to the old URL get the generic
-  200 and are ignored. Payloads are only hints, and after reconnect the backfill, poll and
-  reconciliation bring the data up to date (D3). Accepted risk 20 of the threat model.
+  the seed)** follow §4's compromise rotation (Architect decisions, 2026-10-31; order amended by
+  #49): verification of the old secret stops first, and subscriptions without a token are
+  revoked on reconnect. Payloads are only hints (D3). Accepted risk 20 of the threat model.
 - Health data itself is not under the KEK: a KEK leak alone doesn't expose it, though the host
   compromise that leaks a KEK usually does (threat model T60).
 
@@ -186,41 +192,120 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   seed kind (#8 test). That is the property that matters. The worker holding the pepper as well
   adds nothing, since a holder of the seed can derive every secret anyway (Architect decision,
   2026-10-31).
-- **Verification (web, #24):** for each active entry, `HMAC(pepper[pepper_id], presented
-  secret)` compared with the entry's `hmac` by `hmac.compare_digest`: one constant-time
-  comparison per active secret, with the pepper the entry names. An entry whose pepper isn't
-  loaded never matches. M1 should reject an unknown secret before any database work, for example
-  from an in-process copy of the active entries (threat model T38).
+- **Verification (web, #24; amended 2026-10-31, #49):** for each active entry,
+  `HMAC(pepper[pepper_id], presented secret)` compared with the entry's `hmac` by
+  `hmac.compare_digest`: one constant-time comparison per active secret, with the pepper the
+  entry names. An entry whose pepper isn't loaded never matches. Web compares against an
+  in-process copy of the entries, refreshed within the **entry-cache TTL**: one bounded setting
+  (#24 sets its default and bound), read by web and by the worker when it sets `active_from`. A
+  copy's age counts from the start of the read that produced it. While the copy is older than
+  the TTL (a refresh failed), every notification gets **503**, whatever the secret: it reveals
+  nothing, no retired entry keeps verifying, and Withings retries (`HEAD` keeps PLAN §4.4's 200).
+- **No oracle** (amended 2026-10-31, #49): the request checks (method, content type, size,
+  fields) run before the secret lookup, so their answer doesn't depend on the secret. An
+  unknown or retired secret then gets the answer a valid one gets, the generic 200; the
+  notification is ignored (no event, no job) and counted in a metric, with an alert on its rate
+  (#24; threat model accepted risk 21). A valid secret still costs database work, a timing
+  difference that helps only someone who already holds a secret. A retired entry stops
+  verifying at once, with no grace period: web treats it like an unknown secret. The cache TTL
+  is the only lag, for a retirement as for a new entry.
 - **Derivation check (worker):** derive with the entry's `seed_id`, then check that
   `HMAC(pepper[pepper_id], derived)` equals the entry's `hmac`; a missing key or a mismatch
   refuses and builds no URL (fail closed). The plaintext lives only in memory for the call; it
   is never logged, stored or put in a job row, and the callback URL is redacted like the webhook
   path (§9).
-- **Who writes the entries** (Architect decision, 2026-10-31). Rotation needs the seed and
-  `notify update`, both worker-only, so the `webhook_secrets` entries are not written by the
-  operator tool that writes the rest of `withings_apps` (ADR 0002 §3). #22's `rotate` command
-  only asks the worker to rotate (#18's system work: the app-level steps run as owner-less
-  upkeep, since no queue row is without an owner, ADR 0005 §8; each `notify update` runs as an
-  owned job of the connection's owner). The worker derives the new secret and calls **one
-  reviewed `SECURITY DEFINER` function owned by `ownvitals_owner`**, which can only append,
-  retire or re-hash entries in the `webhook_secrets` column of one `withings_apps` row, writes
-  the admin-audit row, and touches no other column. It is pinned like the other
-  definer functions (ADR 0005 §3), and a guard makes the worker's rotation module its only
-  caller. Web shares the app role, so code running in web could still call it: accepted risk 21
-  of the threat model.
-- **Secret rotation** (PLAN §4.4): the worker appends an entry for a new `secret_id` under the
-  current seed and pepper, re-points every subscription with `notify update` (per user, with
-  that user's token), then retires the old entry (`retire_at`). A seed rotation is such a
-  rotation; the old seed file is removed once no active entry names its `seed_id`.
+- **Who writes the entries** (Architect decisions, 2026-10-31; owner, request and input rules
+  amended by #49). Rotation needs the seed and `notify update`, both worker-only, so the
+  `webhook_secrets` entries are not written by the operator tool that writes the rest of
+  `withings_apps` (ADR 0002 §3). #22's `rotate` command only sets `rotation_requested_at` and
+  `rotation_reason` (`routine` or `compromise`, a check constraint; both set or both `NULL`),
+  with its audit row, and never replaces a pending `compromise` with `routine`. The worker picks
+  the request up and takes the order below from the reason (#18's system work: the app-level
+  steps run as owner-less upkeep, ADR 0005 §8; each `notify update` runs as an owned job of the
+  connection's owner). It derives the new secret and calls **one reviewed `SECURITY DEFINER`
+  function owned by the dedicated `NOLOGIN` role `ownvitals_webhook_secrets`** (its privileges:
+  ADR 0002 §3), which acts on the `webhook_secrets` column of one `withings_apps` row, writes the
+  admin-audit row, and writes no other column but the request's. #21 builds the role and the
+  function with the data model; #24 calls it from the worker's rotation module and owns the
+  single-caller guard. Input rules, each with a test in #21:
+  - the operation is one of append, retire, retire-all, rehash or delete-retired; a rehash
+    changes only an entry's `pepper_id` and `hmac`; retire-all retires every non-retired entry
+    of the app in one call, atomically;
+  - it locks the row (`SELECT … FOR UPDATE`) before any check, and reads the request itself under
+    that lock;
+  - **compare-and-clear:** the worker passes the `rotation_requested_at` and `rotation_reason` it
+    acted on, and the append clears the request only if both still match. If a `compromise`
+    request is pending and the worker called for a routine step, the function refuses with the
+    distinct result `compromise_pending`; the worker restarts in the compromise order and
+    raises the alert. So a compromise request is never lost to a race;
+  - the `secret_id` format is fixed, and an append refuses an id already present; ids are
+    random and never reused, so a deleted entry's secret can't come back;
+  - `seed_id` and `pepper_id` must be known ids, with a check row in `connection_keks` (§3): a
+    sanity check against mistakes, not a bound on web, whose app role can insert check rows;
+  - the `hmac` is exactly 32 bytes;
+  - at most two entries are not retired (PLAN §4.4: two active at once);
+  - only existing ids may be retired, and only retired entries deleted.
+
+  It is pinned like the other definer functions (ADR 0005 §3). Web shares the app role, so code
+  running in web could still call it: accepted risk 21 of the threat model.
+- **Entry lifecycle** (amended 2026-10-31, #49). An entry verifies from `active_from` until it
+  is retired (`retire_at`), and then never again. A retired entry is kept only while the worker
+  still needs its URL to re-point: `notify update` names a subscription by its current callback
+  URL, which the worker rebuilds from the entry and its seed. Once no subscription uses it (each
+  one re-pointed, revoked, or past the deadline below), the function deletes it. A pepper
+  retires, and its file goes, when no remaining entry references its `pepper_id`; a seed file
+  goes when no remaining entry names its `seed_id`. Both are checkable with one query.
+- **Routine rotation** (PLAN §4.4; order amended 2026-10-31, #49): append, wait for
+  `active_from`, re-point, retire, delete.
+  1. the worker appends an entry for a new `secret_id` under the current seed and pepper, with
+     `active_from` at least the entry-cache TTL in the future, so every web process holds the
+     entry before any subscription points at it;
+  2. only after `active_from`, it re-points every subscription with `notify update` (per user,
+     with that user's token). A connection's re-pointing retries with backoff for up to
+     **14 days**; a connection still failing then is marked to resubscribe on its next
+     successful token use or reconnect (below), and scheduled sync covers it meanwhile;
+  3. once each subscription on the old entry is re-pointed, revoked or past that deadline, it
+     retires the old entry and then deletes it (lifecycle above).
+
+  A seed rotation is such a rotation. **The old seed** stays in the worker, used only to
+  rebuild the old URL for re-pointing, until every subscription on the old secret is
+  re-pointed, revoked or past the deadline; then it is removed. A routine request that arrives
+  while a rotation is in flight waits for it to finish.
+- **Compromise rotation** (`rotation_reason = compromise`: after a seed compromise, or a
+  compromise of the KEK ring that holds the seed; Architect decisions, 2026-10-31; order
+  amended by #49): retire, append, re-point, delete. A new seed and pepper are installed as
+  current first (as in §3 step 2).
+  1. **retire verification first**: one atomic retire-all call retires every non-retired entry
+     (each counts as compromised), so no partial retire exists; a failed call is retried, with
+     the alert. It also cancels the queued `notify update` jobs of a routine rotation in flight,
+     which this one replaces (a cross-user cancel, so a queue definer function, ADR 0005 §3);
+     each such job re-checks its target entry when it runs and stops if it is retired;
+  2. it appends an entry under the new seed and pepper, as in routine step 1;
+  3. it re-points every subscription whose connection still has a token, as in routine step 2,
+     but takes each subscription's current URL from `notify list`, not from its own records.
+     After a KEK-ring compromise the wipe left no token, so nothing is re-pointed and reconnect
+     revokes the old subscriptions (§3; lingering subscriptions below);
+  4. it deletes each old entry once no subscription uses it (at the deadline at the latest);
+     then the old pepper and seed are dropped. They are already known, so keeping them until
+     then adds no exposure.
+
+  **A refused step** (for example "at most two not retired") raises an alert and is not retried
+  silently. Retiring comes first and is atomic, so a refusal never leaves a compromised secret
+  verifying: webhooks are ignored until the new entry is active, and scheduled sync covers it.
 - **Pepper rotation** needs no new secret and no `notify update`: install the new pepper as
   current; the worker re-hashes every entry under it through the same function (it derives each
-  secret from its seed) and sets its `pepper_id`, one entry at a time. The old pepper is
-  retired, and its file removed, only when no entry references its id, so the rotation is
-  checkable with one query.
-- **After a seed compromise (or a compromise of the KEK ring that holds the seed)** the seed and
-  the pepper are rotated and the old secret is retired at once. Subscriptions are re-pointed
-  with `notify update` where the connection still has a token, as in any rotation, and on
-  reconnect otherwise (§3; Architect decision, 2026-10-31).
+  secret from its seed, which every remaining entry still has) and sets its `pepper_id`, one
+  entry at a time. The old pepper then retires as the lifecycle above says.
+- **Lingering subscriptions** (amended 2026-10-31, #49). A subscription left on an old URL is
+  answered with the generic 200, so Withings never cancels it. `notify list` finds it: its
+  callback is under our callback base but isn't the current one. #22 revokes such
+  subscriptions on connect and reconnect, before it subscribes; #26 (reconciliation)
+  resubscribes a connection marked at the 14-day deadline, with the same clean-up, and finds
+  subscriptions left on old URLs; #27 (disconnect) revokes every subscription under our
+  callback base that `notify list` returns, which covers one past the deadline (§7).
+- **`notify list` responses** carry plaintext callback URLs, so webhook secrets. They are never
+  stored (not in `raw`, job rows or events) and never logged or used as a metric label; a
+  log-redaction test covers them (#22).
 - **M0 (#8):** the ring defines both slots and validates the files if present; nothing uses them.
   **M1:** web requires the pepper, the worker the seed and the pepper.
 - **Why the ring and not keys derived from `app_secret_key`:** rotating `app_secret_key` (CSRF,
@@ -253,7 +338,8 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   `generation + 1`, first use only after the commit, one recovery retry within 8 hours, then
   `needs_reconnect`; never the generic retry path). This ADR adds the constraints M1 must meet:
   - the per-connection lock covers steps 1 to 3, and step 1 commits the intent, so it is a
-    **session-scoped advisory lock** (`pg_advisory_lock`), not a transaction-scoped one. It is
+    **session-scoped advisory lock** (`pg_advisory_lock` in the refresh namespace, ADR 0005
+    §9; amended 2026-10-31, #49), not a transaction-scoped one. It is
     taken on a dedicated connection that holds no transaction while the Withings call runs (so
     the 60 s idle-in-transaction timeout of ADR 0002 §5 doesn't apply), and released explicitly
     after step 3; if the worker dies, the connection's end releases it, and the pool's
@@ -262,7 +348,10 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   - inside a job, the intent and the CAS write are fenced writes (ADR 0005 §4), so a worker that
     lost its lease can't record a refresh;
   - `TokenInvalid` (401, 2553, 2555; PLAN §4.2) goes to this path, never to a generic retry;
-  - PLAN §4.3's crash and race tests are M1's acceptance.
+  - PLAN §4.3's crash and race tests are M1's acceptance;
+  - step 4's "notify the owner" goes to the owner (the admin): in-app, plus mail that the
+    worker writes to the outbox and web sends; the worker never opens SMTP (ADR 0003 §6;
+    amended 2026-10-31, #49).
 
 ### 7. Connect, reconnect and disconnect (#13 routes; M1 Withings)
 
@@ -300,7 +389,9 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   user. No Withings password ever passes through ownvitals, so classbeat's per-MOWL-email limit has
   no counterpart.
 - **Disconnect** (PLAN §4.3; Architect decision, 2026-10-31; #27):
-  1. upstream revoke in the worker: `notify revoke` for each `appli`, then `oauth2 revoke`;
+  1. upstream revoke in the worker: `notify revoke` for every subscription under our callback
+     base that `notify list` returns (each `appli`, old URLs included; amended 2026-10-31,
+     #49), then `oauth2 revoke`;
   2. the secrets are deleted: the credential columns become `NULL`;
   3. the row is kept with status `disconnected`, without credentials. Webhooks for it are
      answered like an unknown user's and start no job.
@@ -342,7 +433,8 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 - The log formatter masks keys named `token`, `access_token`, `refresh_token`, `code`, `state`,
   `client_secret`, `secret`, `password`, `authorization` and `cookie`, and anything under a
   connection row's secret columns. **Withings user ids are not logged**; the connection id is.
-  Webhook paths are redacted (PLAN §4.4).
+  Webhook paths are redacted (PLAN §4.4), and so are callback URLs, whether the worker built
+  them or read them from `notify list` (§4; amended 2026-10-31, #49).
 - httpx and provider loggers run at `WARNING`; headers and bodies are never logged.
 - Tests (#13; M1 extends them to Withings): caplog over connect, use and every error path shows
   no token, code or state; a `pg_dump` of a test database with a planted token doesn't contain it;
@@ -373,12 +465,34 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   crypto guard. #13: the `connections` table with `token_generation` and its CAS helper, nullable
   credential columns with their check, the partial unique index on `(owner_id, provider)`,
   step-up on connect and disconnect, `keys rewrap` and `keys wipe` (rows to `needs_reconnect`,
-  credentials removed). M1: #22 the web egress entry of roadmap Amendment 1, the refresh
-  protocol, the app secret and the `withings_apps` CLI (owner role); #24 the derived webhook
-  secrets with the seed and the pepper in use, the rotation and its definer function; #27 disconnect, the `disconnected` status, the "also delete
-  imported data" option, revoke retries.
+  credentials removed). M1 (amended 2026-10-31, #49): #22 the web egress entry of roadmap
+  Amendment 1, the refresh protocol and its owner notice, the app secret, the `withings_apps`
+  CLI (owner role) with its client-secret rewrap and rotation request, and the `notify list`
+  clean-up on connect and reconnect; #21 the webhook-secret function with its `NOLOGIN` owner
+  role, privileges and input-rule tests; #24 the derived webhook secrets with the seed and the
+  pepper in use, both rotation orders in the module that calls the function, its single-caller
+  guard, the entry lifecycle and the ignored-webhook metric; #26 the resubscribe after the
+  deadline; #27 disconnect (revoking what `notify list` returns), the `disconnected` status, the
+  "also delete imported data" option, revoke retries.
 - Losing the current KEK means every user reconnects Withings and re-enrols TOTP; there is no
   recovery path by design.
 - Backups hold tokens and seeds as ciphertext only; restoring one needs the KEK files of its time,
   backed up separately (§9.2).
 - Threat model T29 to T43 cite this ADR.
+
+## Amendments
+
+### 2026-10-31 (#49): follow-ups of the #41 review
+
+Architect decisions, made in place above and marked "amended 2026-10-31, #49":
+
+- §4: the entry lifecycle; the routine and compromise orders, chosen by `rotation_reason`, with
+  an atomic retire-all, a compare-and-clear of the request, the refused step alerting and the
+  replaced rotation's jobs cancelled; the old seed and the 14-day deadline; the entry-cache TTL
+  (`active_from` ahead of it, 503 while the copy is stale); one generic 200 for unknown and
+  retired secrets; the function's owner and input rules (#21 builds, #24 calls); who runs
+  `notify list` (#22, #26, #27), whose URLs are never stored or logged.
+- §3: the client-secret rewrap is #22's operator step; the wipe makes no Withings call and mails
+  from the operator CLI. §6: the owner notice goes in-app and through the outbox; the refresh
+  lock's namespace. §7: disconnect revokes what `notify list` returns. §9: listed URLs are
+  redacted. Consequences: the issue split.

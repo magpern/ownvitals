@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { ACCEPTED_LICENCE_IDS } from './test/licenceScan'
 import { ROOT } from './test/sourceScan'
 
 // The dependency rules of the frontend: exact versions, a committed lockfile that agrees with
@@ -21,7 +22,8 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as Pack
 const lock = JSON.parse(readFileSync(join(ROOT, 'package-lock.json'), 'utf8')) as Lockfile
 const direct = { ...pkg.dependencies, ...pkg.devDependencies }
 
-const ACCEPTED_LICENCES = new Set(['MIT', 'ISC', 'Apache-2.0', 'OFL-1.1'])
+// The same list as licences.test.ts, spelled exactly (a direct dependency's own `license` field).
+const ACCEPTED_LICENCES = new Set(ACCEPTED_LICENCE_IDS)
 
 describe('dependencies', () => {
   it('has some, in both lists', () => {
