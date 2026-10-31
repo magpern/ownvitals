@@ -151,8 +151,8 @@ queued ──claim──> running ──> completed | failed | cancelled
   `webhook_events` purge, scheduler enqueue, rate bucket, and the cancel of a replaced
   rotation's queued `notify update` jobs, ADR 0008; ADR 0002 §3) by amending this list with
   each family's role, grants and digests; the notifications issue (M6/M7) adds the mail
-  outbox's claim-and-mark pair the same way (ADR 0007; amended 2026-10-31, #72). Anything else
-  is refused.
+  outbox's functions (claim, mark and the owner-notice write) the same way (ADR 0007; amended
+  2026-10-31, #72). Anything else is refused.
 - **The privileged step.** Handing a function to `ownvitals_queue` needs the superuser, so the
   role, its grants and the functions live in one idempotent script,
   `docker/postgres/queue/20-queue.sql`, run **as the superuser** by the one-shot `db-functions`
@@ -370,7 +370,7 @@ Architect decisions, made in place above and marked "amended 2026-10-31, #72":
 
 - §3: the partition function's callers are the scheduler module and every writer of a
   partitioned table; the webhook-secret function takes the rotation lock; the notifications
-  issue adds the outbox's function pair (ADR 0007).
+  issue adds the outbox's functions (ADR 0007).
 - §8: every run that writes a partitioned table creates the months it actually writes first
   (the earlier text said "its window's months"); the upkeep acts on a rotation request one step
   at a time under the rotation lock; the rotation orders are cited from ADR 0008.

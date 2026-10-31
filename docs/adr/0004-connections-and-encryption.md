@@ -250,16 +250,19 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
     append clears the request. After either refusal the worker raises the alert and starts
     again from the request as it now reads it, in the order its reason names. So a compromise
     request is never lost to a race, and no step acts on a request that has changed. Only these
-    two calls, made for a request, are checked: a routine rotation's later retire and
-    delete-retired act on no request, and if a newer pending request refused them, that
-    request, which waits for the rotation in flight (ADR 0008), would block the rotation's own
-    retire, and neither could finish;
-  - **the compromise order is the function's too** (amended 2026-10-31, #72): an append that
-    would clear a `compromise` request is refused with `unretired_entries` while any other
-    entry is not retired, and with `seed_reused` if its `seed_id` is one that a retired entry
-    uses. So no call ends a compromise request while an old secret still verifies, or adds an
-    entry under the compromised seed (from a worker not restarted after the new seed was
-    installed, say);
+    two calls, the ones made for a request, are checked. That is safe because lock 4 serialises
+    the workers' steps (ADR 0008 §2) and a call made on a stale read of the request is refused;
+    retire and delete-retired act on no request, and can only stop a secret verifying, never
+    revive one;
+  - **the compromise order, against an honest worker's mistakes** (amended 2026-10-31, #72):
+    an append that would clear a `compromise` request is refused with `unretired_entries` while
+    any other entry is not retired, and with `seed_reused` if its `seed_id` is one that a
+    retired entry uses. They stop an honest worker that wasn't restarted after the new seed was
+    installed, or a stale request, from ending the request while an old secret still verifies
+    or from putting a retired seed back. They check only the clearing append and the ids the
+    caller names, so, like the known-id rule, they are no defence against code running with the
+    app role, which chooses the `seed_id` label, can insert check rows and can append an entry
+    whose HMAC it chose (accepted risk 21);
   - the `secret_id` format is fixed, and an append refuses an id already present; ids are
     random and never reused, so a deleted entry's secret can't come back;
   - `seed_id` and `pepper_id` must be known ids, with a check row in `connection_keks` (§3): a
@@ -477,9 +480,10 @@ Architect decisions, made in place above and marked "amended 2026-10-31, #72":
 - §4: the entry lifecycle, the routine and compromise rotations, pepper rotation, lingering
   subscriptions and `notify list` responses moved verbatim to ADR 0008 §1, with a pointer left
   here; §3, §4 and §9 now cite ADR 0008 for them. The input rules gain the `stale_request`
-  refusal and the compromise order (`unretired_entries`, `seed_reused`); each rotation step
-  runs under the rotation lock (single flight); the audit row holds ids, never the `hmac`;
-  `rotate` is one conditional `UPDATE`; a web process that hasn't read the entries yet answers
-  `POST` with 503.
+  refusal and the compromise order (`unretired_entries`, `seed_reused`), a guard against an
+  honest worker's mistakes, not against code with the app role; each rotation step runs under
+  the rotation lock (single flight, moved to ADR 0008 §2); the audit row holds ids, never the
+  `hmac`; `rotate` is one conditional `UPDATE`; a web process that hasn't read the entries yet
+  answers `POST` with 503.
 - §6: in M1 the owner notice is in-app only; mail through the outbox comes with the
   notifications issue (ADR 0007). Consequences: what #21, #22 and #24 add.

@@ -33,7 +33,8 @@ row holds exactly:
   to a user; or no one, in a system row (ADR 0002 §3), for an **owner notice**, which goes to
   the owner, that is the admins (ADR 0004 §6);
 - **at most a link**, chosen from a fixed list of the app's routes: a key naming the route,
-  never a URL.
+  never a URL. The database checks it like `kind` (a check constraint or an enum), so neither
+  column can hold free text (amended 2026-10-31, #72).
 
 There is no address, subject, free text, measurement value or finding text. ADR 0002's guard 1
 admits no table whose `owner_id` is optional, so this is two tables under the same rule, one
@@ -70,6 +71,14 @@ or failed. As for the other definer families (ADR 0002 §3, ADR 0005 §3):
   takes a row id and an outcome;
 - it is installed by `db-functions` and pinned, and `ownvitals_app` gets `EXECUTE`. The
   notifications issue adds the family to ADR 0005 §3 with its role, grants and digests.
+
+**`ownvitals_app` has no privilege on the system table** (amended 2026-10-31, #72). The issue
+that builds it revokes the default grants explicitly, adds it to ADR 0002 §5's revokes, and
+guard 2 checks it. Web's sender reaches system rows only through the two functions. Since the
+app role can't insert either, writing an owner notice also goes through a function of the
+family, which takes only a `kind` and a route key; that issue adds it with the pair. The
+owned table keeps the app role's default grants: forced RLS confines them to the session's
+owner (§1).
 
 ### 4. Owner notices, and when mail starts
 
@@ -111,7 +120,8 @@ but never marked, how long sent rows are kept, and how fast the sender sends.
 - The notifications issue (M6/M7) builds both tables, the function pair with its role (an
   amendment to ADR 0005 §3), the sender and the templates, with tests that a row can't hold an
   address or free text, that a job can't queue mail for another user, and that web's outbound
-  list doesn't change.
+  list doesn't change. It also revokes the app role's grants on the system table, with guard
+  2's check, and adds the owner-notice write to the family (amended 2026-10-31, #72).
 - Any code that can call the pair holds the app role, which can already set `app.user_id` and
   read every owned row (threat model T24), so the pair shows it nothing new. A caller other
   than the sender could claim rows and so suppress their mail: denial of service only.

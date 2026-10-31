@@ -176,18 +176,18 @@ development machine: agents, fakes and the demo account only; no real health dat
 | T29 | Withings tokens read from a database dump or backup | Envelope encryption: a data key per write, AES-256-GCM, AAD naming owner, provider and row, KEK in a file outside the database, a check value against a swapped KEK; backups hold ciphertext (ADR 0004 §2, §3) | #8 `test_envelope.py`, `test_keks.py`; #13 `test_connections.py` (`pg_dump` test) | cb T6, T40 |
 | T30 | A token leaking through logs, errors, job rows, events or SSE | Only `ownvitals.connections` decrypts; a redacting credentials object; jobs hold the connection id; `ConnectionFailure` without cause or context; masked log keys (ADR 0004 §5, §8, §9) | #13 `test_connections.py`, `test_connection_errors.py`; #2 `test_logging.py` | cb T41 |
 | T31 | One user's tokens used for another user's sync | Owned table read through `UserContext`; credentials rebuilt from the claimed job's owner; moved ciphertext fails its AAD (ADR 0004 §2, §5) | #8 wrong-AAD tests; #13; #15 worker context; #25 two-user sync test with `fake-withings` recording each call's token; #30 context tests | cb T42 |
-| T32 | A KEK, or the whole secrets directory, leaked | Everything goes: stop, new KEK, `keys wipe` with the services down (connection rows to `needs_reconnect` without credentials, TOTP reset), older backups treated as compromised; the owner rotates the Withings client secret so stolen refresh tokens are useless; a compromise of the KEK ring is a seed compromise too, so the seed and pepper are rotated and a `compromise` rotation retires every old webhook secret before it adds the new one, and subscriptions without tokens are revoked through `notify list` on reconnect (accepted risk 20); no upstream revoke (stolen access tokens live up to 3 h: accepted risk 19) (ADR 0004 §3) (amended 2026-10-31, #49) | #13 `test_keys_wipe.py`; #22 `rotate`, #24 the worker's rotation; owner (runbook, M1) | cb T40 |
+| T32 | A KEK, or the whole secrets directory, leaked | Everything goes: stop, new KEK, `keys wipe` with the services down (connection rows to `needs_reconnect` without credentials, TOTP reset), older backups treated as compromised; the owner rotates the Withings client secret so stolen refresh tokens are useless; a compromise of the KEK ring is a seed compromise too, so the seed and pepper are rotated and a `compromise` rotation retires every old webhook secret before it adds the new one, and subscriptions without tokens are revoked through `notify list` on reconnect (accepted risk 20); no upstream revoke (stolen access tokens live up to 3 h: accepted risk 19) (ADR 0004 §3, ADR 0008) (amended 2026-10-31, #49 and #72) | #13 `test_keys_wipe.py`; #22 `rotate`, #24 the worker's rotation; owner (runbook, M1) | cb T40 |
 | T33 | The current KEK lost | KEKs backed up separately from the dumps; restore drill; without the KEK every user reconnects and re-enrols, by design | owner, M2 (backups, restore drill) | new |
 | T34 | A stale refresh, reconnect or 401 overwriting newer tokens or flipping a fresh connection | `token_generation` raised by every token write; token writes and status changes are compare-and-swap on the generation read; rewrap doesn't change it (ADR 0004 §6) | #13 generation CAS test; #22 PLAN §4.3 tests | cb T77 |
 | T35 | Losing the only valid refresh token, or using the new access token before the new pair is saved | PLAN §4.3: per-connection lock, durable intent, CAS write, first use after the commit, one recovery retry within the 8-hour grace, then `needs_reconnect`; never the generic retry; a session-scoped advisory lock across the intent commit; reconnect clears a stale intent (ADR 0004 §6, §7) | #22: PLAN §4.3's crash and race tests | new |
 | T36 | Withings OAuth abuse: forged state, code injection, a victim's session finishing an attacker's flow, a Withings account already linked to another ownvitals account | State hashed, bound to the session, 10 minutes, single use, taken before the exchange; the code exchanged in the request through web's one narrow egress entry (roadmap Amendment 1); a Withings user linked to another account refused, and a different Withings account refused while one is connected; connect needs recent auth and step-up; `fake-withings` only in tests (ADR 0004 §7) | #13 (step-up on connect); #22 `test_withings_oauth*.py` (state, linked elsewhere, web-only exchange); #27 (a different account refused while connected) | new |
 | T37 | The Withings app client secret leaking | Enveloped in `withings_apps` with AAD bound to the app; web (the code exchange) and the worker (refresh, revoke) hold it in memory only for the call; the app role reads it through a column grant; no runtime role (`ownvitals_app`, `ownvitals_maint`) can write the table, and maint reads only its non-secret columns; the configuration is written, and the client secret rewrapped after a KEK rotation, only by #22's tool as the owner role, from one-off operator containers, with an audit row in the same transaction; never logged; rotated by the owner at Withings after any suspected leak (ADR 0002 §3, ADR 0004 §2, §3) (amended 2026-10-31, #49) | #21 (table, grants, guard 11's `withings_apps` check); #22 (`withings_apps` CLI and its rewrap, `test_withings_oauth*.py`); owner (runbook) | new |
 
-### D. The Withings webhook (PLAN §4.4; ADR 0002 §4, ADR 0004 §4, ADR 0005 §8)
+### D. The Withings webhook (PLAN §4.4; ADR 0002 §4, ADR 0004 §4, ADR 0005 §8, ADR 0008; amended 2026-10-31, #72)
 
 | # | Threat | Mitigation | Enforced by | From |
 |---|---|---|---|---|
-| T38 | Forged notifications from anyone who knows the URL pattern, a webhook secret recovered from a dump, or an entry planted or garbled in `webhook_secrets` | A 256-bit secret per app in the path, derived from an off-database seed that only the worker holds, never stored; the database keeps only a peppered HMAC with the secret, seed and pepper ids, which web (pepper only) compares in constant time with the pepper the entry names; a retired entry stops verifying at once; no oracle: the request checks run before the secret lookup, and an unknown or retired secret gets the generic 200 from web's in-process copy of the entries, before any database work, and is ignored and counted in a metric (O14); while the copy is older than the entry-cache TTL, or before web has read one at all, every `POST` gets 503, whatever the secret, and Withings retries (`HEAD` stays 200); rotation in the order `rotation_reason` names (ADR 0008): a `compromise` rotation retires every old entry in one atomic call before it appends the new one, and the function enforces that order itself (an append that would clear a `compromise` request is refused while another entry is not retired, or under a seed a retired entry uses); the function compare-and-clears the request under its row lock (a routine step against a pending `compromise` is refused as `compromise_pending`, a step whose request changed after the step read it as `stale_request`), and `rotate` never downgrades a pending `compromise` (one conditional `UPDATE`), so a compromise request is never lost; each rotation step runs under an advisory lock per app (namespace 4) and decides from what it read under it, so several workers act on a request one step at a time; a refused step raises an alert, so a compromised secret never stays verifying; entries written only through the webhook-secret definer function, owned by the narrow `NOLOGIN` role `ownvitals_webhook_secrets` (no DDL, no other column, no health table), with input rules, an audit row that never holds an `hmac` or anything derived from a secret, and called only by the worker's rotation module (guard), though code running in web could call it too (accepted risk 21); the payload is only a hint: data is always fetched from the API with the user's own token (ADR 0002 §3, ADR 0004 §4, ADR 0008) (amended 2026-10-31, #49 and #72) | #24 webhook fuzzing, forged (PLAN §10.3), rotation in both orders (a retired secret ignored, a compromise request racing a routine append, two workers on one request), no-oracle, stale-cache and no-cache (503) and single-caller-guard tests, the ignored-webhook metric and its alert; #21 (the function, its `NOLOGIN` role, grants, its lock, the input-rule, compare-and-clear, `stale_request`, compromise-order and audit-row tests); #22 (`rotate` never downgrades, under concurrency); #8 (web can't load the seed) | new |
+| T38 | Forged notifications from anyone who knows the URL pattern, a webhook secret recovered from a dump, or an entry planted or garbled in `webhook_secrets` | A 256-bit secret per app in the path, derived from an off-database seed that only the worker holds, never stored; the database keeps only a peppered HMAC with the secret, seed and pepper ids, which web (pepper only) compares in constant time with the pepper the entry names; a retired entry stops verifying at once; no oracle: the request checks run before the secret lookup, and an unknown or retired secret gets the generic 200 from web's in-process copy of the entries, before any database work, and is ignored and counted in a metric (O14); while the copy is older than the entry-cache TTL, or before web has read one at all, every `POST` gets 503, whatever the secret, and Withings retries (`HEAD` stays 200); rotation in the order `rotation_reason` names (ADR 0008): a `compromise` rotation retires every old entry in one atomic call before it appends the new one, and the function refuses an append that would clear a `compromise` request while another entry is not retired, or under a seed a retired entry uses (a guard against an honest worker's mistakes, not against code with the app role: accepted risk 21); the function compare-and-clears the request under its row lock (a routine step against a pending `compromise` is refused as `compromise_pending`, a step whose request changed after the step read it as `stale_request`), and `rotate` never downgrades a pending `compromise` (one conditional `UPDATE`), so a compromise request is never lost; each rotation step runs at READ COMMITTED under an advisory lock per app (namespace 4) and decides from what it read under it, so several workers act on a request one step at a time; a refused step raises an alert, so, with the worker up, a compromised secret doesn't stay verifying, except that code running with the app role could stall a compromise rotation by holding lock 4 or the `withings_apps` row lock: denial of service, surfaced by the stuck-rotation alert (#24) and accepted under risk 21; entries written only through the webhook-secret definer function, owned by the narrow `NOLOGIN` role `ownvitals_webhook_secrets` (no DDL, no other column, no health table), with input rules, an audit row that never holds an `hmac` or anything derived from a secret, and called only by the worker's rotation module (guard), though code running in web could call it too (accepted risk 21); the payload is only a hint: data is always fetched from the API with the user's own token (ADR 0002 §3, ADR 0004 §4, ADR 0008) (amended 2026-10-31, #49 and #72) | #24 webhook fuzzing, forged (PLAN §10.3), rotation in both orders (a retired secret ignored, a compromise request racing a routine append, two workers on one request), no-oracle, stale-cache and no-cache (503) and single-caller-guard tests, the ignored-webhook metric and its alert, READ COMMITTED steps and the stuck-rotation alert; #21 (the function, its `NOLOGIN` role, grants, its lock and isolation check, the input-rule, compare-and-clear, `stale_request`, compromise-order and audit-row tests); #22 (`rotate` never downgrades, under concurrency); #8 (web can't load the seed) | new |
 | T39 | Replayed or flooded notifications with a valid (leaked) secret, burning the shared 120/min budget | Dedupe key; singleton jobs with debounce; per-connection and per-app quotas in the ingest function; lanes keep "sync now" first; the worst case is rate budget, never data; rotation with two active secrets | #24 fuzzing (replayed, duplicate) and quotas; #23 601-storm test | new |
 | T40 | Oversized or malformed bodies against the parser | `HEAD` → 200; `POST` only form-encoded, over 2 KB refused before parsing, strict fields with sane date bounds | #24 fuzzing (oversized, malformed) | new |
 | T41 | The secret leaking through logs or traces, or through `notify list` responses, which carry every subscription's callback URL | Path redacted in app logs, traces and errors; callback URLs, built or listed, never stored, logged or used as metric labels; SWAG's webhook location logs without the URI; log-redaction tests. Cloudflare, if proxied, still sees it (accepted risk 5) (ADR 0004 §9, ADR 0008) (amended 2026-10-31, #49 and #72) | #24 log-redaction test; #22 log-redaction test over `notify list`; owner, M2 (O6) | new |
@@ -254,11 +254,10 @@ development machine: agents, fakes and the demo account only; no real health dat
 
 Each holds only while every user is a household member; the M8 gate re-decides all of them.
 Items 1, 3, 4, 5, 14 and 17 follow from the specification (§9.2, §4.4, §7.1, §10.2). Items 19
-to 21 follow from Architect decisions (2026-10-31; #49 extended 20 and 21; #72 bounded 21 by
-the compromise order and added the rotation lock and the cross-user cancel to it); the others
-are proposed by this model, most of them carried over from classbeat's accepted risks. The owner
-confirms or rejects every item that doesn't come from the specification before the M2 real-data
-gate (O15).
+to 21 follow from Architect decisions (2026-10-31; #49 extended 20 and 21; #72 scoped 21's
+input rules and added three ways to stall a rotation to it); the others are proposed by this
+model, most of them carried over from classbeat's accepted risks. The owner confirms or rejects
+every item that doesn't come from the specification before the M2 real-data gate (O15).
 
 1. **Shared home host.** A co-tenant with the Docker socket is root on the host and can read the
    database, the KEK files and every secret (T60). Revisited with the VPS move before M8 (§9.2).
@@ -318,29 +317,37 @@ gate (O15).
     Payloads are only hints,
     and after reconnect the backfill, poll and reconciliation bring the data up to date (D3)
     (T32, T38, ADR 0004 §3, ADR 0008; amended 2026-10-31, #72).
-21. **Code running in web could plant, retire or garble webhook-secret entries** (amended
-    2026-10-31, #49 and #72). Web shares `ownvitals_app` with the worker, so code execution in
-    web could call the webhook-secret function, within its input rules (which bound shape and,
-    since #72, the compromise order, not intent: the known-id rule is a sanity check, since the
-    app role can insert `connection_keks` rows itself). Through the function it can't end a
-    pending `compromise` request while another entry is not retired, or append under a seed
-    that a retired entry uses (ADR 0004 §4). It could call the function:
-    - to add an entry whose HMAC it chose, giving it a webhook URL it can call. Payloads are
-      only a trigger to fetch with the user's own token (PLAN §4.4), so the worst case is extra
-      syncs within the rate budget;
+21. **Code running in web could plant, retire or garble webhook-secret entries, or stall a
+    rotation** (amended 2026-10-31, #49 and #72). Web shares `ownvitals_app` with the worker,
+    so code execution in web could call the webhook-secret function, within its input rules,
+    which bound shape, not intent. The known-id rule and the compromise-order rules
+    (`unretired_entries`, `seed_reused`) check only the ids the caller names, and the app role
+    can insert `connection_keks` rows itself, so they guard against an honest worker's
+    mistakes, not against this code (ADR 0004 §4; amended 2026-10-31, #72). It could call the
+    function:
+    - to add an entry whose HMAC it chose, under a seed id it inserted itself if it likes,
+      giving it a webhook URL it can call. Code in web sees the paths it serves, so that can be
+      a URL a compromise rotation retired, which then verifies again (#72). Payloads are only a
+      trigger to fetch with the user's own token (PLAN §4.4), so the worst case is extra syncs
+      within the rate budget;
     - to retire entries, delete retired ones or re-hash entries to garbage (denial of service,
       extended by #49): webhooks are then ignored, and the worker's derivation check refuses to
       build callback URLs from a garbled entry, until a rotation replaces it. Scheduled sync and
       drift reconciliation (#26) cover the gap, and an alert fires on the ignored-webhook rate.
 
-    It could also hold the rotation lock (namespace 4, ADR 0005 §9): the worker's rotation
-    steps then fail on `lock_timeout` and alert, and the rotation stalls (#72). That gives it
-    nothing more, since code running in web already decides how webhooks are answered.
+    It could also stall a rotation (amended 2026-10-31, #72):
+    - by holding the rotation lock (namespace 4, ADR 0008 §2): the worker's steps then fail on
+      `lock_timeout` and alert;
+    - by calling the function and keeping its transaction open, which holds the `withings_apps`
+      row lock and blocks `rotate` too; the 60 s idle-in-transaction timeout ends it, but it
+      can repeat it;
+    - by calling the queue's definer function that cancels a routine rotation's queued
+      `notify update` jobs (ADR 0008; #18 builds it), which stalls a routine rotation.
 
-    And it could call the queue's definer function that cancels a routine rotation's queued
-    `notify update` jobs (ADR 0008; #18 builds it) and so stall a routine rotation (amended
-    2026-10-31, #72). Like the cases above, that is denial of service, never a secret
-    disclosure, and it surfaces through the stuck-rotation alert.
+    Each is denial of service, never a secret disclosure, and surfaces through the
+    stuck-rotation alert (#24). While a `compromise` request is stalled, the old secret keeps
+    verifying; that gives this code nothing more, since code running in web already decides how
+    webhooks are answered.
 
     The function's own role holds no DDL right, no other column and no health table (ADR 0002
     §3), so a bug in it reaches nothing more; the guard keeps every module but the worker's
@@ -357,7 +364,7 @@ gate (O15).
 | O12 | Disk encryption on the home server; Cloudflare proxied or DNS-only (T60, T64) | owner, M2 gate |
 | O13 | After the port: confirm each M0 mitigation against the merged code, replace every planned test name, close or re-home every open item | #16 |
 | O14 | Answer an unknown or retired webhook secret with the generic 200 before any database work, ignore it and count it; run the request checks before the lookup; answer a `POST` with 503 while the entry cache is stale or not yet read, and `HEAD` with 200 (T38; amended 2026-10-31, #49 and #72) | #24 |
-| O15 | Confirm or reject the accepted risks that don't come from the specification (2, 6 to 13, 15, 16, 18 to 21; #49 extended 20 and 21, 21 now covering denial of service; #72 added the rotation lock and the cross-user cancel to 21; amended 2026-10-31, #72) | owner, before the M2 real-data gate |
+| O15 | Confirm or reject the accepted risks that don't come from the specification (2, 6 to 13, 15, 16, 18 to 21; #49 extended 20 and 21, 21 now covering denial of service; #72 added to 21 the three ways to stall a rotation (the rotation lock, an open transaction holding the `withings_apps` row lock, the cross-user cancel) and said its input rules guard against an honest worker's mistakes only; amended 2026-10-31, #72) | owner, before the M2 real-data gate |
 
 Decided by the Architect on 2026-10-31 (numbers kept so earlier references stay valid):
 
