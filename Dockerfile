@@ -1,11 +1,15 @@
-# syntax=docker/dockerfile:1
-# One image for the web server and, later, the worker. Base images are pinned by exact tag.
+# syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+# One image for the web server and, later, the worker. Every image the build pulls is pinned by
+# tag and index digest (`name:tag@sha256:...`: the digest decides, the tag says what it is).
+# Dependabot's docker entry bumps the python image's tag and digest. The uv image moves by hand
+# with setup-uv (scripts/ci-uv-version.sh checks the tags agree), and so does the syntax line,
+# which Dependabot does not read (docs/dev/release.md).
 # The single-page-app build stage arrives with the end-to-end harness issue.
 
-FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
 
 # --- runtime ----------------------------------------------------------------------------
-FROM python:3.12.16-slim-bookworm AS runtime
+FROM python:3.12.16-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337 AS runtime
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \

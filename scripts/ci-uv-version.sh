@@ -13,7 +13,8 @@ set -euo pipefail
 yqv="$(yq --version)"
 echo "$yqv"
 grep -Eq 'mikefarah/yq.* v4\.' <<< "$yqv" || { echo "::error::need mikefarah yq v4"; exit 1; }
-want="$(sed -n 's|^FROM ghcr.io/astral-sh/uv:\([0-9][0-9.]*\) .*|\1|p' Dockerfile | tr -d '\r')"
+# The tag, bare or pinned by digest (`uv:X.Y.Z@sha256:<64 hex>`); any other form has no tag.
+want="$(sed -n 's|^FROM ghcr.io/astral-sh/uv:\([0-9][0-9.]*\)\(@sha256:[0-9a-f]\{64\}\)\{0,1\} .*|\1|p' Dockerfile | tr -d '\r')"
 [ -n "$want" ] || { echo "::error::no uv tag found in the Dockerfile"; exit 1; }
 [ "$(wc -l <<< "$want")" -eq 1 ] || { echo "::error::more than one uv tag in the Dockerfile"; exit 1; }
 echo "Dockerfile uv tag: $want"

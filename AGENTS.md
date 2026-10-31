@@ -182,6 +182,9 @@ services; emails to real people; contacting Withings; opening registration beyon
 Deploying is not part of a release and needs the owner's go-ahead.
 
 1. `main` is green and holds what the release should contain. Pick the next SemVer `vX.Y.Z`.
+   Before tagging, a PR sets `version` in `backend/pyproject.toml` to the tag without the `v`
+   (and re-locks, so `uv.lock` agrees); `release.yml` refuses a tag that differs. A pre-release
+   is spelled `X.Y.Z-rc.1` there, as in the tag; PEP 440's `X.Y.Zrc1` is refused.
 2. `git fetch origin main && git tag -a vX.Y.Z -m "vX.Y.Z" origin/main && git push origin vX.Y.Z`.
 3. `release.yml` verifies the tag is on `main`, builds and pushes the image to GHCR and creates
    a build-provenance attestation. The protected tag is **not** the control: anyone who can push
@@ -271,7 +274,7 @@ Reviewer of a UI PR compares the result with the screenshots.
 | Workflow / job | Runs | What it does |
 |---|---|---|
 | `ci` / `changes` | always | `scripts/ci-changes.sh`: which areas the PR changed (`backend`, `frontend`, `stack`, `all`); a change to `.github/`, `.gitattributes` or the CI scripts, the weekly run and a manual run set `all`; a diff that can't be computed runs everything |
-| `ci` / `checks` | always | Frozen-spec guard (the three spec files equal `635901d`); gitleaks over the PR's own commits (weekly: whole history); `bash -n` and shellcheck on `scripts/*.sh`; the CI gate and change-filter tests (`scripts/test-ci-gate.sh`); actionlint; the uv version check (`scripts/ci-uv-version.sh`); pip-audit; npm audit; Trivy repository scan |
+| `ci` / `checks` | always | Frozen-spec guard (the three spec files equal `635901d`); gitleaks over the PR's own commits (weekly: whole history); `bash -n` and shellcheck on `scripts/*.sh`; the CI gate and change-filter tests (`scripts/test-ci-gate.sh`); the release workflow tests (`scripts/test-release.sh`) and the download checksum tests (`scripts/test-ci-downloads.sh`); actionlint; the uv version check (`scripts/ci-uv-version.sh`); pip-audit; npm audit; Trivy repository scan |
 | `ci` / `backend` | `backend` | From `backend/`: `uv sync --locked`, ruff, format check, pyright, pytest against a Postgres 17 service. No step skips: a missing `backend/`, `pyproject.toml` or `uv.lock` fails the job |
 | `ci` / `frontend` | `frontend` | From `frontend/`: `npm ci`, lint, typecheck, Vitest, build. No step skips: a missing `frontend/` or `package-lock.json` fails the job |
 | `ci` / `ci` | always | The required check (`scripts/ci-gate.sh`): `changes` and `checks` succeeded, and every other job succeeded or was skipped while its filter is false. Fails closed |
@@ -281,10 +284,11 @@ A new job joins `needs` of `ci`, `JOBS`/`FILTERS` in `scripts/ci-gate.sh`, the g
 this table in the same PR.
 
 Every GitHub Action is pinned by full commit SHA with the version in a comment. Release
-binaries downloaded in CI (gitleaks, Trivy) are checksum-verified, and the shellcheck and
-actionlint images are pinned by digest. commitlint runs through `npx` at exact versions (no
-lockfile), and the Postgres service image is pinned by exact tag. Dependabot keeps Actions
-current (and uv, npm and Docker once #7 adds them).
+binaries downloaded in CI (gitleaks, Trivy) are checksum-verified (`scripts/test-ci-downloads.sh`
+tests it), and the shellcheck and actionlint images are pinned by digest. commitlint runs through
+`npx` at exact versions (no lockfile), and the Postgres service image is pinned by exact tag.
+Dependabot keeps Actions, uv, npm and the Docker images current; what it can't see is bumped by
+hand ([docs/dev/release.md](docs/dev/release.md)).
 
 The dependency audits are steps of `checks` and also run in the weekly run, which picks up new
 advisories:
