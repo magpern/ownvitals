@@ -34,6 +34,30 @@ so that ``Var*(S) = Var(S) · n/n*``. Our decisions where the paper leaves room:
   negative autocorrelation, which would make the test claim more than the plain one; we take the
   conservative side. The unclamped value is reported as ``n_over_n_star_raw``.
 
+**AR(1) correction** (the default; ``Correction.AR1``). Hamed-Rao uses only the lags whose sample
+autocorrelation is significant, so it under-corrects (docs/dev/analysis-methods.md has the
+measured rates at 100 points: 9.2 % at phi 0.3 and 15.1 % at phi 0.6 for a test at 5 %). The AR(1)
+correction keeps the same variance formula and weights but takes the autocorrelation from a
+fitted AR(1) model at every lag, ``rho_k = phi^k`` (the effective sample size of an AR(1) series,
+Bayley and Hammersley 1946; used for Mann-Kendall by Yue and Wang 2004), so ``n/n*`` is a smooth
+function of one estimated number, ``phi``:
+
+    r     = 2 sin(pi r_1 / 6)            r_1: lag-1 autocorrelation of the ranks of the residuals;
+                                         the map takes a rank correlation back to the Gaussian
+                                         scale (Pearson 1907; Kruskal 1958), so outliers do not
+                                         move it and AR(1) data give r near phi
+    phi   = clip(r + (6 + 6 r)/n, 0, 0.95)
+
+``(6 + 6 r)/n`` is two things: the downward bias of a lag-1 autocorrelation estimated after a mean
+and a trend are removed, about ``(2 + 5.5 phi)/n`` (Kendall 1954; Marriott and Pope 1954 for the
+mean alone; measured here for the detrended case), and a safety margin of about ``4/n`` for the
+spread of ``r`` in short series, where one does not know ``phi`` well and the cost of guessing
+low is a false trend. The constants are calibrated by simulation, not taken from a paper (see
+``docs/dev/analysis-methods.md``); ``phi`` is never below 0 (the test is only ever made more
+cautious) and never above 0.95. ``S`` and its tie-corrected variance are those of the data;
+only ``Var(S)`` is multiplied, by ``n/n*``, so the slope, its interval (which widens with the
+variance) and the direction are the Theil-Sen ones.
+
 **Theil-Sen** (Theil 1950; Sen 1968) is the median of the slopes ``(y_j - y_i)/(t_j - t_i)`` over
 all pairs; it uses the real times, so the slope is in value units per day, and is robust to
 outliers (breakdown point about 29 %). Its confidence interval is Sen's (1968), as in Gilbert
@@ -58,17 +82,21 @@ from scipy.stats import rankdata
 
 from ownvitals.analysis.methods.series import FloatArray, InputSummary, Series
 
-ALGO_VERSION = "trend/1"
+ALGO_VERSION = "trend/2"
 
 MIN_POINTS = 3
 MAX_POINTS = 3000
 DEFAULT_ALPHA = 0.05
 ACF_ALPHA = 0.05  # the level at which Hamed and Rao call an autocorrelation significant
+AR1_BIAS_CONSTANT = 6.0  # phi = r + (AR1_BIAS_CONSTANT + AR1_BIAS_SLOPE * r) / n, see the docstring
+AR1_BIAS_SLOPE = 6.0
+AR1_MAX = 0.95  # the largest phi used: 1 would be a random walk, with no finite variance
 
 
 class Correction(StrEnum):
     NONE = "none"  # plain Mann-Kendall
-    HAMED_RAO = "hamed_rao"
+    HAMED_RAO = "hamed_rao"  # Hamed and Rao 1998: the significant lags only (under-corrects)
+    AR1 = "ar1"  # the AR(1)-fitted effective sample size (the default)
 
 
 class Direction(StrEnum):
@@ -88,6 +116,8 @@ class TrendResult:
     n_over_n_star: float  # the factor used: never below 1
     var_s_used: float  # var_s * n_over_n_star
     significant_lags: tuple[int, ...]
+    ar1_r: float | None  # AR1: lag-1 autocorrelation of the residual ranks, on the Gaussian scale
+    ar1_phi: float | None  # AR1: the coefficient used for n/n* (after bias, margin and limits)
     z: float
     p_value: float
     alpha: float
@@ -111,6 +141,8 @@ class TrendResult:
             "n_over_n_star": self.n_over_n_star,
             "var_s_used": self.var_s_used,
             "significant_lags": list(self.significant_lags),
+            "ar1_r": self.ar1_r,
+            "ar1_phi": self.ar1_phi,
             "z": self.z,
             "p_value": self.p_value,
             "alpha": self.alpha,
@@ -197,6 +229,31 @@ def hamed_rao_factor(
     return 1.0 + 2.0 * total / (n * (n - 1.0) * (n - 2.0)), tuple(lags)
 
 
+def ar1_coefficient(ranks: FloatArray) -> tuple[float, float]:
+    """``(r, phi)`` for the ranks of the detrended series: ``r`` is the lag-1 autocorrelation of
+    the ranks mapped to the Gaussian scale, ``phi`` the AR(1) coefficient the correction uses
+    (see the module docstring). A constant input has ``r = 0``."""
+    n = int(ranks.size)
+    if n < MIN_POINTS:
+        raise ValueError(f"the AR(1) coefficient needs at least {MIN_POINTS} points")
+    centred = ranks - ranks.mean()
+    denominator = float(centred @ centred)
+    r1 = float(centred[:-1] @ centred[1:]) / denominator if denominator > 0.0 else 0.0
+    r = 2.0 * math.sin(math.pi * r1 / 6.0)
+    phi = r + (AR1_BIAS_CONSTANT + AR1_BIAS_SLOPE * r) / n
+    return r, min(max(phi, 0.0), AR1_MAX)
+
+
+def ar1_factor(n: int, phi: float) -> float:
+    """``n/n*`` of the Hamed-Rao formula with ``rho_k = phi^k`` at every lag (at least 1 for
+    ``phi >= 0``)."""
+    if n < MIN_POINTS:
+        raise ValueError(f"the AR(1) factor needs at least {MIN_POINTS} points")
+    k = np.arange(1, n - 2, dtype=np.float64)  # (n-k)(n-k-1)(n-k-2) is zero from k = n-2 on
+    weights = (n - k) * (n - k - 1.0) * (n - k - 2.0)
+    return 1.0 + 2.0 * float(np.sum(weights * phi**k)) / (n * (n - 1.0) * (n - 2.0))
+
+
 def slope_interval(slopes: FloatArray, var_s: float, alpha: float) -> tuple[float, float]:
     """Sen's (1968) confidence interval for the median of the ascending ``slopes``."""
     count = int(slopes.size)
@@ -217,7 +274,7 @@ def _at_rank(sorted_values: FloatArray, rank: float) -> float:
 
 
 def trend(
-    series: Series, *, alpha: float = DEFAULT_ALPHA, correction: Correction = Correction.HAMED_RAO
+    series: Series, *, alpha: float = DEFAULT_ALPHA, correction: Correction = Correction.AR1
 ) -> TrendResult:
     """Theil-Sen slope and Mann-Kendall test of ``series`` at level ``alpha``."""
     if not 0.0 < alpha < 1.0:
@@ -237,9 +294,16 @@ def trend(
     intercept = float(np.median(series.y - slope * (series.t - t_ref)))
 
     raw, lags = 1.0, ()
-    if correction is Correction.HAMED_RAO:
+    ar1_r: float | None = None
+    ar1_phi: float | None = None
+    if correction is not Correction.NONE:
         residual_ranks = rankdata(series.y - slope * (series.t - t_ref), method="average")
-        raw, lags = hamed_rao_factor(np.asarray(residual_ranks, dtype=np.float64))
+        ranks = np.asarray(residual_ranks, dtype=np.float64)
+        if correction is Correction.HAMED_RAO:
+            raw, lags = hamed_rao_factor(ranks)
+        else:
+            ar1_r, ar1_phi = ar1_coefficient(ranks)
+            raw = ar1_factor(n, ar1_phi)
     factor = max(1.0, raw)
     var_used = var_s * factor
 
@@ -258,6 +322,8 @@ def trend(
         n_over_n_star=factor,
         var_s_used=var_used,
         significant_lags=lags,
+        ar1_r=ar1_r,
+        ar1_phi=ar1_phi,
         z=z,
         p_value=p_value,
         alpha=alpha,

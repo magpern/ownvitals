@@ -19,8 +19,9 @@ EXPECTED_EXPRESSION = (
     "(owner_id = (NULLIF(current_setting('app.user_id'::text, true), ''::text))::uuid)"
 )
 # Restrictive ``USING (false)`` policies an owned table must have, by table: ``{"UPDATE",
-# "DELETE"}`` for an append-only table (ADR 0002 section 2; the job events of #9 are the first).
-REQUIRED_DENY_POLICIES: dict[str, set[str]] = {}
+# "DELETE"}`` for an append-only table (ADR 0002 section 2). The job events (ADR 0005 section 1)
+# are append-only; they go only with their job (``ON DELETE CASCADE``).
+REQUIRED_DENY_POLICIES: dict[str, set[str]] = {"job_events": {"UPDATE", "DELETE"}}
 # Restrictive policies with their own expressions, by table: ``(cmd, USING, WITH CHECK)`` as
 # ``pg_policies`` renders them.
 REQUIRED_POLICIES: dict[str, set[tuple[str, str | None, str | None]]] = {}

@@ -10,13 +10,20 @@ properties of the method and are recorded in ``docs/dev/analysis-methods.md``.
 import json
 import math
 from collections.abc import Callable
-from functools import cache
 from statistics import NormalDist
 from typing import cast
 
 import numpy as np
 import pytest
-from methods_builders import SYNTHETIC, ar1, generator, irregular_times
+from methods_builders import (
+    RUNS,
+    SYNTHETIC,
+    ar1,
+    binomial_slack,
+    generator,
+    irregular_times,
+    p_values,
+)
 from scipy import stats
 
 from ownvitals.analysis.methods import trend as trend_module
@@ -230,18 +237,27 @@ def test_negative_autocorrelation_is_not_used_to_deflate_the_variance() -> None:
     raw, lags = hamed_rao_factor(ranks)
     assert raw < 1.0
     assert 1 in lags
-    result = trend(line(n, list(alternating)))
+    result = trend(line(n, list(alternating)), correction=Correction.HAMED_RAO)
     assert result.n_over_n_star_raw < 1.0
     assert result.n_over_n_star == 1.0
     assert result.var_s_used == result.var_s
+    # the AR(1) correction never uses a coefficient below 0, so it cannot deflate either
+    ar1_result = trend(line(n, list(alternating)))
+    assert ar1_result.ar1_phi is not None
+    assert ar1_result.ar1_phi >= 0.0
+    assert ar1_result.n_over_n_star >= 1.0
 
 
-def test_plain_and_modified_agree_when_there_is_no_autocorrelation_to_correct() -> None:
+@pytest.mark.parametrize("correction", [Correction.HAMED_RAO, Correction.AR1])
+def test_plain_and_modified_agree_when_there_is_no_autocorrelation_to_correct(
+    correction: Correction,
+) -> None:
     plain = trend(line(5, [1, 3, 2, 5, 4]), correction=Correction.NONE)
-    modified = trend(line(5, [1, 3, 2, 5, 4]))
+    modified = trend(line(5, [1, 3, 2, 5, 4]), correction=correction)
     assert plain.n_over_n_star == plain.n_over_n_star_raw == 1.0
     assert plain.significant_lags == ()
-    assert modified.correction is Correction.HAMED_RAO
+    assert (plain.ar1_r, plain.ar1_phi) == (None, None)
+    assert modified.correction is correction
     assert modified.n_over_n_star >= 1.0
     assert modified.var_s_used == pytest.approx(modified.var_s * modified.n_over_n_star)
 
@@ -273,14 +289,22 @@ def test_sens_interval_picks_interpolated_ranks_by_hand() -> None:
 
 @pytest.mark.parametrize("seed", range(5))
 @pytest.mark.parametrize("sign", [1.0, -1.0])
-def test_a_monotone_series_is_a_significant_trend(seed: int, sign: float) -> None:
+@pytest.mark.parametrize(
+    ("correction", "bound"), [(Correction.HAMED_RAO, 1e-3), (Correction.AR1, 0.03)]
+)
+def test_a_monotone_series_is_a_significant_trend(
+    seed: int, sign: float, correction: Correction, bound: float
+) -> None:
     rng = generator(seed)
     times = irregular_times(rng, 30, 90.0, with_gaps=bool(seed % 2))
     values = sign * np.sort(rng.normal(80.0, 3.0, size=times.size))
-    result = trend(Series.from_arrays(times, values))
+    result = trend(Series.from_arrays(times, values), correction=correction)
     assert result.significant
     assert result.direction is (Direction.INCREASING if sign > 0 else Direction.DECREASING)
-    assert result.p_value < 1e-3  # a curved trend leaves structured residuals: n/n* is large
+    # A curved trend leaves structured residuals, which look like persistence: n/n* is large.
+    # Hamed-Rao takes about 2 to 3 here, the AR(1) fit 5 to 11 (p between 8e-4 and 0.02): the price
+    # of a correction that holds its level at short lengths, see docs/dev/analysis-methods.md.
+    assert result.p_value < bound
     assert sign * result.slope > 0
     assert result.tau == sign
 
@@ -381,28 +405,6 @@ def test_gaps_and_uneven_sampling_do_not_bias_the_slope() -> None:
 # --- error rates: seeded simulations -----------------------------------------------------------
 
 
-@cache
-def p_values(correction: Correction, n: int, phi: float, runs: int, seed: int) -> np.ndarray:
-    """The p-values of ``runs`` seeded series of ``n`` points: white noise (``phi`` 0) or AR(1)
-    with no trend at all, on irregular times (the test uses the order, the detrending the
-    times)."""
-    rng = generator(seed)
-    found = np.empty(runs)
-    for i in range(runs):
-        values = ar1(rng, n, phi) if phi else rng.normal(size=n)
-        times = np.sort(rng.choice(np.arange(int(n * 1.6)), size=n, replace=False)).astype(float)
-        found[i] = trend(Series.from_arrays(times, values), correction=correction).p_value
-    return found
-
-
-RUNS = 1000
-
-
-def binomial_slack(level: float, runs: int = RUNS) -> float:
-    """Three standard errors of an observed rate of a test with true rate ``level``."""
-    return 3.0 * math.sqrt(level * (1.0 - level) / runs)
-
-
 @pytest.mark.parametrize("correction", list(Correction))
 @pytest.mark.parametrize("alpha", [0.05, 0.01])
 def test_white_noise_is_flagged_at_no_more_than_the_stated_alpha(
@@ -420,28 +422,6 @@ def test_white_noise_shows_no_trend_in_at_least_95_percent_of_runs_at_alpha_001(
     # sample of 1000 cannot land under 95 % by chance
     no_trend = float(np.mean(p_values(correction, 60, 0.0, RUNS, 20261031) >= 0.01))
     assert no_trend >= 0.95
-
-
-def test_modified_mk_holds_the_level_better_than_plain_mk_on_autocorrelated_series() -> None:
-    # AR(1) with phi = 0.3 and no trend, n = 100. The plain test sees a trend in about 15 % of
-    # them at alpha = 0.05; the Hamed-Rao test in about 10 %: it removes about half of the excess
-    # but, as published (only the significant lags are used), not all of it.
-    alpha = 0.05
-    plain = float(np.mean(p_values(Correction.NONE, 100, 0.3, RUNS, 20261031) < alpha))
-    modified = float(np.mean(p_values(Correction.HAMED_RAO, 100, 0.3, RUNS, 20261031) < alpha))
-    assert plain > 2.5 * alpha  # the problem is real
-    assert modified - alpha < 0.6 * (plain - alpha)  # and the correction takes out over 40 %
-    assert modified < 2.2 * alpha
-
-
-def test_the_correction_helps_more_the_stronger_the_autocorrelation() -> None:
-    alpha = 0.05
-    plain = float(np.mean(p_values(Correction.NONE, 100, 0.6, RUNS, 20261031) < alpha))
-    modified = float(np.mean(p_values(Correction.HAMED_RAO, 100, 0.6, RUNS, 20261031) < alpha))
-    assert plain > 0.25
-    assert modified < 0.6 * plain
-    # not near alpha: Hamed-Rao under-corrects strong autocorrelation (docs/dev/analysis-methods.md)
-    assert modified > 2 * alpha
 
 
 # --- arguments, errors, result -----------------------------------------------------------------
@@ -465,14 +445,16 @@ def test_alpha_must_be_a_probability(alpha: float) -> None:
 def test_the_result_carries_n_coverage_the_algorithm_version_and_is_json_safe() -> None:
     series = Series.from_arrays(np.arange(0.0, 40.0, 2.0), np.arange(20.0), window_days=60)
     result = trend(series)
-    assert result.algo_version == ALGO_VERSION == "trend/1"
-    assert trend_module.ALGO_VERSION == "trend/1"
+    assert result.algo_version == ALGO_VERSION == "trend/2"
+    assert trend_module.ALGO_VERSION == "trend/2"
     assert result.inputs.n == 20
     assert float(result.inputs.coverage) == pytest.approx(20 / 60)
     decoded = json.loads(json.dumps(result.as_dict()))
     assert decoded["direction"] == "increasing"
     assert decoded["slope_per_day"] == pytest.approx(0.5)
-    assert decoded["correction"] == "hamed_rao"
+    assert decoded["correction"] == "ar1"
+    assert decoded["ar1_phi"] is not None
+    assert decoded["ar1_r"] is not None
     assert decoded["inputs"]["n"] == 20
 
 

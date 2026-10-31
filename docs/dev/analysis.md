@@ -5,8 +5,8 @@
 `observations`, `metric_daily` and jobs comes later in M4. The statistical methods of step 5
 (baseline, EWMA, Theil-Sen, PELT) live in `analysis/methods/` and have their own document.
 
-**Pure**: no database, web, Withings, job, egress or `httpx` import, no I/O, no clock, no
-randomness. Inputs are plain frozen dataclasses; every function is deterministic and does not
+**Pure**: no database, web, Withings, job, egress, account, configuration, logging or HTTP-client
+import (the list is under "Purity guard"), no I/O, no clock, no randomness. Inputs are plain frozen dataclasses; every function is deterministic and does not
 depend on the order its input was passed in. `tests/test_analysis_purity.py` enforces the import
 rule for `ownvitals.analysis` and `ownvitals.ecg` (below).
 
@@ -173,6 +173,13 @@ Below a requirement the result is `InsufficientData` (`requirement`, `shortfalls
 `data_quality`. Neither is a value or a finding. To change a metric's thresholds, add it to
 `POLICIES` and test the new boundaries (at, just below, just above).
 
+**A `Requirement` that can never be met is refused.** `min_span_fraction` must be in the open
+interval (0, 1): a span is days elapsed, at most `window_days - 1`, so no window gives a
+`span_fraction` of 1 or more (`(w - 1) / w` at most), and a requirement of 1 would make every
+result `InsufficientData` whatever the data. A fraction below 1 that a *short* window cannot reach
+(3/5 of a 2-day window) is valid: that window is `InsufficientData`, like a `min_span_days` larger
+than the window, and the same requirement is met by a longer one.
+
 ## Provenance: `ALGO_VERSION`
 
 Each module has an `ALGO_VERSION` (`quality/1`, `daily/1`, `dataquality/2`, `policy/2`) and
@@ -196,8 +203,20 @@ boundary, in days elapsed: some of those tests build the days with explicit date
 ## Purity guard
 
 `tests/test_analysis_purity.py` fails when `ownvitals.analysis` (the `methods/` subpackage
-included) or `ownvitals.ecg` (once it exists) imports `ownvitals.db`, `ownvitals.web`,
-`ownvitals.withings`, `ownvitals.jobs`, `ownvitals.egress` or `httpx`:
+included) or `ownvitals.ecg` (once it exists) imports anything in `FORBIDDEN`:
+
+| Forbidden | Why |
+|---|---|
+| `ownvitals.db`, `ownvitals.jobs`, `ownvitals.connections`, `sqlalchemy`, `psycopg` | the database |
+| `ownvitals.web`, `ownvitals.admin`, `ownvitals.flags`, `ownvitals.headers` | the web app and its routes |
+| `ownvitals.withings`, `ownvitals.egress`, `httpx`, `requests` | the network |
+| `ownvitals.auth`, `ownvitals.context` | who is acting: the pure core takes plain values |
+| `ownvitals.config`, `ownvitals.log`, `ownvitals.cli` | the environment, secret files, stdout and the operator CLI |
+
+Everything else in `ownvitals` stays importable (`ownvitals.emailnorm` is the one pure helper at
+the top level). A name matches itself and its submodules, not a name that merely starts with it
+(`ownvitals.authors` is not `ownvitals.auth`). When a package with I/O merges, add it to
+`FORBIDDEN`; `ls backend/src/ownvitals/` shows what is there.
 
 - **static**: every import in the package's source is read from the syntax tree (absolute and
   relative imports, `from ownvitals import db`, `import ownvitals` then `ownvitals.db`,
@@ -207,16 +226,32 @@ included) or `ownvitals.ecg` (once it exists) imports `ownvitals.db`, `ownvitals
   - an import call with a second positional argument, `package=`, `level=` or `**kwargs`;
   - an import call whose `fromlist` names a forbidden module (`__import__('ownvitals',
     fromlist=['db'])`) or is not a literal;
-  - any use of `exec`, `eval` or `compile` (also as `builtins.exec`), which can run an import
-    that no syntax tree shows (`re.compile` is not the builtin and is fine);
+  - **call chaining**: a call is an import call by the name it is made under, whatever its base,
+    so `__import__('importlib').import_module('ownvitals.db')` and
+    `sys.modules['importlib'].import_module(...)` are checked like `importlib.import_module`;
+  - any use of `exec`, `eval` or `compile` (also as `builtins.exec`, and on a base that is not a
+    plain name: `__import__('builtins').exec(...)`), which can run an import that no syntax tree
+    shows (`re.compile` is not the builtin and is fine);
+  - any use of `run_module`, `run_path`, `resolve_name` or `patch` (`runpy`, `pkgutil` and
+    `unittest.mock`, also `patch.dict` and `patch.multiple`), which import or run the module a
+    string names, and for which a pure library has no use;
+  - a string that is exactly the name of one of those functions (`getattr(importlib,
+    'import_module')`, `importlib.__dict__['import_module']`), which can only be a lookup by name;
   - `import_module` or `__import__` used as a value or under another name
     (`from importlib import import_module as load`, `load = importlib.import_module`);
+  - **aliases are collected from the whole file first**, so a use before (or above, in the walk's
+    depth order) an `import ownvitals` nested in a function or class is caught, and a name bound
+    by two imports (`import ownvitals as x`, `import os as x`) stands for both;
 - **dynamic**: importing every module in a clean interpreter must not load any forbidden module,
-  which also catches an indirect import;
+  which also catches an indirect import. A name built at run time (`getattr(m, 'import_' +
+  'module')`) is beyond a syntax tree and is left to this check;
 - the scanner is tested by planting each of those forms into a copy of the package, once in
-  `quality.py` and once in `methods/trend.py`, and the report must name the rule that catches it;
+  `quality.py` and once in `methods/trend.py`, and the report must name the rule that catches it
+  (`tests/analysis/test_analysis_purity_rules.py`; each `FORBIDDEN` addition is listed there by
+  name, so removing an entry fails a test);
 - **no silent skip**: a guarded name is skipped only while neither `ownvitals/<name>/` nor
   `ownvitals/<name>.py` exists. If `ecg/` exists its checks run; if `ecg.py` exists the guard
-  **fails**, because the ECG core (#40) must be a package that the scan can walk.
+  **fails**, because the ECG core (#40) must be a package that the scan can walk
+  (`tests/analysis/test_analysis_purity_guarded.py`).
 
 To widen the list, edit `FORBIDDEN` there; to guard a new pure package, add it to `GUARDED`.
