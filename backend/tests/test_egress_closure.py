@@ -256,6 +256,43 @@ def test_the_reviews_cases_are_refused_through_the_closure(source: str, why: str
     assert any(why in found for _, found in scan_source(source, WEB)), scan_source(source, WEB)
 
 
+def test_a_denied_entry_is_refused_inside_its_by_design_prefix() -> None:
+    assert TABLE["starlette.testclient"].kind == "denied"
+    assert scan_source("from starlette.responses import JSONResponse", WEB) == []
+    for source in (
+        "from starlette.testclient import TestClient",
+        "import starlette.testclient",
+        "import starlette\nstarlette.testclient.TestClient(app)",
+        "x = 'starlette.testclient.TestClient'",
+    ):
+        assert any("starlette.testclient is denied" in w for _, w in scan_source(source, WEB))
+
+
+def test_a_name_an_ownvitals_module_imported_is_judged_where_it_lands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A re-export through any ``ownvitals`` module is followed to the module it came from."""
+    src = tmp_path / "src"
+    plant(src, "ownvitals.web.reexport", "from asyncio import create_subprocess_exec\n")
+    plant(
+        src,
+        "ownvitals.web.user",
+        "from ownvitals.web import reexport\nreexport.create_subprocess_exec('x')\n",
+    )
+    plant(src, "ownvitals.web.user2", "from ownvitals.web.reexport import create_subprocess_exec\n")
+    monkeypatch.setattr(egress_scan, "CLOSURE", Closure(cuts=EDGE_CUTS, src=src))
+    found = {(m, why) for m, _, why in scan_tree(src)}
+    landed = "create_subprocess_exec is not an allowed name of asyncio"
+    assert (
+        "ownvitals.web.user",
+        f"uses ownvitals.web.reexport.create_subprocess_exec: {landed}",
+    ) in found
+    assert (
+        "ownvitals.web.user2",
+        f"imports ownvitals.web.reexport.create_subprocess_exec: {landed}",
+    ) in found
+
+
 def test_classifying_a_module_is_what_lets_it_through(monkeypatch: pytest.MonkeyPatch) -> None:
     """An allowed entry admits its names only: a new connection API, or a submodule, is refused
     by default."""

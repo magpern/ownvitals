@@ -5,7 +5,9 @@ Against the in-process SMTP fake on loopback; synthetic addresses and text only.
 import asyncio
 import logging
 import smtplib
+import socket
 import ssl
+import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -256,9 +258,38 @@ async def test_a_server_that_stalls_after_the_greeting_is_cut_at_the_total_deadl
     assert (smtp.connections, smtp.messages) == (1, [])
 
 
-async def test_a_send_the_server_never_reads_is_cut_at_the_total_deadline() -> None:
-    """N6: the server stops reading after ``354`` and a 4 MB message fills every buffer, so
-    the client's ``sendall`` blocks; the time left bounds it like every receive."""
+async def test_a_send_the_server_never_reads_is_cut_at_the_total_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """N6: the server stops reading after ``354`` and both ends have 4 KiB buffers, so the
+    client's ``sendall`` of a 4 MB message blocks; the time left bounds it like every receive.
+
+    Every send runs with the time left as its timeout (on any platform). On Linux, where CI runs
+    and the kernel keeps to the small buffers, the failure must come from the message's send
+    itself; Windows' loopback takes the whole message into its buffers, so there the deadline
+    ends the wait for the reply instead."""
+    connect = socket.create_connection
+    send = smtplib.SMTP.send
+    sends: list[tuple[int, float | None]] = []
+    failed_in_send: list[int] = []
+
+    def small_buffer(*args: Any, **kwargs: Any) -> socket.socket:
+        sock = connect(*args, **kwargs)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        return sock
+
+    def recording(self: smtplib.SMTP, s: Any) -> None:
+        if self.sock is None:  # the QUIT after a failure: smtplib refuses it itself
+            return send(self, s)
+        sends.append((len(s), self.sock.gettimeout()))
+        try:
+            send(self, s)
+        except smtplib.SMTPServerDisconnected:
+            failed_in_send.append(len(s))
+            raise
+
+    monkeypatch.setattr(socket, "create_connection", small_buffer)
+    monkeypatch.setattr(smtplib.SMTP, "send", recording)
     body = "a synthetic line of an oversized message\n" * 100_000
     async with SmtpFake(stall_in_data=True) as smtp:
         mailer = Mailer(_local(smtp.port), total_seconds=1.5)
@@ -268,6 +299,12 @@ async def test_a_send_the_server_never_reads_is_cut_at_the_total_deadline() -> N
         assert 1.4 <= time.monotonic() - started < 4
     assert str(raised.value) == "delivery failed (deadline passed)"
     assert (smtp.connections, smtp.messages) == (1, [])
+    message_sends = [timeout for size, timeout in sends if size > len(body)]
+    assert len(message_sends) == 1
+    assert all(t is not None and 0 < t <= 1.5 for _, t in sends), sends
+    if sys.platform.startswith("linux"):
+        assert len(failed_in_send) == 1
+        assert failed_in_send[0] > len(body)  # the message's send, not the wait for the reply
 
 
 async def test_mutation_a_socket_timeout_alone_never_ends_a_trickle() -> None:
