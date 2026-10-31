@@ -204,7 +204,7 @@ def test_a_planted_forbidden_import_fails_the_guard(tmp_path: Path, line: str) -
 def test_a_planted_import_in_a_subpackage_fails_the_guard(tmp_path: Path) -> None:
     target = planted_copy(tmp_path, "x = 1", filename="quality.py")
     methods = target / "methods"
-    methods.mkdir()
+    methods.mkdir(exist_ok=True)  # the real package has analysis/methods/ since #38
     (methods / "__init__.py").write_text("", encoding="utf-8")
     (methods / "trend.py").write_text("from ...db import engine\n", encoding="utf-8")
     found = violations(target, tmp_path)
