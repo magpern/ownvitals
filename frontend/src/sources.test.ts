@@ -216,8 +216,24 @@ describe('no third-party hosts', () => {
     // Slashes a browser does not mind, and a JSON-escaped URL.
     ['https:///evil.example/x', ['https:///evil.example']],
     ['https:\\\\evil.example', ['https:\\\\evil.example']],
-    ['{"u": "https:\\/\\/cdn.example.com\\/a.js"}', ['https://cdn.example.com']],
+    [String.raw`https:/\evil.example/x`, [String.raw`https:/\evil.example`]],
+    [String.raw`http:\/evil.example/x`, [String.raw`http:\/evil.example`]],
+    [String.raw`{"u": "https:\/\/cdn.example.com\/a.js"}`, [String.raw`https:\/\/cdn.example.com`]],
+    [String.raw`{"u": "\/\/cdn.example.com\/a.js"}`, [String.raw`\/\/cdn.example.com`]],
     ['http://www.w3.org/2000/svg.evil.example/x', ['http://www.w3.org']],
+    // A backslash is a slash to a browser: /\host and \\host act like //host.
+    [String.raw`/\evil.example/x`, [String.raw`/\evil.example`]],
+    [String.raw`\/evil.example/x`, [String.raw`\/evil.example`]],
+    [String.raw`\\evil.example\share`, [String.raw`\\evil.example`]],
+    [String.raw`\\203.0.113.5\x`, [String.raw`\\203.0.113.5`]],
+    [String.raw`/\[2001:db8::1]/x`, [String.raw`/\[2001:db8::1]`]],
+    [String.raw`<a href="/\evil.example/x">`, [String.raw`/\evil.example`]],
+    [String.raw`<script src=\\cdn.example.org\a.js>`, [String.raw`\\cdn.example.org`]],
+    [String.raw`@import url(\\cdn.example.org\a.css);`, [String.raw`\\cdn.example.org`]],
+    [String.raw`location.href = '/\evil.example'`, [String.raw`/\evil.example`]],
+    // The same in the source of a string, where each backslash is written twice.
+    [String.raw`const u = '/\\evil.example'`, [String.raw`/\\evil.example`]],
+    [String.raw`const u = '\\\\evil.example\\x'`, [String.raw`\\\\evil.example`]],
     // Running text.
     ['// loaded from https://cdn.example.com.', ['https://cdn.example.com']],
   ])('catches a remote host in %s', (text, expected) => {
@@ -249,6 +265,17 @@ describe('no third-party hosts', () => {
     'if (/^https?:\\/\\//.test(url)) return',
     'const dir = "C:\\\\Users\\\\x"',
     '`//host` in a comment',
+    // Backslashes that are not a URL: escapes in strings and regular expressions, Windows paths.
+    String.raw`const s = '\\n'`,
+    String.raw`const dir = 'C:\\Users\\x.y'`,
+    String.raw`const re = new RegExp('\\d+\\.\\d+')`,
+    String.raw`const re = new RegExp('^\\w+@example\\.com$')`,
+    String.raw`const re = /^\/\/[a-z.]+/`,
+    String.raw`const re = /\/\/cdn\.example/`,
+    String.raw`const re = /\\.example\.com$/`,
+    String.raw`a { content: "\\201C" }`,
+    String.raw`/\/+$/`,
+    String.raw`x = a / \b.c`,
   ])('lets %s through', (text) => {
     expect(remoteUrls(text)).toEqual([])
   })

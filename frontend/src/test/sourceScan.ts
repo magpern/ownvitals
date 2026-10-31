@@ -93,38 +93,48 @@ const XML_NAMESPACE =
   /http:\/\/www\.w3\.org\/(?:2000\/svg|1999\/xlink|1999\/xhtml|XML\/1998\/namespace)(?=["'\s>)]|$)/g
 
 // Where the authority of a URL (userinfo, host and port) starts: after `scheme:` and two or more
-// slashes (a browser reads a backslash there as a slash; a one-letter scheme is a Windows drive,
-// a path such as `C:\\dir` in a string), or at `//` alone, a protocol-relative URL. It runs to the next slash, quote,
-// bracket, whitespace, `?` or `#`.
+// slashes, or after two or more slashes alone (a protocol-relative URL). A browser reads a
+// backslash as a slash in an http(s) URL, so any run of slashes and backslashes counts: `//host`,
+// `/\host`, `\/host`, `\\host`, and the JSON-escaped `\/\/host`. (A scheme of one letter is a
+// Windows drive: `C:\dir`.) The authority runs to the next slash, backslash, quote, bracket,
+// whitespace, `?` or `#`.
 const URL_AUTHORITY =
-  /(?:(?<![a-z0-9+.-])([a-z][a-z0-9+.-]+):[/\\]{2,}|(?<![a-z0-9+.:/\\-])\/{2,})([^\s'"`<>()\\/?#]*)/gi
+  /(?:(?<![a-z0-9+.-])([a-z][a-z0-9+.-]+):[/\\]{2,}|(?<![a-z0-9+.:/\\-])[/\\]{2,})([^\s'"`<>()\\/?#]*)/gi
 
-/** The host of an authority: no userinfo, no port, no trailing dot, lower case. */
+/** The host of an authority: no userinfo, no port, no trailing dot, lower case. `''` if it is none. */
 function hostOf(authority: string): string {
   let host = authority.replace(/[.,;:]+$/, '') // punctuation after a URL in running text
   host = host.slice(host.lastIndexOf('@') + 1) // `http://localhost@evil.example` is evil.example
-  host = host.startsWith('[') ? host.slice(0, host.indexOf(']') + 1) : host.replace(/:\d*$/, '')
-  return host.replace(/\.$/, '').toLowerCase()
+  if (host.startsWith('[')) {
+    const literal = host.slice(0, host.indexOf(']') + 1)
+    return /^\[[0-9a-f:.]+\]$/i.test(literal) ? literal.toLowerCase() : '' // not `//[a-z.]+/`
+  }
+  host = host.replace(/:\d*$/, '').replace(/\.$/, '').toLowerCase()
+  return host.startsWith('.') ? '' : host // no host starts with a dot: `/\\.example\.com$/` is a regex
 }
 
 /**
  * The URLs in `text` that name another host: any scheme with a host (`https://localhost.evil.example`,
  * `http://203.0.113.5`, `wss://x.example`, `http://[2001:db8::1]`, `http://localhost@evil.example`,
- * `https://127.0.0.1.nip.io`), and protocol-relative URLs (`//cdn.example.org`). Only `localhost`,
- * `127.0.0.1` and `[::1]`, spelled exactly like that, and XML namespaces are let through. A
- * protocol-relative host needs a dot or a bracket, or an opening quote, `(` or `=` in front, so a
- * comment such as `//TODO` is not one. JSON's escaped `\/\/` is read as `//`.
+ * `https://127.0.0.1.nip.io`), and URLs with no scheme: `//cdn.example.org` and its backslash
+ * forms `/\cdn.example.org` and `\\cdn.example.org`. Only `localhost`, `127.0.0.1` and `[::1]`,
+ * spelled exactly like that, and XML namespaces are let through.
+ *
+ * Without a scheme a host needs a dot or is an IPv6 literal, so `// comment`, `//TODO` and
+ * `'\\n'` are not hits; with plain slashes only, a host with no dot also counts after an opening
+ * quote, `(` or `=` (`"//intranet/x"`, `src=//cdn/x`).
  */
 export function remoteUrls(text: string): string[] {
-  const plain = text.replaceAll('\\/\\/', '//').replace(XML_NAMESPACE, '')
+  const plain = text.replace(XML_NAMESPACE, '')
   const found: string[] = []
   for (const match of plain.matchAll(URL_AUTHORITY)) {
     const [whole = '', scheme, authority = ''] = match
     const host = hostOf(authority)
     if (host === '' || LOCAL_HOSTS.has(host)) continue
     if (scheme === undefined) {
-      const quoted = '\'"(='.includes(plain.charAt(match.index - 1) || ' ')
-      if (!host.includes('.') && !host.startsWith('[') && !quoted) continue
+      const slashes = whole.slice(0, whole.length - authority.length)
+      const opened = !slashes.includes('\\') && '\'"(='.includes(plain.charAt(match.index - 1) || ' ')
+      if (!host.includes('.') && !host.startsWith('[') && !opened) continue
     }
     found.push(whole.replace(/[.,;:]+$/, ''))
   }
