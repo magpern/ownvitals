@@ -6,9 +6,11 @@ import pytest
 from analysis_builders import daily_on, spread_days
 
 from ownvitals.analysis import policy
+from ownvitals.analysis.daily import DailyValue
 from ownvitals.analysis.policy import (
     BASELINE_DEFAULT,
     DEFAULT_POLICY,
+    NERVE_BASELINE,
     NERVE_TREND,
     POLICIES,
     TREND_DEFAULT,
@@ -30,7 +32,8 @@ END = date(2026, 6, 30)
 def run(
     requirement: Requirement, window_days: int, span: int, days: int, *, end: date = END
 ) -> Sufficiency:
-    """``days`` days with data spread over ``span`` calendar days at the start of the window."""
+    """``days`` days with data spread over ``span`` days elapsed (first to last day with data),
+    starting on the first day of the window."""
     first = end - timedelta(days=window_days - 1)
     return evaluate(
         daily_on(*spread_days(first, span, days)),
@@ -59,6 +62,7 @@ def test_defaults_are_the_specified_ones() -> None:
     assert DEFAULT_POLICY.trend is TREND_DEFAULT
     assert DEFAULT_POLICY.baseline is BASELINE_DEFAULT
     assert Requirement(4, min_span_days=28) == NERVE_TREND  # N1: 4 measures over 4 weeks
+    assert Requirement(10, min_span_days=28) == NERVE_BASELINE  # never easier than N1
 
 
 # --- trend: at least 8 days with data spanning at least 60 % of the window --------------------
@@ -118,25 +122,57 @@ def test_baseline_span_boundary_21_days(span: int, sufficient: bool) -> None:
         assert short(result) == (Shortfall.SPAN_DAYS,)
 
 
-def test_the_span_counts_both_end_days() -> None:
-    first = END - timedelta(days=89)
-    twenty_one_days = [first, first + timedelta(days=20)]  # 1 June to 21 June, 21 calendar days
-    twenty_days = [first, first + timedelta(days=19)]
-    extra = [first + timedelta(days=d) for d in range(1, 9)]  # 8 more days, all in between
-    sufficient = evaluate(
-        daily_on(*twenty_one_days, *extra),
-        requirement=BASELINE_DEFAULT,
-        window_end=END,
-        window_days=90,
-    )
-    insufficient = evaluate(
-        daily_on(*twenty_days, *extra),
-        requirement=BASELINE_DEFAULT,
-        window_end=END,
-        window_days=90,
-    )
-    assert isinstance(sufficient, Sufficient)
-    assert isinstance(insufficient, InsufficientData)
+# --- a span is the days elapsed between the first and the last day with data -----------------
+# Checked with explicit dates, not with the ``spread_days`` helper of the boundary tests above.
+
+WINDOW_FIRST = END - timedelta(days=89)  # a 90-day window: 2 April to 30 June 2026
+LEAD = range(1, 9)  # eight days with data right after the first day, before every last day below
+
+
+def on(*offsets: int) -> list[DailyValue]:
+    """A daily value on each ``WINDOW_FIRST + offset`` day."""
+    return daily_on(*(WINDOW_FIRST + timedelta(days=offset) for offset in offsets))
+
+
+def of_requirement(requirement: Requirement, *offsets: int) -> Sufficiency:
+    return evaluate(on(*offsets), requirement=requirement, window_end=END, window_days=90)
+
+
+def of_metric(key: str, purpose: Purpose, *offsets: int) -> Sufficiency:
+    return evaluate_metric(key, purpose, on(*offsets), window_end=END, window_days=90)
+
+
+def test_a_baseline_span_of_21_days_is_21_days_elapsed_not_21_days_covered() -> None:
+    # day 0 to day 21 is 21 days elapsed (22 calendar days are covered): enough
+    assert ok(of_requirement(BASELINE_DEFAULT, 0, *LEAD, 21))
+    # day 0 to day 20 is 20 days elapsed (21 calendar days are covered): one day short
+    assert short(of_requirement(BASELINE_DEFAULT, 0, *LEAD, 20)) == (Shortfall.SPAN_DAYS,)
+
+
+def test_n1_four_measures_over_four_weeks_means_28_days_elapsed() -> None:
+    assert ok(of_metric("esc", Purpose.TREND, 0, 7, 14, 28))  # four weeks to the day
+    short_by_a_day = of_metric("esc", Purpose.TREND, 0, 7, 14, 27)  # 27 days: 3 weeks and 6 days
+    assert short(short_by_a_day) == (Shortfall.SPAN_DAYS,)
+
+
+def test_the_nerve_baseline_span_is_28_days_elapsed_too() -> None:
+    assert ok(of_metric("nerve_health_score", Purpose.BASELINE, 0, *LEAD, 28))
+    short_by_a_day = of_metric("nerve_health_score", Purpose.BASELINE, 0, *LEAD, 27)
+    assert short(short_by_a_day) == (Shortfall.SPAN_DAYS,)
+
+
+def test_the_trend_fraction_is_days_elapsed_over_the_window_length() -> None:
+    june_1st = END - timedelta(days=29)  # a 30-day window: 1 to 30 June
+
+    def trend(*offsets: int) -> Sufficiency:
+        data = daily_on(*(june_1st + timedelta(days=offset) for offset in offsets))
+        return evaluate(data, requirement=TREND_DEFAULT, window_end=END, window_days=30)
+
+    enough = trend(0, *range(1, 8), 18)  # 1 June to 19 June: 18 days elapsed, 60 % of 30 days
+    assert isinstance(enough, Sufficient)
+    assert enough.data_quality.span_fraction == Fraction(3, 5)
+    below = trend(0, *range(1, 8), 17)  # 17 days elapsed, 57 %
+    assert short(below) == (Shortfall.SPAN_FRACTION,)
 
 
 # --- nerve metrics: N1 asks for 4 measures over 4 weeks ---------------------------------------
@@ -158,10 +194,29 @@ def test_nerve_trend_span_boundary_4_weeks(span: int, sufficient: bool) -> None:
         assert short(result) == (Shortfall.SPAN_DAYS,)
 
 
-@pytest.mark.parametrize("key", ["nerve_health_score", "nerve_response_score", "esc"])
-def test_nerve_metrics_use_n1_for_trends_and_the_default_for_baselines(key: str) -> None:
+@pytest.mark.parametrize(("days", "sufficient"), [(9, False), (10, True), (11, True)])
+def test_nerve_baseline_points_boundary_10(days: int, sufficient: bool) -> None:
+    result = run(NERVE_BASELINE, window_days=90, span=28, days=days)
+    assert ok(result) is sufficient
+    if not sufficient:
+        assert short(result) == (Shortfall.DAYS_WITH_DATA,)
+
+
+@pytest.mark.parametrize(("span", "sufficient"), [(27, False), (28, True), (29, True)])
+def test_nerve_baseline_span_boundary_4_weeks(span: int, sufficient: bool) -> None:
+    result = run(NERVE_BASELINE, window_days=90, span=span, days=10)
+    assert ok(result) is sufficient
+    if not sufficient:
+        assert short(result) == (Shortfall.SPAN_DAYS,)
+
+
+NERVE_KEYS = ["nerve_health_score", "nerve_response_score", "esc"]
+
+
+@pytest.mark.parametrize("key", NERVE_KEYS)
+def test_nerve_metrics_use_n1_for_trends_and_a_28_day_span_for_baselines(key: str) -> None:
     assert policy_for(key).trend == NERVE_TREND
-    assert policy_for(key).baseline == BASELINE_DEFAULT
+    assert policy_for(key).baseline == NERVE_BASELINE
     first = END - timedelta(days=89)
     four_over_four_weeks = daily_on(*spread_days(first, 28, 4))
     trend = evaluate_metric(
@@ -171,7 +226,25 @@ def test_nerve_metrics_use_n1_for_trends_and_the_default_for_baselines(key: str)
         key, Purpose.BASELINE, four_over_four_weeks, window_end=END, window_days=90
     )
     assert isinstance(trend, Sufficient)
-    assert isinstance(baseline, InsufficientData)
+    assert short(baseline) == (Shortfall.DAYS_WITH_DATA,)  # 4 measures are too few; the span is not
+
+
+@pytest.mark.parametrize("key", NERVE_KEYS)
+def test_a_nerve_baseline_is_never_sufficient_while_n1_is_not(key: str) -> None:
+    first = END - timedelta(days=89)
+    for span in range(1, 60):
+        for days in range(2, min(span + 1, 16) + 1):
+            data = daily_on(*spread_days(first, span, days))
+            baseline = evaluate_metric(key, Purpose.BASELINE, data, window_end=END, window_days=90)
+            trend = evaluate_metric(key, Purpose.TREND, data, window_end=END, window_days=90)
+            assert ok(trend) or not ok(baseline), (key, span, days)
+
+
+def test_the_default_baseline_alone_would_pass_before_n1_does() -> None:
+    # Why the nerve baseline has its own requirement: 10 days over 21 days elapsed satisfy the
+    # default baseline and still fall short of N1's 28 days.
+    assert ok(run(BASELINE_DEFAULT, window_days=90, span=21, days=10))
+    assert not ok(run(NERVE_TREND, window_days=90, span=21, days=10))
 
 
 # --- declarative table ------------------------------------------------------------------------
