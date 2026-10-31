@@ -40,7 +40,8 @@ def test_the_migrated_schema_meets_the_contract(database_url: str) -> None:
             tables = connection.execute(
                 text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
             ).scalars()
-            assert set(tables) == set(SYSTEM_TABLES)  # nothing owned exists yet
+            # Owned so far: the job tables of migration 0003 (ADR 0005 section 1).
+            assert set(tables) == set(SYSTEM_TABLES) | {"jobs", "job_events"}
     finally:
         engine.dispose()
 
