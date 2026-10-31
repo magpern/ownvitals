@@ -1,20 +1,26 @@
 // The default network guard of the test suite (AGENTS.md: tests never touch the network or a real
-// account). src/test/setup.ts installs it in every test file. `fetch`, `XMLHttpRequest` and
-// `WebSocket` then refuse to go anywhere, and the test that tried fails in its `afterEach`, even
-// when the code under test catches the refusal and carries on. A test that needs `fetch` stubs it
-// (`fakeApi`, or `vi.stubGlobal`); the stub replaces the guard for that test and the guard is
-// back for the next one (`unstubGlobals`).
+// account). src/test/setup.ts installs it in every test file. `fetch`, `XMLHttpRequest`,
+// `WebSocket`, `EventSource` and `navigator.sendBeacon` then refuse to go anywhere, and the test
+// that tried fails in its `afterEach`, even when the code under test catches the refusal and
+// carries on. A test that needs one stubs it: `fakeApi` or `vi.stubGlobal('fetch', ...)`,
+// `vi.stubGlobal('EventSource', ...)`, `vi.spyOn(navigator, 'sendBeacon')`. The stub replaces the
+// guard for that test and the guard is back for the next one (`unstubGlobals`, `restoreMocks`).
+// Not guarded: what a page loads by itself (`img`, `script`, `link`); jsdom loads none of it and
+// the CSP stops it in the browser.
 
 type Target = Record<string, unknown>
 
 export interface NetworkGuard {
-  /** Replaces what `target` has of `fetch`, `XMLHttpRequest` and `WebSocket`. Does nothing twice. */
+  /**
+   * Replaces what `target` has of `fetch`, `XMLHttpRequest`, `WebSocket` and `navigator.sendBeacon`,
+   * and puts a refusing `EventSource` where there is none (jsdom has none). Does nothing twice.
+   */
   install(): void
   /** What the code tried to reach since the last call, as `METHOD url` lines. Empties the list. */
   drain(): string[]
 }
 
-const REFUSAL = 'the test suite has no network: stub fetch (see fakeApi in src/test/fakeApi.ts)'
+const REFUSAL = 'the test suite has no network: stub it first (for fetch, see fakeApi in src/test/fakeApi.ts)'
 
 /** `url` as it is worth printing: no credentials, query or fragment (they may hold a secret). */
 function printable(url: string): string {
@@ -66,6 +72,19 @@ export function createNetworkGuard(target: Target = globalThis): NetworkGuard {
           constructor(url?: unknown) {
             throw refuse(`new WebSocket ${printable(urlOf(url))}`)
           }
+        }
+      }
+      target.EventSource = class {
+        constructor(url?: unknown) {
+          throw refuse(`new EventSource ${printable(urlOf(url))}`)
+        }
+      }
+      const navigator = target.navigator as Target | undefined
+      if (typeof navigator === 'object' && navigator !== null) {
+        // Returns false, as a beacon the browser did not queue. The attempt is what fails the test.
+        navigator.sendBeacon = (url?: unknown) => {
+          attempts.push(`POST ${printable(urlOf(url))} (sendBeacon)`)
+          return false
         }
       }
     },

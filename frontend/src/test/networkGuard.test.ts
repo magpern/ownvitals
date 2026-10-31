@@ -16,6 +16,7 @@ function stand(extra: Record<string, unknown> = {}) {
       fetch: real,
       XMLHttpRequest: class {},
       WebSocket: class {},
+      navigator: { sendBeacon: () => true },
       ...extra,
     } as Record<string, unknown>,
   }
@@ -26,7 +27,7 @@ describe('the network guard on a stand-in global', () => {
     const { target, real } = stand()
     const guard = createNetworkGuard(target)
     guard.install()
-    await expect((target.fetch as Fetch)('/api/auth/session')).rejects.toThrow(/no network.*stub fetch/)
+    await expect((target.fetch as Fetch)('/api/auth/session')).rejects.toThrow(/no network.*fakeApi/)
     await expect((target.fetch as Fetch)(new URL('https://example.test/a'), { method: 'post' })).rejects.toThrow()
     await expect((target.fetch as Fetch)(new Request('https://example.test/b', { method: 'DELETE' }))).rejects.toThrow()
     expect(guard.drain()).toEqual(['GET /api/auth/session', 'POST https://example.test/a', 'DELETE https://example.test/b'])
@@ -50,6 +51,16 @@ describe('the network guard on a stand-in global', () => {
     expect(() => new (target.XMLHttpRequest as Construct)()).toThrow(/no network/)
     expect(() => new (target.WebSocket as Construct)('wss://example.test/live?key=abc123')).toThrow(/no network/)
     expect(guard.drain()).toEqual(['new XMLHttpRequest()', 'new WebSocket wss://example.test/live'])
+  })
+
+  it('refuses EventSource, which jsdom does not have, and sendBeacon, and reports no secrets', () => {
+    const { target } = stand()
+    const guard = createNetworkGuard(target)
+    guard.install()
+    expect(() => new (target.EventSource as Construct)('https://example.test/stream?token=abc123')).toThrow(/no network/)
+    const beacon = (target.navigator as { sendBeacon: (url: string, data?: string) => boolean }).sendBeacon
+    expect(beacon('https://ann:hunter2@example.test/log?token=abc123#x', 'payload')).toBe(false)
+    expect(guard.drain()).toEqual(['new EventSource https://example.test/stream', 'POST https://example.test/log (sendBeacon)'])
   })
 
   it('empties its list when it is drained', async () => {
@@ -82,12 +93,12 @@ describe('the network guard on a stand-in global', () => {
     expect(guard.drain()).toEqual([])
   })
 
-  it('installs once, and only replaces what the environment has', async () => {
+  it('installs once, and replaces XMLHttpRequest, WebSocket and sendBeacon only where there are some', async () => {
     const node = { fetch: vi.fn(() => Promise.resolve('real')) } as Record<string, unknown>
     const guard = createNetworkGuard(node)
     guard.install()
     guard.install()
-    expect(Object.keys(node)).toEqual(['fetch'])
+    expect(Object.keys(node).sort()).toEqual(['EventSource', 'fetch'])
     await expect((node.fetch as Fetch)('/x')).rejects.toThrow()
     expect(guard.drain()).toEqual(['GET /x'])
   })
@@ -105,6 +116,28 @@ describe('the network guard of this test file', () => {
     expect(() => new XMLHttpRequest()).toThrow(/no network/)
     expect(() => new WebSocket('wss://example.test/live')).toThrow(/no network/)
     expect(networkGuard.drain()).toEqual(['new XMLHttpRequest()', 'new WebSocket wss://example.test/live'])
+  })
+
+  it('refuses EventSource and navigator.sendBeacon, which jsdom does not implement', () => {
+    expect(() => new EventSource('/api/stream')).toThrow(/no network/)
+    expect(navigator.sendBeacon('/api/log', 'payload')).toBe(false)
+    expect(networkGuard.drain()).toEqual(['new EventSource /api/stream', 'POST /api/log (sendBeacon)'])
+  })
+
+  it('steps aside for an EventSource and a sendBeacon stub', () => {
+    const source = vi.fn()
+    vi.stubGlobal('EventSource', source)
+    vi.spyOn(navigator, 'sendBeacon').mockReturnValue(true)
+    new EventSource('/api/stream')
+    expect(source).toHaveBeenCalledWith('/api/stream')
+    expect(navigator.sendBeacon('/api/log')).toBe(true)
+    expect(networkGuard.drain()).toEqual([])
+  })
+
+  it('is back for EventSource and sendBeacon after those stubs', () => {
+    expect(() => new EventSource('/api/stream')).toThrow(/no network/)
+    expect(navigator.sendBeacon('/api/log')).toBe(false)
+    expect(networkGuard.drain()).toEqual(['new EventSource /api/stream', 'POST /api/log (sendBeacon)'])
   })
 
   it('steps aside for a stub, and is back in the next test', async () => {
