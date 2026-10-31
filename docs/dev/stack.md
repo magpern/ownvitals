@@ -1,7 +1,8 @@
 # The local stack and worktrees
 
-`compose.yaml` runs the stack on one machine: **db** (`postgres:17.11`), **migrate** (a one-shot
-`alembic upgrade head`) and **web** (the API, non-root user `ownvitals`, uid 10001). Later issues
+`compose.yaml` runs the stack on one machine: **db** (`postgres:17.11`, which creates the
+database roles on a new volume), **migrate** (a one-shot `alembic upgrade head` as the owner role)
+and **web** (the API as the app role, non-root user `ownvitals`, uid 10001). Later issues
 add the worker, the one-shot queue-functions service and the mail service. The stack only ever
 holds synthetic data (the demo account and fakes): never connect a real Withings account to it.
 
@@ -59,10 +60,12 @@ bytes, hex) and `connection_kek` (32 bytes, 64 lowercase hex characters). They a
 container user can read the bind mount; `secrets/` itself is `0700`. The image contains none of
 them; `docker inspect` shows only the file mounts.
 
-Interim: the database roles `ownvitals_owner` and `ownvitals_app` do not exist yet, so `migrate`
-and `web` connect as the `postgres` superuser of this throwaway stack, with `postgres_password`
-mounted as `database_owner_password` (migrate) and `database_password` (web). The tenant
-isolation issue creates the roles, switches both URLs and mounts the matching secret files.
+The database roles ([isolation.md](isolation.md)): `db` creates `ownvitals_owner` and
+`ownvitals_app` from `docker/postgres/init/10-roles.sql` on the first start of an empty volume,
+with the passwords of `database_owner_password` and `database_password` (an older volume needs
+`docker compose down -v`). `migrate` connects as `ownvitals_owner` with `database_owner_password`,
+`web` as `ownvitals_app` with `database_password`; only `db` holds `postgres_password`. Web
+refuses to start as a privileged role.
 
 ## Image
 

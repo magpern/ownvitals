@@ -1,22 +1,35 @@
 """Shared fixtures.
 
 Database tests need a real Postgres: set ``OWNVITALS_TEST_DATABASE_URL`` (see
-``docs/dev/backend.md``). Locally they skip with a reason when it is unset; in CI (``CI=true``) a
-missing URL fails the run, so the database tests can never be skipped silently.
+``docs/dev/backend.md``) and create the roles in it (``docs/dev/isolation.md``). Locally they skip
+with a reason when either is missing; in CI (``CI=true``) a missing URL or role fails the run, so
+the database tests can never be skipped silently.
 """
 
 import asyncio
 import logging
 import os
+import secrets
 import socket
 import sys
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from sqlalchemy import create_engine, text
 
 import netguard
-from dbtools import require_loopback_database, unavailable
+from dbtools import (
+    CHILD,
+    PARENT,
+    create_owned_tables,
+    drop_tables,
+    forget_libpq_host_environment,
+    require_loopback_database,
+    unavailable,
+    url_for,
+)
 
 if sys.platform == "win32":
     # psycopg's async mode does not run on the default Windows (proactor) event loop.
@@ -61,13 +74,11 @@ def _loopback_only(request: pytest.FixtureRequest) -> Iterator[None]:
         yield
 
 
-@pytest.fixture
-def database_url() -> str:
-    """URL of the throwaway test Postgres (``postgresql+psycopg://...``), a superuser's.
-
-    For test setup and probes, and until the database roles exist also for the code under test.
-    It must be a loopback host: libpq connects natively, outside the network guard.
-    """
+def _test_database_url() -> str:
+    """``OWNVITALS_TEST_DATABASE_URL``, checked: a loopback host, and no ``PGHOST``,
+    ``PGHOSTADDR`` or ``PGSERVICE`` left in the process for libpq to pick another one from. It
+    must be a loopback host because libpq connects natively, outside the network guard."""
+    forget_libpq_host_environment()
     url = os.environ.get("OWNVITALS_TEST_DATABASE_URL")
     if not url:
         unavailable(
@@ -76,6 +87,81 @@ def database_url() -> str:
         )
     require_loopback_database(url)
     return url
+
+
+@pytest.fixture
+def database_url() -> str:
+    """Superuser URL of the throwaway test Postgres (``postgresql+psycopg://...``).
+
+    For test setup and probes only. Code under test connects as ``app_database_url`` (web and
+    worker) or ``owner_database_url`` (migrations): web and worker refuse a superuser.
+    """
+    return _test_database_url()
+
+
+APP_ROLE, OWNER_ROLE = "ownvitals_app", "ownvitals_owner"
+
+
+@dataclass(frozen=True)
+class RoleUrls:
+    owner: str
+    app: str
+
+
+@pytest.fixture(scope="session")
+def role_urls() -> RoleUrls:
+    """URLs of ``ownvitals_owner`` and ``ownvitals_app``, whose roles
+    ``docker/postgres/init/10-roles.sql`` created (``docs/dev/isolation.md``). Their passwords
+    are replaced by random ones for this run."""
+    admin_url = _test_database_url()
+    passwords = {OWNER_ROLE: secrets.token_hex(16), APP_ROLE: secrets.token_hex(16)}
+    engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            found = (
+                connection.execute(
+                    text("SELECT rolname FROM pg_roles WHERE rolname = ANY(:names)"),
+                    {"names": list(passwords)},
+                )
+                .scalars()
+                .all()
+            )
+            if sorted(found) != sorted(passwords):
+                unavailable(
+                    "the roles of docker/postgres/init/10-roles.sql do not exist in the test "
+                    "database (run it first, see docs/dev/isolation.md)"
+                )
+            for role, password in passwords.items():  # both are hex: nothing to quote
+                connection.execute(text(f"ALTER ROLE {role} PASSWORD '{password}'"))
+    finally:
+        engine.dispose()
+    return RoleUrls(
+        owner=url_for(admin_url, OWNER_ROLE, passwords[OWNER_ROLE]),
+        app=url_for(admin_url, APP_ROLE, passwords[APP_ROLE]),
+    )
+
+
+@pytest.fixture
+def app_database_url(role_urls: RoleUrls) -> str:
+    """URL of the app role, as web and worker connect."""
+    return role_urls.app
+
+
+@pytest.fixture
+def owner_database_url(role_urls: RoleUrls) -> str:
+    """URL of the owner role, as migrations connect."""
+    return role_urls.owner
+
+
+@pytest.fixture
+def owned_tables(owner_database_url: str) -> Iterator[None]:
+    """Test-only owned parent and child tables (``dbtools.PARENT``, ``CHILD``), as a migration
+    by the owner would make them, with the policy of ``enable_owner_rls``; dropped afterwards."""
+    create_owned_tables(owner_database_url)
+    try:
+        yield
+    finally:
+        drop_tables(owner_database_url, CHILD, PARENT)
 
 
 @pytest.fixture

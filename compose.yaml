@@ -1,13 +1,9 @@
 # Local stack: db, migrate (one-shot) and web.
 # Ports bind 127.0.0.1 only and come from .env (scripts/worktree.sh init writes it).
 # Passwords are files under secrets/ mounted as Docker secrets, never environment variables.
-#
-# Interim: the database roles ownvitals_owner and ownvitals_app do not exist yet (the tenant
-# isolation issue creates them). Until then migrate and web connect as the postgres superuser of
-# this throwaway stack, and the postgres_password secret is mounted as the owner password
-# (migrate) and the app password (web). That issue switches both URLs to the roles and the
-# secrets to database_owner_password and database_password, which scripts/worktree.sh init
-# already creates.
+# The database roles (ADR 0002 section 5): db creates ownvitals_owner and ownvitals_app on the
+# first start of an empty volume (docker/postgres/init); migrate connects as the owner, web as
+# the app role. No service but db holds the postgres superuser's password.
 
 x-app: &app
   build: .
@@ -15,8 +11,10 @@ x-app: &app
   restart: "no"
   environment: &app-env
     OWNVITALS_ENVIRONMENT: dev
-    # The password comes from the database_password secret file (Settings reads it).
-    OWNVITALS_DATABASE_URL: postgresql+psycopg://postgres@db:5432/ownvitals
+    # Web (and later the worker) connect as the app role; the password comes from the
+    # database_password secret file (Settings reads it). Migrations use the owner role (see
+    # `migrate`).
+    OWNVITALS_DATABASE_URL: postgresql+psycopg://ownvitals_app@db:5432/ownvitals
     # The origin the browser uses; the Origin check compares against it.
     OWNVITALS_PUBLIC_BASE_URL: http://127.0.0.1:${WEB_PORT:-8000}
     # The id of the current key-encryption key, the secret file connection_kek.
@@ -31,8 +29,14 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
       - postgres_password
+      - database_owner_password
+      - database_password
     volumes:
       - db-data:/var/lib/postgresql/data
+      # Creates ownvitals_owner and ownvitals_app with their passwords from the two secret files
+      # on the first start of an empty volume (`docker compose down -v` to get them on an older
+      # volume).
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
       - "127.0.0.1:${DB_PORT:-55432}:5432"
     healthcheck:
@@ -41,16 +45,15 @@ services:
       timeout: 5s
       retries: 20
 
-  # Alembic as the owner role (interim: the superuser, see above); never web.
+  # Alembic as the owner role; its password never reaches web.
   migrate:
     <<: *app
     command: ["alembic", "upgrade", "head"]
     environment:
       <<: *app-env
-      OWNVITALS_MIGRATIONS_DATABASE_URL: postgresql+psycopg://postgres@db:5432/ownvitals
+      OWNVITALS_MIGRATIONS_DATABASE_URL: postgresql+psycopg://ownvitals_owner@db:5432/ownvitals
     secrets:
-      - source: postgres_password
-        target: database_owner_password
+      - database_owner_password
     depends_on:
       db:
         condition: service_healthy
@@ -59,8 +62,7 @@ services:
     <<: *app
     restart: unless-stopped
     secrets:
-      - source: postgres_password
-        target: database_password
+      - database_password
       - app_secret_key
       - connection_kek
     ports:
@@ -81,6 +83,10 @@ services:
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
+  database_owner_password:
+    file: ./secrets/database_owner_password
+  database_password:
+    file: ./secrets/database_password
   app_secret_key:
     file: ./secrets/app_secret_key
   connection_kek:
