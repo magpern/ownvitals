@@ -15,7 +15,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | M3 | Identity additions | not started | — |
 | M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67) and #56 (#74) merged; #68 (#87) in review; #76 in progress | — |
 | M5 | ECG & nerve health | ADR 0006 (#46) merged; #40 in progress; #88 (ADR follow-ups) ready; #47 waits for #40, #21 and #25 | — |
-| M6 | MVP UI | not started; the UI design is chosen ([docs/design/](design/README.md), #85) | — |
+| M6 | MVP UI | not started; the UI design is chosen ([docs/design/](design/README.md), #85; spec corrections in #91) | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
 
@@ -30,6 +30,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | #76 | Purity guard and policy follow-ups from the #74 review | Sonnet | — | in progress |
 | #84 | Forced-command deploy script (M2, pulled forward) | Opus | — | in progress |
 | #40 | ECG signal-processing core | Sonnet | — | in progress |
+| #91 | Align the design mock-ups with the spec (follow-ups from the #86 review) | Architect | #92 | in review |
 | #90 | Status after the #46, #81, #83 and #86 merges (this update) | Architect | this PR | in review |
 
 Ready, waiting for a free slot: #88 (Sonnet). At most five Developers work on
@@ -211,7 +212,7 @@ review.
 ## Completed
 
 - 2026-10-31: #75 role-check follow-ups merged as #81 (Opus PASS `db494a2`, merge check `5681e0e`) → IMPLEMENTED.
-- 2026-10-31: #85 the owner's UI design merged as #86 (Sonnet PASS `d01ff96`, merge check `2bb7dc4`).
+- 2026-10-31: #85 the chosen UI design and its mock-ups merged as #86 (Sonnet PASS `d01ff96`, merge check `2bb7dc4`); the review's spec findings go into #91.
 - 2026-10-31: #78 ADR follow-ups merged as #83 (Opus PASS `6095563`, merge check `59154ea`).
 - 2026-10-31: #39 ADR 0006, the ECG subsystem spec, merged as #46 (Opus PASS `01d0fa3` after six FAILs, the last `222579e`).
 - 2026-10-31: #79 status merged as #80 (Sonnet PASS `3848623` after FAIL `aac3440`).
