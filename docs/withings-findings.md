@@ -71,6 +71,19 @@ the dashboard needs is either in the public API or can be computed from it (see 
 - **Restricted mode**: if the notification callback URL isn't HTTPS on a proper domain and port
   443, the application is limited to **10 linked users**. Fine for development, not for production.
 
+### Account and terms constraints (checked 2026-10-31)
+- **Withings+ for new accounts**: accounts created on or after **13 Oct 2026** must have Withings+
+  to transfer data to third-party/partner apps. Accounts that existed before keep free sharing.
+  Source: Withings support, "Withings+ - Withings AI Connector FAQ". Not mentioned in the
+  developer docs. Unknown: how the public API responds for such an account (OAuth refusal,
+  error status or empty data).
+- **API Developer Agreement §4**: unless agreed otherwise in writing, the API may not be used
+  without Withings' prior written permission for an app whose functionality is substantially
+  similar to Withings' own app, or whose main purpose is collecting user content without adding
+  functionality. Source: Withings terms of service, API developer section (Spanish edition,
+  updated 26 Jan 2023).
+- The Public API itself is open to individuals and companies without a contract.
+
 ### Notifications (webhooks)
 - `POST /notify action=subscribe` with `callbackurl`, `appli`, and the user's Bearer token. This is
   done **per user, per appli**.

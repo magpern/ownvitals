@@ -35,12 +35,13 @@ GitHub.
 | D2 | **One platform Withings app**; users click "Connect Withings". BYO client credentials and the 5,000-user free cap are **assumptions to verify** against Withings' terms before M8 | No developer setup for users. BYO isn't an approved way around quotas until Withings confirms it |
 | D3 | **Webhooks are the primary trigger, backed by scheduled polling and reconciliation.** Withings retries failed deliveries for about 5 h, but not indefinitely, and deletions aren't announced. **Sync cursors, not webhook delivery, define correctness** | Keeps syncing correct under missed, late or duplicated notifications |
 | D4 | **Raw payloads plus normalized observations with provenance**; unknown meastypes kept | New types keep appearing; re-processing without re-fetching |
-| D5 | **Compute our own scores and insights** | Rebuilds the Withings+ features without the subscription (findings §3) |
+| D5 | **Compute our own scores and insights** | Independent analysis of your own data (findings §3). Accounts created on or after 13 Oct 2026 need Withings+ anyway to share data with us (§9.4) |
 | D6 | **Stack = classbeat's**: Python 3.12, FastAPI, SQLAlchemy 2 async, psycopg 3, Alembic, pydantic v2, httpx, uv; React 19 + Vite + TS SPA; **PostgreSQL 17**. No Redis, Kafka, Kubernetes, TimescaleDB or microservices | Reuses classbeat's tested platform layer (§3). Timescale continuous aggregates don't support RLS |
 | D7 | **Audience: private first, public later**, with a **legal and security gate before any non-household user** (M8) | The household exemption depends on what the processing is and who it serves, not on where the server is |
 | D8 | **Host: home server now, EU VPS before going beyond the household** | Acceptable for private use only (§9) |
 | D9 | **Three finding tiers** (§7.2): device-reported (Withings' own results, attributed), descriptive trends (comparison with your own history), experimental interpretation (owner-only flag, never shown to non-household users until a medical-claims review) | Disclaimers alone don't avoid medical-device classification; intended purpose does |
 | D10 | **Agent-built, gate-reviewed** (classbeat's AGENTS.md), with **status levels** IMPLEMENTED → INTEGRATION_VERIFIED → PRODUCTION_READY | Green CI isn't the same as a verified provider integration |
+| D11 | **ownvitals is free: no paid tiers, no billing.** AI insights stay opt-in with a per-user monthly cost cap paid by the owner | New-account users already pay Withings for Withings+ just to share data (§9.4); charging on top would also add company, VAT and consumer-law work |
 
 ---
 
@@ -104,7 +105,8 @@ for classbeat doesn't make it secure enough here.
 | `egress.py`, `agent/providers/anthropic.py`, `evals/*` | Allowlist; AI insights and evals (M7) | New hosts, tools and cases |
 | `e2e/fake-oidc`, CI, commitlint, dependabot, CODEOWNERS, PR template, rulesets, release | Same pipeline | Rename; add `fake-withings` and the analysis tests |
 | `AGENTS.md`, `CLAUDE.md`, `.claude/agents/*`, ADR/status/runbook/threat-model formats | Agentic workflow (§10) | Health-data rules, status levels |
-| `plans/`, `quota/`, `songs/`, `spotify/`, `design/`, `playlists/` | Not ported | — |
+| `quota/ledger.py`, `agent/prices.py`, cost ceilings (ADR 0011 §3–4) | Per-user monthly AI cost cap (D11) | Port in M7, without tiers or codes |
+| `plans/` (tiers, codes, trials, billing), `songs/`, `spotify/`, `design/`, `playlists/` | Not ported (D11) | — |
 
 ---
 
@@ -133,6 +135,9 @@ for classbeat doesn't make it secure enough here.
   - Each (connection, stream) has a capability: `supported | unsupported | not_authorized |
     not_available | unknown`, learned from scopes, devices, responses and the probe (§10.4).
   - **Missing data is never read as zero or normal.**
+  - Connection-level state `blocked_by_provider_plan`: accounts created on or after
+    13 Oct 2026 without Withings+ can't share data (§9.4). How the API signals this is unknown,
+    so detect it in M1/M2 and explain it in the UI instead of showing an empty dashboard.
   - Backfill scope is limited by what the provider actually paginates and retains.
 - Endpoints: `getmeas`, `heart list/get`, `getactivity`, `getintradayactivity`, `getworkouts`,
   `sleep get/getsummary`, `user getdevice/getgoals`, `notify subscribe/list/update/revoke`,
@@ -432,7 +437,7 @@ connection errors** explicitly.
 
 ## 9–10. Hosting, legal and agentic development
 
-See [PLAN-operations.md](PLAN-operations.md): local development, the home server and the real-data gate (§9.1–9.2), legal gates (§9.3), agent roles, the merge gate, independent verification, status levels and the probe (§10).
+See [PLAN-operations.md](PLAN-operations.md): local development, the home server and the real-data gate (§9.1–9.2), legal gates (§9.3), Withings terms and account rules (§9.4), agent roles, the merge gate, independent verification, status levels and the probe (§10).
 
 ---
 
@@ -447,8 +452,8 @@ See [PLAN-operations.md](PLAN-operations.md): local development, the home server
 | M4 Analysis v1 | Normalization with provenance, daily values, minimum-data policy, baselines, trends, change points, trend-tier rules, Health Score, backfill/live separation | Rules tested on synthetic irregular and sparse series; reproducible on your data |
 | M5 ECG & nerve health | ECG spec ADR, preserve + view + PDF, SQI gate, descriptive HRV, nerve trends; experimental rules behind the flag | Validated on your history (owner-run); experimental tier reviewed by you |
 | M6 MVP UI | §8 | A household member completes onboarding unaided |
-| M7 AI & reports | Digest, assistant, doctor PDF, JSON/CSV export (FIT where the data supports it) | Consent, provider review, privacy and prompt-injection evals green |
-| M8 Beyond-household gate | §9.3 checklist, VPS move, human security review, Withings terms check (D2), load test of the rate limiter | Owner sign-off → **PRODUCTION_READY** for non-household users |
+| M7 AI & reports | Digest, assistant, doctor PDF, JSON/CSV export (FIT where the data supports it), per-user monthly AI cost cap (D11) | Consent, provider review, privacy and prompt-injection evals green; cap holds under concurrency |
+| M8 Beyond-household gate | §9.3 checklist, VPS move, human security review, Withings terms (§9.4: written clarification of the "substantially similar" clause, D2 assumptions), load test of the rate limiter | Owner sign-off → **PRODUCTION_READY** for non-household users |
 
 ---
 
@@ -458,6 +463,8 @@ See [PLAN-operations.md](PLAN-operations.md): local development, the home server
 | Public API exposes one ECG lead, or not all fields per device | Capability discovery; probe; viewer supports 1..n leads |
 | Nerve-health diagnosis is proprietary (`libsudo`) | Trend tier only; Withings' score shown as-is |
 | Medical-device classification | Tiers (D9), experimental flag, medical-claims review in M8 |
+| Withings' API agreement §4 bars apps "substantially similar" to its app without written permission | Analytics focus (no device setup, coaching or reminders); written clarification from Withings before any non-household user (§9.4) |
+| New Withings accounts (from 13 Oct 2026) need Withings+ to share data | Detect and explain it (`blocked_by_provider_plan`); ownvitals stays free (D11); existing accounts unaffected |
 | 120 req/min shared; cap and BYO unverified | Webhook-first, lanes, fairness, lazy intraday; verify terms (D2); Enterprise plan if needed |
 | Missed webhooks or Cloudflare blocking them | Cursors are the source of truth; poll + reconcile; WAF rule; delivery-age alert |
 | Token rotation crash or race | Generations + CAS, intent row, 8 h grace recovery, crash tests |

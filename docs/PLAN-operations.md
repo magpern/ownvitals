@@ -47,8 +47,37 @@ mechanism are in place.
     guidance), the experimental tier and AI features included
 - **An EU VPS alone doesn't solve** processor agreements, transfers, backup security or admin
   access; those are separate items in the gate.
-- Also check before M8: Withings developer terms (including the BYO and user-cap assumptions,
+- Also check before M8: the Withings terms in §9.4 (including the BYO and user-cap assumptions,
   D2) and a host name without the Withings trademark (e.g. `ownvitals.pernemark.se`).
+
+### 9.4 Withings terms and account rules (verified 2026-10-31)
+These apply even though ownvitals is free (D11).
+
+- **API Developer Agreement §4.** Unless agreed otherwise in writing, the API may not be used,
+  *without Withings' prior written permission*, for an app (a) whose functionality is
+  substantially similar to Withings' own app, or (b) whose main purpose is collecting user
+  content without adding functionality. Source: Withings terms of service (Spanish edition, last
+  updated 26 Jan 2023), "4. Uso del Paquete para Desarrolladores de la API de Withings".
+  - Household phase: low practical risk, but the clause applies to any use.
+  - Design rule: ownvitals is an **independent analysis and longitudinal-insight tool**. No device
+    setup, firmware, reminders, coaching programs or app-style logging that would mirror the
+    Withings app.
+  - **Before any non-household user (M8): ask Withings for written clarification** of whether
+    ownvitals needs permission under §4.
+- **Withings+ needed for data sharing on new accounts.** From 13 Oct 2026, accounts created on or
+  after that date must have Withings+ to transfer data to third-party/partner apps. Accounts that
+  existed before keep free sharing, and the change isn't retroactive. Source: Withings support,
+  "Withings+ - Withings AI Connector FAQ".
+  - Your own account (2025) is unaffected. A household member with a new account needs
+    Withings+ to connect.
+  - It's unconfirmed whether this covers every Public API OAuth app (the FAQ says "third party
+    apps" and "partner apps"). M2 verifies it with a post-13-Oct account if one exists, and
+    records how the API signals it (`blocked_by_provider_plan`, §4.2).
+  - Withings+ subscribers also get Withings' own AI Connector (MCP). ownvitals' value is
+    independent, cross-metric analysis and full data ownership, not access itself.
+- **Commercial use is not planned** (D11). The Public API is open to commercial apps without a
+  contract, but charging users would add the §4 question, company and VAT registration, and EU
+  consumer law. Revisit only through a new plan revision.
 
 ---
 
