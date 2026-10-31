@@ -58,7 +58,7 @@ five are busy, and no new issue starts until fewer than five are.
 | #42 | CI dependency audits (pip-audit, npm audit, Trivy repo scan); remove the skip steps | Sonnet | #2, #3; the `ci.yml` lock (released by #96) | 2 |
 | #49 | ADR follow-ups from the #41 review (webhook-secret lifecycle, re-pointing, definer-function role, partitions for past months) | Opus | #41 | 2 |
 | #52 | Frontend test follow-ups from the #48 review (guard `afterEach`, template URLs) | Sonnet | #45 | 3 |
-| #57 | Release follow-ups from the #53 review (deploy recipe, guard tests in CI, version check, Dependabot cooldown and titles, base-image digests) | Opus | #7; the `ci.yml` (#9, then #42) and `Dockerfile` locks | 3 |
+| #57 | Release follow-ups from the #53 review (deploy recipe, guard tests in CI, version check, Dependabot cooldown and titles, base-image digests) | Opus | #7; the `ci.yml` (after #42) and `Dockerfile` locks | 3 |
 | #72 | ADR follow-ups from the #58 review: mail outbox (ADR 0007), webhook-secret lifecycle split into ADR 0008, function input rules, single flight, partitions | Opus | #49 | 3 |
 | #75 | Role-check follow-ups from the #65 review (login role, guard 5 constructions, ownership test, startup error) | Opus | #5 | 3 |
 | #77 | Wiring after #8, #9 and #6: worker allowlist and KEK ring, guard 2 learns the queue grantee, web's queue check, `transaction_timeout` on runtime roles | Opus | #6, #8, #9, #75 | 4 |
