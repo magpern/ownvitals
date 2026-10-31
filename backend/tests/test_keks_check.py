@@ -40,7 +40,7 @@ def keks_schema(role_urls: RoleUrls) -> Iterator[None]:
 
 @pytest.fixture
 def db(keks_schema: None, database_url: str, app_database_url: str) -> Iterator[str]:
-    """No check rows before or after (migration 0003's downgrade refuses while there are any);
+    """No check rows before or after (migration 0004's downgrade refuses while there are any);
     returns the app role's URL."""
     clear_check_rows(database_url)
     yield app_database_url

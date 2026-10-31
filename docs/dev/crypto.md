@@ -10,7 +10,7 @@ How ownvitals encrypts stored secrets and holds its keys: [ADR 0004](../adr/0004
 |---|---|
 | `backend/src/ownvitals/crypto/envelope.py` | pure (no database, files or logging): AES-256-GCM `seal`/`open_sealed`/`wrap`/`unwrap`/`rewrap`, the AAD builders, `canonical_json`, the key classes and `check_value` |
 | `backend/src/ownvitals/crypto/keks.py` | the key ring: key files, the `connection_keks` check, `load_keyring(factory, settings, role=...)`, `KeyRing` |
-| `backend/migrations/versions/0003_connection_keks.py` | the check table; the app role gets `SELECT, INSERT` only; the downgrade refuses while it holds a row |
+| `backend/migrations/versions/0004_connection_keks.py` | the check table; the app role gets `SELECT, INSERT` only; the downgrade refuses while it holds a row |
 | `backend/tests/crypto_scan.py` | the crypto guard (below) |
 
 ## Envelope (ADR 0004 §2)
@@ -93,7 +93,7 @@ it (`KeyRingError` on a mismatch: another key under an unchanged id). It refuses
 - two kinds share a key;
 - **web** can see any seed file (`webhook_seed` or `webhook_seed_*`) in its secrets directory, or
   can't list the directory to check;
-- the `connection_keks` table is missing: "run the migrations (up to `0003_connection_keks`)";
+- the `connection_keks` table is missing: "run the migrations (up to `0004_connection_keks`)";
 - a check row doesn't match.
 
 A ring starts **unverified**, however it was built (`KeyRing(...)` by hand too); only a passing
@@ -113,8 +113,9 @@ only after that transaction committed; a mismatch refuses every use, every time.
 
 **Web:** `create_app`'s lifespan loads the ring after the role check, as `app.state.keyring`.
 Its ring has no seed: `current_seed`/`seed_for` raise `SeedRefused`, and so does building a web
-`KeyRing` with one. **Worker:** #9's worker calls `load_keyring(factory, settings,
-role="worker")` at start (if #9 merges first, the Architect adds that call in a follow-up).
+`KeyRing` with one. **Worker:** #9's worker (`python -m ownvitals.worker`) doesn't load the ring
+yet; #77 adds `load_keyring(factory, settings, role="worker")` to its start-up and mounts
+`connection_kek` into it in compose. Until then the worker reads no connection secret.
 
 ## Using the ring (#10, #13, M1)
 
@@ -134,7 +135,7 @@ deferred check never uses it.
 new key as `connection_kek`, set `OWNVITALS_CONNECTION_KEK_ID` to the new id, restart. Rows keep
 opening under the retired file until #13's `keys rewrap` has moved them; then the old file goes.
 
-**Downgrading 0003** is refused while `connection_keks` holds a row: a start records the check
+**Downgrading 0004** (to `0003_jobs`) is refused while `connection_keks` holds a row: a start records the check
 rows of the current keys only, so a retired key's row could never be recreated and every value
 still under it would stay `key_unavailable`. An empty table (no web or worker ever started, or
 after `keys wipe`) is dropped.

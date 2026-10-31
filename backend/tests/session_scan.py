@@ -6,14 +6,19 @@ Each has its own allowlist, of packages (the package and everything under it) an
 - ``user_session`` (owned rows of one user): ``ownvitals.db`` (where it is defined and exported),
   ``ownvitals.auth`` (the web issuer and the user's own account data, ADR 0003) and
   ``ownvitals.connections`` (ADR 0004; its status writes during a run are the one exemption from
-  the fence, ADR 0005 section 4). Every write a worker makes for a job goes through the fenced
-  helper of ``ownvitals.jobs`` (#9), whose exact modules join the list in that PR; **job kinds
-  live outside the allowlist** and write through the fence.
+  the fence, ADR 0005 section 4). Of ``ownvitals.jobs`` (#9) exactly three modules:
+  ``ownvitals.jobs.fence`` (the fenced helper: every write a worker makes for a job goes through
+  it), ``ownvitals.jobs.service`` (the jobs API's own writes for the signed-in user, web only) and
+  ``ownvitals.jobs.progress`` (the event stream's owner-scoped reads, web only). **The rest of
+  ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
+  through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
-  account tables are system tables reached only through it, ADR 0003 section 1), and the exact
-  module ``ownvitals.crypto.keks`` (#8: the key ring records and compares its ``connection_keks``
-  check rows at startup, before any user is known, ADR 0004 section 3). The queue's definer
-  functions (#9) and the flags and admin area (#12) add their exact modules in their own PRs.
+  account tables are system tables reached only through it, ADR 0003 section 1),
+  ``ownvitals.jobs.queue`` (#9: the calls of the queue's ``SECURITY DEFINER`` functions, the
+  maintenance context of ADR 0002 section 4; the session itself reaches no owned row), and the
+  exact module ``ownvitals.crypto.keks`` (#8: the key ring records and compares its
+  ``connection_keks`` check rows at startup, before any user is known, ADR 0004 section 3). The
+  flags and admin area (#12) add their exact modules in their own PR.
 
 A later package joins a list in its own PR, with its reason, and the tests in
 ``test_session_guard.py`` that pin both lists change with it. Anything else fails
@@ -22,11 +27,11 @@ the user, ``SET_USER``, always) by any name, attribute, import alias or string; 
 ``ownvitals.db.session`` or anything in it; a name or attribute chain that reaches that module
 (``ownvitals.db.session.X``, ``db.session.X`` after ``from ownvitals import db``, ``m.X`` after
 ``import ownvitals.db.session as m``); and any non-docstring string that sets ``app.user_id``
-itself. Relative imports are resolved to absolute module names first (``from ..db import
-session`` in ``ownvitals.jobs.sync`` is ``from ownvitals.db import session``), and one that climbs
-above the top-level package is refused. Like the other guards it catches accidental use and makes
-the rest visible in review; it cannot stop obfuscated code (``getattr`` with a computed name,
-``importlib`` with a built string).
+itself, in any letter case (Postgres ignores it). Relative imports are resolved to absolute
+module names first (``from ..db import session`` in ``ownvitals.jobs.sync`` is ``from
+ownvitals.db import session``), and one that climbs above the top-level package is refused. Like
+the other guards it catches accidental use and makes the rest visible in review; it cannot stop
+obfuscated code (``getattr`` with a computed name, ``importlib`` with a built string).
 """
 
 import ast
@@ -44,9 +49,19 @@ class Allowlist:
         return any(module == p or module.startswith(p + ".") for p in self.prefixes)
 
 
-USER_SESSION = Allowlist(prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"))
+# The exact modules of ``ownvitals.jobs`` (#9) that may open each session; see the docstring.
+JOBS_USER_SESSION = ("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvitals.jobs.progress")
+JOBS_SYSTEM_SESSION = ("ownvitals.jobs.queue",)
+# The key ring's startup check (#8), the one module of ``ownvitals.crypto`` that may.
+KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
+
+USER_SESSION = Allowlist(
+    prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
+    modules=JOBS_USER_SESSION,
+)
 SYSTEM_SESSION = Allowlist(
-    prefixes=("ownvitals.db", "ownvitals.auth"), modules=("ownvitals.crypto.keks",)
+    prefixes=("ownvitals.db", "ownvitals.auth"),
+    modules=(*JOBS_SYSTEM_SESSION, *KEYS_SYSTEM_SESSION),
 )
 # Each guarded name and who may use it; the private helper behind both is the session module's
 # own (only ``ownvitals.db`` may name it).
@@ -169,6 +184,7 @@ def scan_source(source: str, module: str, *, is_package: bool = False) -> list[t
         ):
             if node.value in refused or (node.value == SESSION_MODULE and not may_import_module):
                 found.append((line, f"names {node.value!r}"))
-            elif "app.user_id" in node.value and not may_name_user_id:
+            # Postgres compares setting names case-insensitively: ``APP.USER_ID`` is the same.
+            elif "app.user_id" in node.value.lower() and not may_name_user_id:
                 found.append((line, "sets app.user_id itself"))
     return found

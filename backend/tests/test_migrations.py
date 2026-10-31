@@ -9,7 +9,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from dbtools import alembic_config, applied_revisions, migrated, public_tables
 
-HEAD = "0003_connection_keks"
+HEAD = "0004_connection_keks"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -18,6 +18,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0003_jobs",
         "0002_close_alembic_version",
         "0001_baseline",
     ]
@@ -51,18 +52,25 @@ def test_upgrade_head_then_downgrade_base(
 def test_the_migrations_create_exactly_their_tables(
     database_url: str, owner_database_url: str
 ) -> None:
+    """Besides Alembic's own table, 0003's job tables (ADR 0005 section 1) and 0004's key-ring
+    check table (ADR 0004 section 3); the account and connection tables arrive with #10 and
+    #13."""
     with migrated(owner_database_url):
-        # Alembic's own and the key ring's check table (0003, ADR 0004 section 3).
-        assert public_tables(database_url) == {"alembic_version", "connection_keks"}
+        assert public_tables(database_url) == {
+            "alembic_version",
+            "jobs",
+            "job_events",
+            "connection_keks",
+        }
     assert applied_revisions(database_url) == []
-    assert public_tables(database_url) == {"alembic_version"}  # downgraded: 0003's table gone
+    assert public_tables(database_url) == {"alembic_version"}  # downgraded: 0003's and 0004's gone
 
 
-def test_downgrading_0003_is_refused_while_it_holds_check_rows(
+def test_downgrading_0004_is_refused_while_it_holds_check_rows(
     database_url: str, owner_database_url: str
 ) -> None:
     """A start records the current keys' check rows only, so a retired key's row could never
-    be recreated after the table was dropped (0003's docstring)."""
+    be recreated after the table was dropped (0004's docstring)."""
     engine = create_engine(database_url)
     try:
         with migrated(owner_database_url):
@@ -72,13 +80,15 @@ def test_downgrading_0003_is_refused_while_it_holds_check_rows(
                     {"v": bytes(16)},
                 )
             with pytest.raises(DBAPIError, match="connection_keks holds check rows"):
-                command.downgrade(alembic_config(), "0002_close_alembic_version")
+                command.downgrade(alembic_config(), "0003_jobs")
             assert applied_revisions(database_url) == [HEAD]
             assert "connection_keks" in public_tables(database_url)
             with engine.begin() as connection:
                 connection.execute(text("DELETE FROM connection_keks"))
-            command.downgrade(alembic_config(), "0002_close_alembic_version")  # empty: dropped
+            command.downgrade(alembic_config(), "0003_jobs")  # empty: dropped
+            assert applied_revisions(database_url) == ["0003_jobs"]
             assert "connection_keks" not in public_tables(database_url)
+            assert {"jobs", "job_events"} <= public_tables(database_url)
     finally:
         engine.dispose()
     assert applied_revisions(database_url) == []

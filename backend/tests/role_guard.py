@@ -22,7 +22,7 @@ TABLE_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "DELETE"}
 # table's grants adds it here (and to 10-roles.sql's restore list). ``NO_APP_ACCESS`` tables get
 # nothing at all.
 RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
-    # Migration 0003: the app role records and reads key check values, never changes or forgets
+    # Migration 0004: the app role records and reads key check values, never changes or forgets
     # one (ADR 0004 section 3).
     "connection_keks": {"SELECT", "INSERT"},
 }

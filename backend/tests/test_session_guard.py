@@ -31,9 +31,13 @@ def test_only_allowlisted_modules_open_a_session() -> None:
 
 def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
     # A later package joins in its own PR, with its reason (session_scan's docstring).
-    user = Allowlist(prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"))
+    user = Allowlist(
+        prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
+        modules=("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvitals.jobs.progress"),
+    )
     system = Allowlist(
-        prefixes=("ownvitals.db", "ownvitals.auth"), modules=("ownvitals.crypto.keks",)
+        prefixes=("ownvitals.db", "ownvitals.auth"),
+        modules=("ownvitals.jobs.queue", "ownvitals.crypto.keks"),
     )
     private = Allowlist(prefixes=("ownvitals.db",))
     assert (user, system) == (USER_SESSION, SYSTEM_SESSION)
@@ -54,7 +58,13 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
         "ownvitals.cli",
         "ownvitals.jobs",
         "ownvitals.jobs.runner",
+        "ownvitals.jobs.run",
+        "ownvitals.jobs.transitions",
+        "ownvitals.jobs.issuer",
+        "ownvitals.jobs.routes",
         "ownvitals.jobs.sync",  # a job kind under ownvitals.jobs gets no exemption
+        "ownvitals.jobs.fence.kind",  # exact modules: nothing under them
+        "ownvitals.jobs.queuex",
         "ownvitals.withings.sync",
         "ownvitals.analysis",
         "ownvitals.admin",
@@ -76,6 +86,10 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.db.session", True, True),
         ("ownvitals.auth.deps", True, True),
         ("ownvitals.connections.repository", True, False),
+        ("ownvitals.jobs.fence", True, False),
+        ("ownvitals.jobs.service", True, False),
+        ("ownvitals.jobs.progress", True, False),
+        ("ownvitals.jobs.queue", False, True),
         # The key ring's startup check (#8): that exact module, nothing else in the package.
         ("ownvitals.crypto.keks", False, True),
         ("ownvitals.crypto", False, False),
@@ -114,6 +128,9 @@ REFUSED = {
     "session module string": "import importlib\nimportlib.import_module('ownvitals.db.session')",
     "raw set_config": "q = \"SELECT set_config('app.user_id', :u, true)\"",
     "raw SET": "q = 'SET LOCAL app.user_id = x'",
+    # Postgres ignores the case of a setting's name (the #65 review, finding 3).
+    "upper-case set_config": "q = \"SELECT set_config('APP.USER_ID', :u, true)\"",
+    "mixed-case SET": "q = 'SET LOCAL App.User_Id = x'",
     "SET_USER by name": "from ownvitals.db.session import SET_USER",
     "SET_USER as a string": "q = getattr(m, 'SET_USER')",
     "SET_USER as an attribute": "q = m.SET_USER",
@@ -175,6 +192,24 @@ def test_each_allowlist_grants_only_its_own_session() -> None:
     for name in ("private helper", "session module", "raw set_config"):
         assert scan_source(REFUSED[name], "ownvitals.auth.sessions") != [], name
     assert scan_source(REFUSED["private helper"], "ownvitals.db.engine") == []
+
+
+def test_the_job_modules_get_only_their_own_session() -> None:
+    assert scan_source(REFUSED["import"], "ownvitals.jobs.fence") == []
+    assert scan_source(REFUSED["system import"], "ownvitals.jobs.fence") != []
+    assert scan_source(REFUSED["system import"], "ownvitals.jobs.queue") == []
+    assert scan_source(REFUSED["import"], "ownvitals.jobs.queue") != []
+    for name in ("private helper", "session module", "raw set_config", "upper-case set_config"):
+        assert scan_source(REFUSED[name], "ownvitals.jobs.fence") != [], name
+
+
+def test_a_setting_name_in_any_letter_case_is_caught() -> None:
+    """Postgres compares setting names case-insensitively, so ``APP.USER_ID`` sets the RLS user
+    too (the #65 review, finding 3)."""
+    for spelling in ("app.user_id", "APP.USER_ID", "App.User_Id", "app.USER_id"):
+        source = f"q = \"SELECT set_config('{spelling}', :u, true)\""
+        assert scan_source(source, "ownvitals.worker.loop") == [(1, "sets app.user_id itself")]
+        assert scan_source(source, "ownvitals.db.engine") == []  # the session module's package
 
 
 def test_a_planted_session_in_a_real_module_is_found(tmp_path: Path) -> None:

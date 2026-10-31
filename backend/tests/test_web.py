@@ -81,7 +81,7 @@ async def test_web_refuses_to_start_on_an_unmigrated_database(
     with pytest.raises(
         KeyRingError,
         match=r"^the connection_keks table is missing: run the migrations \(up to "
-        r"0003_connection_keks\) before starting web or the worker$",
+        r"0004_connection_keks\) before starting web or the worker$",
     ) as refused:
         async with make_client(app_database_url):
             pytest.fail("the app must not start")

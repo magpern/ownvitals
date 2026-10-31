@@ -146,8 +146,9 @@ uvx uv@0.13.6 run alembic downgrade base
 ```
 
 `0001_baseline` creates no tables; `0002_close_alembic_version` closes Alembic's own table to the
-app role; `0003_connection_keks` adds the key ring's check table ([crypto.md](crypto.md)). Every migration needs a working `downgrade` (the `test_migrations.py` test upgrades to
-head and downgrades to base). Owned and system tables follow [isolation.md](isolation.md).
+app role; `0003_jobs` adds the job tables ([jobs.md](jobs.md)) and `0004_connection_keks` the key
+ring's check table ([crypto.md](crypto.md)). Every migration needs a working `downgrade` (the
+`test_migrations.py` test upgrades to head and downgrades to base). Owned and system tables follow [isolation.md](isolation.md).
 
 ## Layout
 

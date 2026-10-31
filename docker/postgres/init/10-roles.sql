@@ -117,7 +117,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ownvitals
 -- Migration bookkeeping stays closed to the app (migration 0002 revokes it too).
 SELECT 'REVOKE ALL ON TABLE public.alembic_version FROM ownvitals_app, PUBLIC'
  WHERE to_regclass('public.alembic_version') IS NOT NULL \gexec
--- The key ring's check table (migration 0003, ADR 0004 section 3): the app role records and
+-- The key ring's check table (migration 0004, ADR 0004 section 3): the app role records and
 -- reads check values, never changes or forgets one.
 SELECT 'REVOKE UPDATE, DELETE ON TABLE public.connection_keks FROM ownvitals_app'
  WHERE to_regclass('public.connection_keks') IS NOT NULL \gexec

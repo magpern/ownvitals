@@ -67,7 +67,7 @@ SETTINGS = {
     KeyKind.PEPPER: "webhook_pepper_id",
 }
 # The migration that creates the check table, named when it is missing.
-MIGRATION = "0003_connection_keks"
+MIGRATION = "0004_connection_keks"
 UNDEFINED_TABLE = "42P01"
 _FILE_CONTENT = re.compile(rb"[0-9a-f]{64}\n?")
 _MAX_FILE_BYTES = 66  # more than a valid file can hold, so a longer one fails the pattern

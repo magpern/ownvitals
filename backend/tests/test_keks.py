@@ -62,7 +62,7 @@ def keks_schema(role_urls: RoleUrls) -> Iterator[None]:
 @pytest.fixture
 def db(keks_schema: None, database_url: str, app_database_url: str) -> Iterator[str]:
     """No check rows yet; returns the app role's URL. The rows go again afterwards: migration
-    0003's downgrade refuses while the table holds any."""
+    0004's downgrade refuses while the table holds any."""
     clear_check_rows(database_url)
     yield app_database_url
     clear_check_rows(database_url)
@@ -348,7 +348,7 @@ async def test_an_empty_slot_is_unavailable(db: str, secrets_dir: Path) -> None:
 async def test_the_app_role_may_record_and_read_check_rows_but_not_change_or_forget_them(
     db: str, database_url: str
 ) -> None:
-    """Migration 0003 grants ownvitals_app SELECT and INSERT on connection_keks only."""
+    """Migration 0004 grants ownvitals_app SELECT and INSERT on connection_keks only."""
     value = check_value(Kek("kek-9", KEY_D))
     async with app_factory(settings_for(db)) as factory:
         async with system_session(factory) as session:
