@@ -26,12 +26,13 @@ Keep files under 500 lines.
 
 ### Dependencies
 
-All runtime dependencies of the platform milestone (M0) are declared up front: alembic,
-argon2-cffi, authlib, certifi, cryptography, fastapi, httpx, joserfc, psycopg[binary], pydantic,
-pydantic-settings, pyotp, segno, sqlalchemy[asyncio], uvicorn[standard]. Dev: pyright, pytest,
-pytest-asyncio, ruff. Group `audit`: pip-audit (CI only). Packages whose modules arrive later
-(argon2-cffi, authlib, joserfc, pyotp, segno, cryptography) are installed already, so the
-lockfile does not change under parallel issues.
+All runtime dependencies of the platform milestone (M0), plus numpy and scipy for the analysis
+and ECG cores, are declared up front: alembic, argon2-cffi, authlib, certifi, cryptography,
+fastapi, httpx, joserfc, numpy, psycopg[binary], pydantic, pydantic-settings, pyotp, scipy, segno,
+sqlalchemy[asyncio], uvicorn[standard]. Dev: pyright, pytest, pytest-asyncio, ruff. Group `audit`:
+pip-audit (CI only). Packages whose modules arrive later are installed already, so the lockfile
+does not change under parallel issues; nothing imports numpy or scipy yet. The exact versions are
+the ones in `uv.lock`.
 
 ## The test database
 
