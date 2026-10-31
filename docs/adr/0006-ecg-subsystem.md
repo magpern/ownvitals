@@ -1,6 +1,6 @@
 # ADR 0006: The ECG subsystem: data contract, quality gate, descriptive analysis and validation
 
-Status: Accepted (2026-10-31, #39). Assumptions A1 to A8 stay open until the owner's probe and
+Status: Accepted (2026-10-31, #39). Assumptions A1 to A9 stay open until the owner's probe and
 checks (§2); two questions are blocked on the owner (see the end).
 
 ## Context
@@ -72,6 +72,7 @@ categorical output, never samples, values or timestamps. Agents never mark an as
 | A5 | One array per recording (findings §3) | Probe: ECG array count and lengths. If > 1, OC4: equal length and rate, and R-peaks coincide within 20 ms (our choice) for ≥ 95 % of beats. R-peak times differ between leads, so it errs toward "not simultaneous", the safe direction | All arrays are stored; analysis uses the first; six-lead stays off (§10) |
 | A6 | Strips last about 30 s | Probe: array length and sampling rate | Strips without a 20-s beat span never pass the gate (§7) |
 | A7 | `getmeas` intervals (135–138) and AFib result (130) belong to the ECG with the same device and timestamp (findings §5 question 5) | Probe: counts of 135–138 against the ECG count. OC5: every ECG has a matching group (yes/no, count without) | E4 and E6 still run on the measures; only the link to a strip (viewer, §11 overlay) is lost, and their notifications go out "not evaluated by ownvitals" as soon as no recording can be linked (§11), without waiting for the 24-hour bound |
+| A9 | Withings lists an ECG in `heart list` by the time its 135–138 group is in `getmeas`, so an `ecg` sync that started after the group was stored and completed successfully sees it (§11's hold) | OC5 also counts the findings that got a link only after their hold had ended for want of one (the M6/M7 notification issue records how each hold ended, as a reason code; count only) | A late-listed strip's E4/E6 notification goes out "not evaluated by ownvitals"; if the strip then fails our gate, the overlay hides the finding, but the notification isn't recalled |
 | A8 | `heart_rate` from `heart list` is the strip's mean rate | V3 (§14), which also validates our HR: a V3 failure needs a follow-up to tell which | Only V3's comparison |
 
 ### 3. Preserve and display (PLAN §7.3 step 2)
@@ -241,10 +242,8 @@ its mean and with no further detrending (our choice: a DC offset doesn't count a
   or null with its reason. Nothing else: version 1 has no irregularity index or other
   interpretation field (§12).
 
-How it is shown:
+How it is shown (findings never store our gate outcome; only §11's overlay brings it to them):
 
-- **Findings never store our gate outcome**; it reaches them only through `ecg_gate_overlay` at
-  read time (§11).
 - **Only behind the owner-only flag**: HR, HRV, R-peak markers, SQI component values and gate
   reasons. PLAN §7.2 lists "independent estimates" in the experimental tier; showing them to
   anyone else is blocked on the owner (open question 1).
@@ -277,7 +276,7 @@ formulas and an amendment. Analysis stays on recorded leads.
 | E3 | device | `afib_details` ∈ {6, 7} | Never hidden |
 | E4 | experimental | QTc (138) > 450 ms (men) / 460 ms (women) and > 500 ms; PR (136) > 200 ms; QRS (135) ≥ 120 ms. Sex unknown: QTc uses only > 500 ms; PR and QRS as usual | Hidden on a gate failure of its trigger's linked (A7) recording |
 | E5 | experimental | Our irregularity index against Withings' `afib` | Deferred (§12): nothing in version 1 |
-| E6 | trend | QTc or QRS above the personal 90-day range, with M4's baseline and minimum-data policy (PLAN §7.1 steps 4–5) | Hidden when at least half of its trigger recordings failed the gate; its baseline's never count |
+| E6 | trend | QTc or QRS above the personal 90-day range, with M4's baseline and minimum-data policy (PLAN §7.1 steps 4–5) | Hidden when at least half of its trigger recordings with a gate result failed; recordings only in its baseline never count |
 
 Architect's decisions (2026-10-31):
 
@@ -287,45 +286,48 @@ Architect's decisions (2026-10-31):
   the Withings fields they read. No finding stores our gate outcome or `estimated.algo_version`.
 - **Our gate is a read-time overlay.** A pure function, `ecg_gate_overlay`, decides whenever a
   finding is read, from the recordings linked to it:
-  - **Trigger**: the measure groups whose values make the finding fire, listed in its evidence:
-    for E4 the one group with a value in a band; for E6 every group behind a QTc (138) or QRS
-    (135) value above the personal range in its window (for a daily value, all its groups).
-    Never the groups behind its 90-day baseline (its other PLAN §5 inputs).
+  - **Trigger**: exactly the measure groups whose values produced the value (or values) that made
+    the finding fire. The function that produces a value records them, and that provenance is
+    carried into the finding's evidence; no other component re-derives the set. A single reading's
+    trigger is its own group (E4's one group); a daily value's (`daily_values`, #37) is its morning
+    reading's group when its method is `morning`, and every reading of the day when it is `median`.
+    A group that is also in the baseline counts as a trigger.
   - **Linked**: only the trigger's recordings, through the A7 link resolved at read time, never
-    stored; a soft-deleted recording counts as no link. Baseline recordings are never linked and
-    count toward neither the overlay nor the hold below; a gate on the baseline would be a rule
-    of its own, by amendment.
+    stored; a soft-deleted recording counts as no link. Recordings only in the 90-day baseline
+    (the finding's other PLAN §5 inputs) are never linked and count toward neither the overlay
+    nor the hold below; a gate on the baseline would be a rule of its own, by amendment.
   - **Current**: an `estimated` counts as absent when its `input_fingerprint` differs from the
     row's or its gate modules (`modules.input`, `filters`, `rpeaks`, `sqi`; §4) differ from the
     running ones (§15). A recording has a **gate result** (pass or fail) only from a current
     `estimated`; `unsupported_sampling_rate` and `signal_missing` give none.
-  - E4, E6: hidden when at least half of the linked recordings **failed** (PLAN §7.3 step 3: "a
-    trace that fails the SQI produces no … findings"), so a single failing trigger strip hides
-    E6 as it hides E4; shown, marked "not evaluated by ownvitals", when none has a gate result
-    (no link included); otherwise shown.
+  - E4, E6: of the trigger recordings with a gate result, hidden when at least half **failed**
+    (PLAN §7.3 step 3: "a trace that fails the SQI produces no … findings"); an unlinked trigger
+    group and a linked recording without a result both stay out of the count, and a failure never
+    counts as a pass. Shown, marked "not evaluated by ownvitals", when none has a result.
   - E1 to E3: never hidden, since they relay Withings' classification and hiding a positive AFib
     result is the unsafe direction. Our gate outcome shows on them only behind the owner-only
     flag, so that it can't invite anyone to dismiss a Withings-reported result.
 - **One read function.** Findings, and our estimates for every output (§9), are read only through
   one function, which loads the linked recordings, calls `ecg_gate_overlay` (in `ownvitals.ecg`,
-  which the purity guard of `docs/dev/analysis.md` keeps free of database imports) and applies
-  §9's up-to-date rule. A guard test fails if any other module reads findings or `estimated` for
-  presentation; allowed by name: the rules engine's writes, the `estimated` recompute and its
-  sweep (§15), and the account-delete and purge path. Consumers: the dashboard and API;
-  notifications (below); the JSON/CSV export, with every finding and its overlay state (the
-  user's complete data); the doctor PDF and the AI context (M7), which leave hidden findings out.
-  A link that appears later, a deleted recording, a recomputed `estimated` and a new gate version
-  are therefore current by construction, and writing `estimated` re-evaluates nothing (§15).
+  which the purity guard of `docs/dev/analysis.md` keeps free of database imports) and applies §9's
+  up-to-date rule. A guard test fails if any other module reads findings or `estimated` for
+  presentation; allowed by name: the rules engine's writes, the `estimated` recompute and its sweep
+  (§15), the account-delete and purge path, and `ownvitals ecg validate` (#47), which reads the
+  stored `estimated` to validate it (V5 compares it byte for byte). Consumers: the dashboard and
+  API; notifications (below); the JSON/CSV export, with every finding and its overlay state (the
+  user's complete data); the doctor PDF and the AI context (M7), which leave hidden findings out. A
+  link that appears later, a deleted recording, a recomputed `estimated` and a new gate version are
+  therefore current by construction, and writing `estimated` re-evaluates nothing (§15).
 - **E4 and E6 notifications wait for the gate.** One is held while a trigger group can still be
   linked or a linked recording lacks a current `estimated`, for at most 24 hours (a setting) after
   the finding's first revision. A group can't be linked any more once the connection's `ecg`
   capability is `unsupported`, `not_authorized` or `not_available` (PLAN §4.2), or a sync of the
-  `ecg` stream started after the group was stored has completed without a match; a finding with
-  no linkable recording thus ends its hold at once. The overlay then decides once: hidden sends
-  nothing, ever; shown sends it, marked "not evaluated by ownvitals" when there is no gate result.
-  A new revision during the hold restarts it for that revision, the bound still counted from the
-  first; a finding withdrawn during the hold sends nothing. E1 to E3 notify at once. A sent
-  notification is never recalled.
+  `ecg` stream started after the group was stored has completed successfully without a match (A9; a
+  failed or partial sync doesn't count); a finding with no linkable recording thus ends its hold at
+  once. The overlay then decides once: hidden sends nothing, ever; shown sends it, marked "not
+  evaluated by ownvitals" when there is no gate result. A new revision during the hold restarts it
+  for that revision, the bound still counted from the first; a finding withdrawn during the hold
+  sends nothing. E1 to E3 notify at once. A sent notification is never recalled.
 - Every finding carries `rule_id`, `rule_version`, tier, `data_quality` and `origin`: an E1
   found while backfilling goes to the history view without a notification (PLAN §7.1 step 7).
   Only documented codes trigger a rule; a missing value never counts as negative.
@@ -355,14 +357,11 @@ Agents never mark the gate passed.
 ### 13. Validation in CI: synthetic signals only (#40)
 
 **The test specification** is [0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md), part
-of this ADR: the synthetic generator (`backend/tests/ecgsynth.py`: 30-s strips from the dynamical
-model of McSharry et al. 2003, with AF-like, ectopic and respiratory options), noise models and
-SNR, beat matching (±150 ms, ANSI/AAMI EC57; Se and +P pooled per condition and rate, with a 95 %
-floor per accepted strip), the gate conditions, §5's filter responses, HR and HRV tolerances, the
-ectopic, respiratory and AF-like assertions, SQI bounds and components, seeds and other CI tests,
-a simulation note, and §11's overlay, read-function and notification-hold assertions. Its
-thresholds are our choices; every seeded case must meet them. An unreachable threshold is
-reported to the Architect; tests never loosen silently.
+of this ADR: the generator (`backend/tests/ecgsynth.py`, after McSharry et al. 2003), noise, beat
+matching (ANSI/AAMI EC57; Se and +P pooled per condition and rate, a 95 % floor per strip), gate
+conditions, §5's filter responses, HR, HRV and SQI tolerances, seeds, a simulation note, and §11's
+overlay, read-function and hold tests. Its thresholds are our choices; every seeded case must meet
+them. An unreachable threshold is reported to the Architect; tests never loosen silently.
 
 ### 14. Owner-run validation (M5 done-when)
 
@@ -426,14 +425,16 @@ owner** (open question 2).
 
 ## Consequences
 
-- Version 1 is descriptive. #40 implements §4 to §9 and §13's CI part; #21 adds `payload_hash`;
-  #25 implements the rest of §1 (validation, zstd encoding, `zstandard`) and, with #21, a revision
-  bump that ignores `estimated`-only updates (§15); the M5 viewer/PDF issue implements §3; the M5
-  rules issue implements §11 (E1 to E4, E6, `ecg_gate_overlay` and the one read function for
-  findings and estimates, with its guard test), which every later consumer uses; the M6/M7
-  notification issue implements §11's hold of E4 and E6 notifications; #47 implements §14. E5
-  and the rest of §12 wait for the later revision, their own issue and the owner's gate.
-- The Architect adds A1 to A8 to `docs/status.md` with their settling items.
+- Version 1 is descriptive. #40 implements §4 to §9 and §13's CI part; #21 adds `payload_hash`; #25
+  implements the rest of §1 (validation, zstd encoding, `zstandard`) and, with #21, a revision bump
+  that ignores `estimated`-only updates (§15); the M5 viewer/PDF issue implements §3; the M5 rules
+  issue implements §11 (E1 to E4, E6, `ecg_gate_overlay` and the one read function for findings and
+  estimates, with its guard test), which every later consumer uses; the M6/M7 notification issue
+  implements §11's hold of E4 and E6 notifications; #47 implements §14. E5 and the rest of §12 wait
+  for the later revision, their own issue and the owner's gate.
+- **Trigger provenance** (§11): the M4 wiring issue makes each daily value carry its source
+  groups' ids (#37's `DailyValue` has none today) through to the findings, and the M5 rules
+  issue puts them in each finding's evidence; nothing re-derives them.
 - `estimated` carries its versions and fingerprint, so a changed parameter recomputes history
   instead of mixing versions, and no output shows a superseded one meanwhile (§9); findings never
   depend on it, so they need no recompute.
@@ -449,10 +450,10 @@ owner** (open question 2).
    licences and outside the repository, CI and agent contexts (§14).
 
 **Decided by the Architect (2026-10-31).** Findings hold Withings data only; our gate is a
-read-time overlay over a finding's trigger recordings only, behind one read function, with a hold
-on E4/E6 notifications (§11). E4 with unknown sex applies only > 500 ms to QTc (§11). The
-owner-run `ownvitals ecg validate` is #47 (§14). Other rates such as 250 Hz are decided after the
-probe and stay assumption A3 (§2). Version 1 has no interpretation; the E5 index is deferred (§12).
+read-time overlay over a finding's trigger recordings, behind one read function, with a hold on
+E4/E6 notifications; E4 with unknown sex uses only > 500 ms for QTc (§11). The owner-run
+`ownvitals ecg validate` is #47 (§14); 250 Hz waits for the probe (A3); version 1 has no
+interpretation, and the E5 index is deferred (§12).
 
 ## References
 
