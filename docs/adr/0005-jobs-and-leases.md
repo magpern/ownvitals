@@ -131,7 +131,11 @@ queued ──claim──> running ──> completed | failed | cancelled
     `ownvitals_owner`, built-ins only, no SQL text) and its row-level `BEFORE UPDATE OR DELETE`
     trigger on the audit table (#12; classbeat ADR 0011 §1). No queue function touches that
     table, and `ownvitals_queue` has no privilege on it;
-  - from #21, `ensure_month_partitions` (ADR 0002 §2), owned by `ownvitals_owner`.
+  - from #21, `ensure_month_partitions` (ADR 0002 §2), owned by `ownvitals_owner`;
+  - from M1, the webhook-secret function (ADR 0004 §4), owned by `ownvitals_owner`: it appends,
+    retires or re-hashes entries in the `webhook_secrets` column of one `withings_apps` row and
+    writes the admin-audit row, nothing else; `ownvitals_app` may execute it, and a guard keeps
+    every caller but the worker's rotation module out.
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day

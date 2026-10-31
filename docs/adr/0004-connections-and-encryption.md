@@ -139,8 +139,9 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
      the new one (M1 runbook step, owner): a stolen refresh token can't be used without it;
   5. backups taken before the wipe, WAL archives included, count as compromised: destroy them,
      or wipe again after restoring one;
-  6. start web and worker; add a webhook secret derived from the new seed and **retire every old
-     webhook secret at once** (#22's CLI, §4); users reconnect and re-enrol.
+  6. start web and worker; run #22's `rotate`: the worker adds a webhook secret derived from the
+     new seed and **retires every old webhook secret at once** (§4); users reconnect and
+     re-enrol.
 - **Revocation after a compromise is not attempted** (Architect decision, 2026-10-31). The wipe
   has no KEK and no outbound access, so it can't revoke at Withings. Step 4 makes every stolen
   refresh token useless; a stolen access token stays valid for up to its 3-hour lifetime
@@ -166,40 +167,60 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 - **The secret is derived, never stored** (Architect decision, 2026-10-31):
   `secret = HMAC-SHA256(seed[seed_id], "ownvitals-webhook-v1" ‖ app_id ‖ secret_id)`, where ‖ is
   the `|` join of §2's encodings; 32 bytes, encoded base64url without padding. Each
-  `webhook_secrets` entry records `{secret_id, seed_id, hmac, active_from, retire_at}`: PLAN §5's
-  fields plus the id of the seed it was derived from. **A seed rotation is a secret rotation**: a
-  new `secret_id` under the new seed. A dump yields no secret and no way to compute one.
+  `webhook_secrets` entry records `{secret_id, seed_id, pepper_id, hmac, active_from, retire_at}`:
+  PLAN §5's fields plus the ids of the seed it was derived from and of the pepper its HMAC was
+  made with. **A seed rotation is a secret rotation**: a new `secret_id` under the new seed. A
+  dump yields no secret and no way to compute one.
 - **Two keys in the KEK ring**, each of its own kind, in the KEK file format, with its own check
   row in `connection_keks`; a key of one kind can't be loaded as another:
   - the **seed**: a secret file `webhook_seed` (current; id from a setting, default `seed-1`,
     pattern `^seed-[a-z0-9-]{1,28}$`) and `webhook_seed_<id>` (retired), check value
-    `HMAC-SHA256(seed, "ownvitals-seed-check-v1")`. **Only the worker** (and #22's CLI, run in
-    the worker's container) mounts and loads it: it derives a secret to build a callback URL
-    and to add a new `webhook_secrets` entry;
+    `HMAC-SHA256(seed, "ownvitals-seed-check-v1")`. **Only the worker** mounts and loads it: it
+    derives a secret to build a callback URL and to add or re-hash a `webhook_secrets` entry;
   - the **pepper**: `webhook_pepper` (current; default `pep-1`, pattern `^pep-[a-z0-9-]{1,28}$`)
     and `webhook_pepper_<id>` (retired), check value
-    `HMAC-SHA256(pepper, "ownvitals-pepper-check-v1")`. **Web** loads it to verify; the worker
-    loads it to compute the HMAC of a new entry. It never encrypts anything.
+    `HMAC-SHA256(pepper, "ownvitals-pepper-check-v1")`. Web loads it to verify; the worker loads
+    it to compute and check entries' HMACs. It never encrypts anything.
 
-  **Web holds only the pepper**: its service never mounts the seed, and its ring loader refuses
-  the seed kind (#8 test).
-- **Verification (web, #24):** `HMAC(pepper, presented secret)` compared by
-  `hmac.compare_digest` with each active entry of `withings_apps.webhook_secrets`. During a
-  pepper rotation the current and the retired pepper are both loaded and both tried (at most
-  four comparisons with two active entries). M1 should reject an unknown secret before any
-  database work, for example from an in-process copy of the active entries (threat model T38).
-- **Derivation check (worker):** the worker derives with the entry's `seed_id` and, before using
-  the result, checks that `HMAC(pepper, derived)` equals the entry's `hmac` (trying the loaded
-  peppers as web does); a missing seed or a mismatch refuses and builds no URL (fail closed). The plaintext lives only in memory for the
-  call; it is never logged, stored or put in a job row, and the callback URL is redacted like
-  the webhook path (§9).
-- **Rotation** (PLAN §4.4): add an entry for a new `secret_id` (under the current seed),
-  re-point every subscription with `notify update` (worker, per user, with that user's token),
-  then set `retire_at` on the old entry. Rotating the pepper or the seed is such a rotation, and
-  the old key file is removed once no active entry needs it. After a seed compromise (or a
-  compromise of the KEK ring that holds the seed), the old secret is retired at once;
-  subscriptions are re-pointed where the connection still has a token, and on reconnect
-  otherwise (§3).
+  **Web never holds the seed**: its service never mounts it, and its ring loader refuses the
+  seed kind (#8 test). That is the property that matters. The worker holding the pepper as well
+  adds nothing, since a holder of the seed can derive every secret anyway (Architect decision,
+  2026-10-31).
+- **Verification (web, #24):** for each active entry, `HMAC(pepper[pepper_id], presented
+  secret)` compared with the entry's `hmac` by `hmac.compare_digest`: one constant-time
+  comparison per active secret, with the pepper the entry names. An entry whose pepper isn't
+  loaded never matches. M1 should reject an unknown secret before any database work, for example
+  from an in-process copy of the active entries (threat model T38).
+- **Derivation check (worker):** derive with the entry's `seed_id`, then check that
+  `HMAC(pepper[pepper_id], derived)` equals the entry's `hmac`; a missing key or a mismatch
+  refuses and builds no URL (fail closed). The plaintext lives only in memory for the call; it
+  is never logged, stored or put in a job row, and the callback URL is redacted like the webhook
+  path (§9).
+- **Who writes the entries** (Architect decision, 2026-10-31). Rotation needs the seed and
+  `notify update`, both worker-only, so the `webhook_secrets` entries are not written by the
+  operator tool that writes the rest of `withings_apps` (ADR 0002 §3). #22's `rotate` command
+  only asks the worker to rotate (#18's system work: the app-level steps run as owner-less
+  upkeep, since no queue row is without an owner, ADR 0005 §8; each `notify update` runs as an
+  owned job of the connection's owner). The worker derives the new secret and calls **one
+  reviewed `SECURITY DEFINER` function owned by `ownvitals_owner`**, which can only append,
+  retire or re-hash entries in the `webhook_secrets` column of one `withings_apps` row, writes
+  the admin-audit row, and touches no other column. It is pinned like the other
+  definer functions (ADR 0005 §3), and a guard makes the worker's rotation module its only
+  caller. Web shares the app role, so code running in web could still call it: accepted risk 21
+  of the threat model.
+- **Secret rotation** (PLAN §4.4): the worker appends an entry for a new `secret_id` under the
+  current seed and pepper, re-points every subscription with `notify update` (per user, with
+  that user's token), then retires the old entry (`retire_at`). A seed rotation is such a
+  rotation; the old seed file is removed once no active entry names its `seed_id`.
+- **Pepper rotation** needs no new secret and no `notify update`: install the new pepper as
+  current; the worker re-hashes every entry under it through the same function (it derives each
+  secret from its seed) and sets its `pepper_id`, one entry at a time. The old pepper is
+  retired, and its file removed, only when no entry references its id, so the rotation is
+  checkable with one query.
+- **After a seed compromise (or a compromise of the KEK ring that holds the seed)** the seed and
+  the pepper are rotated and the old secret is retired at once. Subscriptions are re-pointed
+  with `notify update` where the connection still has a token, as in any rotation, and on
+  reconnect otherwise (§3; Architect decision, 2026-10-31).
 - **M0 (#8):** the ring defines both slots and validates the files if present; nothing uses them.
   **M1:** web requires the pepper, the worker the seed and the pepper.
 - **Why the ring and not keys derived from `app_secret_key`:** rotating `app_secret_key` (CSRF,
@@ -353,8 +374,8 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   credential columns with their check, the partial unique index on `(owner_id, provider)`,
   step-up on connect and disconnect, `keys rewrap` and `keys wipe` (rows to `needs_reconnect`,
   credentials removed). M1: #22 the web egress entry of roadmap Amendment 1, the refresh
-  protocol, the app secret and the `withings_apps` CLI; #24 the derived webhook secrets with the
-  seed and the pepper in use; #27 disconnect, the `disconnected` status, the "also delete
+  protocol, the app secret and the `withings_apps` CLI (owner role); #24 the derived webhook
+  secrets with the seed and the pepper in use, the rotation and its definer function; #27 disconnect, the `disconnected` status, the "also delete
   imported data" option, revoke retries.
 - Losing the current KEK means every user reconnects Withings and re-enrols TOTP; there is no
   recovery path by design.

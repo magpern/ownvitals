@@ -151,14 +151,21 @@ CREATE POLICY owner_isolation ON <t>
 | M0 | the account tables (ADR 0003 §1, reached only through `ownvitals.auth`, guard 8); the KEK check table (ADR 0004 §3); stored flags and the admin audit log (#12) |
 | M1 | `withings_apps` (below); `webhook_events`; the per-app rate bucket (PLAN §4.4) |
 
-- `withings_apps` holds each app's client id, its enveloped client secret (ADR 0004 §2) and the
-  webhook-secret HMAC entries (ADR 0004 §4). `ownvitals_app` gets **column-level `SELECT` only**,
-  on exactly those columns: web reads the client secret for the code exchange (roadmap
-  Amendment 1) and the HMAC entries to verify a webhook; the worker reads the client secret for
-  refresh and revoke. The role is shared, so who calls what is enforced by egress (ADR 0004 §7)
-  and the crypto guard, not by grants. `ownvitals_app` has no `INSERT`, `UPDATE` or `DELETE` on
-  it: creating an app, setting its client secret and adding or retiring a webhook secret are
-  operator writes through #22's audited CLI.
+- `withings_apps` holds each app's configuration (client id, enveloped client secret, callback
+  base; ADR 0004 §2) and its `webhook_secrets` entries (ADR 0004 §4). `ownvitals_app` gets
+  **column-level `SELECT` only**, on the columns web and worker need: web reads the client secret
+  for the code exchange (roadmap Amendment 1) and the entries to verify a webhook; the worker
+  reads the client secret for refresh and revoke and the entries to build callback URLs. The
+  role is shared, so who calls what is enforced by egress (ADR 0004 §7) and the crypto guard,
+  not by grants. `ownvitals_app` has **no `INSERT`, `UPDATE` or `DELETE`** on the table, so
+  neither runtime process can change the stored client id or secret. The writes are split
+  (Architect decision, 2026-10-31):
+  - **app configuration:** only #22's command-line tool, connected as `ownvitals_owner`, whose
+    DSN is mounted only in one-off operator containers (as for migrations), never in web or
+    worker. It writes the row and its admin-audit entry in one transaction;
+  - **`webhook_secrets` entries:** only the worker's rotation, through the webhook-secret
+    function of ADR 0004 §4 (append, retire or re-hash entries of one row, plus the audit row;
+    no other column). #22's `rotate` command only asks the worker to rotate.
 - `webhook_events` holds a Withings user id, an `appli` and a measurement time window: health
   metadata. `ownvitals_app` gets **no privilege on it at all** (the default grants are revoked in
   its migration); only the ingest function's role reads and writes it (§4). Its `job_id` is a
@@ -184,10 +191,13 @@ CREATE POLICY owner_isolation ON <t>
     migrations, and pinned by `md5(pg_get_functiondef)` in a startup check; the database holds no
     other user-defined function, trigger or rule (ADR 0005 §3). Each new family is added by an
     amendment to ADR 0005 §3 with its role, grants and digest.
-- **One exception to the owner rule:** the partition function of §2 is owned by
-  `ownvitals_owner` (it needs table-owner rights for DDL; the owner role has no `BYPASSRLS`). It
-  runs only fixed DDL on allowlisted tables, never reads or writes rows, and is pinned and
-  installed like the others.
+- **Two exceptions to the owner rule**, both owned by `ownvitals_owner` (which has no
+  `BYPASSRLS`), pinned and installed like the others, and each called only from one module (a
+  guard checks it):
+  - the partition function of §2, which needs table-owner rights for DDL; it runs only fixed DDL
+    on allowlisted tables and never reads or writes rows; caller: the scheduler module;
+  - the webhook-secret function of ADR 0004 §4, which writes only the `webhook_secrets` column
+    of one `withings_apps` row and an admin-audit row; caller: the worker's rotation module.
 
 ### 4. Execution contexts
 
@@ -199,7 +209,7 @@ CREATE POLICY owner_isolation ON <t>
 | Scheduler | worker, `ownvitals_app` → `EXECUTE` on enqueue functions | nothing directly; the functions enqueue owned jobs | none: the job gets one when claimed | #15 (harness), M1 |
 | Maintenance (reap, purge) | worker, definer functions or `system_session` on system tables | definer functions only | none | #9, #15 |
 | Admin | web, `ownvitals_maint` in an audited transaction | column-level allowlist; **no health table** | `ownvitals.auth` (admin session with TOTP) | #12, #15 |
-| Operator CLI | `docker compose exec`/`run` on the host | per-owner `user_session`; `keys wipe` as the owner role (ADR 0004 §3) | an auth function used only by the CLI | #13 |
+| Operator CLI | `docker compose exec`/`run` on the host | per-owner `user_session`; `keys wipe` and the `withings_apps` configuration as the owner role, in one-off operator containers (ADR 0004 §3, §3 above) | an auth function used only by the CLI | #13, #22 |
 
 - **No context has ambient authority.** Every owned read or write happens in a `user_session` for
   one owner, or inside a reviewed definer function. A function needing two users' data is a design
@@ -235,7 +245,7 @@ CREATE POLICY owner_isolation ON <t>
 | Role | Login | Used by | Rights |
 |---|---|---|---|
 | `postgres` (superuser) | yes | the db init script and `db-functions` (ADR 0005 §3) only | creates roles, database and the definer functions |
-| `ownvitals_owner` | yes | `migrate` (Alembic), and `keys wipe` (ADR 0004 §3) | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`; owns the database, schema `public`, every table and (from #21) the partition function of §2; member of no `BYPASSRLS` role; **its login is never given to web or worker** |
+| `ownvitals_owner` | yes | `migrate` (Alembic), `keys wipe` (ADR 0004 §3) and #22's `withings_apps` configuration, all in one-off operator containers | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`; owns the database, schema `public`, every table and (M1) the partition and webhook-secret functions of §3; member of no `BYPASSRLS` role; **its login is never given to web or worker** |
 | `ownvitals_app` | yes | web and worker | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT`, member of no role, owns nothing; the allowlist below |
 | `ownvitals_queue` (M0), M1's ingest, scheduler and rate roles | no | `SECURITY DEFINER` functions | `BYPASSRLS`; only the privileges their functions need (§3) |
 | `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; default read-only; every use audited |
