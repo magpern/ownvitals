@@ -1,0 +1,17 @@
+# One grouped PR per ecosystem per week for minor/patch, and a separate one for majors, so a
+# breaking major does not hold back the rest. Only GitHub Actions until the other manifests
+# exist: the release issue adds uv (backend/), npm (frontend/, e2e/) and Docker. Runtime versions
+# (Python 3.12, Postgres 17, Node 24) change only through their own issue.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci(deps)
+    groups:
+      actions:
+        update-types: [minor, patch]
+      actions-major:
+        update-types: [major]

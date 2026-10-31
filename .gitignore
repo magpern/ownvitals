@@ -1,0 +1,38 @@
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+secrets/
+.claude/settings.local.json
+.claude/worktrees/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Node
+node_modules/
+frontend/dist/
+playwright-report/
+test-results/
+blob-report/
+
+# Never real health data or app packages in the repository
+*.apk
+*.xapk
+probe-output*
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
