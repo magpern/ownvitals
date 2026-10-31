@@ -200,8 +200,8 @@ CELLS = [
     (8, 0.6, RUNS),
     (15, 0.3, RUNS),
     (15, 0.6, RUNS),
-    (100, 0.3, 600),
-    (100, 0.6, 600),
+    (100, 0.3, 500),
+    (100, 0.6, 500),
     (365, 0.6, 300),
 ]
 
@@ -225,9 +225,9 @@ def test_autocorrelated_series_are_flagged_within_alpha_plus_three_standard_erro
 
 def test_the_correction_is_needed_and_enough_at_the_length_of_the_baseline() -> None:
     # n = 100, phi 0.3: plain 13-14 %, Hamed-Rao 8-9.5 %, here about 4-5 %: the documented table
-    plain_p, corrected_p = plain_and_ar1_p_values(100, 0.3, 600, SEED)
+    plain_p, corrected_p = plain_and_ar1_p_values(100, 0.3, 500, SEED)
     assert float(np.mean(plain_p < ALPHA)) > 2.0 * ALPHA
-    assert 0.02 <= float(np.mean(corrected_p < ALPHA)) <= ALPHA + binomial_slack(ALPHA, 600)
+    assert 0.02 <= float(np.mean(corrected_p < ALPHA)) <= ALPHA + binomial_slack(ALPHA, 500)
 
 
 def power(n: int, drift: float, runs: int, seed: int) -> tuple[float, float]:

@@ -27,7 +27,11 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 from methods_builders import ar1, generator, plain_p_value
 
-from ownvitals.analysis.methods.changepoint import estimate_long_run, find_changes
+from ownvitals.analysis.methods.changepoint import (
+    estimate_long_run,
+    estimate_sigma,
+    find_changes,
+)
 from ownvitals.analysis.methods.series import Series
 from ownvitals.analysis.methods.trend import Correction, trend
 
@@ -35,7 +39,7 @@ ALPHA = 0.05
 TREND_NS = (8, 12, 20, 30, 60, 100, 200, 365)
 TREND_PHIS = (0.0, 0.3, 0.6)
 CHANGE_NS = (30, 60, 100, 200, 365)
-CHANGE_PHIS = (0.0, 0.3, 0.5, 0.7)
+CHANGE_PHIS = (0.0, 0.3, 0.5, 0.7, 0.8, 0.9)
 
 
 def cell_seed(seed: int, *parts: object) -> int:
@@ -146,14 +150,15 @@ def change_cell(args: tuple[int, float, int, int]) -> tuple[int, float, int, lis
     n, phi, runs, seed = args
     rng = generator(cell_seed(seed, "cp-null", n, phi))
     times = np.arange(float(n))
-    spurious = 0
+    spurious = before = 0
     sigmas: list[float] = []
     for _ in range(runs):
         y = ar1(rng, n, phi) if phi else rng.normal(size=n)
         spurious += bool(find_changes(Series(times, y)).change_points)
+        before += bool(find_changes(Series(times, y), sigma=estimate_sigma(y)).change_points)
         sigmas.append(estimate_long_run(y).sigma)
     truth = 1.0 / (1.0 - phi)  # the long-run sd of AR(1) with innovations of sd 1
-    return n, phi, runs, [spurious / runs, float(np.median(sigmas)) / truth]
+    return n, phi, runs, [spurious / runs, float(np.median(sigmas)) / truth, before / runs]
 
 
 def planted_cell(args: tuple[int, float, int, int]) -> tuple[int, float, int, list[float]]:
@@ -177,12 +182,17 @@ def planted_cell(args: tuple[int, float, int, int]) -> tuple[int, float, int, li
 
 def run_changepoint(runs: int, seed: int, pool: ProcessPoolExecutor) -> None:
     print(f"## PELT: AR(1) noise, no change, seed {seed}\n")
-    print("Share of series with a change point, mean (binomial standard error) in percent; and the")
-    print("median of the estimated long-run sd over the true one (1 = exact).\n")
-    print("| phi | n | runs | spurious | median sigma / true |\n|---|---|---|---|---|")
+    print(
+        "Share of series with a change point, mean (binomial standard error) in percent: with the"
+    )
+    print("long-run noise estimate, and with the noise level #38 used (the standard deviation of")
+    print("the differences over sqrt(2)). Also the median of the estimated long-run sd over the")
+    print("true one (1 = exact).\n")
+    print("| phi | n | runs | spurious | as in #38 | median sigma / true |")
+    print("|---|---|---|---|---|---|")
     jobs = [(n, phi, runs_for(n, runs), seed) for phi in CHANGE_PHIS for n in CHANGE_NS]
     for n, phi, r, v in pool.map(change_cell, jobs):
-        print(f"| {phi} | {n} | {r} | {percent(v[0], r)} | {v[1]:.2f} |")
+        print(f"| {phi} | {n} | {r} | {percent(v[0], r)} | {percent(v[2], r)} | {v[1]:.2f} |")
     print(f"\n## PELT: a shift of 2 long-run standard deviations at n/2, seed {seed}\n")
     print("Exactly one change point / one within 5 points of the shift / more than two, and the")
     print("mean distance of the single change point from the shift (points).\n")

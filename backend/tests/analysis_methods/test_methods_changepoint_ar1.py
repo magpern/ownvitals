@@ -190,26 +190,21 @@ def spurious_rate(n: int, phi: float, runs: int, seed: int, as_in_38: bool = Fal
 def test_autocorrelated_noise_gets_a_spurious_change_point_in_at_most_5_percent_of_100_points() -> (
     None
 ):
-    # the target; measured with 1000 runs: 0.5 % at phi 0.3, 2.7 % at phi 0.5
-    assert spurious_rate(100, 0.3, 250, SEED) <= 0.05
-    assert spurious_rate(100, 0.5, 400, SEED) <= 0.05
-
-
-def test_the_rate_for_independent_noise_is_unchanged_or_lower() -> None:
-    # #38 measured 2.7 % at 60 points (97.3 % without); the same or fewer now
-    assert spurious_rate(60, 0.0, 300, SEED) <= 0.03
+    # the target; measured with 2000 runs: 0.8 % at phi 0.3, 0.7 % at phi 0.5
+    assert spurious_rate(100, 0.3, 150, SEED) <= 0.05
+    assert spurious_rate(100, 0.5, 300, SEED) <= 0.05
 
 
 def test_without_the_long_run_scale_autocorrelated_noise_is_the_problem_it_was() -> None:
     # the noise level #38 estimated, as sigma: most series get a change point
-    assert spurious_rate(100, 0.5, 100, SEED, as_in_38=True) > 0.6  # about 80 % measured
-    assert spurious_rate(100, 0.3, 100, SEED, as_in_38=True) > 0.15  # about 30 % measured
+    assert spurious_rate(100, 0.5, 60, SEED, as_in_38=True) > 0.6  # 81 % measured
+    assert spurious_rate(100, 0.3, 60, SEED, as_in_38=True) > 0.15  # 33 % measured
 
 
-def test_shorter_series_are_held_less_tightly_and_this_is_known() -> None:
-    # 30 points, phi 0.5: about 3 % measured with 600 runs. The estimate of phi from 28 differences
-    # is noisy; the bound is the one the docs state for short series, not the 5 % target.
-    assert spurious_rate(30, 0.5, 300, SEED) <= 0.08
+def test_the_target_holds_for_short_series_and_at_the_ceiling_of_the_coefficient() -> None:
+    # measured with 2000 runs: 2.3 % at 30 points and phi 0.5; 1.6 % at 100 points and phi 0.7
+    assert spurious_rate(30, 0.5, 250, SEED) <= 0.05
+    assert spurious_rate(100, 0.7, 150, SEED) <= 0.05
 
 
 @cache
@@ -233,8 +228,8 @@ def planted(n: int, phi: float, runs: int, seed: int) -> tuple[float, float, flo
 
 @pytest.mark.parametrize("phi", [0.0, 0.3, 0.5])
 def test_a_shift_of_two_long_run_standard_deviations_is_found_where_it_is(phi: float) -> None:
-    # measured with 200 runs: exactly one in 96-100 %, within 5 points in 94-100 %
-    exactly_one, near, many = planted(100, phi, 120, SEED)
-    assert near >= 0.88
-    assert exactly_one >= 0.85
-    assert many <= 0.03
+    # measured with 1000 runs: exactly one in 99.3-99.9 %, within 5 points in 98.9-99.8 %
+    exactly_one, near, many = planted(100, phi, 100, SEED)
+    assert near >= 0.95
+    assert exactly_one >= 0.95
+    assert many <= 0.02

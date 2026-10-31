@@ -62,10 +62,11 @@ lags, ``g`` is extrapolated and the long-run variance runs away, which would hid
 shifts. Noise more persistent than that is treated as level changes. A series of fewer than 4
 points uses the standard deviation of the differences.
 
-**Limits.** AR(1) noise is the model. At phi 0.7 and above the false-positive rate rises again
-(the ceiling: 7 to 10 %), and a shift of 2 long-run standard deviations is found less often in
-short series; both are measured in docs/dev/analysis-methods.md. A shift can be tracked only if
-it is large against the long-run noise: 2 long-run standard deviations are found, 1 are not.
+**Limits.** AR(1) noise is the model. Up to phi 0.7 (the ceiling) at most 4.2 % of series
+without a change get one; at 0.8 up to 5.5 %, at 0.9 13 to 65 %, because that noise is treated
+as level changes. A shift of 2 long-run standard deviations is found in over 99 % of 100-point
+series, 88 to 96 % of 60-point ones and less than 60 % of 30-point ones; 1 is not tracked.
+All of it is measured in docs/dev/analysis-methods.md.
 
 **Minimum data** (PLAN §7.1 step 5): ``detect_changes`` runs the search only when the daily values
 pass the minimum-data policy of ``ownvitals.analysis.policy`` and otherwise returns its

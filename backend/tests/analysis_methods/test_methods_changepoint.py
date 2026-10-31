@@ -428,7 +428,7 @@ def test_days_outside_the_window_are_ignored() -> None:
 def test_the_purpose_the_metric_and_an_explicit_requirement_choose_the_threshold() -> None:
     daily = daily_values(list(range(0, 40, 4)), [80.0 + (i // 5) * 4.0 for i in range(10)])
     end = START + timedelta(days=39)
-    # ten days with data over a 37-day span in a 40-day window
+    # ten days with data over a 36-day elapsed span (day 0 to day 36) in a 40-day window
     assert isinstance(
         detect_changes(daily, metric_key="weight", window_end=end, window_days=40),
         ChangePointResult,
