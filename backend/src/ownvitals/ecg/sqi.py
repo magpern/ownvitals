@@ -24,7 +24,9 @@ and the last window leave the 0.5 s at the strip's edge out of kSQI and pSQI. No
 changes, and nor does the gate decision.
 
 The recording passes when its longest *beat span* (first to last R-peak of a run of consecutive
-passing windows) is at least 20 s; only the beats of that span go downstream. A failing
+passing windows) is at least 20 s; only the beats of that span go downstream, and of
+those only the ones the secondary detector confirms (a primary beat without an Elgendi beat
+within +-50 ms is dropped, and the interval across it is not an RR interval). A failing
 recording is a typed ``QualityRejected`` that carries the reasons and the per-window indices
 and nothing else: no R-peaks, no HR, no HRV.
 
@@ -39,17 +41,20 @@ from numpy.typing import NDArray
 from scipy.signal import get_window
 
 from ownvitals.ecg.input import Prepared, to_samples, window_bounds
-from ownvitals.ecg.rpeaks import Detection
+from ownvitals.ecg.rpeaks import MATCH_MS, Detection, matched_flags
 
-ALGO_VERSION = "1.0.0"
+ALGO_VERSION = "3.0.0"
 
-BSQI_MIN, MATCH_MS = 0.90, 50
+BSQI_MIN = 0.90
 RATE_MIN_BPM, RATE_MAX_BPM = 30.0, 220.0
 GAP_MAX_S = 3.0
 TSQI_MIN = 0.66
 AMPLITUDE_MIN_MV, AMPLITUDE_MAX_MV = 0.1, 10.0
 CLIP_MS = 20
 MIN_SPAN_S = 20.0
+DISTORTED_R = 0.85  # a beat correlating below this with the median beat of its window
+QRS_HALF_MS = 100  # the segment of that correlation: the beat's R-peak +- 100 ms
+EDGE_TRIM_S = 5.0  # a distorted beat this close to an end of the span takes the beats before it out
 WELCH_SEGMENT_S = 4
 SETTLE_MS = 500  # edge of the strip left out of kSQI and pSQI: the filters have not settled
 
@@ -102,11 +107,19 @@ class QualityRejected:
 
 @dataclass(frozen=True)
 class GatePassed:
-    """The strip passed: the beats of the longest span go on to HR and HRV."""
+    """The strip passed: the confirmed beats of the longest span go on to HR and HRV.
+
+    ``rpeaks`` are the primary detector's beats of the span that the secondary one confirms
+    (sample positions). ``unconfirmed`` lists the intervals ``i`` (from ``rpeaks[i]`` to
+    ``rpeaks[i + 1]``) that bridge a dropped, unconfirmed beat: they are not real RR intervals.
+    """
 
     windows: tuple[WindowIndices, ...]
     span_s: float
-    rpeaks: FloatArray  # sample positions of the primary detector's beats in the span
+    rpeaks: FloatArray
+    unconfirmed: tuple[int, ...]
+    beat_r: FloatArray  # per kept beat: correlation with the median beat of its window (or NaN)
+    distorted: tuple[int, ...]  # the kept beats (indices into rpeaks) below DISTORTED_R
 
 
 def _long_runs(flag: NDArray[np.bool_], minimum: int) -> NDArray[np.bool_]:
@@ -127,17 +140,7 @@ def clipped_samples(raw_uv: NDArray[np.int64], sampling_hz: int) -> NDArray[np.b
 
 def agreement(a: FloatArray, b: FloatArray, tolerance: float) -> float:
     """``matched / (n_a + n_b - matched)``, one-to-one matching within the tolerance."""
-    taken: set[int] = set()
-    matched = 0
-    for x in a:
-        j = int(np.searchsorted(b, x))
-        near = [i for i in (j - 1, j) if 0 <= i < b.shape[0] and i not in taken]
-        if not near:
-            continue
-        best = min(near, key=lambda i: abs(b[i] - x))
-        if abs(b[best] - x) <= tolerance:
-            taken.add(best)
-            matched += 1
+    matched = int(matched_flags(a, b, tolerance).sum())
     union = a.shape[0] + b.shape[0] - matched
     return matched / union if union else 0.0
 
@@ -154,27 +157,38 @@ def rate_bpm(beats: FloatArray, sampling_hz: int) -> float | None:
     return 60.0 * (beats.shape[0] - 1) / ((beats[-1] - beats[0]) / sampling_hz)
 
 
-def template_correlation(
-    y: FloatArray, beats: FloatArray, start: int, stop: int
-) -> float | None:
-    """Mean Pearson correlation of each beat, in a window of the median RR centred on its R,
-    with the median beat of the window. Beats whose window leaves ``[start, stop)`` are left
-    out; fewer than two beats left means no index."""
+def beat_correlations(
+    y: FloatArray, beats: FloatArray, start: int, stop: int, half: int | None = None
+) -> FloatArray:
+    """Pearson correlation of each beat with the median beat of the window, over a segment of
+    ``2 half + 1`` samples centred on its R-peak (``half`` defaults to half the median RR).
+    NaN for a beat whose segment leaves ``[start, stop)``, and for all beats when fewer than two
+    fit."""
+    result = np.full(beats.shape[0], np.nan)
     if beats.shape[0] < 2:
-        return None
-    half = round(float(np.median(np.diff(beats))) / 2.0)
+        return result
+    if half is None:
+        half = round(float(np.median(np.diff(beats))) / 2.0)
     centres = np.rint(beats).astype(np.int64)
-    centres = centres[(centres - half >= start) & (centres + half + 1 <= stop)]
-    if centres.shape[0] < 2 or half < 1:
-        return None
-    segments = np.stack([y[c - half : c + half + 1] for c in centres])
+    fits = (centres - half >= start) & (centres + half + 1 <= stop)
+    if fits.sum() < 2 or half < 1:
+        return result
+    segments = np.stack([y[c - half : c + half + 1] for c in centres[fits]])
     template = np.median(segments, axis=0)
     segments = segments - segments.mean(axis=1, keepdims=True)
     template = template - template.mean()
     norm = np.linalg.norm(segments, axis=1) * np.linalg.norm(template)
     dot = segments @ template
-    correlation = np.divide(dot, norm, out=np.zeros_like(dot), where=norm > 0.0)
-    return float(np.mean(correlation))
+    result[fits] = np.divide(dot, norm, out=np.zeros_like(dot), where=norm > 0.0)
+    return result
+
+
+def template_correlation(y: FloatArray, beats: FloatArray, start: int, stop: int) -> float | None:
+    """tSQI: the mean of ``beat_correlations`` over segments of the median RR; fewer than two
+    beats left means no index."""
+    correlations = beat_correlations(y, beats, start, stop)
+    finite = correlations[~np.isnan(correlations)]
+    return float(np.mean(finite)) if finite.shape[0] >= 2 else None
 
 
 def kurtosis(x: FloatArray) -> float | None:
@@ -192,7 +206,7 @@ def welch_density(x: FloatArray, sampling_hz: int) -> tuple[FloatArray, FloatArr
     ``scipy.signal.welch(x - x.mean(), fs, "hann", 4 s, 2 s, detrend=False)`` (the tests compare
     them), without its per-call overhead."""
     length = WELCH_SEGMENT_S * sampling_hz
-    taper = get_window("hann", length)
+    taper = np.asarray(get_window("hann", length), dtype=np.float64)
     centred = x - x.mean()
     starts = range(0, centred.shape[0] - length + 1, length // 2)
     segments = np.stack([centred[s : s + length] for s in starts]) * taper
@@ -221,7 +235,7 @@ def bassqi(x: FloatArray, sampling_hz: int) -> float | None:
     return 1.0 - low / total if total > 0.0 else None
 
 
-def window_reasons(  # noqa: PLR0913 - the rows of the table of section 7
+def window_reasons(
     *,
     bsqi: float,
     rate: float | None,
@@ -305,16 +319,77 @@ def _runs(passed: list[bool]) -> list[tuple[int, int]]:
 
 def longest_span(
     windows: tuple[WindowIndices, ...], detection: Detection, sampling_hz: int
-) -> tuple[float, FloatArray]:
-    """The longest beat span over the runs of passing windows: its length in s and its beats."""
-    best_span, best_beats = 0.0, np.zeros(0, dtype=np.float64)
+) -> tuple[float, FloatArray, NDArray[np.bool_], tuple[WindowIndices, ...]]:
+    """The longest beat span over the runs of passing windows: its length in s, its beats,
+    whether the secondary detector confirms each, and the windows of the run."""
+    best: tuple[float, FloatArray, NDArray[np.bool_], tuple[WindowIndices, ...]] = (
+        0.0,
+        np.zeros(0, dtype=np.float64),
+        np.zeros(0, dtype=bool),
+        (),
+    )
     for first, last in _runs([w.passed for w in windows]):
         start, stop = windows[first].start, windows[last].stop
-        beats = detection.primary[(detection.primary >= start) & (detection.primary < stop)]
+        inside = (detection.primary >= start) & (detection.primary < stop)
+        beats = detection.primary[inside]
         span = float(beats[-1] - beats[0]) / sampling_hz if beats.shape[0] >= 2 else 0.0
-        if span > best_span:
-            best_span, best_beats = span, beats
-    return best_span, best_beats
+        if span > best[0]:
+            best = (span, beats, detection.confirmed[inside], windows[first : last + 1])
+    return best
+
+
+def span_correlations(
+    y: FloatArray, beats: FloatArray, run: tuple[WindowIndices, ...]
+) -> FloatArray:
+    """The correlation of each beat of a span with the median beat of its window, over its
+    R-peak +- ``QRS_HALF_MS``: of the windows of the run that contain the beat's segment, the one
+    whose centre is nearest to the beat. A segment that leaves the strip is not assessed (NaN).
+    The segment is a fixed length, so that the neighbours of a premature beat, or the beats of an
+    irregular rhythm, are not mistaken for distorted ones: it holds the QRS and no other beat."""
+    best = np.full(beats.shape[0], np.nan)
+    distance = np.full(beats.shape[0], np.inf)
+    half = to_samples(QRS_HALF_MS, run[0].sampling_hz)
+    for window in run:
+        inside = np.flatnonzero((beats >= window.start) & (beats < window.stop))
+        r = beat_correlations(y, beats[inside], window.start, window.stop, half)
+        away = np.abs(beats[inside] - (window.start + window.stop) / 2.0)
+        better = ~np.isnan(r) & (away < distance[inside])
+        best[inside[better]] = r[better]
+        distance[inside[better]] = away[better]
+    return best
+
+
+def verified_range(beats: FloatArray, beat_r: FloatArray, sampling_hz: int) -> tuple[int, int]:
+    """The first and last beat of a span left after the edges are trimmed: a distorted beat
+    within ``EDGE_TRIM_S`` of an end of the span takes every beat between it and that end out.
+    A burst of movement at the start or the end of a strip hides, adds and displaces beats;
+    the beats on its far side are the ones whose timing is known."""
+    seconds = beats / sampling_hz
+    distorted = beat_r < DISTORTED_R  # an unassessed beat (NaN) is not distorted
+    lead = np.flatnonzero(distorted & (seconds < seconds[0] + EDGE_TRIM_S))
+    trail = np.flatnonzero(distorted & (seconds > seconds[-1] - EDGE_TRIM_S))
+    first = int(lead[-1]) + 1 if lead.shape[0] else 0
+    last = int(trail[0]) - 1 if trail.shape[0] else beats.shape[0] - 1
+    return first, max(last, first)
+
+
+def confirmed_beats(
+    beats: FloatArray, confirmed: NDArray[np.bool_]
+) -> tuple[FloatArray, tuple[int, ...]]:
+    """Drop the unconfirmed beats. An interval between two kept beats that had a dropped beat
+    between them is reported by its index; dropped beats at the ends bridge nothing."""
+    kept: list[float] = []
+    bridging: list[int] = []
+    pending = False
+    for position, ok in zip(beats, confirmed, strict=True):
+        if ok:
+            if kept and pending:
+                bridging.append(len(kept) - 1)
+            kept.append(float(position))
+            pending = False
+        elif kept:
+            pending = True
+    return np.array(kept, dtype=np.float64), tuple(bridging)
 
 
 def evaluate(
@@ -324,9 +399,23 @@ def evaluate(
     bounds = window_bounds(prepared.n_samples, prepared.sampling_hz)
     clipped = clipped_samples(prepared.raw_uv, prepared.sampling_hz)
     windows = tuple(assess_window(a, b, prepared, y, detection, clipped) for a, b in bounds)
-    span_s, beats = longest_span(windows, detection, prepared.sampling_hz)
+    span_s, beats, confirmed, run = longest_span(windows, detection, prepared.sampling_hz)
     if span_s >= MIN_SPAN_S:
-        return GatePassed(windows=windows, span_s=span_s, rpeaks=beats)
+        kept, bridging = confirmed_beats(beats, confirmed)
+        beat_r = span_correlations(y, beats, run)[confirmed]
+        first, last = verified_range(kept, beat_r, prepared.sampling_hz)
+        kept, beat_r = kept[first : last + 1], beat_r[first : last + 1]
+        bridging = tuple(i - first for i in bridging if first <= i < last)
+        verified_s = float(kept[-1] - kept[0]) / prepared.sampling_hz if kept.shape[0] > 1 else 0.0
+        if verified_s >= MIN_SPAN_S:
+            return GatePassed(
+                windows=windows,
+                span_s=verified_s,
+                rpeaks=kept,
+                unconfirmed=bridging,
+                beat_r=beat_r,
+                distorted=tuple(int(i) for i in np.flatnonzero(beat_r < DISTORTED_R)),
+            )
     failing = {reason for w in windows for reason in w.reasons}
     reasons = ("too_short", *(r for r in REASONS if r in failing))
     return QualityRejected(reasons=reasons, windows=windows)

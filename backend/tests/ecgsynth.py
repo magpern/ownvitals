@@ -8,8 +8,11 @@ The model is the dynamical model of McSharry et al. (2003) with the paper's PQRS
 (Table I) and ECGSYN's heart-rate scaling. The RR series is explicit: interval ``k`` is the
 series' value at the beat that starts it, and the angular velocity is ``2 pi / RR_k`` within
 that interval, so the R-events fall exactly at the series' beat times and the phase ``theta``
-is a known function of time. With ``x`` and ``y`` on their limit cycle, only the third equation
-of the model remains, ``dz/dt = f(theta(t)) - z``, a first-order filter that is solved exactly.
+is a known function of time. The amplitudes of the events are scaled by ``omega_k / omega_mean``,
+so that the deflections of a beat do not depend on its RR (amended 2026-10-31, #40: without it
+the integral of an event, which scales with ``1 / omega``, shrank the QRS after a short RR).
+With ``x`` and ``y`` on their limit cycle, only the third equation of the model remains,
+``dz/dt = f(theta(t)) - z``, a first-order filter that is solved exactly.
 
 The default RR series is ECGSYN's: a Gaussian LF (0.1 Hz) and HF (0.25 Hz) spectrum, widths
 0.01 Hz, LF/HF 0.5, random phases, 256 samples at 1 Hz, scaled to mean ``60 / HR`` s and SD 2 %
@@ -22,6 +25,7 @@ Kinds of rhythm: sinus, ``af`` (no P wave, f-waves, independent lognormal RR), `
 of the quality gate). Noise lives in ``tests/ecg/ecgnoise.py``.
 """
 
+import itertools
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -44,6 +48,7 @@ RR_SD_FRACTION = 0.02
 LF_HZ, HF_HZ, BAND_HZ, LF_HF = 0.1, 0.25, 0.01, 0.5
 ECTOPIC_WIDTH = 2.0  # QRS width factor of an ectopic beat
 MIN_RR_S = 0.15  # an AF-like interval is never shorter (numerical safety)
+MIN_PREMATURE_S = 0.25  # a premature interval is at least this long (amended 2026-10-31, #40)
 
 Kind = Literal["sinus", "af", "ectopic", "respiratory", "constant"]
 RrReader = Callable[[float], float]
@@ -110,10 +115,13 @@ def sinus_background(rng: np.random.Generator, hr_bpm: float, kind: Kind) -> RrR
         return lambda t: mean_rr * (1.0 + 0.12 * np.sin(2.0 * np.pi * 0.25 * t + phase))
     if kind == "ectopic":
         p1, p2 = rng.uniform(0.0, 2.0 * np.pi, size=2)
-        return lambda t: mean_rr * (
-            1.0
-            + 0.02 * np.sin(2.0 * np.pi * 0.1 * t + p1)
-            + 0.02 * np.sin(2.0 * np.pi * 0.25 * t + p2)
+        return lambda t: (
+            mean_rr
+            * (
+                1.0
+                + 0.02 * np.sin(2.0 * np.pi * 0.1 * t + p1)
+                + 0.02 * np.sin(2.0 * np.pi * 0.25 * t + p2)
+            )
         )
     reader = fourier_reader(ecgsyn_rr_samples(rng, hr_bpm))
     offset = rng.uniform(0.0, RR_SERIES_LEN)
@@ -130,7 +138,7 @@ def ectopic_times(rng: np.random.Generator, n_ectopic: int) -> list[float]:
     """Where the ectopic beats fall: anywhere in the strip, at least 3 s apart."""
     while True:
         times = sorted(float(v) for v in rng.uniform(0.2, DURATION_S - 0.7, size=n_ectopic))
-        if all(b - a >= 3.0 for a, b in zip(times, times[1:], strict=False)):
+        if all(b - a >= 3.0 for a, b in itertools.pairwise(times)):
             return times
 
 
@@ -152,7 +160,8 @@ def beat_series(
             types.append("N")
         elif planned and previous is not None and t + 0.65 * previous >= planned[0]:
             coupling = rng.uniform(0.6, 0.7)
-            times.extend([t + coupling * previous, t + 2.0 * previous])
+            premature = max(coupling * previous, MIN_PREMATURE_S)  # amended 2026-10-31, #40
+            times.extend([t + premature, t + 2.0 * previous])
             types.extend(["V", "N"])
             t += 2.0 * previous
             planned.pop(0)
@@ -182,6 +191,9 @@ def wave_forcing(
     factor = np.sqrt(hr_bpm / 60.0)
     shift = np.array([np.sqrt(factor), factor, 1.0, factor, np.sqrt(factor)])
     forcing = np.zeros_like(t)
+    # A beat's deflections do not depend on its RR: the integral of an event scales with 1/omega,
+    # so each event amplitude is scaled by omega_k / omega_mean (amended 2026-10-31, #40).
+    omega_ratio = (60.0 / hr_bpm) / (beats[k + 1] - beats[k])
     for i in range(5):
         a = np.full_like(t, A_I[i])
         b = np.full_like(t, B_I[i] * factor)
@@ -194,7 +206,7 @@ def wave_forcing(
             a = np.zeros_like(t)
         delta = np.mod(theta - THETA_I[i] * shift[i] + np.pi, 2.0 * np.pi) - np.pi
         forcing += -a * delta * np.exp(-(delta**2) / (2.0 * b**2))
-    return forcing
+    return forcing * omega_ratio
 
 
 def make_strip(
@@ -225,7 +237,7 @@ def make_strip(
     scale = amplitude_mv / _median_r_height(z, r_times, r_types, sampling_hz)
     clean = polarity * z * scale
     if kind == "af":
-        clean = clean + _f_waves(rng, clean.shape[0], sampling_hz)
+        clean = clean + f_waves(rng, clean.shape[0], sampling_hz)
     signal = np.rint(clean * 1000.0).astype(np.int32)
     return Strip(
         signal_uv=signal,
@@ -252,12 +264,14 @@ def _median_r_height(
     return float(np.median(heights))
 
 
-def _f_waves(rng: np.random.Generator, n: int, fs: int) -> NDArray[np.float64]:
+def f_waves(rng: np.random.Generator, n: int, fs: int) -> NDArray[np.float64]:
     """0.05 mV f-waves: a sinusoid whose frequency wanders between 5 and 7 Hz."""
     t = np.arange(n) / fs
     p1, p2 = rng.uniform(0.0, 2.0 * np.pi, size=2)
     rate = 0.3  # Hz of the frequency wander
-    phase = 2.0 * np.pi * (6.0 * t - np.cos(2.0 * np.pi * rate * t + p2) / (2.0 * np.pi * rate)) + p1
+    phase = (
+        2.0 * np.pi * (6.0 * t - np.cos(2.0 * np.pi * rate * t + p2) / (2.0 * np.pi * rate)) + p1
+    )
     return 0.05 * np.sin(phase)
 
 

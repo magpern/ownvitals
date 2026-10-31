@@ -9,9 +9,10 @@ the recorded samples themselves (dropout, clipping, flat line), which return a n
 """
 
 import numpy as np
-from ecgsynth import Strip, peak_to_peak_mv
 from numpy.typing import NDArray
 from scipy.signal import butter, sosfiltfilt
+
+from ecgsynth import Strip, peak_to_peak_mv
 
 SYNTHETIC = True
 

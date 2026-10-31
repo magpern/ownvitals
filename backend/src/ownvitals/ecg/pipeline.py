@@ -16,15 +16,16 @@ module version (ADR 0006 section 15).
 """
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 from ownvitals.ecg import filters, hrv, rpeaks, sqi
 from ownvitals.ecg import input as ecg_input
 from ownvitals.ecg.input import NotAnalysed
 from ownvitals.ecg.sqi import QualityRejected, WindowIndices
 
-PIPELINE_VERSION = "ecg-1.0.0"
+PIPELINE_VERSION = "ecg-3.0.0"
 
 MODULES = {
     "input": ecg_input.ALGO_VERSION,
@@ -44,7 +45,7 @@ class Analysed:
     sampling_hz: int
     windows: tuple[WindowIndices, ...]
     span_s: float
-    rpeaks: tuple[float, ...]  # sample positions of the beats of the span
+    rpeaks: tuple[float, ...]  # sample positions of the confirmed beats of the span
     rr: hrv.RrAnalysis
 
 
@@ -69,7 +70,7 @@ def analyse(leads: Sequence[Any] | None, sampling_hz: int | None) -> Result:
         windows=gate.windows,
         span_s=gate.span_s,
         rpeaks=tuple(float(p) for p in gate.rpeaks),
-        rr=hrv.analyse(gate.rpeaks, prepared.sampling_hz),
+        rr=hrv.analyse(gate.rpeaks, prepared.sampling_hz, gate.unconfirmed, gate.distorted),
     )
 
 
@@ -94,9 +95,7 @@ def _window_record(window: WindowIndices) -> dict[str, Any]:
     }
 
 
-def to_estimated(
-    result: Result, *, input_fingerprint: str, input_revision: int
-) -> dict[str, Any]:
+def to_estimated(result: Result, *, input_fingerprint: str, input_revision: int) -> dict[str, Any]:
     """The ``estimated`` record (ADR 0006 section 9) for a result.
 
     ``sqi.result`` is ``pass``, ``fail`` or, for a recording that was not analysed, ``not_run``

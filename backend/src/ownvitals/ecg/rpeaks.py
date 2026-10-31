@@ -27,7 +27,7 @@ from scipy.signal import butter, find_peaks
 from ownvitals.ecg.filters import zero_phase
 from ownvitals.ecg.input import to_samples
 
-ALGO_VERSION = "1.0.0"
+ALGO_VERSION = "2.0.0"
 
 # Pan & Tompkins
 PT_BAND_HZ, PT_BAND_ORDER = (5.0, 15.0), 2
@@ -35,7 +35,10 @@ PT_WINDOW_MS = 150
 REFRACTORY_MS = 200
 T_WAVE_MS = 360
 LEARNING_S = 2.0
-INIT_SIGNAL, INIT_NOISE = 0.75, 0.5  # of the maximum and of the mean of the learning phase (our choice)
+INIT_SIGNAL, INIT_NOISE = (
+    0.75,
+    0.5,
+)  # of the maximum and of the mean of the learning phase (our choice)
 SEARCH_BACK = 1.66  # of the average regular RR
 REGULAR_LOW, REGULAR_HIGH = 0.92, 1.16  # of the average regular RR
 RR_HISTORY = 8
@@ -45,18 +48,25 @@ EL_BAND_HZ, EL_BAND_ORDER = (8.0, 20.0), 3  # the order is our choice
 EL_QRS_MS, EL_BEAT_MS, EL_BETA = 97, 611, 0.08
 # Fiducial point
 FIDUCIAL_MS = 75
+# Agreement of the two detectors: bSQI and the confirmation of a beat (sections 6, 7)
+MATCH_MS = 50
 
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
 
 
+BoolArray = NDArray[np.bool_]
+
+
 @dataclass(frozen=True)
 class Detection:
-    """The R-peaks of both detectors, as (fractional) sample positions, and the polarity."""
+    """The R-peaks of both detectors, as (fractional) sample positions, the polarity, and which
+    primary beats the secondary detector confirms (a match within +-50 ms)."""
 
     primary: FloatArray
     secondary: FloatArray
     polarity: int
+    confirmed: BoolArray
 
 
 def _odd(width: int) -> int:
@@ -65,7 +75,7 @@ def _odd(width: int) -> int:
 
 @lru_cache(maxsize=16)
 def _bandpass_sos(band: tuple[float, float], order: int, fs: int) -> FloatArray:
-    return butter(order, band, btype="bandpass", fs=fs, output="sos")
+    return np.asarray(butter(order, band, btype="bandpass", fs=fs, output="sos"), dtype=np.float64)
 
 
 def _bandpass(y: FloatArray, band: tuple[float, float], order: int, fs: int) -> FloatArray:
@@ -167,8 +177,10 @@ def pan_tompkins(y: FloatArray, fs: int) -> IntArray:
         return best
 
     for k in range(peaks.size):
-        while found and (mean := average()) is not None and peaks[k] - peaks[found[-1]] > (
-            SEARCH_BACK * mean
+        while (
+            found
+            and (mean := average()) is not None
+            and peaks[k] - peaks[found[-1]] > (SEARCH_BACK * mean)
         ):
             i1, i2, f1, f2 = thresholds()
             missed = look_back(k, i2, f2)
@@ -177,11 +189,7 @@ def pan_tompkins(y: FloatArray, fs: int) -> IntArray:
             accept(missed, search_back=True)
         i1, i2, f1, f2 = thresholds()
         if value[k] > i1 and band_peak[k] > f1:
-            if (
-                found
-                and peaks[k] - peaks[found[-1]] < t_wave
-                and slope[k] < 0.5 * slope[found[-1]]
-            ):
+            if found and peaks[k] - peaks[found[-1]] < t_wave and slope[k] < 0.5 * slope[found[-1]]:
                 reject(k)  # a T wave
             else:
                 accept(k, search_back=False)
@@ -240,13 +248,33 @@ def refine(y: FloatArray, detections: IntArray, polarity: int, fs: int) -> Float
     return np.unique(np.array(positions, dtype=np.float64))
 
 
+def matched_flags(a: FloatArray, b: FloatArray, tolerance: float) -> BoolArray:
+    """For each position of ``a`` (sorted): whether a position of ``b`` within the tolerance
+    (inclusive) is matched to it. One-to-one, nearest first; the same matching as bSQI."""
+    taken: set[int] = set()
+    flags = np.zeros(a.shape[0], dtype=bool)
+    for k, x in enumerate(a):
+        j = int(np.searchsorted(b, x))
+        near = [i for i in (j - 1, j) if 0 <= i < b.shape[0] and i not in taken]
+        if not near:
+            continue
+        best = min(near, key=lambda i: abs(b[i] - x))
+        if abs(b[best] - x) <= tolerance:
+            taken.add(best)
+            flags[k] = True
+    return flags
+
+
 def detect(y: FloatArray, fs: int) -> Detection:
     """Run both detectors on the conditioned signal ``y`` and fix the fiducial point."""
     first_pass = pan_tompkins(y, fs)
     second_pass = elgendi(y, fs)
     polarity = polarity_of(y, first_pass if first_pass.size else second_pass, fs)
+    primary = refine(y, first_pass, polarity, fs)
+    secondary = refine(y, second_pass, polarity, fs)
     return Detection(
-        primary=refine(y, first_pass, polarity, fs),
-        secondary=refine(y, second_pass, polarity, fs),
+        primary=primary,
+        secondary=secondary,
         polarity=polarity,
+        confirmed=matched_flags(primary, secondary, MATCH_MS * fs / 1000.0),
     )

@@ -1,0 +1,1275 @@
+{
+ "ledger": {
+  "ecg-3.0.0": {
+   "digest": "3735599ec792b5a156c03d6e535214d6bc4fc7d72f0e6ee7cf67c19feb703e92",
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "3.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   }
+  }
+ },
+ "strips": {
+  "af_120_300": {
+   "algo_version": "ecg-3.0.0",
+   "excluded": [
+    {
+     "i": 4,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 5,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 6,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 7,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 8,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 9,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 10,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 11,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 12,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 13,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 14,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 15,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 16,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 18,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 19,
+     "reason": "distorted_beat"
+    },
+    {
+     "i": 20,
+     "reason": "distorted_beat"
+    },
+    {
+     "i": 21,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 22,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 23,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 24,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 25,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 26,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 28,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 29,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 30,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 36,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 39,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 40,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 49,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 51,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 52,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 55,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 57,
+     "reason": "rr_deviation"
+    }
+   ],
+   "hr_bpm": 118.8,
+   "hrv": null,
+   "hrv_reasons": [
+    "too_many_excluded"
+   ],
+   "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+   "input_revision": 1,
+   "lead": 0,
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "3.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   },
+   "n_rr": 59,
+   "rpeaks": [
+    24.78,
+    171.02,
+    313.88,
+    439.31,
+    543.47,
+    706.08,
+    832.76,
+    977.41,
+    1104.54,
+    1245.15,
+    1437.49,
+    1646.84,
+    1786.07,
+    1951.09,
+    2109.65,
+    2259.95,
+    2409.89,
+    2678.75,
+    2770.44,
+    2922.75,
+    3047.59,
+    3146.0,
+    3332.88,
+    3531.16,
+    3677.03,
+    3861.65,
+    4002.63,
+    4157.93,
+    4261.86,
+    4417.44,
+    4561.17,
+    4757.36,
+    4878.47,
+    5019.54,
+    5142.23,
+    5284.57,
+    5409.18,
+    5611.96,
+    5734.06,
+    5875.71,
+    6052.88,
+    6228.2,
+    6390.44,
+    6544.99,
+    6709.15,
+    6841.1,
+    6980.41,
+    7136.04,
+    7275.54,
+    7408.28,
+    7623.98,
+    7748.76,
+    7940.82,
+    8093.62,
+    8223.4,
+    8351.79,
+    8611.79,
+    8748.68,
+    8851.84,
+    8962.65
+   ],
+   "sqi": {
+    "reasons": [],
+    "result": "pass",
+    "span_s": 29.79,
+    "windows": [
+     {
+      "amplitude_mv": 1.2472,
+      "bassqi": 0.99,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.896,
+      "ksqi": 6.55,
+      "passed": true,
+      "psqi": 0.7895,
+      "rate_bpm": 118.0,
+      "reasons": [],
+      "start_s": 0.0,
+      "stop_s": 10.0,
+      "tsqi": 0.9159
+     },
+     {
+      "amplitude_mv": 1.2391,
+      "bassqi": 0.9858,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.896,
+      "ksqi": 6.573,
+      "passed": true,
+      "psqi": 0.7729,
+      "rate_bpm": 116.9,
+      "reasons": [],
+      "start_s": 5.0,
+      "stop_s": 15.0,
+      "tsqi": 0.8974
+     },
+     {
+      "amplitude_mv": 1.2338,
+      "bassqi": 0.9935,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.676,
+      "ksqi": 6.413,
+      "passed": true,
+      "psqi": 0.7504,
+      "rate_bpm": 120.9,
+      "reasons": [],
+      "start_s": 10.0,
+      "stop_s": 20.0,
+      "tsqi": 0.9296
+     },
+     {
+      "amplitude_mv": 1.2289,
+      "bassqi": 0.9979,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.676,
+      "ksqi": 6.307,
+      "passed": true,
+      "psqi": 0.7508,
+      "rate_bpm": 120.1,
+      "reasons": [],
+      "start_s": 15.0,
+      "stop_s": 25.0,
+      "tsqi": 0.9474
+     },
+     {
+      "amplitude_mv": 1.2681,
+      "bassqi": 0.9895,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.867,
+      "ksqi": 6.361,
+      "passed": true,
+      "psqi": 0.7568,
+      "rate_bpm": 117.5,
+      "reasons": [],
+      "start_s": 20.0,
+      "stop_s": 30.0,
+      "tsqi": 0.9184
+     }
+    ]
+   }
+  },
+  "dropout_middle_300": {
+   "algo_version": "ecg-3.0.0",
+   "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+   "input_revision": 1,
+   "lead": 0,
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "3.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   },
+   "sqi": {
+    "reasons": [
+     "too_short",
+     "flat_line",
+     "detector_disagreement",
+     "implausible_rate",
+     "beat_gap",
+     "low_template_correlation"
+    ],
+    "result": "fail",
+    "span_s": null,
+    "windows": [
+     {
+      "amplitude_mv": 1.2572,
+      "bassqi": 0.8914,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.478,
+      "ksqi": 9.28,
+      "passed": true,
+      "psqi": 0.9452,
+      "rate_bpm": 62.1,
+      "reasons": [],
+      "start_s": 0.0,
+      "stop_s": 10.0,
+      "tsqi": 0.9974
+     },
+     {
+      "amplitude_mv": 1.1656,
+      "bassqi": 0.8079,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 6.478,
+      "ksqi": 21.313,
+      "passed": false,
+      "psqi": 0.9489,
+      "rate_bpm": 61.5,
+      "reasons": [
+       "beat_gap"
+      ],
+      "start_s": 5.0,
+      "stop_s": 15.0,
+      "tsqi": 0.9987
+     },
+     {
+      "amplitude_mv": 0.0038,
+      "bassqi": null,
+      "bsqi": 0.0,
+      "clipped": false,
+      "gap_s": 10.0,
+      "ksqi": 7.268,
+      "passed": false,
+      "psqi": 0.9969,
+      "rate_bpm": null,
+      "reasons": [
+       "flat_line",
+       "detector_disagreement",
+       "implausible_rate",
+       "beat_gap",
+       "low_template_correlation"
+      ],
+      "start_s": 10.0,
+      "stop_s": 20.0,
+      "tsqi": null
+     },
+     {
+      "amplitude_mv": 1.2042,
+      "bassqi": 0.8393,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 6.098,
+      "ksqi": 20.405,
+      "passed": false,
+      "psqi": 0.9432,
+      "rate_bpm": 62.6,
+      "reasons": [
+       "beat_gap"
+      ],
+      "start_s": 15.0,
+      "stop_s": 25.0,
+      "tsqi": 0.9839
+     },
+     {
+      "amplitude_mv": 1.2701,
+      "bassqi": 0.895,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.098,
+      "ksqi": 9.418,
+      "passed": true,
+      "psqi": 0.9437,
+      "rate_bpm": 62.4,
+      "reasons": [],
+      "start_s": 20.0,
+      "stop_s": 30.0,
+      "tsqi": 0.9909
+     }
+    ]
+   }
+  },
+  "ectopic_75_500": {
+   "algo_version": "ecg-3.0.0",
+   "excluded": [
+    {
+     "i": 19,
+     "reason": "distorted_beat"
+    },
+    {
+     "i": 20,
+     "reason": "distorted_beat"
+    }
+   ],
+   "hr_bpm": 75.1,
+   "hrv": {
+    "excluded_fraction": 0.0556,
+    "n_nn": 34,
+    "n_pairs": 32,
+    "pnn50_pct": 0.0,
+    "rmssd_ms": 13.8,
+    "sdnn_ms": 15.3
+   },
+   "hrv_reasons": [],
+   "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+   "input_revision": 1,
+   "lead": 0,
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "3.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   },
+   "n_rr": 36,
+   "rpeaks": [
+    326.12,
+    723.22,
+    1110.69,
+    1496.66,
+    1892.58,
+    2300.35,
+    2709.85,
+    3112.56,
+    3512.9,
+    3919.5,
+    4331.08,
+    4735.75,
+    5127.08,
+    5512.87,
+    5904.62,
+    6304.62,
+    6704.69,
+    7099.04,
+    7493.83,
+    7897.96,
+    8143.77,
+    8708.37,
+    9110.28,
+    9504.92,
+    9902.81,
+    10305.02,
+    10702.62,
+    11090.48,
+    11476.22,
+    11871.44,
+    12278.77,
+    12688.48,
+    13091.55,
+    13491.76,
+    13897.95,
+    14309.52,
+    14714.84
+   ],
+   "sqi": {
+    "reasons": [],
+    "result": "pass",
+    "span_s": 28.78,
+    "windows": [
+     {
+      "amplitude_mv": 1.2877,
+      "bassqi": 0.9767,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.823,
+      "ksqi": 7.7,
+      "passed": true,
+      "psqi": 0.9081,
+      "rate_bpm": 74.8,
+      "reasons": [],
+      "start_s": 0.0,
+      "stop_s": 10.0,
+      "tsqi": 0.9982
+     },
+     {
+      "amplitude_mv": 1.2889,
+      "bassqi": 0.9784,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.823,
+      "ksqi": 7.884,
+      "passed": true,
+      "psqi": 0.9079,
+      "rate_bpm": 75.3,
+      "reasons": [],
+      "start_s": 5.0,
+      "stop_s": 15.0,
+      "tsqi": 0.9989
+     },
+     {
+      "amplitude_mv": 1.3005,
+      "bassqi": 0.8945,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.129,
+      "ksqi": 7.483,
+      "passed": true,
+      "psqi": 0.8986,
+      "rate_bpm": 75.4,
+      "reasons": [],
+      "start_s": 10.0,
+      "stop_s": 20.0,
+      "tsqi": 0.8945
+     },
+     {
+      "amplitude_mv": 1.2992,
+      "bassqi": 0.8835,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.129,
+      "ksqi": 7.431,
+      "passed": true,
+      "psqi": 0.9079,
+      "rate_bpm": 75.3,
+      "reasons": [],
+      "start_s": 15.0,
+      "stop_s": 25.0,
+      "tsqi": 0.902
+     },
+     {
+      "amplitude_mv": 1.2893,
+      "bassqi": 0.9767,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.823,
+      "ksqi": 7.783,
+      "passed": true,
+      "psqi": 0.9068,
+      "rate_bpm": 74.8,
+      "reasons": [],
+      "start_s": 20.0,
+      "stop_s": 30.0,
+      "tsqi": 0.9977
+     }
+    ]
+   }
+  },
+  "motion_half_300": {
+   "algo_version": "ecg-3.0.0",
+   "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+   "input_revision": 1,
+   "lead": 0,
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "3.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   },
+   "sqi": {
+    "reasons": [
+     "too_short",
+     "detector_disagreement",
+     "low_template_correlation"
+    ],
+    "result": "fail",
+    "span_s": null,
+    "windows": [
+     {
+      "amplitude_mv": 2.1616,
+      "bassqi": 0.7147,
+      "bsqi": 0.6,
+      "clipped": false,
+      "gap_s": 0.993,
+      "ksqi": 7.777,
+      "passed": false,
+      "psqi": 0.9594,
+      "rate_bpm": 112.2,
+      "reasons": [
+       "detector_disagreement",
+       "low_template_correlation"
+      ],
+      "start_s": 0.0,
+      "stop_s": 10.0,
+      "tsqi": 0.5067
+     },
+     {
+      "amplitude_mv": 2.2871,
+      "bassqi": 0.663,
+      "bsqi": 0.7619,
+      "clipped": false,
+      "gap_s": 0.993,
+      "ksqi": 8.659,
+      "passed": false,
+      "psqi": 0.9541,
+      "rate_bpm": 124.2,
+      "reasons": [
+       "detector_disagreement",
+       "low_template_correlation"
+      ],
+      "start_s": 5.0,
+      "stop_s": 15.0,
+      "tsqi": 0.5079
+     },
+     {
+      "amplitude_mv": 2.2446,
+      "bassqi": 0.6611,
+      "bsqi": 0.8333,
+      "clipped": false,
+      "gap_s": 1.051,
+      "ksqi": 5.336,
+      "passed": false,
+      "psqi": 0.9523,
+      "rate_bpm": 109.6,
+      "reasons": [
+       "detector_disagreement",
+       "low_template_correlation"
+      ],
+      "start_s": 10.0,
+      "stop_s": 20.0,
+      "tsqi": 0.491
+     },
+     {
+      "amplitude_mv": 2.3103,
+      "bassqi": 0.6522,
+      "bsqi": 0.7222,
+      "clipped": false,
+      "gap_s": 1.051,
+      "ksqi": 5.414,
+      "passed": false,
+      "psqi": 0.9711,
+      "rate_bpm": 105.1,
+      "reasons": [
+       "detector_disagreement",
+       "low_template_correlation"
+      ],
+      "start_s": 15.0,
+      "stop_s": 25.0,
+      "tsqi": 0.4626
+     },
+     {
+      "amplitude_mv": 2.5386,
+      "bassqi": 0.6756,
+      "bsqi": 0.5,
+      "clipped": false,
+      "gap_s": 1.048,
+      "ksqi": 7.972,
+      "passed": false,
+      "psqi": 0.9602,
+      "rate_bpm": 104.9,
+      "reasons": [
+       "detector_disagreement",
+       "low_template_correlation"
+      ],
+      "start_s": 20.0,
+      "stop_s": 30.0,
+      "tsqi": 0.488
+     }
+    ]
+   }
+  },
+  "respiratory_45_300": {
+   "algo_version": "ecg-3.0.0",
+   "excluded": [
+    {
+     "i": 2,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 5,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 8,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 11,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 14,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 17,
+     "reason": "rr_deviation"
+    },
+    {
+     "i": 20,
+     "reason": "rr_deviation"
+    }
+   ],
+   "hr_bpm": 45.3,
+   "hrv": null,
+   "hrv_reasons": [
+    "too_many_excluded",
+    "insufficient_nn"
+   ],
+   "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+   "input_revision": 1,
+   "lead": 0,
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "3.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   },
+   "n_rr": 21,
+   "rpeaks": [
+    468.16,
+    843.72,
+    1215.32,
+    1661.31,
+    2038.36,
+    2408.91,
+    2854.46,
+    3233.01,
+    3602.52,
+    4047.58,
+    4427.68,
+    4796.18,
+    5240.7,
+    5622.37,
+    5989.9,
+    6433.83,
+    6817.09,
+    7183.68,
+    7626.98,
+    8011.86,
+    8377.51,
+    8820.16
+   ],
+   "sqi": {
+    "reasons": [],
+    "result": "pass",
+    "span_s": 27.84,
+    "windows": [
+     {
+      "amplitude_mv": 1.2458,
+      "bassqi": 0.8579,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.561,
+      "ksqi": 10.243,
+      "passed": true,
+      "psqi": 0.9772,
+      "rate_bpm": 45.3,
+      "reasons": [],
+      "start_s": 0.0,
+      "stop_s": 10.0,
+      "tsqi": 0.9702
+     },
+     {
+      "amplitude_mv": 1.2395,
+      "bassqi": 0.841,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.485,
+      "ksqi": 10.047,
+      "passed": true,
+      "psqi": 0.9788,
+      "rate_bpm": 45.5,
+      "reasons": [],
+      "start_s": 5.0,
+      "stop_s": 15.0,
+      "tsqi": 0.9724
+     },
+     {
+      "amplitude_mv": 1.2371,
+      "bassqi": 0.8554,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.484,
+      "ksqi": 10.289,
+      "passed": true,
+      "psqi": 0.9826,
+      "rate_bpm": 45.7,
+      "reasons": [],
+      "start_s": 10.0,
+      "stop_s": 20.0,
+      "tsqi": 0.9741
+     },
+     {
+      "amplitude_mv": 1.2335,
+      "bassqi": 0.8436,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.482,
+      "ksqi": 10.128,
+      "passed": true,
+      "psqi": 0.9803,
+      "rate_bpm": 45.2,
+      "reasons": [],
+      "start_s": 15.0,
+      "stop_s": 25.0,
+      "tsqi": 0.9693
+     },
+     {
+      "amplitude_mv": 1.236,
+      "bassqi": 0.8527,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.478,
+      "ksqi": 10.002,
+      "passed": true,
+      "psqi": 0.9822,
+      "rate_bpm": 45.3,
+      "reasons": [],
+      "start_s": 20.0,
+      "stop_s": 30.0,
+      "tsqi": 0.9767
+     }
+    ]
+   }
+  },
+  "sinus_140_500": {
+   "algo_version": "ecg-3.0.0",
+   "excluded": [],
+   "hr_bpm": 139.9,
+   "hrv": {
+    "excluded_fraction": 0.0,
+    "n_nn": 69,
+    "n_pairs": 68,
+    "pnn50_pct": 0.0,
+    "rmssd_ms": 5.0,
+    "sdnn_ms": 8.5
+   },
+   "hrv_reasons": [],
+   "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+   "input_revision": 1,
+   "lead": 0,
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "3.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   },
+   "n_rr": 69,
+   "rpeaks": [
+    155.53,
+    376.3,
+    595.6,
+    812.52,
+    1027.52,
+    1242.12,
+    1458.03,
+    1676.35,
+    1896.85,
+    2117.88,
+    2336.97,
+    2552.09,
+    2762.61,
+    2969.58,
+    3175.24,
+    3382.11,
+    3592.13,
+    3805.95,
+    4022.6,
+    4239.85,
+    4455.3,
+    4667.62,
+    4877.17,
+    5085.77,
+    5295.84,
+    5509.4,
+    5727.21,
+    5948.27,
+    6170.04,
+    6389.66,
+    6605.32,
+    6817.15,
+    7026.93,
+    7237.16,
+    7450.08,
+    7666.72,
+    7886.36,
+    8106.81,
+    8325.34,
+    8540.13,
+    8751.06,
+    8959.64,
+    9168.18,
+    9378.81,
+    9592.67,
+    9809.39,
+    10027.16,
+    10243.64,
+    10457.06,
+    10667.19,
+    10875.26,
+    11083.45,
+    11293.92,
+    11508.07,
+    11725.94,
+    11946.12,
+    12166.34,
+    12384.58,
+    12599.98,
+    12813.13,
+    13025.62,
+    13239.16,
+    13454.89,
+    13672.76,
+    13891.54,
+    14109.32,
+    14324.43,
+    14536.19,
+    14745.21,
+    14953.0
+   ],
+   "sqi": {
+    "reasons": [],
+    "result": "pass",
+    "span_s": 29.59,
+    "windows": [
+     {
+      "amplitude_mv": 1.3828,
+      "bassqi": 1.0,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.442,
+      "ksqi": 6.149,
+      "passed": true,
+      "psqi": 0.6768,
+      "rate_bpm": 139.8,
+      "reasons": [],
+      "start_s": 0.0,
+      "stop_s": 10.0,
+      "tsqi": 0.9968
+     },
+     {
+      "amplitude_mv": 1.3809,
+      "bassqi": 1.0,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.444,
+      "ksqi": 6.091,
+      "passed": true,
+      "psqi": 0.6757,
+      "rate_bpm": 140.9,
+      "reasons": [],
+      "start_s": 5.0,
+      "stop_s": 15.0,
+      "tsqi": 0.9977
+     },
+     {
+      "amplitude_mv": 1.3808,
+      "bassqi": 1.0,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.444,
+      "ksqi": 6.178,
+      "passed": true,
+      "psqi": 0.6748,
+      "rate_bpm": 139.7,
+      "reasons": [],
+      "start_s": 10.0,
+      "stop_s": 20.0,
+      "tsqi": 0.9981
+     },
+     {
+      "amplitude_mv": 1.3816,
+      "bassqi": 1.0,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.441,
+      "ksqi": 6.101,
+      "passed": true,
+      "psqi": 0.6753,
+      "rate_bpm": 139.9,
+      "reasons": [],
+      "start_s": 15.0,
+      "stop_s": 25.0,
+      "tsqi": 0.998
+     },
+     {
+      "amplitude_mv": 1.3824,
+      "bassqi": 1.0,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.44,
+      "ksqi": 6.07,
+      "passed": true,
+      "psqi": 0.6754,
+      "rate_bpm": 140.1,
+      "reasons": [],
+      "start_s": 20.0,
+      "stop_s": 30.0,
+      "tsqi": 0.9981
+     }
+    ]
+   }
+  },
+  "sinus_60_300": {
+   "algo_version": "ecg-3.0.0",
+   "excluded": [],
+   "hr_bpm": 60.1,
+   "hrv": {
+    "excluded_fraction": 0.0,
+    "n_nn": 29,
+    "n_pairs": 28,
+    "pnn50_pct": 0.0,
+    "rmssd_ms": 21.2,
+    "sdnn_ms": 18.0
+   },
+   "hrv_reasons": [],
+   "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+   "input_revision": 1,
+   "lead": 0,
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "3.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   },
+   "n_rr": 29,
+   "rpeaks": [
+    101.85,
+    399.48,
+    698.93,
+    994.86,
+    1285.82,
+    1580.72,
+    1885.0,
+    2191.7,
+    2493.88,
+    2795.69,
+    3101.02,
+    3404.06,
+    3698.75,
+    3989.76,
+    4286.06,
+    4588.59,
+    4889.39,
+    5186.31,
+    5488.07,
+    5797.35,
+    6101.48,
+    6394.49,
+    6689.39,
+    6993.88,
+    7295.63,
+    7587.47,
+    7883.92,
+    8192.81,
+    8497.96,
+    8790.57
+   ],
+   "sqi": {
+    "reasons": [],
+    "result": "pass",
+    "span_s": 28.96,
+    "windows": [
+     {
+      "amplitude_mv": 1.2595,
+      "bassqi": 0.8809,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.022,
+      "ksqi": 8.56,
+      "passed": true,
+      "psqi": 0.9495,
+      "rate_bpm": 60.1,
+      "reasons": [],
+      "start_s": 0.0,
+      "stop_s": 10.0,
+      "tsqi": 0.9984
+     },
+     {
+      "amplitude_mv": 1.2551,
+      "bassqi": 0.8797,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.022,
+      "ksqi": 8.59,
+      "passed": true,
+      "psqi": 0.9537,
+      "rate_bpm": 59.9,
+      "reasons": [],
+      "start_s": 5.0,
+      "stop_s": 15.0,
+      "tsqi": 0.9988
+     },
+     {
+      "amplitude_mv": 1.2569,
+      "bassqi": 0.8814,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.031,
+      "ksqi": 8.602,
+      "passed": true,
+      "psqi": 0.9516,
+      "rate_bpm": 60.1,
+      "reasons": [],
+      "start_s": 10.0,
+      "stop_s": 20.0,
+      "tsqi": 0.998
+     },
+     {
+      "amplitude_mv": 1.262,
+      "bassqi": 0.8794,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.031,
+      "ksqi": 8.599,
+      "passed": true,
+      "psqi": 0.9528,
+      "rate_bpm": 59.8,
+      "reasons": [],
+      "start_s": 15.0,
+      "stop_s": 25.0,
+      "tsqi": 0.9976
+     },
+     {
+      "amplitude_mv": 1.2598,
+      "bassqi": 0.8805,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 1.03,
+      "ksqi": 8.601,
+      "passed": true,
+      "psqi": 0.9507,
+      "rate_bpm": 60.2,
+      "reasons": [],
+      "start_s": 20.0,
+      "stop_s": 30.0,
+      "tsqi": 0.9966
+     }
+    ]
+   }
+  },
+  "white6_300": {
+   "algo_version": "ecg-3.0.0",
+   "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+   "input_revision": 1,
+   "lead": 0,
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "3.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   },
+   "sqi": {
+    "reasons": [
+     "too_short",
+     "detector_disagreement"
+    ],
+    "result": "fail",
+    "span_s": null,
+    "windows": [
+     {
+      "amplitude_mv": 1.4051,
+      "bassqi": 0.8799,
+      "bsqi": 0.7143,
+      "clipped": false,
+      "gap_s": 0.994,
+      "ksqi": 6.592,
+      "passed": false,
+      "psqi": 0.798,
+      "rate_bpm": 61.9,
+      "reasons": [
+       "detector_disagreement"
+      ],
+      "start_s": 0.0,
+      "stop_s": 10.0,
+      "tsqi": 0.9001
+     },
+     {
+      "amplitude_mv": 1.4168,
+      "bassqi": 0.8986,
+      "bsqi": 0.8333,
+      "clipped": false,
+      "gap_s": 0.994,
+      "ksqi": 6.647,
+      "passed": false,
+      "psqi": 0.7914,
+      "rate_bpm": 62.3,
+      "reasons": [
+       "detector_disagreement"
+      ],
+      "start_s": 5.0,
+      "stop_s": 15.0,
+      "tsqi": 0.8837
+     },
+     {
+      "amplitude_mv": 1.3776,
+      "bassqi": 0.9114,
+      "bsqi": 1.0,
+      "clipped": false,
+      "gap_s": 0.997,
+      "ksqi": 6.06,
+      "passed": true,
+      "psqi": 0.7674,
+      "rate_bpm": 62.3,
+      "reasons": [],
+      "start_s": 10.0,
+      "stop_s": 20.0,
+      "tsqi": 0.8754
+     },
+     {
+      "amplitude_mv": 1.3481,
+      "bassqi": 0.9072,
+      "bsqi": 0.8462,
+      "clipped": false,
+      "gap_s": 0.997,
+      "ksqi": 6.346,
+      "passed": false,
+      "psqi": 0.7734,
+      "rate_bpm": 61.8,
+      "reasons": [
+       "detector_disagreement"
+      ],
+      "start_s": 15.0,
+      "stop_s": 25.0,
+      "tsqi": 0.8828
+     },
+     {
+      "amplitude_mv": 1.4995,
+      "bassqi": 0.9105,
+      "bsqi": 0.7857,
+      "clipped": false,
+      "gap_s": 1.002,
+      "ksqi": 7.262,
+      "passed": false,
+      "psqi": 0.7872,
+      "rate_bpm": 62.4,
+      "reasons": [
+       "detector_disagreement"
+      ],
+      "start_s": 20.0,
+      "stop_s": 30.0,
+      "tsqi": 0.8869
+     }
+    ]
+   }
+  }
+ },
+ "synthetic": true
+}

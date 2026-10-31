@@ -3,10 +3,15 @@
 Input: the refined R-peaks of the beat span that passed the gate, as sample positions.
 
 * RR = differences of consecutive R-peaks, in ms.
-* Exclusions, in order: (a) outside 272.7-2,000 ms (30-220 bpm), ``rr_out_of_range``; (b) more
-  than 20 % from the last accepted interval, ``rr_deviation``, the reference starting at the
-  median of the span's first five intervals. Excluded intervals are deleted, not interpolated.
-* HR = 60,000 / the mean of the intervals left after (a), ectopic beats included.
+* Exclusions, in order: (0) an interval across a dropped, unconfirmed beat (the gate drops
+  every primary detection that the secondary detector does not confirm), ``unconfirmed_beat``;
+  (a) outside 272.7-2,000 ms (30-220 bpm), ``rr_out_of_range``; (c) an interval touching a
+  distorted beat (the gate finds those: a beat whose correlation with the median beat of its
+  window is below 0.85), ``distorted_beat``; (b) more than 20 % from the last accepted interval,
+  ``rr_deviation``, the reference starting at the median of the first five intervals that are
+  neither (0) nor (c). Excluded intervals are deleted, not interpolated.
+* HR = 60,000 / the mean of the intervals left after (0) and (a), ectopic beats and distorted
+  beats included: (c) leaves the NN intervals only.
 * HRV on the accepted (NN) intervals: SDNN with n - 1; RMSSD over adjacent NN pairs only (both
   accepted, sharing a beat); pNN50 = 100 * (pairs with |dNN| > 50 ms) / pairs.
 * HRV needs at least 15 NN intervals, 10 pairs and an excluded fraction of at most 20 %.
@@ -18,13 +23,14 @@ Pure: numpy only. A change that can alter an output bumps ``ALGO_VERSION`` (ADR 
 15).
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
 from numpy.typing import NDArray
 
-ALGO_VERSION = "1.0.0"
+ALGO_VERSION = "3.0.0"
 
 RR_MIN_MS = 60_000.0 / 220.0
 RR_MAX_MS = 2_000.0
@@ -39,7 +45,7 @@ class Excluded(NamedTuple):
     """Interval ``i`` runs from R-peak ``i`` to R-peak ``i + 1`` of the span."""
 
     i: int
-    reason: str  # "rr_out_of_range" or "rr_deviation"
+    reason: str  # "unconfirmed_beat", "rr_out_of_range", "distorted_beat" or "rr_deviation"
 
 
 @dataclass(frozen=True)
@@ -64,13 +70,22 @@ class RrAnalysis:
     hrv_reasons: tuple[str, ...]
 
 
-def classify(rr_ms: NDArray[np.float64]) -> list[str | None]:
+def classify(
+    rr_ms: NDArray[np.float64],
+    unconfirmed: frozenset[int] = frozenset(),
+    distorted: frozenset[int] = frozenset(),
+) -> list[str | None]:
     """The exclusion reason of each interval, ``None`` for an accepted (NN) interval."""
     reasons: list[str | None] = [None] * rr_ms.shape[0]
-    reference = float(np.median(rr_ms[:REFERENCE_INTERVALS])) if rr_ms.shape[0] else 0.0
+    usable = [float(rr) for i, rr in enumerate(rr_ms) if i not in unconfirmed | distorted]
+    reference = float(np.median(usable[:REFERENCE_INTERVALS])) if usable else 0.0
     for i, rr in enumerate(rr_ms):
-        if not RR_MIN_MS <= rr <= RR_MAX_MS:
+        if i in unconfirmed:
+            reasons[i] = "unconfirmed_beat"
+        elif not RR_MIN_MS <= rr <= RR_MAX_MS:
             reasons[i] = "rr_out_of_range"
+        elif i in distorted:
+            reasons[i] = "distorted_beat"
         elif abs(rr - reference) > MAX_DEVIATION * reference:
             reasons[i] = "rr_deviation"
         else:
@@ -108,11 +123,23 @@ def hrv_metrics(
     )
 
 
-def analyse(rpeaks: NDArray[np.float64], sampling_hz: int) -> RrAnalysis:
-    """HR and HRV of the R-peaks (sample positions) of one beat span."""
+def analyse(
+    rpeaks: NDArray[np.float64],
+    sampling_hz: int,
+    unconfirmed: Iterable[int] = (),
+    distorted: Iterable[int] = (),
+) -> RrAnalysis:
+    """HR and HRV of the R-peaks (sample positions) of one beat span; ``unconfirmed`` are the
+    indices of the intervals that bridge a dropped beat and ``distorted`` the indices of the
+    beats the gate found distorted (the intervals on both sides of each leave the NN)."""
     rr_ms = np.diff(rpeaks) * (1000.0 / sampling_hz)
-    reasons = classify(rr_ms)
+    bridging = frozenset(unconfirmed)
+    touching = frozenset(
+        i for beat in distorted for i in (beat - 1, beat) if 0 <= i < rr_ms.shape[0]
+    )
+    reasons = classify(rr_ms, bridging, touching)
     in_range = (rr_ms >= RR_MIN_MS) & (rr_ms <= RR_MAX_MS)
+    in_range[sorted(bridging)] = False
     hr = round(60_000.0 / float(np.mean(rr_ms[in_range])), 1) if in_range.any() else None
     hrv, hrv_reasons = hrv_metrics(rr_ms, reasons)
     return RrAnalysis(

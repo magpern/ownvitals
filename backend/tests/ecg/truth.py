@@ -5,11 +5,13 @@ SYNTHETIC: computed from the generator's R-events. Nothing here imports the code
 a mistake in ``ownvitals.ecg.hrv`` cannot hide in its own reference.
 """
 
+import itertools
 from dataclasses import dataclass
 
 import numpy as np
-from ecgsynth import Strip
 from numpy.typing import NDArray
+
+from ecgsynth import Strip
 
 SYNTHETIC = True
 
@@ -73,7 +75,9 @@ def rr_error_rms_ms(
     errors = []
     for (i0, j0), (i1, j1) in zip(matching.pairs, matching.pairs[1:], strict=False):
         if i1 == i0 + 1 and j1 == j0 + 1:
-            errors.append(1000.0 * ((detected_s[j1] - detected_s[j0]) - (truth_s[i1] - truth_s[i0])))
+            errors.append(
+                1000.0 * ((detected_s[j1] - detected_s[j0]) - (truth_s[i1] - truth_s[i0]))
+            )
     return float(np.sqrt(np.mean(np.square(errors)))) if errors else 0.0
 
 
@@ -93,10 +97,11 @@ class Truth:
 
 def truth_values(times_s: NDArray[np.float64], types: tuple[str, ...]) -> Truth:
     """HR from the intervals within 272.7-2,000 ms (ectopic beats included); SDNN, RMSSD and
-    pNN50 from the sinus intervals (both beats sinus) over adjacent sinus pairs, as section 8 defines them."""
+    pNN50 from the sinus intervals (both beats sinus) over adjacent sinus pairs, as section 8
+    defines them."""
     rr = np.diff(times_s) * 1000.0
     in_range = (rr >= 60_000.0 / 220.0) & (rr <= 2_000.0)
-    sinus = np.array([a == "N" and b == "N" for a, b in zip(types, types[1:], strict=False)])
+    sinus = np.array([a == "N" and b == "N" for a, b in itertools.pairwise(types)])
     nn = rr[sinus]
     pairs = np.flatnonzero(sinus[:-1] & sinus[1:])
     steps = rr[pairs + 1] - rr[pairs]
@@ -112,13 +117,25 @@ def truth_values(times_s: NDArray[np.float64], types: tuple[str, ...]) -> Truth:
     )
 
 
-def expected_exclusions(rr_ms: NDArray[np.float64]) -> list[int]:
-    """Section 8's rules on a list of true intervals: the indices excluded by (a) or (b)."""
+def exclusion_violations(
+    rr_ms: NDArray[np.float64], excluded: set[int], margin: float = 0.005
+) -> list[int]:
+    """The intervals whose exclusion contradicts section 8's rules on the *true* intervals.
+
+    The reference follows the pipeline's own decisions (the last accepted interval), so one
+    borderline decision cannot move the others. A decision within ``margin`` of the 20 % limit
+    is left open: the true deviation is then closer to the limit than the R-peak timing error
+    can resolve (at 45 bpm and 0.25 Hz a whole series sits at 20.0 +- 0.1 %).
+    """
     reference = float(np.median(rr_ms[:5]))
-    excluded = []
+    violations = []
     for i, rr in enumerate(rr_ms):
-        if not 60_000.0 / 220.0 <= rr <= 2_000.0 or abs(rr - reference) > 0.2 * reference:
-            excluded.append(i)
-        else:
+        deviation = abs(rr - reference) / reference
+        in_range = 60_000.0 / 220.0 <= rr <= 2_000.0
+        certainly_out = not in_range or deviation > 0.2 + margin
+        certainly_in = in_range and deviation < 0.2 - margin
+        if (i in excluded and certainly_in) or (i not in excluded and certainly_out):
+            violations.append(i)
+        if i not in excluded:
             reference = float(rr)
-    return excluded
+    return violations

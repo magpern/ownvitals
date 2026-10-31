@@ -51,7 +51,8 @@ def hrv_error(case: Case) -> HrvError | None:
     """The HR/HRV errors of an accepted strip, or ``None`` when the strip has no ``hrv``."""
     group = tol.group_of(case.condition)
     result = case.result
-    assert group is not None and isinstance(result, Analysed)
+    assert group is not None
+    assert isinstance(result, Analysed)
     if result.rr.hrv is None or result.rr.hr_bpm is None:
         return None
     truth_values = span_truth(case)
@@ -77,6 +78,14 @@ def hrv_error(case: Case) -> HrvError | None:
         rmssd_margin=rmssd_err / tol.rmssd_tolerance_ms(case.strip.hr_bpm, group),
         pnn50_margin=pnn_err / pnn_tol,
     )
+
+
+def hr_borderline(case: Case) -> bool:
+    """Whether a true interval of the span lies within 5 ms of the 220 bpm limit, so that the
+    HR assertion leaves the strip out (``tolerances.HR_BORDERLINE_MS``)."""
+    times = case.strip.r_times_s[truth.truth_in_span(case.strip, detected_s(case))]
+    rr = np.diff(times) * 1000.0
+    return bool(np.any(np.abs(rr - tol.HR_LIMIT_MS) <= tol.HR_BORDERLINE_MS))
 
 
 def expects_hrv(case: Case) -> bool:

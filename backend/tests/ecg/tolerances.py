@@ -20,8 +20,9 @@ MATCH_TOLERANCE_S = 0.150  # EC57
 # "fails >= x %" rows are stored as a maximum share of passing strips (1 - x).
 GATE_PASS_MIN: dict[str, float] = {
     "clean": 1.00,
-    "white12": 0.95,
-    "wander": 0.95,
+    "clean_lt50": 0.95,  # amendment 2026-10-31 (#40): clean strips below 50 bpm are asserted apart
+    "white12_ge50": 0.95,  # the same amendment: white noise 12 dB, from 50 bpm
+    "wander_ge50": 0.95,  # likewise baseline wander
     "mains": 0.95,
     "amplitude_0.3mv": 0.95,
     "inverted": 0.95,
@@ -38,10 +39,15 @@ GATE_PASS_MAX: dict[str, float] = {
     "all_zeros": 0.0,
     "clipping": 0.0,
 }
+# Sets that "may pass or fail" (their accuracy and HR/HRV rows apply to the strips that pass).
+MAY_FAIL = ("white6", "emg6", "white12_lt50", "wander_lt50")
 POOLED_MIN: dict[str, float] = {
     "clean": POOLED_FLOOR,
-    "white12": POOLED_FLOOR,
-    "wander": POOLED_FLOOR,
+    "clean_lt50": POOLED_FLOOR,
+    "white12_ge50": POOLED_FLOOR,
+    "white12_lt50": POOLED_FLOOR_NOISY,  # amendment 2026-10-31 (#40): accuracy floors stay
+    "wander_ge50": POOLED_FLOOR,
+    "wander_lt50": POOLED_FLOOR_NOISY,  # as white12_lt50: the accuracy floors stay
     "mains": POOLED_FLOOR,
     "amplitude_0.3mv": POOLED_FLOOR,
     "inverted": POOLED_FLOOR,
@@ -54,21 +60,38 @@ POOLED_MIN: dict[str, float] = {
 
 # --- tests file, "HR and HRV" -------------------------------------------------------------------
 
-CLEAN_CONDITIONS = ("clean", "amplitude_0.3mv", "inverted", "respiratory")
-NOISY_CONDITIONS = ("white12", "white6", "emg6", "wander", "mains", "motion_edge", "ectopic")
+CLEAN_CONDITIONS = ("clean", "clean_lt50", "amplitude_0.3mv", "inverted", "respiratory")
+NOISY_CONDITIONS = (
+    "white12_ge50",
+    "white12_lt50",
+    "white6",
+    "emg6",
+    "wander_ge50",
+    "wander_lt50",
+    "mains",
+    "motion_edge",
+    "ectopic",
+)
 
 RR_ERROR_RMS_MS = 2.0  # clean passed sinus strips
+
+# HR leaves out a strip with a true interval within +-5 ms of the 220 bpm limit (272.7 ms): the
+# R-peak timing error, not the algorithm, decides which side of the limit the detected interval
+# is on, as it does for the 20 % rule of respiratory modulation at 40 and 45 bpm (amendment
+# 2026-10-31, #40). Such strips are counted and reported in docs/dev/ecg.md.
+HR_LIMIT_MS = 60_000.0 / 220.0
+HR_BORDERLINE_MS = 5.0
 
 HR_BPM = {"clean": 0.5, "noisy": 1.0}
 SDNN_MS = {"clean": (3.0, 0.05), "noisy": (4.5, 0.10)}  # max(absolute ms, relative share)
 PNN50_PAIRS = {"clean": 1, "noisy": 2}  # allowed pairs, plus the band
 
 # RMSSD, ms, by the generator's mean HR: (first bpm, first bpm of the next band, clean, noisy).
-# Follows the ADR at this branch's base: noisy 60-99 bpm is 6.5 ms (a follow-up issue may widen
-# it to 7.0 ms; the observed worst-case margin is reported in docs/dev/ecg.md).
+# Noisy 60-99 bpm is 7.0 ms (tests file, RMSSD tolerance table, row amended 2026-10-31, #88;
+# it was 6.5 ms before). The observed worst-case margins are reported in docs/dev/ecg.md.
 RMSSD_BANDS = (
     (40.0, 60.0, 6.0, 10.5),
-    (60.0, 100.0, 4.0, 6.5),
+    (60.0, 100.0, 4.0, 7.0),
     (100.0, 140.0, 5.0, 8.0),
     (140.0, 180.0001, 5.5, 8.5),
 )

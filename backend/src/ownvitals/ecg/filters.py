@@ -29,7 +29,7 @@ def _design(sampling_hz: float) -> NDArray[np.float64]:
     high = butter(HIGHPASS_ORDER, HIGHPASS_HZ, btype="highpass", fs=sampling_hz, output="sos")
     notches = [tf2sos(*iirnotch(f0, NOTCH_Q, fs=sampling_hz)) for f0 in NOTCH_HZ]
     low = butter(LOWPASS_ORDER, LOWPASS_HZ, btype="lowpass", fs=sampling_hz, output="sos")
-    return np.vstack([high, *notches, low])
+    return np.vstack([np.asarray(part, dtype=np.float64) for part in (high, *notches, low)])
 
 
 def design(sampling_hz: float) -> NDArray[np.float64]:
