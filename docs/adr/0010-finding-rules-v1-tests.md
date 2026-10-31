@@ -15,7 +15,7 @@ when a policy fails). Every threshold is tested at, just below and just above it
 - **Flat baseline.** 90 days with a daily value every day, values alternating so that median
   *m* and raw MAD *a* are known exactly (e.g. *m* ± *a* in equal numbers around *m*), so the
   display half-width is 1.5 · 1.4826 · *a* and the finding half-width 2.5 · 1.4826 · *a*.
-- **Constant baseline**: 90 identical values, so the scale is `min_scale` (one display step).
+- **Constant baseline**: 90 identical values, so both half-widths are the metric's minimum *w*.
 - **Sparse baseline**: 9 days with data over 90 (below BASELINE's 10), and 10 days spanning 20
   days (below its 21-day span).
 
@@ -26,8 +26,12 @@ when a policy fails). Every threshold is tested at, just below and just above it
    on *q* doesn't move it.
 2. k: the finding threshold is exactly *m* + 2.5 · scale; a value equal to it does not fire
    ("above" is strict), one step above does.
-3. Constant baseline of visceral fat 7 (index): display band 5.5 … 8.5; finding threshold 9.5. A
-   value of 9 is outside the display band and fires nothing; 10 fires a single-value rule.
+3. Minimum half-width: a constant weight baseline of 80.0 kg gives display and finding bands of
+   79.55 … 80.45 (*w* 0.45); a constant heart-pulse baseline of 61 gives 59 … 63 (*w* 2). A
+   baseline with 1.4826 · MAD · 2.5 above *w* uses it for the finding band and *w* for the
+   display band when 1.4826 · MAD · 1.5 is below *w*. `rolling_baseline` gets `min_scale = w / k`
+   and the half-width equals `max(w, k · 1.4826 · MAD)` exactly. Metrics without a mock-up value
+   use one display step.
 4. Sparse baselines: no band is drawn, and every rule needing a band returns insufficient data.
 5. A finding value is outside the displayed band, over a grid of *a*, `min_scale` and values.
 6. `DEFAULT_K` is never used: every band call passes k explicitly (1.5 or 2.5), and a test fails
@@ -54,7 +58,8 @@ when a policy fails). Every threshold is tested at, just below and just above it
 2. T: n 19 with φ 0.51 is low; n 20 with φ 0.51 is not low on T; n 19 with φ 0.50 is not low on
    T; p just below α/5 is high on T, p at α/5 medium.
 3. R: C1 runs of 3, 5 (medium) and 6 days (high); N2 routine runs of 2, 3 (medium) and 4 (high).
-4. J: one trigger reading with `jump` makes a B-rule low whatever the rest.
+4. J: one trigger weight reading with `jump` makes B1 or B2 low whatever the rest; B3, B4, B5 and
+   B6 never apply J (their metrics have no jump rule).
 5. The lowest criterion wins (D high, T medium, R high → medium).
 6. Severity: E1 and Q1 reconnect urgent; Q1's other parts info; every other rule attention. No
    rule maps a clinical band to a severity.
@@ -65,10 +70,14 @@ when a policy fails). Every threshold is tested at, just below and just above it
 (window *d*); equal does not; the baseline below BASELINE is insufficient data; QTc and QRS are
 separate subjects; the trigger provenance is the daily value's groups.
 
+**Owner-only flag**: B1, B3 and C1x (and E4, by ADR 0006) are neither computed nor shown for an
+account without the owner-only flag, nor ever for a non-household account; with the flag they
+are. Trend, device and system rules don't depend on it.
+
 **B1**: morning weights 80.0 on *d* − 3 and 82.1 on *d* with ECW above its threshold fires
 (window *d* − 3 … *d*, ref *d* − 3); +2.0 kg exactly does not ("more than"); a gain from *d* − 4
 does not; ECW at its threshold does not; ECW without a sufficient baseline is insufficient data;
-the largest gain picks *d0*; a trigger reading with `jump` gives low; nothing about a 7-day gain
+the largest gain picks *d0*; a trigger weight reading with `jump` gives low (ECW readings never carry it); nothing about a 7-day gain
 ever fires (not in v1).
 
 **B2**: a weight series with a straight decline of 6 % over 182 days plus small noise fires; a
@@ -122,18 +131,23 @@ doesn't. Every Q1 finding has tier `system`.
 ## Persistence of trend-test rules (§4)
 
 With the trend test replaced by a scripted condition (true or false per evaluation day), for each
-of B2, B4, B5, N3 and C2:
+of B2, B4, B5, N3 and C2. The run counts calendar days:
 
-1. The condition true on 20 consecutive evaluations opens nothing; on the 21st it opens an episode
-   whose window starts at the first of the 21 windows' start, with the origin of that moment.
-2. 20 true, 1 false, 20 true: nothing opens; 21 more true after a false day opens.
-3. A day without a daily value is skipped: 10 true, a day with no data, 11 true opens on the 21st
-   true evaluation. A day with insufficient data counts as false and breaks the count.
-4. An open episode survives 6 consecutive false evaluations and ends on the 7th; 6 false, 1 true,
-   6 false keeps it open. After it ends, a new episode needs 21 true evaluations again.
-5. The effect threshold is part of the condition: B2 with a significant decline but a ratio of
-   −0.049 on day 21 of a run is false on that day and restarts the count.
-6. C1, C1x, N2, E6, B1, B3, B6, N5 and Q1 are not affected: they open on their first firing and
+1. Daily data: true on days 1 … 20 opens nothing; true on day 21 opens an episode (21 calendar
+   days, 21 evaluations), its window starting at day 1's window start, with the origin of day 21.
+2. True on days 1 … 20, false on day 21, true from day 22: nothing opens until day 42.
+3. Sparse data: evaluations on days 1, 8 and 21, all true, open on day 21 (21 days, 3
+   evaluations). Evaluations on days 1 and 21 only open nothing (2 evaluations); a third true
+   one on day 25 opens it. Days without data neither count nor break the run.
+4. Insufficient data on any evaluation day breaks the run; the next true evaluation starts a new
+   one.
+5. An open episode survives false evaluations on days *e* … *e* + 5 and ends on day *e* + 6 if
+   every evaluation in those 7 calendar days failed; one true evaluation in them keeps it open.
+   Seven calendar days with no evaluation at all don't end it. After it ends, a new episode needs
+   a new run.
+6. The effect threshold is part of the condition: B2 with a significant decline but a ratio of
+   −0.049 on a run day is false that day and breaks the run.
+7. C1, C1x, N2, E6, B1, B3, B6, N5 and Q1 are not affected: they open on their first firing and
    end on their first non-firing evaluation.
 
 ## Repeated testing (Consequences)
@@ -151,6 +165,26 @@ with an opening run of L evaluations (L 1 is no persistence):
 | 0.6 | 2.2 % | 58.7 % | 15.0 % | **6.3 %** | 2.7 % |
 
 The standard error of a year share is about 2.8 points at 60 % and 1.4 at 6 %.
+
+**The calendar-day rule of §4** (21 calendar days, at least 3 evaluations; 200 years per row,
+seed 20261031 plus a cell offset; standard error about 2 points). Daily and 70 % rows: the
+90-day "rising" condition (α 0.05, TREND policy, insufficient data breaking the run). Weekly row:
+one measure every 7 days, N3's condition (`DECREASING` at α 0.025 on the 90 or the 180 days,
+`NERVE_TREND`). Percent of no-change years with at least one episode, and for a linear decline
+of 8 noise sd per 182 days (the weight case's 5 % per 6 months) the share opened within 60 and
+180 days of its start and the median opening delay:
+
+| Cadence | φ | false years | within 60 d | within 180 d | median delay |
+|---|---|---|---|---|---|
+| daily | 0 | 4.5 % | 97.5 % | 100 % | 48 days |
+| daily | 0.6 | 8.5 % | 36.5 % | 100 % | 66 days |
+| 70 % of days | 0 | 2.5 % | 82.5 % | 100 % | 53 days |
+| 70 % of days | 0.6 | 7.5 % | 24.5 % | 99.5 % | 74 days |
+| weekly (nerve, N3) | 0 | 2.5 % | 7.5 % | 100 % | 89 days |
+| weekly (nerve, N3) | 0.6 | **13.0 %** | 9.5 % | 74.5 % | 128 days |
+
+The daily rows repeat the L 21 rule (8.5 % against 6.3 % is within two standard errors). The
+weekly row at φ 0.6 is above 10 % (ADR, Open questions).
 
 **Power** (300 years per row; weight level 80 kg, noise marginal sd 0.5 kg, our choice): a linear
 decline of 5 % per 182 days from day *s*; percent of years in which an episode opens on a day in
@@ -174,23 +208,30 @@ once the decline has run for most of it, never within 60 days.
 - Leys C, Ley C, Klein O, Bernard P, Licata L. Detecting outliers: do not use standard deviation
   around the mean, use absolute deviation around the median. J Exp Soc Psychol
   2013;49(4):764–766 (median ± 2.5 MAD as the recommended default).
+- McDonagh TA, Metra M, Adamo M, et al. 2021 ESC guidelines for the diagnosis and treatment of
+  acute and chronic heart failure. Eur Heart J 2021;42(36):3599–3726, Table 12 "Patient education
+  and self-care" (a sudden unexpected weight gain of more than 2 kg in 3 days).
+- Miller J. Reaction time analysis with outlier exclusion: bias varies with sample size. Q J Exp
+  Psychol A 1991;43(4):907–912 (the "very conservative" label for 3, as quoted by Leys et al.).
 - Page RL, Joglar JA, Caldwell MA, et al. 2015 ACC/AHA/HRS guideline for the management of adult
   patients with supraventricular tachycardia. Circulation 2016;133(14):e506–e574 (sinus
-  tachycardia: above 100 bpm).
-- Ponikowski P, Voors AA, Anker SD, et al. 2016 ESC guidelines for the diagnosis and treatment of
-  acute and chronic heart failure. Eur Heart J 2016;37(27):2129–2200 (patient self-care: an
-  unexpected weight gain of more than 2 kg in 3 days). The Reviewer verifies the edition and the
-  wording; later editions use the same self-care advice.
+  tachycardia: above 100 bpm). Confirmed through the American College of Cardiology's summary,
+  "2015 ACC/AHA/HRS Guideline for the Management of Adult Patients With SVT: Ten Points to
+  Remember", https://www.acc.org/latest-in-cardiology/ten-points-to-remember/2015/09/23/09/13/2015-acc-aha-hrs-guideline-for-the-management-of-adult-patients-with-svt;
+  the primary full text was not reviewed (ADR §7, the one exception).
 - Robinson RO, Herzog W, Nigg BM. Use of force platform variables to quantify the effects of
   chiropractic manipulation on gait symmetry. J Manipulative Physiol Ther 1987;10(4):172–176
-  (the symmetry index |L − R| / ((L + R)/2)).
+  (the symmetry index, as commonly cited (R − L)/(½(R + L)) · 100 %; the ADR uses its magnitude
+  as a fraction; the formula as commonly cited, the full text was not reviewed).
 - Rousseeuw PJ, Croux C. Alternatives to the median absolute deviation. J Am Stat Assoc
   1993;88(424):1273–1283 (the scale 1.4826 · MAD).
-- ECW/TBW > 0.400: the classification of InBody's maker (Biospace): 0.360–0.390 normal,
-  0.390–0.400 slightly over, above 0.400 over; used by multifrequency-BIA studies as an
+- InBody (Biospace). "Result Sheet Interpretation", https://inbodybwa.com/result-sheet-interpretation:
+  "A normal range of ECW Ratio is 0.360~0.390"; below 0.390 "Normal", 0.390–0.400 "Slightly
+  Over", above 0.400 "Over"; used by multifrequency-BIA studies as an
   overhydration marker, not validated as an edema diagnosis, and specific to that device's
   method. Cited as the source of the number only.
-- Candidate for N4 (not in v1, unverified): Vinik AI, Nevoret ML, Casellini C. The new age of
+- Checked for N4 and **not** its source (no < 40 / 40–60 µS bands; a feet-ESC criterion of 77 µS):
+  Vinik AI, Nevoret ML, Casellini C. The new age of
   sudomotor function testing: a sensitive and specific biomarker for diagnosis, estimation of
   severity, monitoring progression, and regression in response to intervention. Front
   Endocrinol 2015;6:94.
