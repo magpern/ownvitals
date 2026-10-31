@@ -14,7 +14,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | M2 | Home deploy (early) | not started; mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
 | M4 | Analysis v1 | pulled forward: #37 merged (#54); #38 in progress; #56 after #38 | — |
-| M5 | ECG & nerve health | ADR 0006 (#46) in its fourth review after the root-cause change (read-time gate overlay); #40 after it; #47 created | — |
+| M5 | ECG & nerve health | ADR 0006 (#46) in a fix round after the root-cause change (read-time gate overlay); #40 after it; #47 created | — |
 | M6 | MVP UI | not started | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
@@ -26,7 +26,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | #5 | Tenant isolation: UserContext, forced RLS, roles, guards (+ #35 review follow-ups) | Opus | — | in progress |
 | #6 | Egress allowlist and mail | Opus | #55 | Opus FAIL (guard gaps); fix round |
 | #49 | ADR follow-ups from the #41 review | Opus | #58 | Opus FAIL (deploy checks in T62, rotation order); fix round |
-| #39 | ADR 0006: ECG subsystem spec | Opus | #46 | three FAILs; root cause changed by the Architect; fresh Opus full review |
+| #39 | ADR 0006: ECG subsystem spec | Opus | #46 | root cause changed by the Architect after three FAILs; fourth FAIL (B5, stale gate version); fix round, then a fresh Opus review |
 | #19 | In-process fake-withings and synthetic data generator | Sonnet | — | in progress |
 | #38 | Analysis methods (pulled forward) | Sonnet | — | in progress |
 | #52 | Frontend test follow-ups (from the #48 review) | Sonnet | — | in progress |
