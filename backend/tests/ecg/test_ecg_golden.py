@@ -87,6 +87,7 @@ def record() -> None:
         )
         + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 

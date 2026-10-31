@@ -3,6 +3,7 @@
 Synthetic signals only: generated strips and generated sinusoids.
 """
 
+import ecgnoise
 import numpy as np
 import pytest
 import tolerances as tol
@@ -11,7 +12,7 @@ from scenarios import RATES
 from ecgsynth import make_strip
 from ownvitals.ecg import sqi
 from ownvitals.ecg.input import window_bounds
-from ownvitals.ecg.pipeline import QualityRejected, analyse
+from ownvitals.ecg.pipeline import Analysed, QualityRejected, analyse
 
 
 def windows_of(signal_uv: np.ndarray, fs: int) -> tuple[sqi.WindowIndices, ...]:
@@ -333,3 +334,39 @@ def test_the_threshold_is_below_every_clean_beat_and_above_the_wrong_ones() -> N
     """DISTORTED_R sits under the lowest correlation of a correctly timed beat of the clean
     and the noisy conditions and over the ones a burst displaces (see docs/dev/ecg.md)."""
     assert 0.5 < sqi.DISTORTED_R < 0.95
+
+
+def two_burst_strip() -> np.ndarray:
+    """A 70 bpm strip with a 3-s burst of movement at 0 dB at each end (synthetic)."""
+    strip = make_strip(3, 70.0, 300)
+    rng = np.random.default_rng(3)
+    bursts = (
+        ecgnoise.motion_burst(rng, strip, 0.0, 3.0, 0.0),
+        ecgnoise.motion_burst(rng, strip, 27.0, 3.0, 0.0),
+    )
+    return ecgnoise.noisy(strip, *bursts).signal_uv
+
+
+def test_a_burst_at_each_end_trims_the_span_to_the_beats_between_them() -> None:
+    result = analyse([two_burst_strip()], 300)
+    assert isinstance(result, Analysed)
+    first, last = result.rpeaks[0] / 300, result.rpeaks[-1] / 300
+    assert 3.0 < first < 5.0 + 3.0
+    assert 20.0 < last < 27.0
+    assert result.span_s == pytest.approx(last - first)  # measured on the beats left
+    assert result.span_s >= sqi.MIN_SPAN_S
+
+
+def test_a_span_under_20_s_after_the_trim_fails_with_too_short(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With a threshold that makes ordinary beats distorted and a long trim zone, little is
+    left: the recording fails as `too_short` although windows in the middle passed, and the
+    reasons are the usual ones (`too_short` first, then those of the failing windows)."""
+    monkeypatch.setattr(sqi, "DISTORTED_R", 0.995)
+    monkeypatch.setattr(sqi, "EDGE_TRIM_S", 12.0)
+    result = analyse([two_burst_strip()], 300)
+    assert isinstance(result, QualityRejected)
+    assert result.reasons[0] == "too_short"
+    assert any(w.passed for w in result.windows)
+    assert set(result.reasons[1:]) == {r for w in result.windows for r in w.reasons}

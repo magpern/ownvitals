@@ -26,9 +26,18 @@ changes, and nor does the gate decision.
 The recording passes when its longest *beat span* (first to last R-peak of a run of consecutive
 passing windows) is at least 20 s; only the beats of that span go downstream, and of
 those only the ones the secondary detector confirms (a primary beat without an Elgendi beat
-within +-50 ms is dropped, and the interval across it is not an RR interval). A failing
-recording is a typed ``QualityRejected`` that carries the reasons and the per-window indices
-and nothing else: no R-peaks, no HR, no HRV.
+within +-50 ms is dropped, and the interval across it is not an RR interval).
+
+The span is then *verified*. A confirmed beat is distorted when its Pearson correlation with
+the median beat of its window, over its R-peak +-100 ms, is under ``DISTORTED_R``. The segment
+has a fixed length, so that the neighbours of a premature beat do not count. A distorted beat
+within ``EDGE_TRIM_S`` of an end of the span takes every beat between it and that end out (a
+burst of movement at an end of a strip adds, hides and displaces beats), and the span is
+measured again on the beats left: under 20 s the recording fails with ``too_short``. Distorted
+beats in the interior stay in the span, and ``hrv`` excludes the intervals that touch them.
+
+A failing recording is a typed ``QualityRejected`` that carries the reasons and the per-window
+indices and nothing else: no R-peaks, no HR, no HRV.
 
 Pure: numpy and scipy only. A change that can alter an output bumps ``ALGO_VERSION`` (ADR 0006
 section 15); this is a gate module.

@@ -35,10 +35,8 @@ PT_WINDOW_MS = 150
 REFRACTORY_MS = 200
 T_WAVE_MS = 360
 LEARNING_S = 2.0
-INIT_SIGNAL, INIT_NOISE = (
-    0.75,
-    0.5,
-)  # of the maximum and of the mean of the learning phase (our choice)
+INIT_SIGNAL = 0.75  # initial signal level, of the maximum of the learning phase (our choice)
+INIT_NOISE = 0.5  # initial noise level, of the mean of the learning phase (our choice)
 SEARCH_BACK = 1.66  # of the average regular RR
 REGULAR_LOW, REGULAR_HIGH = 0.92, 1.16  # of the average regular RR
 RR_HISTORY = 8

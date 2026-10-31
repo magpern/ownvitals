@@ -167,6 +167,10 @@ parabolic interpolation to a sub-sample position (the Task Force 1996 asks for �
 interpolation). Beats whose ±75 ms window leaves the strip are dropped. The polarity rule makes
 detection independent of lead identity and inversion (A2).
 
+**Confirmed beats** (amended 2026-10-31, #40): the R-peaks that go downstream are the Pan–Tompkins
+detections an Elgendi detection matches within ±50 ms (bSQI's own matching). An unmatched one is
+dropped, and the interval across it is not an RR interval (§8, `unconfirmed_beat`).
+
 Why: widely cited and fully specified (MIT-BIH: Pan–Tompkins 99.3 % of QRS; Elgendi Se 99.78 %,
 +P 99.87 %), deterministic, numpy/scipy only, and of independent design, as bSQI needs.
 
@@ -188,6 +192,8 @@ Recorded per window but **not gating** in version 1, for §14 to judge: kSQI (ku
 ECG > 5, Li 2008), pSQI (power 5–15 / 5–40 Hz), basSQI (1 − power 0–1 / 0–40 Hz of the
 unfiltered window); Welch, 4-s Hann segments, 50 % overlap (Clifford 2012), on the window minus
 its mean and with no further detrending (our choice: a DC offset doesn't count as baseline power).
+The first and last window leave the strip's first and last 0.5 s out of kSQI and pSQI, where §5's
+odd padding makes a step (amended 2026-10-31, #40).
 
 - **Rhythm-agnostic by design.** Orphanidou's max/min RR ratio rule is left out and no index uses
   RR regularity: a gate that rejects irregular rhythm would bias any later rhythm analysis (E5)
@@ -198,6 +204,13 @@ its mean and with no further detrending (our choice: a DC offset doesn't count a
   beats rather than window edges means overlapping windows never credit missing signal: a window
   holding more than 3 s of a dropout fails the gap rule, so no run crosses a dropout of ≥ 12 s;
   in a 30-s strip the ≤ 18 s left on either side can't reach 20 s, wherever the dropout sits.
+- **Verified span** (amended 2026-10-31, #40). A confirmed beat (§6) is *distorted* when its Pearson
+  correlation with the median beat of its window, over R ± 100 ms, is under 0.85 (a fixed QRS
+  segment, so a premature beat's neighbours don't count; tSQI keeps its window). A distorted beat
+  within 5 s of an end of the span takes every beat between it and that end out; the span is
+  measured on the beats left (under 20 s: `too_short`). A burst of movement at an end of a strip
+  adds, hides and displaces beats. Interior distorted beats are handled by §8. Derivation of the
+  0.85: test specification, Amendments.
 - **Reasons** per window: `flat_line` (amplitude < 0.1 mV), `amplitude_out_of_range` (> 10 mV),
   `clipping`, `detector_disagreement`, `implausible_rate`, `beat_gap`, `low_template_correlation`.
   A failed recording carries `too_short` (no 20-s beat span) plus the union of its failing
@@ -211,25 +224,27 @@ its mean and with no further detrending (our choice: a DC offset doesn't count a
 ### 8. RR intervals, artefact handling, HR and HRV (PLAN §7.3 step 4)
 
 - **RR** = differences of consecutive refined R-peaks inside the beat span, in ms.
-- **Exclusions**, in order: (a) outside 272.7–2,000 ms (30–220 bpm) → `rr_out_of_range`; (b) more
-  than 20 % from the last accepted interval (the rule attributed to Malik 1989), the reference
-  starting at the median of the span's first five intervals → `rr_deviation`. Excluded intervals
-  are **deleted, not interpolated** (Lippman 1994; Peltola 2012). Version 1 doesn't say whether an
-  excluded interval is ectopic or an artefact: that would be interpretation (§12).
+- **Exclusions**, in order (amended 2026-10-31, #40): (0) the interval across a dropped beat (§6) →
+  `unconfirmed_beat`; (a) outside 272.7–2,000 ms (30–220 bpm) → `rr_out_of_range`; (c) touching a
+  distorted beat (§7) → `distorted_beat`; (b) more than 20 % from the last accepted interval (the
+  rule attributed to Malik 1989), the reference starting at the median of the span's first five
+  intervals that are not (0) or (c) → `rr_deviation`. Excluded intervals are **deleted, not
+  interpolated** (Lippman 1994; Peltola 2012). Version 1 doesn't say whether an excluded interval
+  is ectopic or an artefact: that would be interpretation (§12).
 - **Limits of the 20 % rule.** With breathing at 0.25 Hz and HR below about 55 bpm, strong
   respiratory sinus arrhythmia changes successive sinus intervals by more than 20 %, so the rule
   drops real sinus intervals; at about 89–114 bpm it can drop the first interval, as the first
   five span most of a breath. While the excluded fraction stays ≤ 20 %, HRV is computed without
   them and reads low; beyond that, or under the minimums below, HRV is null ("insufficient").
   §13 tests this; V2 reports how often it happens on the owner's data.
-- **HR** = 60,000 / mean of the intervals left after (a), ectopic beats included.
+- **HR** = 60,000 / mean of the intervals left after (0) and (a): ectopic and distorted beats stay.
 - **HRV** on the accepted (NN) intervals with the Task Force (1996) definitions and two
   conventions of ours (the common Kubios-style ones): SDNN = standard deviation with n − 1, which
   the Task Force leaves open; RMSSD = √(mean ΔNN²) over adjacent NN pairs only (both accepted,
   sharing a beat); pNN50 = 100 · (pairs with |ΔNN| > 50 ms) / **pairs**, where the Task Force
   divides NN50 by the number of NN intervals.
-- HRV needs ≥ 15 NN intervals, ≥ 10 pairs and an excluded fraction (intervals excluded by (a) or
-  (b) over all intervals in the span) ≤ 20 %, all our choices; otherwise `hrv` is null with its
+- HRV needs ≥ 15 NN intervals, ≥ 10 pairs and an excluded fraction (intervals excluded by (0), (a),
+  (c) or (b) over all intervals in the span) ≤ 20 %, all our choices; otherwise `hrv` is null with its
   reasons, `too_many_excluded` (the cause) before `insufficient_nn`. HR needs only the gate.
 - **Ultra-short-term** values (≤ 30 s): RMSSD holds up at 10–30 s, SDNN much less (Munoz 2015);
   neither matches 5-min or 24-h norms (Shaffer & Ginsberg 2017), so neither is compared with them.
@@ -445,6 +460,8 @@ owner** (open question 2).
   groups its value came from (the morning reading's group for `morning`, the readings the median
   used for `median`), not the day's fingerprint inputs. The M5 rules issue puts them in each
   finding's evidence; nothing re-derives them.
+- **Known limitation** (amended 2026-10-31, #40): below 50 bpm the gate may reject strips with
+  white noise at 12 dB or baseline wander (causes: test specification, Amendments); they show no values.
 - `estimated` carries its versions and fingerprint, so a changed parameter recomputes history
   instead of mixing versions, and no output shows a superseded one meanwhile (§9); findings never
   depend on it, so they need no recompute.
@@ -475,25 +492,9 @@ they were moved there verbatim.
 
 ### 2026-10-31 (#88): follow-ups of the #46 review
 
-Architect decisions on the non-blocking findings N41 to N45 of the #46 review (its Opus PASS at
-`01d0fa3`), made in place above and in the test specification, marked "amended 2026-10-31, #88". The
-test specification is part of this ADR, so its amendments are listed here too:
+Moved verbatim to the test specification's Amendments (line limit); no decision changed.
 
-- §1, §15 (N44): every listed recording gets an `estimated`; a row kept with `signal` NULL gets one
-  with `signal_missing`, which is no gate result. When that recording is the trigger's only linked
-  one and no other trigger group can still be linked, a hold on it ends at once, with "not evaluated
-  by ownvitals", instead of waiting out the 24-hour bound; otherwise §11 governs. #25 enqueues the
-  recompute and #40's `input` step gives the reason. §15 lists a new row among the recompute's
-  triggers, and the test specification's hold section gains the case.
-- §2, §13 (N43, N45): A9 stays open until the M6/M7 notification hold exists, and until then OC5
-  reports its late-link count as "not applicable"; A9 moved after A8. §13 says "a 95 % floor on
-  every accepted strip", the test specification's wording, which governs.
-- §11 and Consequences (N41): a daily value's trigger is the groups its value came from (the morning
-  reading's group, or the readings the median used), not the day's fingerprint inputs.
-- Test specification, "HR and HRV" (N42, the Architect's decision): the noisy RMSSD tolerance at 60
-  to under 100 bpm is ± 7.0 ms, not ± 6.5 ms. That applies the 20 % margin rule as clean 60 to 99
-  bpm already does; the evidence is in its simulation note. #40 follows whichever value is on `main`
-  when it updates.
-- References: moved verbatim to the end of the test specification, to keep this file within 500
-  lines; the pointer and the test specification's introduction carry the marker. No decision
-  changed.
+### 2026-10-31 (#40): unreachable assertions and generator corrections
+
+Edits in place, marked "amended 2026-10-31, #40": §6, §7, §8 and Consequences. The decisions, the
+evidence and the changes to the test specification are in its Amendments.

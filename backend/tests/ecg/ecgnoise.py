@@ -125,17 +125,15 @@ def with_clipping(strip: Strip) -> Strip:
     need = round(0.02 * fs) + 1
     signal = strip.signal_uv.astype(np.int64)
     half = round(0.04 * fs)
-    tops = [
-        int(signal[max(round(t * fs) - half, 0) : round(t * fs) + half + 1].max())
-        for t in strip.r_times_s
-    ]
+    # an R-peak whose +-40 ms window leaves the strip has a cut window: it is not counted
+    times = [t for t in strip.r_times_s if half <= round(t * fs) < strip.n_samples - half]
+    tops = [int(signal[round(t * fs) - half : round(t * fs) + half + 1].max()) for t in times]
     for fraction in np.arange(0.9, 0.04, -0.05):
         level = int(fraction * min(tops))
         widths = []
-        for time in strip.r_times_s:
+        for time in times:
             centre = round(time * fs)
-            lo, hi = max(centre - half, 0), min(centre + half + 1, strip.n_samples)
-            widths.append(int(np.sum(signal[lo:hi] >= level)))
+            widths.append(int(np.sum(signal[centre - half : centre + half + 1] >= level)))
         if min(widths) >= need:
             return strip.with_signal(np.minimum(signal, level).astype(np.int32))
     raise ValueError("no clipping level gives every R-peak a 20 ms plateau")
