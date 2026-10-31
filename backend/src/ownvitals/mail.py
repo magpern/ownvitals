@@ -119,9 +119,10 @@ class _DeadlineSMTP(smtplib.SMTP):
 
     _deadline: _Deadline
 
-    def __init__(self, host: str, port: int, *, deadline: _Deadline) -> None:
+    def __init__(self, host: str, port: int, *, deadline: _Deadline, **options: Any) -> None:
+        # ``options`` reach ``SMTP_SSL`` (its ``context``) when this is ``_DeadlineSMTPSSL``.
         self._deadline = deadline
-        super().__init__(host, port, timeout=deadline.remaining())
+        super().__init__(host, port, timeout=deadline.remaining(), **options)
 
     # ``_get_socket`` is smtplib's own hook for SMTP_SSL (the type stubs leave it out).
     def _get_socket(self, host: str, port: int, timeout: float) -> socket.socket:
@@ -148,8 +149,7 @@ class _DeadlineSMTPSSL(_DeadlineSMTP, smtplib.SMTP_SSL):
     def __init__(
         self, host: str, port: int, *, deadline: _Deadline, context: ssl.SSLContext
     ) -> None:
-        self._deadline = deadline
-        smtplib.SMTP_SSL.__init__(self, host, port, timeout=deadline.remaining(), context=context)
+        super().__init__(host, port, deadline=deadline, context=context)
 
     def _get_socket(self, host: str, port: int, timeout: float) -> socket.socket:
         # Plain ``SMTP._get_socket`` (the TCP connection), then the handshake with the time left.
