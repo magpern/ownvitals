@@ -46,13 +46,20 @@ file or a container's output.
    no character range.
 2. **One at a time.** `flock --nonblock` on `/var/lib/ownvitals-deploy/lock`; a second deploy or
    rollback exits 75 without calling anything.
-3. **gh.** The read-only token file exists, and `gh --version` is at least **2.102.0**.
+3. **Never back.** With a deployment recorded, the tag must be a **higher version** than the
+   recorded current tag, compared as numbers field by field (`v1.10.0` is newer than `v1.9.0`).
+   The deployed tag itself passes only with its recorded digest (an idempotent redeploy); with
+   another digest it is refused, since a release is never replaced. With nothing recorded (the
+   first deploy), any release that passes the other checks may be the first. *Why:* a stolen key
+   must not install an older, attested release with a known vulnerability. Going back is
+   `rollback` only, one step and through every check (below).
+4. **gh.** The read-only token file exists, and `gh --version` is at least **2.102.0**.
    `--source-ref` and `--source-digest` exist since gh 2.68.0; 2.93.0 stops sending the token to
    TUF mirrors, and 2.102.0 makes `--source-ref` match case-sensitively. gh runs with only the
    token, its own config directory (`/var/lib/ownvitals-deploy/gh`) and no prompts.
-4. **The tag's commit**, through the full ref name, so a branch of the same name is never read:
+5. **The tag's commit**, through the full ref name, so a branch of the same name is never read:
    `gh api repos/magpern/ownvitals/commits/refs/tags/<tag> --jq .sha` (40 hex digits).
-5. **The tag is protected** (PLAN-operations §9.2 (1)). Of the repository's rulesets
+6. **The tag is protected** (PLAN-operations §9.2 (1)). Of the repository's rulesets
    (`rulesets?includes_parents=true&targets=tag`), one must have, read through
    `rulesets/<id>`: target `tag`; enforcement `active` (not `evaluate` or `disabled`); an include
    pattern `refs/tags/v*` (or `~ALL`); no exclude pattern that may match `refs/tags/<tag>` (bash's
@@ -63,12 +70,12 @@ file or a container's output.
    the record: the tag cannot move to another commit or be deleted and re-created. It does not
    stop a tag being **created** on any commit (there is no `creation` rule, an Architect decision
    while the owner's token is the only pusher), and it cannot see bypass actors, which a
-   read-only token is not shown. Checks 6 and 7 are what stop a tag outside `main` (T62).
-6. **`main` contains the commit:**
+   read-only token is not shown. Checks 7 and 8 are what stop a tag outside `main` (T62).
+7. **`main` contains the commit:**
    `gh api "repos/magpern/ownvitals/compare/<commit>...refs/heads/main?per_page=1" --jq .status`
    is `identical` or `ahead`. Always `refs/heads/main`: a bare `main` could resolve to a tag of
    that name, which the `v*` ruleset does not cover.
-7. **The attestation**, with the policy `release.yml` verifies its own attestation with:
+8. **The attestation**, with the policy `release.yml` verifies its own attestation with:
 
    ```bash
    gh attestation verify "oci://ghcr.io/magpern/ownvitals@<digest>" \
@@ -83,26 +90,27 @@ file or a container's output.
 
    The exact `--cert-identity` pins the signer to `release.yml` run for exactly that tag (stricter
    than `--signer-workflow`, which gh makes exclusive with it); `--source-digest` ties the
-   attestation to the commit check 6 found on `main`.
-8. **Pull by digest:** `docker pull --quiet ghcr.io/magpern/ownvitals@<digest>`, never a tag.
-9. **Compose.** `/opt/ownvitals/compose.yaml` has the services `migrate`, `web` and `worker`. The
-   script writes an override that gives each of them `image: ghcr.io/magpern/ownvitals@<digest>`
-   and `pull_policy: never`, and with it `docker compose config --images` may name the image only
-   by that digest: a service that names it by a tag (or another digest) is refused, since running
-   it would be a pull by tag.
-10. **Migrations:** `docker compose run --rm -T --pull never migrate` with the new override.
+   attestation to the commit check 7 found on `main`.
+9. **Pull by digest:** `docker pull --quiet ghcr.io/magpern/ownvitals@<digest>`, never a tag.
+10. **Compose.** `/opt/ownvitals/compose.yaml` has the services `migrate`, `web` and `worker`. The
+    script writes an override that gives each of them `image: ghcr.io/magpern/ownvitals@<digest>`
+    and `pull_policy: never`, and with it `docker compose config --images` may name the image only
+    by that digest: a service that names it by a tag (or another digest) is refused, since running
+    it would be a pull by tag.
+11. **Migrations:** `docker compose run --rm -T --pull never migrate` with the new override.
     If it fails, nothing is recorded and the running containers are untouched.
-11. **State:** the new pair is recorded as current and the pair it replaces as previous, and the
+12. **State:** the new pair is recorded as current and the pair it replaces as previous, and the
     override becomes `/var/lib/ownvitals-deploy/compose.image.yaml`. This happens after the
     migrations and before `up -d`, so a failed start still leaves `rollback` pointing at the
     release that ran before. Redeploying the current pair keeps the previous one.
-12. **Start:** `docker compose up -d --pull never --no-build`.
+13. **Start:** `docker compose up -d --pull never --no-build`.
 
 Every compose call is
 `docker compose --project-name ownvitals --project-directory /opt/ownvitals --file /opt/ownvitals/compose.yaml [--file <override>]`.
 
-`rollback` takes the recorded previous pair and runs checks 2–9 on it, the same as a deploy, then
-records it as current with no previous pair and runs `up -d`. **It runs no migrations**: the
+`rollback` takes the recorded previous pair and runs checks 2 and 4–10 on it, the same as a
+deploy (it skips check 3: going back one step is what it is for), then records it as current
+with no previous pair and runs `up -d`. **It runs no migrations**: the
 previous release runs on the newer schema (expand/contract, PLAN-operations §9.2), and its
 `alembic upgrade head` would not know the newer revision. It goes back one step only; a second
 `rollback` is refused until the next deploy. If the previous pair no longer passes a check (its
@@ -242,16 +250,17 @@ The first real deploy waits for your go-ahead.
 | Keys and secrets | none: `/etc/ownvitals-deploy` and `/var/lib/ownvitals-deploy` are root `0700`, the token file `0600`, `/opt/ownvitals/secrets` root `0700`; the token reaches gh through the environment, never an argument or the output |
 | Logs | none: not in `adm`, `systemd-journal` or `docker`; the script discards gh's and docker's output and prints only its own check lines |
 
-What a key holder **can** do: deploy any release that passes every check (an older one too; its
-migrations then fail on a newer schema, which stops it before `up -d`), and roll back one step.
+What a key holder **can** do: deploy a release that passes every check and is newer than the
+deployed one (or redeploy the deployed one with its digest), and roll back one step. It cannot
+install an older release (check 3), and it cannot roll back twice in a row.
 
 ## Residual risks
 
 - The script, gh and docker run as root (Docker access is root-equivalent anyway). gh parses
   GitHub's and the registry's answers as root.
 - The token is a credential on the server; it is read-only and limited to this repository.
-- Bypass actors of the tag ruleset are not visible to the token (check 5).
-- The `release tags` ruleset has no `creation` rule (T62): checks 6 and 7 carry that.
+- Bypass actors of the tag ruleset are not visible to the token (check 6).
+- The `release tags` ruleset has no `creation` rule (T62): checks 7 and 8 carry that.
 
 ## Tests
 
@@ -261,7 +270,7 @@ migrations then fail on a newer schema, which stops it before `up -d`), and roll
 |---|---|
 | `test_deploy_harness.py` | `Host`: a copy of the script whose seven installation lines point into a temporary directory, fakes first on its PATH and, on Linux, nothing else but a few core utilities; checks of the script as a file (`#!/bin/bash -p`, LF, mode 100755, `bash -n`, shellcheck) |
 | `test_deploy_fakes.py` | the fake gh, docker and sudo (synthetic GitHub, GHCR and host) and their fidelity: each jq program against the real `jq -r`, the attestation flags against gh's semantics |
-| `test_deploy_script.py` | scenarios: the full deploy, every refusal of checks 5–9, rollback through every check (and refused when the previous pair no longer verifies), the state file, a failed migration and a failed `up -d`, two concurrent deploys, the sudo hop, the environment and tool output |
+| `test_deploy_script.py` | scenarios: the full deploy, the version rule of check 3 (an older release, the deployed version with another digest, the same pair again, a newer release, numeric not textual order, the first deploy), every refusal of checks 6–10, rollback through every check (and refused when the previous pair no longer verifies), the state file, a failed migration and a failed `up -d`, two concurrent deploys, the sudo hop, the environment and tool output |
 | `test_deploy_refusals.py` | every malformed command, tag and digest, and the variants of each check |
 | `test_deploy_mutations.py` | each check removed or loosened in a copy of the script, and the scenario that catches it |
 

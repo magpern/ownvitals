@@ -13,8 +13,12 @@ import pytest
 
 from test_deploy_harness import SCRIPT, Host
 from test_deploy_script import (
+    scenario_accepts_a_newer_release,
+    scenario_accepts_the_same_release_again,
+    scenario_compares_versions_as_numbers,
     scenario_deploy,
     scenario_environment_reaches_no_tool,
+    scenario_first_deploy_takes_any_release,
     scenario_hops_to_root_through_sudo,
     scenario_migration_failure_records_nothing,
     scenario_one_deploy_at_a_time,
@@ -24,6 +28,7 @@ from test_deploy_script import (
     scenario_refuses_a_ruleset_for_other_tags,
     scenario_refuses_a_service_by_tag,
     scenario_refuses_a_state_file_it_did_not_write,
+    scenario_refuses_an_older_release,
     scenario_refuses_commit_off_main,
     scenario_refuses_evaluate_mode_ruleset,
     scenario_refuses_excluded_tag,
@@ -32,6 +37,7 @@ from test_deploy_script import (
     scenario_refuses_other_source_commit,
     scenario_refuses_other_source_ref,
     scenario_refuses_self_hosted_runner,
+    scenario_refuses_the_same_release_with_another_digest,
     scenario_refuses_unprotected_tag,
     scenario_refuses_without_cert_identity,
     scenario_rollback_refused_when_previous_attestation_is_gone,
@@ -133,6 +139,41 @@ MUTATIONS: dict[str, tuple[str, str, Scenario]] = {
         '  start_release "$DIGEST" "up -d failed"\n'
         '  write_state "$TAG" "$DIGEST" "$previous_tag" "$previous_digest"\n',
         scenario_up_failure_keeps_the_rollback_target,
+    ),
+    # never older than the deployed release
+    "version check skipped": ("  check_version\n", "", scenario_refuses_an_older_release),
+    "older release accepted": (
+        'refuse "version: $TAG is older than the deployed $CURRENT_TAG; only rollback goes back"',
+        'ok "version: older"',
+        scenario_refuses_an_older_release,
+    ),
+    "same version, any digest": (
+        '    [[ $DIGEST == "$CURRENT_DIGEST" ]] \\\n',
+        "    true \\\n",
+        scenario_refuses_the_same_release_with_another_digest,
+    ),
+    "same release refused": (
+        'ok "version: $TAG again, with the recorded digest"',
+        'refuse "version: again"',
+        scenario_accepts_the_same_release_again,
+    ),
+    "newer release refused": (
+        "[[ ${a[i]} > ${b[i]} ]]",
+        "[[ ${a[i]} < ${b[i]} ]]",
+        scenario_accepts_a_newer_release,
+    ),
+    "versions compared as text": (
+        "    if ((${#a[i]} != ${#b[i]})); then\n"
+        "      ((${#a[i]} > ${#b[i]}))\n"
+        "      return\n"
+        "    fi\n",
+        "",
+        scenario_compares_versions_as_numbers,
+    ),
+    "first deploy refused": (
+        'ok "version: no deployment recorded; any release may be the first"',
+        'refuse "version: none recorded"',
+        scenario_first_deploy_takes_any_release,
     ),
     # gh
     "gh version unchecked": (

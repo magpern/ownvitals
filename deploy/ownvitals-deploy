@@ -356,12 +356,50 @@ start_release() { # <digest> <what to do when up -d fails>
   fi
 }
 
+# True when tag $1 is a higher version than tag $2, field by field. Without leading zeros a longer
+# field is the larger number, and fields of equal length compare as strings: nothing overflows.
+version_newer() {
+  local -a a b
+  local i
+  IFS=. read -r -a a <<< "${1#v}"
+  IFS=. read -r -a b <<< "${2#v}"
+  for i in 0 1 2; do
+    if ((${#a[i]} != ${#b[i]})); then
+      ((${#a[i]} > ${#b[i]}))
+      return
+    fi
+    if [[ ${a[i]} != "${b[i]}" ]]; then
+      [[ ${a[i]} > ${b[i]} ]]
+      return
+    fi
+  done
+  return 1
+}
+
+# A deploy never goes back: a stolen key must not install an older attested release with a known
+# vulnerability. Only rollback goes back, one step. The deployed version again only with its
+# digest (an idempotent redeploy); the first deploy takes any release that passes the checks.
+check_version() {
+  if [[ -z $CURRENT_TAG ]]; then
+    ok "version: no deployment recorded; any release may be the first"
+  elif [[ $TAG == "$CURRENT_TAG" ]]; then
+    [[ $DIGEST == "$CURRENT_DIGEST" ]] \
+      || refuse "version: $TAG is deployed with another digest; a release is never replaced"
+    ok "version: $TAG again, with the recorded digest"
+  elif version_newer "$TAG" "$CURRENT_TAG"; then
+    ok "version: $TAG is newer than the deployed $CURRENT_TAG"
+  else
+    refuse "version: $TAG is older than the deployed $CURRENT_TAG; only rollback goes back"
+  fi
+}
+
 deploy_release() {
   local previous_tag=$CURRENT_TAG previous_digest=$CURRENT_DIGEST
   if [[ $TAG == "$CURRENT_TAG" && $DIGEST == "$CURRENT_DIGEST" ]]; then
     previous_tag=$PREVIOUS_TAG previous_digest=$PREVIOUS_DIGEST # a redeploy keeps the rollback
   fi
   ok "command: deploy $TAG $DIGEST"
+  check_version
   verify_release "$TAG" "$DIGEST"
   pull_image "$DIGEST"
   prepare_compose "$TAG" "$DIGEST"
