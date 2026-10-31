@@ -257,10 +257,10 @@ Each holds only while every user is a household member; the M8 gate re-decides a
 3, 4, 5, 14 and 17 follow from the specification (§9.2, §4.4, §7.1, §10.2). Items 19 to 21 follow
 from Architect decisions (2026-10-31; #49 extended 20 and 21; #72 scoped 21's input rules and added
 three ways to stall a rotation to it; #78 said which holders the role's timeouts end and added owner
-notices to it; #88 added that a rehash can set a value the caller chose and that owner notices can
-also build a backlog); the others are proposed by this model, most of them carried over from
-classbeat's accepted risks. The owner confirms or rejects every item that doesn't come from the
-specification before the M2 real-data gate (O15).
+notices to it; #88 added that a rehash can set a value the caller chose, that owner notices can also
+build a backlog and that the owner-notice write takes only a kind); the others are proposed by this
+model, most of them carried over from classbeat's accepted risks. The owner confirms or rejects
+every item that doesn't come from the specification before the M2 real-data gate (O15).
 
 1. **Shared home host.** A co-tenant with the Docker socket is root on the host and can read the
    database, the KEK files and every secret (T60). Revisited with the VPS move before M8 (§9.2).
@@ -366,13 +366,14 @@ specification before the M2 real-data gate (O15).
 
     It could also queue owner notices, once the notifications issue (M6/M7) builds the outbox
     (amended 2026-10-31, #78). Any code with the app role can call the owner-notice write, not only
-    the worker's, but it takes only an owner-notice `kind` and a route key from fixed lists, and the
-    notice goes only to the admins with its kind's fixed template. The worst case is unwanted mail
-    to the admins and, in volume, a backlog that delays other outbox mail, since the write has no
-    dedupe and no rate limit: denial of service, never a disclosure and never mail to anyone else
-    (T48, T59, ADR 0007 §3). The notifications issue keeps at most one pending row per owner-notice
-    kind, deduping on `kind` alone (an owner notice's route is fixed per kind). That bounds the
-    backlog, not the send rate (amended 2026-10-31, #88).
+    the worker's, but it takes only an owner-notice `kind` from a fixed list, its route comes from
+    the kind through a fixed mapping inside the function, so a caller can't choose one (amended
+    2026-10-31, #88), and the notice goes only to the admins with its kind's fixed template. The
+    worst case is unwanted mail to the admins and, in volume, a backlog that delays other outbox
+    mail, since the write has no dedupe and no rate limit: denial of service, never a disclosure and
+    never mail to anyone else (T48, T59, ADR 0007 §3). The notifications issue keeps at most one
+    pending row per owner-notice kind, deduping on `kind` alone (an owner notice's route is fixed
+    per kind). That bounds the backlog, not the send rate (amended 2026-10-31, #88).
 
 ## Open items
 
@@ -385,7 +386,7 @@ specification before the M2 real-data gate (O15).
 | O12 | Disk encryption on the home server; Cloudflare proxied or DNS-only (T60, T64) | owner, M2 gate |
 | O13 | After the port: confirm each M0 mitigation against the merged code, replace every planned test name, close or re-home every open item | #16 |
 | O14 | Answer an unknown or retired webhook secret with the generic 200 before any database work, ignore it and count it; run the request checks before the lookup; answer a `POST` with 503 while the entry cache is stale or not yet read, and `HEAD` with 200 (T38; amended 2026-10-31, #49 and #72) | #24 |
-| O15 | Confirm or reject the accepted risks that don't come from the specification (2, 6 to 13, 15, 16, 18 to 21; #49 extended 20 and 21, 21 now covering denial of service; #72 added to 21 the three ways to stall a rotation (the rotation lock, an open transaction holding the `withings_apps` row lock, the cross-user cancel) and said its input rules guard against an honest worker's mistakes only; #78 said that the role's idle-in-transaction and transaction timeouts (from #77) end the open-transaction stall only for a holder at the role's settings, not for code that lifts them for its session; that a lock 4 held at session level, the other stall (the rotation lock), is ended by no timeout; and added owner notices to 21; #88 said that a rehash can set a value the caller chose, that owner notices can build a backlog, and set the two stall routes apart here; amended 2026-10-31, #72, #78 and #88) | owner, before the M2 real-data gate |
+| O15 | Confirm or reject the accepted risks that don't come from the specification (2, 6 to 13, 15, 16, 18 to 21; #49 extended 20 and 21, 21 now covering denial of service; #72 added to 21 the three ways to stall a rotation (the rotation lock, an open transaction holding the `withings_apps` row lock, the cross-user cancel) and said its input rules guard against an honest worker's mistakes only; #78 said that the role's idle-in-transaction and transaction timeouts (from #77) end the open-transaction stall only for a holder at the role's settings, not for code that lifts them for its session; that a lock 4 held at session level, the other stall (the rotation lock), is ended by no timeout; and added owner notices to 21; #88 said that a rehash can set a value the caller chose, that owner notices can build a backlog, that the owner-notice write takes only a kind, and set the two stall routes apart here; amended 2026-10-31, #72, #78 and #88) | owner, before the M2 real-data gate |
 
 Decided by the Architect on 2026-10-31 (numbers kept so earlier references stay valid):
 

@@ -75,15 +75,17 @@ function claims a batch, one marks a row sent or failed, and one writes an owner
 - it is installed by `db-functions` and pinned, and `ownvitals_app` gets `EXECUTE`. The
   notifications issue adds the family to ADR 0005 §3 with its role, grants and digests.
 
-**`ownvitals_app` has no privilege on the system table** (amended 2026-10-31, #72). The issue
-that builds it revokes the default grants explicitly, adds it to ADR 0002 §5's revokes, and
-guard 2 checks it. Web's sender reaches system rows only through the claim and the mark.
-Since the app role can't insert either, writing an owner notice also goes through a function
-of the family, which takes only a `kind` and a route key; that issue adds it with the other
-two (amended 2026-10-31, #78). **The system table's `kind` admits only owner-notice kinds**,
-by a check constraint, so a user-facing template is never mailed to the admins (amended
-2026-10-31, #78). The owned table keeps the app role's default grants: forced RLS confines
-them to the session's owner (§1).
+**`ownvitals_app` has no privilege on the system table** (amended 2026-10-31, #72). The issue that
+builds it revokes the default grants explicitly, adds it to ADR 0002 §5's revokes, and guard 2
+checks it. Web's sender reaches system rows only through the claim and the mark. Since the app role
+can't insert either, writing an owner notice also goes through a function of the family, which takes
+only a `kind`: its route comes from the kind, through a fixed mapping inside the function (one route
+per owner-notice kind, from the fixed list of §1), so a caller can't choose a route (amended
+2026-10-31, #88). That issue adds the function with the other two (amended 2026-10-31, #78). Owned
+outbox rows are unchanged: they still take a route key from the fixed list (amended 2026-10-31,
+#88). **The system table's `kind` admits only owner-notice kinds**, by a check constraint, so a
+user-facing template is never mailed to the admins (amended 2026-10-31, #78). The owned table keeps
+the app role's default grants: forced RLS confines them to the session's owner (§1).
 
 ### 4. Owner notices, and when mail starts
 
@@ -136,7 +138,8 @@ but never marked, how long sent rows are kept, and how fast the sender sends.
   mail: denial of service only.
 - **Any app-role code can queue owner notices** (amended 2026-10-31, #78 and #88), not only the
   worker's: the write is the family's, and the app role holds `EXECUTE` on it. It takes only an
-  owner-notice `kind` and a route key, and the notice goes only to the admins, with its kind's fixed
+  owner-notice `kind`, and its route comes from the kind through a fixed mapping inside the function
+  (§3), so a caller can't choose one; the notice goes only to the admins, with its kind's fixed
   template. The worst case is unwanted mail to the admins and, in volume, a backlog that delays
   other outbox mail, since the write has no dedupe and no rate limit: denial of service, never a
   disclosure and never mail to anyone else. It is accepted under threat model risk 21. The
@@ -162,9 +165,9 @@ Architect decisions on the non-blocking finding 1 of the #73 review (its Opus PA
 ### 2026-10-31 (#88): follow-ups of the #83 review
 
 Architect decisions on the non-blocking findings 1 and 4 of the #83 review (its Opus PASS at
-`6095563`), made in place above and marked "amended 2026-10-31, #88" (finding 4: "#78"). The
-dedupe key in the first bullet is the Architect's decision on N4 of the review of the PR that made
-these edits (#97):
+`6095563`), made in place above and marked "amended 2026-10-31, #88" (finding 4: "#78"). The dedupe
+key (first bullet) and the narrowing of the owner-notice write's input (third bullet) are the
+Architect's decisions on N4 and B2 of the reviews of the PR that made these edits (#97):
 
 - Consequences: the owner-notice nuisance includes volume (no dedupe, no rate limit, so a flood can
   delay other outbox mail: denial of service, which risk 21 already accepts), and the notifications
@@ -172,3 +175,8 @@ these edits (#97):
   notice's route is fixed per kind). That bounds the backlog, not the send rate.
 - Consequences: the bullet on the family carries #78's marker, which it lacked ("pair" became
   "family" there in #78); no text changed.
+- §3, Consequences: the owner-notice write takes only a `kind`, not a `kind` and a route key. Its
+  route comes from the kind, through a fixed mapping inside the function: one route per owner-notice
+  kind, from §1's fixed list, so a caller can't choose a route. The Architect's decision on B2 of
+  the #97 review (it makes the dedupe key's premise a requirement). Owned (user-facing) rows are
+  unchanged and still take a route key from the fixed list.

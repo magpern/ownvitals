@@ -248,10 +248,11 @@ hold, with synthetic findings and recordings:
   successfully without a match. A sync that started before, failed, or completed only partly doesn't
   end the hold. A linked recording kept with `signal` NULL has, once the recompute that #25 enqueues
   at storage has run (§1), an `estimated` with `signal_missing`, which gives no gate result. When
-  that recording is the trigger's only linked one, the hold then ends at once and the notification
-  is sent marked "not evaluated"; otherwise §11 governs (amended 2026-10-31, #88). The hold records
-  how it ended (gate result, no link possible, bound) as a reason code, and a link that appears
-  after a "no link possible" end is counted, for A9 (count only).
+  that recording is the trigger's only linked one and no other trigger group can still be linked,
+  the hold then ends at once and the notification is sent marked "not evaluated"; otherwise §11
+  governs (amended 2026-10-31, #88). The hold records how it ended (gate result, no link possible,
+  bound) as a reason code, and a link that appears after a "no link possible" end is counted, for A9
+  (count only).
 
 ## References
 

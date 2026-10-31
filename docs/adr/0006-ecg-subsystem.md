@@ -49,8 +49,9 @@ library (`backend/src/ownvitals/ecg/`); interpretation (§12) is deferred.
   Every listed recording gets an `estimated`, a row kept with `signal` NULL included (amended
   2026-10-31, #88): #25 enqueues its recompute (§15) when it stores the row, and #40's `input` step
   (§4) gives it the reason `signal_missing`, which is no gate result (§11). When that recording is
-  the trigger's only linked one, a hold on it (§11) then ends at once, with "not evaluated by
-  ownvitals", instead of waiting out the 24-hour bound; otherwise §11 governs.
+  the trigger's only linked one and no other trigger group can still be linked, a hold on it (§11)
+  then ends at once, with "not evaluated by ownvitals", instead of waiting out the 24-hour bound;
+  otherwise §11 governs.
 - **Encoding, version 1** (#25). The uncompressed payload is `b"OVE1"`, `n_leads` (uint16 LE), a
   reserved uint16 (0), `n_samples` per lead (uint32 LE each), then the samples as int32 LE, lead
   after lead, in the order the API returned them. It is stored as one zstd frame (level 19,
@@ -480,10 +481,10 @@ test specification is part of this ADR, so its amendments are listed here too:
 
 - §1, §15 (N44): every listed recording gets an `estimated`; a row kept with `signal` NULL gets one
   with `signal_missing`, which is no gate result. When that recording is the trigger's only linked
-  one, a hold on it ends at once, with "not evaluated by ownvitals", instead of waiting out the
-  24-hour bound; otherwise §11 governs. #25 enqueues the recompute and #40's `input` step gives the
-  reason. §15 lists a new row among the recompute's triggers, and the test specification's hold
-  section gains the case.
+  one and no other trigger group can still be linked, a hold on it ends at once, with "not evaluated
+  by ownvitals", instead of waiting out the 24-hour bound; otherwise §11 governs. #25 enqueues the
+  recompute and #40's `input` step gives the reason. §15 lists a new row among the recompute's
+  triggers, and the test specification's hold section gains the case.
 - §2, §13 (N43, N45): A9 stays open until the M6/M7 notification hold exists, and until then OC5
   reports its late-link count as "not applicable"; A9 moved after A8. §13 says "a 95 % floor on
   every accepted strip", the test specification's wording, which governs.
