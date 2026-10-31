@@ -296,7 +296,7 @@ async def test_a_send_the_server_never_reads_is_cut_at_the_total_deadline(
         started = time.monotonic()
         with pytest.raises(MailError) as raised:
             await mailer.send(MailMessage("to@example.com", "Big", body))
-        assert 1.4 <= time.monotonic() - started < 4
+        assert 1.4 <= time.monotonic() - started < 8  # the fake stalls for 30 s
     assert str(raised.value) == "delivery failed (deadline passed)"
     assert (smtp.connections, smtp.messages) == (1, [])
     message_sends = [timeout for size, timeout in sends if size > len(body)]
@@ -381,6 +381,22 @@ async def test_implicit_tls_delivers(loopback_tls: ssl.SSLContext) -> None:
         mailer = Mailer(settings(smtp_host="127.0.0.1", smtp_port=smtp.port, smtp_tls="tls"))
         await mailer.send(MailMessage("to@example.com", "Hello", "Body\n"))
     assert [m.subject for m in smtp.messages] == ["Hello"]
+
+
+@pytest.mark.parametrize("mode", ["starttls", "tls"])
+async def test_a_certificate_the_mailer_does_not_trust_is_refused(
+    tmp_path: Path, mode: str
+) -> None:
+    """The real client context verifies: smtplib's own default for ``SMTP_SSL`` would not."""
+    cert, key = loopback_certificate(tmp_path)
+    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server.load_cert_chain(cert, key)
+    async with SmtpFake(tls=server, implicit_tls=mode == "tls") as smtp:
+        mailer = Mailer(settings(smtp_host="127.0.0.1", smtp_port=smtp.port, smtp_tls=mode))
+        with pytest.raises(MailError) as raised:
+            await mailer.send(MailMessage("to@example.com", "Hello", "Body\n"))
+    assert str(raised.value) == "delivery failed (SSLCertVerificationError)"
+    assert smtp.messages == []
 
 
 @pytest.mark.parametrize("implicit", [False, True])

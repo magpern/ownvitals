@@ -131,7 +131,9 @@ class _DeadlineSMTP(smtplib.SMTP):
         return sock
 
     def send(self, s: Any) -> None:
-        if self.sock is not None:
+        # A failed STARTTLS handshake leaves ``sock`` closed: smtplib's own send then refuses
+        # (``SMTPServerDisconnected``), so the QUIT on the way out keeps the original error.
+        if self.sock is not None and self.sock.fileno() != -1:
             self._deadline.arm(self.sock)
         super().send(s)
 

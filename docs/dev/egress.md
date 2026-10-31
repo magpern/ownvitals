@@ -124,9 +124,12 @@ found on `sys.path` and read with `ast`, parses are cached for the run):
   capable).
 
 **Edge cuts** (`EDGE_CUTS` in `tests/egress_classified.py`) stop propagation, each with a reason
-and a test that proves it: `typing_extensions` imports `_socket` only to read the type of its
-CAPI capsule and binds no socket API. A chain through a cut (`typing_extensions._socket`) is
-still refused.
+and a test that proves it:
+
+- `typing_extensions` imports `_socket` only to read the type of its CAPI capsule and binds no
+  socket API. A chain through it (`typing_extensions._socket`) is still refused.
+- `platform` imports `socket` only inside `_node()`, for `socket.gethostname()` (a local system
+  call). Without this cut `numpy` and everything that imports `platform` would be capable.
 
 **The table** (`TABLE` in `tests/egress_classified.py`; a key `x.*` covers a package, the most
 specific key wins, `only_in` scopes an entry):
@@ -135,10 +138,11 @@ specific key wins, `only_in` scopes an entry):
 |---|---|
 | denied | `starlette.testclient` |
 | by design (inbound or driver code) | `fastapi`, `fastapi.responses`, `starlette.*`, `uvicorn`, `sqlalchemy.*` |
-| allowed names | `asyncio`: `AbstractEventLoop`, `SelectorEventLoop`, `run`, `timeout`, `to_thread`; `email.message`: `EmailMessage`; `importlib.metadata`: `PackageNotFoundError`, `version`; `pydantic.fields`: `FieldInfo`; `pydantic_settings`: `BaseSettings`, `PydanticBaseSettingsSource`, `SettingsConfigDict`; `smtplib`, only in `ownvitals.mail`: `SMTP`, `SMTP_SSL` and its exception classes |
+| allowed names | `asyncio`: `AbstractEventLoop`, `SelectorEventLoop`, `run`, `timeout`, `to_thread`; `email.message`: `EmailMessage`; `importlib.metadata`: `PackageNotFoundError`, `version`; `pydantic.fields`: `FieldInfo`; `pydantic_settings`: `BaseSettings`, `PydanticBaseSettingsSource`, `SettingsConfigDict`; `smtplib`, only in `ownvitals.mail`: `SMTP`, `SMTP_SSL` and its exception classes; `uuid`: `UUID`; `scipy.stats`: `rankdata`; `alembic`: none (imported for `alembic.op`); `alembic.op`: `execute` |
 
 Any other name of an allowed module is refused wherever it is referenced: an import, a call, a
-bare reference, an attribute value, a `partial` argument, an alias or a chain.
+bare reference, an attribute value, a `partial` argument, an alias or a chain. A submodule is a
+module of its own and is classified on its own (`alembic.op`, `asyncio.base_events`).
 
 What else the guard refuses outside the package:
 
@@ -175,8 +179,9 @@ its reason, and only the names it uses; that is a security-critical change. #10 
 **Platforms.** An unclassified capable import fails everywhere. A table entry or cut that
 nothing needs fails on Linux only, where CI runs; an allowed name nothing uses fails everywhere.
 Modules that cannot be found on the platform are skipped and counted, and the test prints them
-(Windows 8, Linux 10: platform modules and optional JSON and multipart libraries). The two files
-take about 17 s locally, 6 s of it the two reachability subprocesses.
+(platform modules and optional libraries; the number depends on what the run reached). The
+two files take about 20 s locally and 10 s on Linux, 6 to 11 s of it the two reachability
+subprocesses.
 
 **Exceptions callers catch.** The package's own (`OutboundBlocked`, `RequestDeadline`,
 `RequestBudgetExhausted`) come from `ownvitals.egress`. A caller that needs an exception class of

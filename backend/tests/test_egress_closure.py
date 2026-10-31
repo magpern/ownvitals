@@ -153,6 +153,43 @@ def test_the_typing_extensions_cut_is_what_its_reason_says() -> None:
     assert Closure().capable("typing_extensions")  # without the cut it would be capable
 
 
+def _imports_a_seed(node: ast.Import | ast.ImportFrom) -> bool:
+    if isinstance(node, ast.ImportFrom):
+        return (node.module or "").split(".")[0] in SEEDS
+    return any(a.name.split(".")[0] in SEEDS for a in node.names)
+
+
+def test_the_platform_cut_is_what_its_reason_says() -> None:
+    """Only ``_node()`` imports a seed (``import socket``), and uses only
+    ``socket.gethostname``; nothing at module level reaches the network or binds a socket."""
+    found = CLOSURE.find("platform")
+    assert found is not None
+    assert found.source is not None
+    tree = ast.parse(found.source.read_bytes())
+    seeded: dict[str, list[str]] = {}
+    for function in ast.walk(tree):
+        if isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+            for n in ast.walk(function):
+                if isinstance(n, ast.Import | ast.ImportFrom) and _imports_a_seed(n):
+                    seeded.setdefault(function.name, []).append(ast.unparse(n))
+    assert seeded == {"_node": ["import socket"]}
+    node = next(f for f in ast.walk(tree) if isinstance(f, ast.FunctionDef) and f.name == "_node")
+    uses = {
+        ast.unparse(n)
+        for n in ast.walk(node)
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "socket"
+    }
+    assert uses == {"socket.gethostname"}
+    without = Closure()
+    facts = without.facts("platform")
+    assert facts is not None
+    assert facts.seed_in_function
+    assert "socket" not in facts.bindings
+    assert not any(without.capable(edge) for edge in without.edges("platform"))
+    assert without.capable("platform")  # without the cut it would be capable
+    assert not CLOSURE.capable("platform")
+
+
 # --- the table ------------------------------------------------------------------------------
 
 
@@ -168,7 +205,14 @@ def test_every_entry_has_a_reason_and_by_design_is_only_inbound_or_driver_code()
     by_design = {key for key, entry in TABLE.items() if entry.kind == "by_design"}
     allowed = {"fastapi", "fastapi.responses", "starlette.*", "uvicorn", "sqlalchemy.*", "psycopg"}
     assert by_design <= allowed
-    assert all(entry.names for entry in TABLE.values() if entry.kind == "allowed")
+
+
+def test_an_allowed_entry_without_names_admits_only_the_import() -> None:
+    assert TABLE["alembic"].names == frozenset()
+    assert scan_source("from alembic import op\nop.execute('select 1')", WEB) == []
+    refused = scan_source("import alembic\nalembic.__version__", WEB)
+    assert any("__version__ is not an allowed name of alembic" in w for _, w in refused)
+    assert scan_source("from alembic.op import get_bind", WEB) != []
 
 
 def test_no_allowed_name_is_stale() -> None:

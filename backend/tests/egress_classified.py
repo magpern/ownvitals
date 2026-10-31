@@ -90,12 +90,30 @@ TABLE: dict[str, Entry] = {
         exceptions=True,
         only_in=("ownvitals.mail",),
     ),
+    "uuid": _allowed(
+        "the UUID type; uuid1() and getnode() (which can look the host name up) are not used",
+        "UUID",
+    ),
+    "scipy.stats": _allowed(
+        "statistics on in-memory arrays; scipy's test helpers (subprocess) are not used",
+        "rankdata",
+    ),
+    # The migrations' RLS helpers (ownvitals.db.rls): SQL on the migration's own connection to
+    # the configured database, like sqlalchemy (N13).
+    "alembic": Entry("allowed", "imported for its op proxy only (alembic.op); none of its names"),
+    "alembic.op": _allowed(
+        "SQL on the migration's connection to the configured database", "execute"
+    ),
 }
 
 EDGE_CUTS: dict[str, str] = {
     "typing_extensions": (
         "imports _socket only to read the type of its CAPI capsule (CapsuleType); "
         "it binds no socket API"
+    ),
+    "platform": (
+        "imports socket only inside _node(), for socket.gethostname(): a local system call, "
+        "no connection and no lookup"
     ),
 }
 
