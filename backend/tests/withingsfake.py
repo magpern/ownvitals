@@ -23,8 +23,18 @@ body that is not JSON; ``"mutate"`` runs ``action(fake)`` first (delete a row be
 
 Webhooks: ``await deliver_webhook(fake, receiver_client, userid, appli, ...)`` POSTs what
 Withings would POST to the subscribed callback URLs, with Withings' retry schedule when asked.
-The HEAD check of ``notify subscribe`` goes to ``head_check`` (an async ``url -> status``;
-``head_check_with(client)`` builds one from a client that reaches the receiver).
+The HEAD check of ``notify subscribe`` and ``update`` goes to ``head_check`` (an async
+``url -> status``; ``head_check_with(client)`` builds one from a client that reaches the receiver).
+It happens only once the request passed everything else (token, appli, scope, URL rules), just
+before the subscription changes, so a request that fails anyway sends no HEAD.
+
+Requests: the API takes ``POST`` with a form body only, and no secret in the query string
+(``withingsrules``); a client that does otherwise gets an API error. The fake also holds an
+application to 120 requests a minute (a token bucket on the fake clock, status 601; pass
+``rate_limit=None`` to ``FakeWithings`` to switch it off).
+
+Webhook senders: only a 2xx answer counts, within ``WEBHOOK_RESPONSE_TIMEOUT`` seconds (real time,
+or the fake clock when the receiver advances it); redirects are not followed.
 """
 
 from __future__ import annotations
@@ -37,9 +47,11 @@ from typing import Any
 import httpx
 
 from withingscore import FakeWithings
+from withingsnotify import HeadCheck
 from withingswire import (
     API_HOST,
     WEBHOOK_ATTEMPTS_PER_CYCLE,
+    WEBHOOK_RESPONSE_TIMEOUT,
     WEBHOOK_RETRY_DELAYS,
     App,
     ConnectionDropped,
@@ -81,12 +93,14 @@ class FakeWithingsTransport(httpx.AsyncBaseTransport):
             {name.lower(): value for name, value in request.headers.items()},
             body,
         )
-        head_status = None
-        callback = self.fake.callback_to_check(core)
-        if callback is not None and self.head_check is not None:
-            head_status = await self.head_check(callback)
         try:
-            response = self.fake.handle(core, head_status=head_status)
+            step = self.fake.start(core)
+            if isinstance(step, HeadCheck):  # notify takes the callback URL if this answers 2xx
+                head = self.head_check
+                step = step.finish(
+                    self.fake.default_head_status if head is None else await head(step.url)
+                )
+            response = step
         except Unroutable as error:
             raise httpx.ConnectError(f"no route to {error}", request=request) from None
         except ConnectionDropped as error:
@@ -144,8 +158,26 @@ async def call(
 class Delivery:
     callbackurl: str
     attempt: int
-    status_code: int | None  # None: no answer
+    status_code: int | None  # None: no answer, or none within the response timeout
     at: float
+    timed_out: bool = False  # the receiver answered (or not) after the response timeout
+
+
+async def _post_webhook(
+    fake: FakeWithings, client: httpx.AsyncClient, url: str, body: dict[str, str], within: float
+) -> tuple[int | None, bool]:
+    """POST once; ``(status, timed_out)``. Only an answer within ``within`` seconds counts, whether
+    the receiver is slow in real time (``asyncio.wait_for``) or advances the fake clock."""
+    started = fake.clock.now()
+    try:
+        reply = await asyncio.wait_for(client.post(url, data=body, follow_redirects=False), within)
+    except TimeoutError:
+        return None, True
+    except httpx.HTTPError:
+        return None, False
+    if fake.clock.now() - started > within:
+        return None, True
+    return reply.status_code, False
 
 
 async def deliver_webhook(
@@ -156,14 +188,18 @@ async def deliver_webhook(
     *,
     retry: bool = False,
     form: dict[str, str] | None = None,
+    response_timeout: float = WEBHOOK_RESPONSE_TIMEOUT,
     **fields: Any,
 ) -> list[Delivery]:
     """POST the notification for ``(userid, appli)`` to every subscribed callback URL.
 
     ``fields`` go to ``webhook_form`` (``startdate``, ``enddate``, ``date``...); ``form``
-    replaces the body (to send a forged or malformed one). Without ``retry`` there is one
-    attempt. With it, Withings' schedule: 5 cycles at +0, +10 s, +1 min, +1 h and +4 h of 2
-    attempts each, stopping at the first status below 400; the manual clock advances between
+    replaces the body (to send a forged or malformed one). Success is a 2xx within
+    ``response_timeout`` seconds (findings section 2: "2xx within a few seconds"); a 3xx, 4xx,
+    5xx, a connection error or a late answer fails the attempt (redirects are not followed). The
+    receiver may have processed a late request all the same, as with Withings. Without ``retry``
+    there is one attempt. With it, Withings' schedule: 5 cycles at +0, +10 s, +1 min, +1 h and
+    +4 h of 2 attempts each, stopping at the first success; the manual clock advances between
     cycles. A subscription that keeps failing for 20 days is cancelled (``record_delivery``).
     """
     body = form if form is not None else webhook_form(appli, userid, **fields)
@@ -173,14 +209,13 @@ async def deliver_webhook(
         ok = False
         for cycle in range(len(delays) + 1):
             for _ in range(WEBHOOK_ATTEMPTS_PER_CYCLE if retry else 1):
-                try:
-                    code: int | None = (await client.post(sub.callbackurl, data=body)).status_code
-                except httpx.HTTPError:
-                    code = None
-                deliveries.append(
-                    Delivery(sub.callbackurl, len(deliveries) + 1, code, fake.clock.now())
+                code, late = await _post_webhook(
+                    fake, client, sub.callbackurl, body, response_timeout
                 )
-                ok = code is not None and code < 400
+                deliveries.append(
+                    Delivery(sub.callbackurl, len(deliveries) + 1, code, fake.clock.now(), late)
+                )
+                ok = code is not None and 200 <= code < 300
                 if ok:
                     break
             if ok:

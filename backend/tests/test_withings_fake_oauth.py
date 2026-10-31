@@ -221,6 +221,30 @@ async def test_a_new_authorization_replaces_every_earlier_token(s: Session) -> N
     assert await s.meas(second["access_token"]) == 0
 
 
+async def test_refreshing_with_the_current_token_ends_an_older_one_still_in_its_grace(
+    s: Session,
+) -> None:
+    """Stricter than "valid up to 8 h": only the latest renewal keeps its predecessor alive."""
+    first = (await s.exchange())["body"]
+    second = (await s.refresh(first["refresh_token"]))["body"]
+    assert s.fake.grant(s.app.client_id, s.user.userid).previous_refresh == first["refresh_token"]
+    third = (await s.refresh(second["refresh_token"]))["body"]  # the current token, not the old
+    assert (await s.refresh(first["refresh_token"]))["status"] == STATUS_BAD_REFRESH_TOKEN
+    assert (await s.refresh(third["refresh_token"]))["status"] == 0
+
+
+async def test_a_call_refused_for_its_scope_does_not_end_the_grace_period(s: Session) -> None:
+    """The scope check runs before the "first use" mark (status 214 is not a use)."""
+    first = (await s.exchange(scope="user.metrics"))["body"]
+    second = (await s.refresh(first["refresh_token"]))["body"]
+    refused = await call(s.client, "/v2/user", "getdevice", second["access_token"])  # user.info
+    assert refused["status"] == 214
+    assert s.fake.grant(s.app.client_id, s.user.userid).previous_refresh == first["refresh_token"]
+    assert await s.meas(second["access_token"]) == 0  # a permitted call is the first use
+    assert s.fake.grant(s.app.client_id, s.user.userid).previous_refresh is None
+    assert (await s.refresh(first["refresh_token"]))["status"] == STATUS_BAD_REFRESH_TOKEN
+
+
 async def test_a_refresh_token_of_another_app_or_nobody_is_refused(s: Session) -> None:
     first = (await s.exchange())["body"]
     other = s.fake.add_app("other-client", "other-secret", ["https://other.example.test/cb"])
