@@ -1,0 +1,17 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "notify:list",
+  "response": {
+    "status": 0,
+    "body": {
+      "profiles": [
+        {
+          "appli": 1,
+          "callbackurl": "https://app.example.test/api/webhooks/withings/synthetic-secret",
+          "comment": "synthetic"
+        }
+      ]
+    }
+  }
+}

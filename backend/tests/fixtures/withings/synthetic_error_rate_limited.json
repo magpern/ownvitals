@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "source": "error envelope: HTTP 200 with a non-zero status",
+  "endpoint": "errors",
+  "response": {
+    "status": 601,
+    "error": "Too Many Request",
+    "body": {
+      "wait_seconds": 30
+    }
+  }
+}

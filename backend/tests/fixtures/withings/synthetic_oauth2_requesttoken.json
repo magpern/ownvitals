@@ -1,0 +1,17 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/oauth2:requesttoken",
+  "response": {
+    "status": 0,
+    "body": {
+      "userid": 4200001,
+      "access_token": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "refresh_token": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "expires_in": 10800,
+      "scope": "user.info,user.metrics,user.activity",
+      "csrf_token": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "token_type": "Bearer"
+    }
+  }
+}

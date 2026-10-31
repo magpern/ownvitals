@@ -1,0 +1,13 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/oauth2:getdemoaccess",
+  "response": {
+    "status": 0,
+    "body": {
+      "access_token": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+      "refresh_token": "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+      "expires_in": 10800
+    }
+  }
+}
