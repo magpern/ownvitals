@@ -273,6 +273,85 @@ REFUSED = {
 }
 
 
+# The frozen-dataclass idiom: normalising a field of the instance itself in ``__post_init__``.
+def post_init(*body: str, method: str = "__post_init__") -> str:
+    """A frozen dataclass whose ``method`` runs ``body`` (one statement per argument)."""
+    return lines(
+        "from dataclasses import dataclass",
+        "@dataclass(frozen=True)",
+        "class Reading:",
+        "    at: str",
+        f"    def {method}(self) -> None:",
+        *(f"        {statement}" for statement in body),
+    )
+
+
+ALLOWED_POST_INIT = {
+    "on self": ("object.__setattr__(self, 'at', self.at.upper())",),
+    "in a branch": ("if self.at:", "    object.__setattr__(self, 'at', self.at.upper())"),
+    "after super": ("super().__post_init__()", "object.__setattr__(self, 'at', 'x')"),
+}
+REFUSED_POST_INIT = {
+    "on another object": ("object.__setattr__(other, 'user_id', 1)",),
+    "self rebound": ("self = other", "object.__setattr__(self, 'user_id', 1)"),
+    "self rebound by a walrus": ("(self := other)", "object.__setattr__(self, 'user_id', 1)"),
+    "self rebound in a loop": ("for self in others:", "    object.__setattr__(self, 'a', 1)"),
+    "in a nested function": ("def f(self):", "    object.__setattr__(self, 'user_id', 1)"),
+    "in a lambda": ("(lambda self: object.__setattr__(self, 'user_id', 1))(other)",),
+    "object.__new__": ("object.__new__(type(self))",),
+    "object.__delattr__": ("object.__delattr__(self, 'at')",),
+    "taken as a value": ("s = object.__setattr__", "s(other, 'user_id', 1)"),
+    "self rebound in a comprehension": ("[object.__setattr__(self, 'a', 1) for self in others]",),
+    "self rebound by a match capture": (
+        "match other:",
+        "    case self:",
+        "        object.__setattr__(self, 'user_id', 1)",
+    ),
+    "self rebound by except as": (
+        "try:",
+        "    raise ValueError",
+        "except ValueError as self:",
+        "    object.__setattr__(self, 'a', 1)",
+    ),
+    "self rebound by an import": ("import os as self", "object.__setattr__(self, 'a', 1)"),
+}
+REFUSED_OUTSIDE_POST_INIT = {
+    "another method": post_init("object.__setattr__(self, 'at', 'x')", method="normalise"),
+    "a static __post_init__": lines(
+        "class R:",
+        "    @staticmethod",
+        "    def __post_init__(self):",
+        "        object.__setattr__(self, 'user_id', 1)",
+    ),
+    "a module-level __post_init__": lines(
+        "def __post_init__(self):", "    object.__setattr__(self, 'user_id', 1)"
+    ),
+    "an explicit call of __post_init__": lines("def forge(ctx):", "    Reading.__post_init__(ctx)"),
+    "a static __post_init__ without self": lines(
+        "class R:",
+        "    def __post_init__(this):",
+        "        object.__setattr__(this, 'user_id', 1)",
+    ),
+}
+
+
+@pytest.mark.parametrize("body", ALLOWED_POST_INIT.values(), ids=ALLOWED_POST_INIT.keys())
+def test_the_frozen_dataclass_idiom_on_its_own_instance_is_allowed(body: tuple[str, ...]) -> None:
+    assert scan_source(post_init(*body)) == []
+
+
+@pytest.mark.parametrize("body", REFUSED_POST_INIT.values(), ids=REFUSED_POST_INIT.keys())
+def test_post_init_reaches_nothing_but_its_own_instance(body: tuple[str, ...]) -> None:
+    assert scan_source(post_init(*body)) != []
+
+
+@pytest.mark.parametrize(
+    "source", REFUSED_OUTSIDE_POST_INIT.values(), ids=REFUSED_OUTSIDE_POST_INIT.keys()
+)
+def test_the_idiom_is_allowed_nowhere_else(source: str) -> None:
+    assert scan_source(source) != []
+
+
 @pytest.mark.parametrize("source", ALLOWED)
 def test_annotations_are_allowed(source: str) -> None:
     assert scan_source(source) == []

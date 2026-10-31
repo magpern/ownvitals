@@ -114,7 +114,16 @@ and admin are expected).
 
 Only `ownvitals/context.py`, `ownvitals/auth/deps.py` (#10) and `ownvitals/jobs/issuer.py` (#9)
 may build a `UserContext` (`user_context_scan.py`); handlers get it through the auth dependency,
-never from a path, query, body or header.
+never from a path, query, body or header. The same scan refuses, in every module,
+`dataclasses.replace`, `object.__setattr__`, `object.__new__`, `object.__delattr__`,
+`x.__class__(...)` and `type(x)(...)` (ADR 0002 §1: "anywhere"). The guard reads "anywhere" with
+one exception (Architect, 2026-10-31): the frozen-dataclass idiom `object.__setattr__(self, ...)`
+written directly in a class's undecorated `__post_init__(self, ...)`, with the bare `self` as the
+first argument and `self` never rebound there. It can only reach an instance of that class, never
+a `UserContext`, which only `context.py` builds and nothing may subclass or name outside
+annotations; calling `__post_init__` explicitly (other than through `super()`) is refused, and
+so is `object.__setattr__` taken as a value. Another target, another method, a nested function
+or lambda, or an alias stays refused.
 
 ## Guards (ADR 0002 §7)
 

@@ -7,7 +7,12 @@
 - any reference to the issuer token (``issuer_token``, ``_ISSUER``);
 - ``dataclasses.replace`` (also imported as ``replace``), ``object.__setattr__`` and
   ``object.__new__``, ``x.__class__(...)`` and ``type(x)(...)``, in any module, whether or not
-  it mentions ``UserContext``; ``functools.partial`` in a module that does;
+  it mentions ``UserContext``; ``functools.partial`` in a module that does. The one exception is
+  the frozen-dataclass idiom ``object.__setattr__(self, ...)`` written directly in the
+  ``__post_init__(self, ...)`` method of a class, where ``self`` is never rebound: it can only
+  reach an instance of that class, never a ``UserContext`` (which lives in its own module and
+  can't be subclassed or named elsewhere). Calling ``__post_init__`` explicitly (other than
+  through ``super()``) is refused, so no other object can be passed as its ``self``;
 - ``Depends(UserContext)``, ``Security(UserContext)``, and a bare ``Depends()`` or
   ``Security()`` (no dependency, or ``None``) on a ``UserContext`` parameter (default value
   or ``Annotated[UserContext, Depends()]``), so FastAPI would try to build one from the
@@ -217,6 +222,80 @@ def _depends_findings(tree: ast.AST, aliases: set[str]) -> list[tuple[int, str]]
     return found
 
 
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _own_nodes(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.AST]:
+    """The nodes of ``function``'s body, not those of functions, lambdas or classes inside it."""
+    found: list[ast.AST] = []
+    pending: list[ast.AST] = list(function.body)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, _SCOPES):
+            continue  # its own scope: its ``self`` may be anything
+        found.append(node)
+        pending.extend(ast.iter_child_nodes(node))
+    return found
+
+
+def _rebinds_self(node: ast.AST) -> bool:
+    """Any binding of the name ``self``: assignment, ``for``, ``with``, walrus, ``del``,
+    ``except ... as``, ``import ... as``, a ``match`` capture."""
+    if isinstance(node, ast.Name):
+        return node.id == "self" and not isinstance(node.ctx, ast.Load)
+    if isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar):
+        return node.name == "self"
+    if isinstance(node, ast.MatchMapping):
+        return node.rest == "self"
+    if isinstance(node, ast.alias):
+        return (node.asname or node.name.split(".")[0]) == "self"
+    return False
+
+
+def _post_init_setattrs(tree: ast.AST) -> set[int]:
+    """Ids of the ``object.__setattr__(self, ...)`` calls of the frozen-dataclass idiom."""
+    allowed: set[int] = set()
+    for cls in ast.walk(tree):
+        if not isinstance(cls, ast.ClassDef):
+            continue
+        for method in cls.body:
+            if not (
+                isinstance(method, ast.FunctionDef)
+                and method.name == "__post_init__"
+                and not method.decorator_list  # no staticmethod or classmethod
+                and method.args.args
+                and method.args.args[0].arg == "self"
+                and not method.args.posonlyargs
+            ):
+                continue
+            nodes = _own_nodes(method)
+            if any(_rebinds_self(n) for n in nodes):
+                continue
+            allowed |= {
+                id(n)
+                for n in nodes
+                if isinstance(n, ast.Call)
+                and _dotted(n.func) == "object.__setattr__"
+                and n.args
+                and isinstance(n.args[0], ast.Name)
+                and n.args[0].id == "self"
+            }
+    return allowed
+
+
+def _explicit_post_init(node: ast.Call) -> bool:
+    """``x.__post_init__(...)``, but not ``super().__post_init__(...)``."""
+    func = node.func
+    if not (isinstance(func, ast.Attribute) and func.attr == "__post_init__"):
+        return False
+    receiver = func.value
+    return not (
+        isinstance(receiver, ast.Call)
+        and isinstance(receiver.func, ast.Name)
+        and receiver.func.id == "super"
+    )
+
+
 def _forging_call(node: ast.Call) -> str | None:
     func = node.func
     if isinstance(func, ast.Attribute) and func.attr == "__class__":
@@ -261,12 +340,18 @@ def scan_source(source: str) -> list[tuple[int, str]]:
     refused = _spellings(tree, ALWAYS_REFUSED) | (
         _spellings(tree, REFUSED_WITH_CONTEXT) if NAME in source else set()
     )
+    post_init_setattrs = _post_init_setattrs(tree)
+    called = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         callee = _dotted(node.func)
+        if callee in REFUSED_BUILTIN_CALLS and id(node) in post_init_setattrs:
+            continue  # the frozen-dataclass idiom on its own instance (see the module docstring)
         if callee in refused or callee in REFUSED_BUILTIN_CALLS:
             found.append((node.lineno, f"call to {callee}"))
+        elif _explicit_post_init(node):
+            found.append((node.lineno, "explicit call of __post_init__"))
         elif (why := _forging_call(node)) is not None:
             found.append((node.lineno, why))
 
@@ -280,4 +365,11 @@ def scan_source(source: str) -> list[tuple[int, str]]:
         elif isinstance(node, ast.Constant) and (node.value == NAME or node.value in TOKEN_NAMES):
             # A string such as getattr(module, "UserContext"); string annotations are skipped.
             found.append((node.lineno, f"string reference to {node.value}"))
+        elif (
+            isinstance(node, ast.Attribute)
+            and _dotted(node) in REFUSED_BUILTIN_CALLS
+            and id(node) not in called
+        ):
+            # ``s = object.__setattr__`` and a call through ``s`` later: refused where it is taken.
+            found.append((node.lineno, f"reference to {_dotted(node)}"))
     return sorted(set(found))
