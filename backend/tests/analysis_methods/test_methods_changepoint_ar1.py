@@ -2,9 +2,9 @@
 
 Issue #68. Before it, PELT took the noise level of independent noise, and 100-point AR(1) series
 had a spurious change point in about 30 % of runs at phi 0.3 and 80 % at phi 0.5. The cost is now
-scaled by the long-run standard deviation, estimated from lag-1 and lag-2 differences, which a
-level shift hardly touches. The targets, tested here on fixed seeds and tabulated with a larger
-run in ``docs/dev/analysis-methods.md``:
+scaled by the long-run standard deviation, estimated from the lag-1 to lag-5 differences (a
+variogram fit, ``MAX_LAG = 5``), which a level shift hardly touches. The targets, tested here on
+fixed seeds and tabulated with a larger run in ``docs/dev/analysis-methods.md``:
 
 * at most 5 % of 100-point AR(1) series with phi up to 0.5 get a change point they do not have;
 * a level shift of 2 long-run standard deviations in the middle of such a series is found, within

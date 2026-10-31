@@ -11,6 +11,9 @@ from types import MappingProxyType
 SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
     {
         "alembic_version": "Alembic migration bookkeeping; no app access",
+        "connection_keks": "check values of the key ring's ids (ADR 0004 sections 3 and 4), "
+        "recorded and read at startup before any user is known; reached only through "
+        "ownvitals.crypto.keks",
     }
 )
 # System tables the app role must have no privilege on at all (guard 2). The others get the

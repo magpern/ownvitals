@@ -310,6 +310,7 @@ async def test_the_web_app_does_not_start_with_a_privileged_role(database_url: s
             pytest.fail("the app must not start")
 
 
+@pytest.mark.usefixtures("schema")  # web reads connection_keks at startup
 async def test_the_web_app_starts_with_the_app_role(app_database_url: str) -> None:
     settings = Settings(
         database_url=app_database_url,  # pyright: ignore[reportArgumentType]

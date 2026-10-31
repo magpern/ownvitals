@@ -26,6 +26,7 @@ from dbtools import (
     create_owned_tables,
     drop_tables,
     forget_libpq_host_environment,
+    migrated,
     require_loopback_database,
     unavailable,
     url_for,
@@ -34,6 +35,9 @@ from dbtools import (
 if sys.platform == "win32":
     # psycopg's async mode does not run on the default Windows (proactor) event loop.
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# The current KEK in every test's secrets directory: random for each run, never committed.
+TEST_RUN_KEK = secrets.token_bytes(32)
 
 
 @pytest.fixture(autouse=True)
@@ -50,11 +54,23 @@ def secrets_dir(
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
-    """An empty secrets directory, so ``/run/secrets`` of the machine never leaks into a test.
-    Tests that need secret files write them here."""
+    """A secrets directory of the test's own, so ``/run/secrets`` of the machine never leaks
+    into a test. It holds only ``connection_kek``, the random test KEK of this run (never a
+    committed one), so web and the worker find a valid current KEK (ADR 0004 section 3); its
+    bytes are the ``current_kek`` fixture. One key per run, not per test: a schema that a
+    module's tests share keeps the one check row of ``kek-1`` that the first start recorded, and
+    every later start must match it. Tests that need other keys or secret files write them
+    here."""
     directory = tmp_path_factory.mktemp("secrets")
+    (directory / "connection_kek").write_bytes(TEST_RUN_KEK.hex().encode() + b"\n")
     monkeypatch.setenv("OWNVITALS_SECRETS_DIR", str(directory))
     return directory
+
+
+@pytest.fixture
+def current_kek(secrets_dir: Path) -> bytes:
+    """The 32 bytes of this test's current KEK (``secrets_dir / "connection_kek"``)."""
+    return bytes.fromhex((secrets_dir / "connection_kek").read_text(encoding="ascii").strip())
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -154,9 +170,20 @@ def owner_database_url(role_urls: RoleUrls) -> str:
 
 
 @pytest.fixture
-def owned_tables(owner_database_url: str) -> Iterator[None]:
+def schema(owner_database_url: str) -> Iterator[None]:
+    """The migrated schema (every revision) for one test, removed afterwards. Web and the
+    worker read ``connection_keks`` at startup (ADR 0004 section 3), so a test that starts
+    either on a real database needs it (``migrated`` forgets the check rows it records)."""
+    with migrated(owner_database_url):
+        yield
+
+
+@pytest.fixture
+def owned_tables(schema: None, owner_database_url: str) -> Iterator[None]:
     """Test-only owned parent and child tables (``dbtools.PARENT``, ``CHILD``), as a migration
-    by the owner would make them, with the policy of ``enable_owner_rls``; dropped afterwards."""
+    by the owner would make them, with the policy of ``enable_owner_rls``, on top of the
+    migrated schema (``schema``: the execution contexts of ``ctx.py`` start web); dropped
+    afterwards."""
     create_owned_tables(owner_database_url)
     try:
         yield
