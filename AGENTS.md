@@ -252,14 +252,21 @@ milestones add `withings.md`, `analysis.md` and others. Read the files for the a
 
 | Workflow / job | Runs | What it does |
 |---|---|---|
-| `ci` / `checks` | every PR, weekly, manual | Frozen-spec guard (the three spec files equal `635901d`); gitleaks over the PR's own commits (weekly: whole history); `bash -n` and shellcheck on `scripts/*.sh`; actionlint |
-| `ci` / `ci` | always | The required check: fails unless every needed job succeeded |
+| `ci` / `changes` | always | `scripts/ci-changes.sh`: which areas the PR changed (`backend`, `frontend`, `stack`, `all`); a change to `.github/`, `.gitattributes` or the CI scripts, the weekly run and a manual run set `all`; a diff that can't be computed runs everything |
+| `ci` / `checks` | always | Frozen-spec guard (the three spec files equal `635901d`); gitleaks over the PR's own commits (weekly: whole history); `bash -n` and shellcheck on `scripts/*.sh`; the CI gate and change-filter tests (`scripts/test-ci-gate.sh`); actionlint |
+| `ci` / `backend` | `backend` | From `backend/`: `uv sync --locked`, ruff, format check, pyright, pytest against a Postgres 17 service. Until `backend/` exists its steps skip |
+| `ci` / `frontend` | `frontend` | From `frontend/`: `npm ci`, lint, typecheck, Vitest, build. Until `frontend/` exists its steps skip |
+| `ci` / `ci` | always | The required check (`scripts/ci-gate.sh`): `changes` and `checks` succeeded, and every other job succeeded or was skipped while its filter is false. Fails closed |
 | `pr-title` | every PR title change | commitlint (`commitlint.config.cjs`) on the title with ` (#<n>)` appended, after a self-test |
 
-Every GitHub Action is pinned by full commit SHA with the version in a comment; tools downloaded
-in CI are checksum-verified. Dependabot keeps Actions current (and uv, npm and Docker once their
-manifests exist). Jobs added later (backend, frontend, e2e, image scan, audits) join `needs` of
-the `ci` gate and this table.
+A new job joins `needs` of `ci`, `JOBS`/`FILTERS` in `scripts/ci-gate.sh`, the gate tests and
+this table in the same PR.
+
+Every GitHub Action is pinned by full commit SHA with the version in a comment. Release
+binaries downloaded in CI (gitleaks; later Trivy) are checksum-verified, and the shellcheck and
+actionlint images are pinned by digest. commitlint runs through `npx` at exact versions (no
+lockfile), and the Postgres service image is pinned by exact tag. Dependabot keeps Actions
+current (and uv, npm and Docker once #7 adds them).
 
 New advisory: **upgrade first**. Only if no fix exists or the code path is unreachable, add a
 dated ignore with a reason comment. Never ignore without a reason.

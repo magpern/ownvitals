@@ -13,8 +13,8 @@
   push needs a fresh (delta) review.
 - The Architect's integration review (AGENTS.md review gate, item 7) comes before the merge.
 - Merge only with `gh pr merge <n> --squash --match-head-commit <reviewed-sha> --delete-branch`.
-- Never `--auto`, never `--admin`, never an approving review, never a ruleset change, never a
-  comment starting `Human review:`.
+- Never `--auto`, never `--admin`, never an approving review, never a ruleset change to get a
+  merge through, never a comment starting `Human review:`.
 
 ## Status and data
 
