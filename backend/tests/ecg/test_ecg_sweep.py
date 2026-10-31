@@ -1,7 +1,7 @@
 """The >= 200-seed sweep (tests file, "Seeds and other tests"). Synthetic strips only.
 
-Marked ``slow`` and skipped unless ``OWNVITALS_ECG_SLOW=1`` (see ``conftest.py``); run by #40
-and by every PR that bumps a module version::
+Skipped unless ``OWNVITALS_ECG_SLOW=1`` (read at collection); run by #40 and by every PR that
+bumps a module version::
 
     OWNVITALS_ECG_SLOW=1 uv run pytest tests/ecg/test_ecg_sweep.py
 
@@ -11,12 +11,19 @@ a tolerance is in the tail of the generator: it is reported there, never re-seed
 file, "HR and HRV"); ``KNOWN_TAIL`` lists the ones that are, with the number allowed.
 """
 
+import os
+
 import calibrate
 import pytest
 import tolerances as tol
 from scenarios import RATES
 
 SYNTHETIC = True
+
+SLOW_ENV = "OWNVITALS_ECG_SLOW"
+pytestmark = pytest.mark.skipif(
+    os.environ.get(SLOW_ENV) != "1", reason=f"the >= 200-seed sweep runs only with {SLOW_ENV}=1"
+)
 
 SEEDS = 200
 
@@ -48,7 +55,6 @@ def survey(rows: dict[tuple[str, int], calibrate.Row], condition: str, fs: int) 
     return rows[(condition, fs)]
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("fs", RATES)
 @pytest.mark.parametrize("condition", ROWS)
 def test_the_sweep_meets_the_gate_and_accuracy_rows(
@@ -70,7 +76,6 @@ def test_the_sweep_meets_the_gate_and_accuracy_rows(
         assert condition in tol.MAY_FAIL, f"no {condition} strip passed: the statistics are vacuous"
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("fs", RATES)
 @pytest.mark.parametrize("condition", sorted(tol.GATE_PASS_MAX))
 def test_the_sweep_rejects_the_artefacts(condition: str, fs: int) -> None:
@@ -78,7 +83,6 @@ def test_the_sweep_rejects_the_artefacts(condition: str, fs: int) -> None:
     assert row.pass_share <= tol.GATE_PASS_MAX[condition], row
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("fs", RATES)
 @pytest.mark.parametrize("condition", sorted(set(tol.CLEAN_CONDITIONS) | set(tol.NOISY_CONDITIONS)))
 def test_the_sweep_keeps_hr_and_hrv_within_the_tolerances(
