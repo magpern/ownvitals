@@ -1,6 +1,7 @@
 """Wire-level pieces of the Withings fake: constants, the request and response types, the clock,
-the signature helper and the webhook form. No behaviour of its own; ``withingscore`` re-exports
-the names so callers import everything from there. Synthetic only, standard library only.
+the signature helper, the webhook form and the JSON response builders. No behaviour of its own;
+``withingscore`` re-exports the names so callers import everything from there. Synthetic only,
+standard library only.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ NONCE_TTL = 30 * 60  # public OpenAPI file
 SUBSCRIPTION_CANCEL_AFTER = 20 * 86_400  # failing for 20 days cancels it
 WEBHOOK_RETRY_DELAYS = (10, 60, 3_600, 14_400)  # after the first cycle; 2 attempts per cycle
 WEBHOOK_ATTEMPTS_PER_CYCLE = 2
+WEBHOOK_RESPONSE_TIMEOUT = 3.0  # seconds; findings section 2 says "a few seconds" (assumed, short)
 SCOPES = ("user.info", "user.metrics", "user.activity", "user.sleepevents")
 DEMO_USERID = 9_000_001
 
@@ -50,7 +52,12 @@ APPLI_SCOPE: dict[int, str] = {  # notification content page; appli 53 has no us
     46: "user.info",
     **dict.fromkeys((50, 51, 52, 98, 99, 100), "user.sleepevents"),
 }
-MASKED = frozenset({"client_secret", "refresh_token", "access_token", "code", "signature", "nonce"})
+MASKED = frozenset(  # the log never shows these; callbackurl embeds the webhook secret
+    {
+        "client_secret", "refresh_token", "access_token", "code", "signature", "nonce",
+        "callbackurl", "new_callbackurl",
+    }
+)  # fmt: skip
 
 
 class Clock(Protocol):
@@ -88,11 +95,15 @@ class Request:
     def path(self) -> str:
         return urlsplit(self.url).path
 
+    def query_params(self) -> dict[str, str]:
+        return dict(parse_qsl(urlsplit(self.url).query, keep_blank_values=True))
+
+    def form_params(self) -> dict[str, str]:
+        return dict(parse_qsl(self.body.decode("utf-8", "replace"), keep_blank_values=True))
+
     def params(self) -> dict[str, str]:
-        """Query string and form body merged (the body wins)."""
-        out = dict(parse_qsl(urlsplit(self.url).query, keep_blank_values=True))
-        out.update(parse_qsl(self.body.decode("utf-8", "replace"), keep_blank_values=True))
-        return out
+        """Query string and form body merged (the body wins). The API reads ``form_params``."""
+        return {**self.query_params(), **self.form_params()}
 
     def bearer(self) -> str | None:
         value = self.headers.get("authorization", "")
@@ -108,6 +119,23 @@ class Response:
 
     def json(self) -> Any:
         return json.loads(self.body)
+
+
+def json_response(payload: Mapping[str, Any]) -> Response:
+    headers = {"content-type": "application/json", SYNTHETIC_HEADER: "true"}
+    return Response(200, headers, json.dumps(payload, separators=(",", ":")).encode())
+
+
+def ok_response(body: Mapping[str, Any]) -> Response:
+    return json_response({"status": OK, "body": body})
+
+
+def error_response(status: int, text: str, wait_seconds: int | None = None) -> Response:
+    """An API error: HTTP 200 with a non-zero ``status`` (601 may carry ``wait_seconds``)."""
+    payload: dict[str, Any] = {"status": status, "error": text}
+    if wait_seconds is not None:
+        payload["body"] = {"wait_seconds": wait_seconds}
+    return json_response(payload)
 
 
 class ConnectionDropped(Exception):
@@ -241,3 +269,5 @@ class LogEntry:
     api_status: int | None = None
     http_status: int | None = None
     outcome: str = "answered"  # or "dropped"
+    method: str = ""
+    query_names: tuple[str, ...] = ()  # parameters that came in the URL's query string
