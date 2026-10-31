@@ -258,7 +258,7 @@ usable readings (#37), and returns "insufficient data" (no finding) when a polic
 - **Hydration (77) as TBW**: its definition isn't documented; 168 + 169 is TBW by definition.
 - **No persistence for trend tests** (first pass): 59 to 66 % of no-change years got a false
   trend episode per metric and direction. **14 consecutive evaluations**: 15 % at φ 0.6. A
-  lower α instead of persistence: rejected by the Architect (same α kept); persistence also
+  lower α instead of persistence: not chosen, the Architect kept α; persistence also
   removes one-day blips that a lower α would only make rarer.
 
 ## Consequences
