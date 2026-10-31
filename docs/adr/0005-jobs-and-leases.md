@@ -1,6 +1,6 @@
 # ADR 0005: Jobs, leases, fencing and the worker
 
-Status: Accepted (2026-10-31, #4)
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 (see "Amendments")
 
 ## Context
 
@@ -131,11 +131,17 @@ queued ──claim──> running ──> completed | failed | cancelled
     `ownvitals_owner`, built-ins only, no SQL text) and its row-level `BEFORE UPDATE OR DELETE`
     trigger on the audit table (#12; classbeat ADR 0011 §1). No queue function touches that
     table, and `ownvitals_queue` has no privilege on it;
-  - from #21, `ensure_month_partitions` (ADR 0002 §2), owned by `ownvitals_owner`;
-  - from M1, the webhook-secret function (ADR 0004 §4), owned by `ownvitals_owner`: it appends,
-    retires or re-hashes entries in the `webhook_secrets` column of one `withings_apps` row and
-    writes the admin-audit row, nothing else; `ownvitals_app` may execute it, and a guard keeps
-    every caller but the worker's rotation module out.
+  - from #21, `ensure_month_partitions(table, from_month, to_month)` (ADR 0002 §2), owned by
+    `ownvitals_owner` (creating partitions requires owning the parent); a guard keeps every
+    caller but the scheduler and backfill modules out (amended 2026-10-31, #49: a month range
+    and the backfill caller);
+  - from M1, the webhook-secret function (ADR 0004 §4), owned by the `NOLOGIN` role
+    `ownvitals_webhook_secrets` with ADR 0002 §3's column privileges (amended 2026-10-31, #49;
+    it was `ownvitals_owner`): it appends, retires, re-hashes or deletes retired entries in the
+    `webhook_secrets` column of one `withings_apps` row under ADR 0004 §4's input rules, may
+    clear `rotation_requested_at`, and writes the admin-audit row, nothing else;
+    `ownvitals_app` may execute it, and a guard keeps every caller but the worker's rotation
+    module out.
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day
@@ -284,9 +290,13 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
   function; over quota, the event is recorded and no job is added (Withings still gets 200; the
   poll catches up).
 - **Owner-less upkeep** (retention purges such as the 30-day `webhook_events` purge, creating
-  partitions ahead through `ensure_month_partitions` (ADR 0002 §2), secret rotation scheduling)
-  runs as maintenance tasks in the worker loop, like reap and purge, never as queue rows without
-  an owner: `jobs` stays an owned table.
+  partitions ahead through `ensure_month_partitions` (ADR 0002 §2), secret rotation scheduling
+  and picking up a `rotation_requested_at` request (ADR 0004 §4)) runs as maintenance tasks in
+  the worker loop, like reap and purge, never as queue rows without an owner: `jobs` stays an
+  owned table.
+- **Past months for a backfill** (amended 2026-10-31, #49): a `withings_backfill` run calls
+  `ensure_month_partitions` for its window's months before inserting the window, in a short
+  fenced transaction of its own, never in the transaction that inserts the window (ADR 0002 §2).
 
 ## Alternatives
 
@@ -313,3 +323,16 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
 - Every M1 kind reuses the lease, fence and event rules unchanged; M1 amends §3 for its new
   function families and adds §8's columns with a queue version bump.
 - Threat model T44 to T51 cite this ADR.
+
+## Amendments
+
+### 2026-10-31 (#49): follow-ups of the #41 review
+
+Architect decisions, made in place above and marked "amended 2026-10-31, #49":
+
+- §3: the webhook-secret function is owned by `ownvitals_webhook_secrets` instead of
+  `ownvitals_owner`, may also delete retired entries and clear `rotation_requested_at`, and
+  enforces ADR 0004 §4's input rules; `ensure_month_partitions` takes a month range and has two
+  callers, the scheduler and backfill modules.
+- §8: a backfill creates the past months its window needs, in a short transaction before the
+  window's write.
