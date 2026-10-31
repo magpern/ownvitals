@@ -6,7 +6,9 @@ httpx transport of the backend tests) and the e2e service (#36) run the same cod
 carries ``x-ownvitals-synthetic: true``; the data comes from ``withingsdata`` (seeded, synthetic,
 never real health data). Constants, ``Request``/``Response``, ``ManualClock``, ``sign``,
 ``webhook_form`` and the state records (``Grant``, ``Subscription``, ``Failure``...) are in
-``withingswire``; ``notify`` is in ``withingsnotify``.
+``withingswire``; ``notify`` is in ``withingsnotify``; the refusals that make a regressed client
+fail (POST and form body only, no secret in the query string, callback URL rules, the 120 requests
+a minute limit) are in ``withingsrules``, which lists their sources and assumptions.
 
 Behaviour (public spec, ``docs/withings-findings.md`` section 2): authorization code valid 30 s
 and single use; access token 3 h; refresh token 1 year; every refresh rotates the pair and the old
@@ -16,20 +18,29 @@ a non-zero ``status``; 601 may carry ``body.wait_seconds``; failure injection pe
 
 Assumptions (the spec does not say; each is one constant or one place in the code, listed in the
 PR): the status codes marked "assumed" in ``withingswire``, the OAuth scope of each endpoint
-(``DATA_ROUTES``), and the signed string and unknown-user answer of ``revoke``.
+(``store.DATA_ROUTES``), the signed string and unknown-user answer of ``revoke``, and three
+behaviours of the token lifecycle that the spec leaves open (each tested, each for the probe to
+confirm):
+  1. a new authorization of the same app and user drops every earlier token, access and refresh
+     (``_exchange_code``): a reconnect cannot revive a pair from before it;
+  2. refreshing with the current refresh token ends an older token still in its grace
+     (``_rotate``): stricter than "valid up to 8 h", and the safe direction for a client;
+  3. the scope check runs before the "first use" mark (``_authenticate``): a call refused with
+     status 214 does not end the grace of the previous refresh token.
 """
 
 from __future__ import annotations
 
 import hmac
 import json
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable
 from typing import Any
 from urllib.parse import urlencode
 
 import withingsstore as store
 from withingsdata import SyntheticDataset, generate_dataset
-from withingsnotify import SubscriptionMixin, notify
+from withingsnotify import HeadCheck, SubscriptionMixin, notify
+from withingsrules import RATE_LIMIT_PER_MINUTE, RateLimiter, api_refusal
 from withingsstreams import rng_for
 from withingswire import (
     ACCESS_TTL,
@@ -40,7 +51,6 @@ from withingswire import (
     DEMO_USERID,
     MASKED,
     NONCE_TTL,
-    OK,
     REFRESH_GRACE,
     REFRESH_TTL,
     SCOPES,
@@ -51,6 +61,7 @@ from withingswire import (
     STATUS_INVALID_TOKEN,
     STATUS_NO_SCOPE,
     STATUS_NOT_IMPLEMENTED,
+    STATUS_RATE_LIMITED,
     SYNTHETIC_HEADER,
     App,
     AuthCode,
@@ -66,23 +77,10 @@ from withingswire import (
     Response,
     Subscription,
     Unroutable,
+    error_response,
+    ok_response,
     sign,
 )
-
-# endpoint -> (store function, any one of these scopes). The public docs map scopes to
-# notification applis, not to endpoints: this table is assumed from those and the scope texts.
-DATA_ROUTES: dict[tuple[str, str], tuple[Callable[..., dict[str, Any]], tuple[str, ...]]] = {
-    ("/measure", "getmeas"): (store.getmeas, ("user.metrics",)),
-    ("/v2/heart", "list"): (store.heart_list, ("user.metrics",)),
-    ("/v2/heart", "get"): (store.heart_get, ("user.metrics",)),
-    ("/v2/measure", "getactivity"): (store.getactivity, ("user.activity",)),
-    ("/v2/measure", "getintradayactivity"): (store.getintradayactivity, ("user.activity",)),
-    ("/v2/measure", "getworkouts"): (store.getworkouts, ("user.activity",)),
-    ("/v2/sleep", "get"): (store.sleep_get, ("user.activity",)),
-    ("/v2/sleep", "getsummary"): (store.sleep_getsummary, ("user.activity",)),
-    ("/v2/user", "getdevice"): (store.getdevice, ("user.info",)),
-    ("/v2/user", "getgoals"): (store.getgoals, ("user.info", "user.metrics")),
-}
 
 
 class FakeWithings(SubscriptionMixin):
@@ -93,6 +91,7 @@ class FakeWithings(SubscriptionMixin):
         seed: int = 0,
         page_size: int = 100,
         strict_hosts: bool = True,
+        rate_limit: int | None = RATE_LIMIT_PER_MINUTE,
     ) -> None:
         self.clock: Clock = clock or ManualClock()
         self.page_size = page_size
@@ -106,6 +105,7 @@ class FakeWithings(SubscriptionMixin):
         self.request_count = 0
         self.endpoint_counts: dict[str, int] = {}
         self.default_head_status = 200
+        self.limiter = RateLimiter(rate_limit)  # requests a minute per app; None: unlimited
         self.consenting_userid: int | None = None  # who approves on the authorize page
         self.deny_next_authorization = False
         self._seed = seed
@@ -191,9 +191,18 @@ class FakeWithings(SubscriptionMixin):
     # ---------------------------------------------------------------------------- handling
 
     def handle(self, request: Request, *, head_status: int | None = None) -> Response:
-        """Answer one request. ``head_status`` is the status of the HEAD check of
-        ``callback_to_check`` (default ``default_head_status``). May raise ``ConnectionDropped``
-        or ``Unroutable``."""
+        """Answer one request. A ``notify`` that needs the HEAD check of a callback URL takes
+        ``head_status`` for it (default ``default_head_status``); the async transport uses
+        ``start`` instead and HEADs the receiver for real. May raise ``ConnectionDropped`` or
+        ``Unroutable``."""
+        step = self.start(request)
+        if isinstance(step, HeadCheck):
+            step = step.finish(self.default_head_status if head_status is None else head_status)
+        return step
+
+    def start(self, request: Request) -> Response | HeadCheck:
+        """Answer one request, or, when ``notify`` is about to accept a callback URL, return
+        the ``HeadCheck`` whose ``finish(status)`` completes it (same exceptions as ``handle``)."""
         if self.strict_hosts and request.host not in (API_HOST, ACCOUNT_HOST):
             raise Unroutable(request.host)
         if self.strict_hosts and (request.host == ACCOUNT_HOST) != (request.path == AUTHORIZE_PATH):
@@ -203,7 +212,10 @@ class FakeWithings(SubscriptionMixin):
         self.request_count += 1
         count = self.endpoint_counts[key] = self.endpoint_counts.get(key, 0) + 1
         masked = {k: ("***" if k in MASKED else v) for k, v in p.items()}
-        entry = LogEntry(self.request_count, key, masked, self.clock.now())
+        entry = LogEntry(
+            self.request_count, key, masked, self.clock.now(),
+            method=request.method, query_names=tuple(request.query_params()),
+        )  # fmt: skip
         self.log.append(entry)
         fired = [
             f
@@ -219,13 +231,19 @@ class FakeWithings(SubscriptionMixin):
         before = next((f for f in replacing if f.when == "before"), None)
         if before is not None:
             return self._failed(before, entry, processed=False)
-        response = self._dispatch(request, p, key, head_status)
-        response.delay += sum(f.seconds for f in fired if f.kind == "delay")
-        after = next((f for f in replacing if f.when == "after"), None)
-        if after is not None:
-            return self._failed(after, entry, processed=True)
-        self._finish(entry, response)
-        return response
+
+        def complete(response: Response) -> Response:
+            response.delay += sum(f.seconds for f in fired if f.kind == "delay")
+            after = next((f for f in replacing if f.when == "after"), None)
+            if after is not None:
+                return self._failed(after, entry, processed=True)
+            self._finish(entry, response)
+            return response
+
+        step = self._dispatch(request, p, key)
+        if isinstance(step, HeadCheck):
+            return HeadCheck(step.url, lambda status: complete(step.finish(status)))
+        return complete(step)
 
     def _finish(self, entry: LogEntry, response: Response) -> None:
         entry.http_status = response.status_code
@@ -248,22 +266,28 @@ class FakeWithings(SubscriptionMixin):
         self._finish(entry, response)
         return response
 
-    def _dispatch(
-        self, request: Request, p: dict[str, str], key: str, head_status: int | None
-    ) -> Response:
-        path, action = request.path, p.get("action", "")
-        if path == AUTHORIZE_PATH:
+    def _dispatch(self, request: Request, p: dict[str, str], key: str) -> Response | HeadCheck:
+        """``p`` is query and body merged (for the log); an API call is read from its body only."""
+        if request.path == AUTHORIZE_PATH:
             return self._authorize_page(p)
-        if (path, action) in DATA_ROUTES:
-            return self._data(request, p, key)
+        entry = self._access.get(request.bearer() or "")
+        client_id = p.get("client_id") or (entry[0].client_id if entry else "")
+        if client_id in self.apps and not self.limiter.admit(client_id, self.clock.now()):
+            return self._err(STATUS_RATE_LIMITED, "too many requests")
+        if refusal := api_refusal(request):
+            return self._err(*refusal)
+        form, path = request.form_params(), request.path
+        action = form.get("action", "")
+        if (path, action) in store.DATA_ROUTES:
+            return self._data(request, form, key)
         if path == "/v2/oauth2" and action == "requesttoken":
-            return self._requesttoken(p)
+            return self._requesttoken(form)
         if path == "/v2/oauth2" and action in ("revoke", "getdemoaccess"):
-            return self._signed_oauth(action, p)
+            return self._signed_oauth(action, form)
         if path == "/v2/signature" and action == "getnonce":
-            return self._getnonce(p)
+            return self._getnonce(form)
         if path == "/notify" and action in ("subscribe", "get", "list", "update", "revoke"):
-            return self._notify(request, action, p, head_status)
+            return self._notify(request, action, form)
         return self._err(STATUS_NOT_IMPLEMENTED, "wrong action or wrong webservice")
 
     # ----------------------------------------------------------------------------- helpers
@@ -271,21 +295,8 @@ class FakeWithings(SubscriptionMixin):
     def _token(self, bits: int = 160) -> str:
         return f"{self._rng.getrandbits(bits):0{bits // 4}x}"
 
-    @staticmethod
-    def _json(payload: Mapping[str, Any]) -> Response:
-        headers = {"content-type": "application/json", SYNTHETIC_HEADER: "true"}
-        return Response(200, headers, json.dumps(payload, separators=(",", ":")).encode())
-
-    @staticmethod
-    def _ok(body: Mapping[str, Any]) -> Response:
-        return FakeWithings._json({"status": OK, "body": body})
-
-    @staticmethod
-    def _err(status: int, text: str, wait_seconds: int | None = None) -> Response:
-        payload: dict[str, Any] = {"status": status, "error": text}
-        if wait_seconds is not None:
-            payload["body"] = {"wait_seconds": wait_seconds}
-        return FakeWithings._json(payload)
+    _ok = staticmethod(ok_response)
+    _err = staticmethod(error_response)
 
     def _app_signed(self, action: str, p: dict[str, str]) -> App | None:
         """The app of a signed call; consumes the nonce. Signs ``action,client_id,nonce``."""
@@ -462,7 +473,7 @@ class FakeWithings(SubscriptionMixin):
         return grant
 
     def _data(self, request: Request, p: dict[str, str], key: str) -> Response:
-        function, scopes = DATA_ROUTES[(request.path, p["action"])]
+        function, scopes = store.DATA_ROUTES[(request.path, p["action"])]
         grant = self._authenticate(request, scopes)
         if isinstance(grant, Response):
             return grant
@@ -477,10 +488,8 @@ class FakeWithings(SubscriptionMixin):
 
     # ---------------------------------------------------------------------------- notify
 
-    def _notify(
-        self, request: Request, action: str, p: dict[str, str], head_status: int | None
-    ) -> Response:
+    def _notify(self, request: Request, action: str, p: dict[str, str]) -> Response | HeadCheck:
         grant = self._authenticate(request, SCOPES)
         if isinstance(grant, Response):
             return grant
-        return notify(self, grant, action, p, head_status)
+        return notify(self, grant, action, p)

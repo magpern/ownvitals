@@ -1,11 +1,12 @@
 """``notify`` of the Withings fake: subscribe, get, list, update and revoke.
 
 Synthetic only, standard library only. Called by ``FakeWithings`` after it authenticated the
-Bearer token; ``head_status`` is the answer of the HEAD check of the callback URL (Withings
-sends a HEAD to it and wants a 2xx before it registers or moves a subscription). A callback URL
-is at most 255 characters. Documented in the public docs but not enforced here: HTTPS on a
-domain name (a deployment that fails the rule is limited to 10 linked users), because the tests
-call back into in-process receivers.
+Bearer token. A callback URL must follow ``withingsrules.callback_url_problem`` (at most 255
+characters, HTTPS, port 443, a domain name) and is refused with status 293 otherwise. Withings
+then sends a HEAD to it and wants a 2xx before it registers or moves a subscription: ``notify``
+returns a ``HeadCheck`` at that point, after the token, the appli, the scope and the URL rules
+passed and just before the subscription changes, so a request that was going to fail anyway
+causes no HEAD (assumed: the public docs only say the HEAD is part of creating the subscription).
 
 Assumptions (the docs do not say): subscribing the same URL and appli again updates the comment;
 several URLs may exist for one appli; ``update`` accepts any combination of the new_* fields.
@@ -13,8 +14,11 @@ several URLs may exist for one appli; ``update`` accepts any combination of the 
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from withingsrules import callback_url_problem
 from withingswire import (
     APPLI_SCOPE,
     STATUS_BAD_CALLBACK,
@@ -24,7 +28,6 @@ from withingswire import (
     SUBSCRIPTION_CANCEL_AFTER,
     Clock,
     Grant,
-    Request,
     Response,
     Subscription,
 )
@@ -34,7 +37,7 @@ if TYPE_CHECKING:
 
 
 class SubscriptionMixin:
-    """The subscription bookkeeping that webhook senders and the HEAD check use."""
+    """The subscription bookkeeping that webhook senders use."""
 
     subscriptions: list[Subscription]
     clock: Clock
@@ -51,12 +54,13 @@ class SubscriptionMixin:
         elif self.clock.now() - sub.failing_since >= SUBSCRIPTION_CANCEL_AFTER:
             self.subscriptions.remove(sub)
 
-    def callback_to_check(self, request: Request) -> str | None:
-        """The callback URL a ``notify subscribe`` or ``update`` asks Withings to HEAD."""
-        params = request.params()
-        if request.path != "/notify" or params.get("action") not in ("subscribe", "update"):
-            return None
-        return params.get("new_callbackurl" if params["action"] == "update" else "callbackurl")
+
+@dataclass
+class HeadCheck:
+    """``notify`` waits for the HEAD of ``url``: ``finish(status)`` gives the final response."""
+
+    url: str
+    finish: Callable[[int], Response]
 
 
 def _appli(raw: str | None) -> int | None:
@@ -67,22 +71,29 @@ def _profile(sub: Subscription) -> dict[str, Any]:
     return {"appli": sub.appli, "callbackurl": sub.callbackurl, "comment": sub.comment}
 
 
-def _callback_ok(fake: FakeWithings, url: str, head_status: int | None) -> bool:
-    """At most 255 characters, and the HEAD check answered 2xx."""
-    status = fake.default_head_status if head_status is None else head_status
-    return 0 < len(url) <= 255 and 200 <= status < 300
+def _head_ok(status: int) -> bool:
+    return 200 <= status < 300
 
 
 def notify(
-    fake: FakeWithings, grant: Grant, action: str, p: dict[str, str], head_status: int | None
-) -> Response:
+    fake: FakeWithings, grant: Grant, action: str, p: dict[str, str]
+) -> Response | HeadCheck:
     ok, err = fake._ok, fake._err
-    mine = [
-        s for s in fake.subscriptions if (s.client_id, s.userid) == (grant.client_id, grant.userid)
-    ]
+    bad_callback = err(STATUS_BAD_CALLBACK, "callback URL absent or incorrect")
     url = p.get("callbackurl", "")
     appli = _appli(p.get("appli"))
-    wanted = [s for s in mine if s.callbackurl == url and appli in (None, s.appli)]
+
+    def owned() -> list[Subscription]:  # read again after a HEAD: the world moved on meanwhile
+        return [
+            s
+            for s in fake.subscriptions
+            if (s.client_id, s.userid) == (grant.client_id, grant.userid)
+        ]
+
+    def lookup() -> list[Subscription]:
+        return [s for s in owned() if s.callbackurl == url and appli in (None, s.appli)]
+
+    mine, wanted = owned(), lookup()
     scopes = set(grant.scope.split(","))
     if action == "list":
         return ok({"profiles": [_profile(s) for s in mine if appli in (None, s.appli)]})
@@ -93,14 +104,20 @@ def notify(
             return err(STATUS_BAD_PARAMS, "invalid_params: appli")
         if APPLI_SCOPE[appli] not in scopes:
             return err(STATUS_NO_SCOPE, "scope not authorized for this appli")
-        if not _callback_ok(fake, url, head_status):
-            return err(STATUS_BAD_CALLBACK, "callback URL absent or incorrect")
-        if wanted:
-            wanted[0].comment = p.get("comment", wanted[0].comment)
-        else:
-            sub = Subscription(grant.client_id, grant.userid, appli, url, p.get("comment", ""))
-            fake.subscriptions.append(sub)
-        return ok({})
+        if callback_url_problem(url):
+            return bad_callback
+
+        def subscribe(status: int) -> Response:
+            if not _head_ok(status):
+                return bad_callback
+            if existing := lookup():
+                existing[0].comment = p.get("comment", existing[0].comment)
+            else:
+                sub = Subscription(grant.client_id, grant.userid, appli, url, p.get("comment", ""))
+                fake.subscriptions.append(sub)
+            return ok({})
+
+        return HeadCheck(url, subscribe)
     if action == "get":  # without appli, appli 1 is meant
         found = [s for s in mine if s.callbackurl == url and s.appli == (appli or 1)]
         return (
@@ -113,13 +130,21 @@ def notify(
             fake.subscriptions.remove(sub)
         return ok({})
     new_url = p.get("new_callbackurl")  # update
-    if new_url is not None and not _callback_ok(fake, new_url, head_status):
-        return err(STATUS_BAD_CALLBACK, "callback URL absent or incorrect")
+    if new_url is not None and callback_url_problem(new_url):
+        return bad_callback
     new_appli = _appli(p.get("new_appli"))
     if "new_appli" in p and (new_appli is None or APPLI_SCOPE[new_appli] not in scopes):
         return err(STATUS_BAD_PARAMS, "invalid_params: new_appli")
-    sub = wanted[0]
-    sub.callbackurl = sub.callbackurl if new_url is None else new_url
-    sub.appli = sub.appli if new_appli is None else new_appli
-    sub.comment = p.get("comment", sub.comment)
-    return ok({})
+
+    def apply() -> Response:
+        if not (current := lookup()):  # revoked while Withings was HEADing the new URL
+            return err(STATUS_NO_SUBSCRIPTION, "no such subscription")
+        sub = current[0]
+        sub.callbackurl = sub.callbackurl if new_url is None else new_url
+        sub.appli = sub.appli if new_appli is None else new_appli
+        sub.comment = p.get("comment", sub.comment)
+        return ok({})
+
+    if new_url is None:
+        return apply()
+    return HeadCheck(new_url, lambda status: apply() if _head_ok(status) else bad_callback)
