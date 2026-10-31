@@ -49,13 +49,18 @@ export OWNVITALS_TEST_DATABASE_URL=postgresql+psycopg://postgres:test@127.0.0.1:
 docker stop ownvitals-2-pg
 ```
 
-`OWNVITALS_TEST_DATABASE_URL` is a superuser URL of the throwaway database. Until the database
-roles exist (tenant isolation issue) the code under test connects with it too. Without the
-variable the database tests skip with a reason; with `CI=true` a missing variable **fails** the
+Then create the database roles in it with `docker/postgres/init/10-roles.sql` (commands in
+[isolation.md](isolation.md)).
+
+`OWNVITALS_TEST_DATABASE_URL` is a superuser URL of the throwaway database, for test setup and
+probes only: the code under test connects as `ownvitals_app` (`app_database_url`) or
+`ownvitals_owner` (`owner_database_url`), whose passwords the fixtures set per run. Without the
+variable or the roles the database tests skip with a reason; with `CI=true` either **fails** the
 run (`tests/dbtools.py: unavailable`), so they can never be skipped silently in CI. The URL must
-point at this machine (loopback, `localhost` or a socket directory, also in `?host=` and
-`?hostaddr=`): the `database_url` fixture fails the test otherwise, because libpq connects on its
-own, outside the network guard below.
+name a host on this machine (loopback, `localhost` or a socket directory, also in `?host=` and
+`?hostaddr=`); a URL without a host, with an empty entry in a host list, or with `?service=` is
+refused, and the fixtures remove `PGHOST`, `PGHOSTADDR` and `PGSERVICE` from the test process.
+libpq connects on its own, outside the network guard below, so it must never pick a host itself.
 
 ## No network in tests
 
@@ -87,7 +92,7 @@ All settings of the platform milestone exist already, so the issues that use the
 
 | Setting | Default | Notes |
 |---|---|---|
-| `environment` | `dev` | `dev`, `test`, `prod`; the **image** sets `prod`, compose sets `dev`. `prod` needs an `https://` `public_base_url`, hides `/api/docs` and refuses a password inside `database_url`, `migrations_database_url` or `maint_database_url` (passwords come from their secret files) |
+| `environment` | `dev` | `dev`, `test`, `prod`; the **image** sets `prod`, compose sets `dev`. `prod` needs an `https://` `public_base_url`, hides `/api/docs` and refuses a password inside `database_url`, `migrations_database_url` or `maint_database_url`, also as a `password` or `passfile` query parameter (passwords come from their secret files) |
 | `log_level` | `INFO` | |
 | `database_url` | `postgresql+psycopg://ownvitals_app@127.0.0.1:5432/ownvitals` | app role (web, worker) |
 | `migrations_database_url` | `...//ownvitals_owner@127.0.0.1:5432/ownvitals` | owner role, Alembic only |
@@ -128,8 +133,9 @@ uvx uv@0.13.6 run alembic upgrade head --sql      # offline: print the SQL
 uvx uv@0.13.6 run alembic downgrade base
 ```
 
-`0001_baseline` creates no tables. Every migration needs a working `downgrade` (the
-`test_migrations.py` test upgrades to head and downgrades to base).
+`0001_baseline` creates no tables; `0002_close_alembic_version` closes Alembic's own table to the
+app role. Every migration needs a working `downgrade` (the `test_migrations.py` test upgrades to
+head and downgrades to base). Owned and system tables follow [isolation.md](isolation.md).
 
 ## Layout
 
@@ -140,9 +146,8 @@ uvx uv@0.13.6 run alembic downgrade base
 | `config.py` | settings (above) |
 | `log.py` | JSON logs and the redaction filter: cookies, credential headers, OAuth query strings and `code`/`state`, mail-link tokens, the secret part of `/api/webhooks/<provider>/<secret>`, secret keys in `extra`; strings in dict **keys** too; DB errors reduce to class and SQLSTATE. It fails closed: a record that cannot be formatted becomes a line with the redacted message text, the logger and the error type (`log_error`), and a failing write prints only the error type to stderr (`SafeStreamHandler`), never the raw message or arguments |
 | `headers.py` | `Content-Security-Policy` (`'self'` only), `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff` on every response |
-| `web.py` | app factory; `/api/health` (no database), `/api/ready` (`SELECT 1`, 503 without detail); serves the built SPA from `static_dir`; includes `FEATURE_ROUTERS` |
+| `web.py` | app factory; refuses to start as a privileged database role; `/api/health` (no database), `/api/ready` (`SELECT 1`, 503 without detail); serves the built SPA from `static_dir`; includes `FEATURE_ROUTERS` |
 | `emailnorm.py` | email normalisation (trim, ASCII lower case) |
-| `db/engine.py` | async engine (`DISCARD ALL` on pool return), the migrations engine, session factory, readiness query |
+| `db/engine.py` | async engine (role check on every connection, `DISCARD ALL` on pool return), the migrations engine, session factory, readiness query |
+| `context.py`, `db/session.py`, `db/rls.py`, `db/tables.py`, `db/role_check.py` | `UserContext`, `user_session`/`system_session`, the RLS migration helper, `SYSTEM_TABLES`, the startup refusal: see [isolation.md](isolation.md) |
 | `auth/`, `connections/`, `flags/`, `jobs/`, `admin/` | packages with an empty `routes.py` router that `web.py` already includes; the issues that own them fill them |
-
-Sessions with a row-level-security user, the roles and the role checks are not here yet.

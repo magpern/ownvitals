@@ -1,8 +1,11 @@
-"""The test database is required in CI: a missing URL fails there instead of skipping."""
+"""The test database is required in CI: a missing URL fails there instead of skipping. And it
+must be on this machine, whatever libpq would otherwise pick."""
+
+import os
 
 import pytest
 
-from dbtools import require_loopback_database, unavailable
+from dbtools import LIBPQ_HOST_ENVIRONMENT, require_loopback_database, unavailable
 
 
 def test_a_missing_test_database_fails_in_ci(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -59,8 +62,9 @@ def test_the_database_fixture_skips_locally_without_a_url(
         "postgresql+psycopg://u:p@127.1.2.3/db",
         "postgresql+psycopg://u:p@localhost/db",
         "postgresql+psycopg://u:p@[::1]:5432/db",
-        "postgresql+psycopg://u:p@/db",
         "postgresql+psycopg://u:p@/db?host=/var/run/postgresql",
+        "postgresql+psycopg://u:p@/db?host=127.0.0.1",
+        "postgresql+psycopg://u:p@/db?hostaddr=127.0.0.1",
         "postgresql+psycopg://u:p@127.0.0.1,localhost/db",
         "postgresql+psycopg://u:p@127.0.0.1/db?hostaddr=127.0.0.1",
     ],
@@ -86,6 +90,49 @@ def test_a_remote_test_database_is_refused_without_echoing_the_password(url: str
     with pytest.raises(pytest.fail.Exception, match="loopback host") as excinfo:
         require_loopback_database(url)
     assert ":p@" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql+psycopg://u:p@/db",  # no host: PGHOST or libpq's default decides
+        "postgresql+psycopg://u:p@/db?host=",
+        "postgresql+psycopg://u:p@127.0.0.1,/db",  # an empty entry in the list
+        "postgresql+psycopg://u:p@/db?host=127.0.0.1,",
+        "postgresql+psycopg://u:p@/db?hostaddr=",
+    ],
+)
+def test_a_test_database_without_a_host_is_refused(url: str) -> None:
+    with pytest.raises(pytest.fail.Exception, match="must name a loopback host") as excinfo:
+        require_loopback_database(url)
+    assert ":p@" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql+psycopg://u:p@127.0.0.1/db?service=remote",  # pg_service.conf can name any host
+        "postgresql+psycopg://u:p@localhost/db?sslmode=disable&service=remote",
+        "postgresql+psycopg://u:p@/db?service=local",
+    ],
+)
+def test_a_test_database_given_as_a_service_is_refused(url: str) -> None:
+    with pytest.raises(pytest.fail.Exception, match="service= entry") as excinfo:
+        require_loopback_database(url)
+    assert ":p@" not in str(excinfo.value)
+
+
+def test_the_database_fixture_clears_the_libpq_host_environment(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """libpq would use ``PGHOSTADDR`` instead of the host the loopback check saw, and
+    ``PGHOST``/``PGSERVICE`` where the URL leaves them open; the fixture drops all three for the
+    test process. ``role_urls`` goes through the same check (``conftest._test_database_url``)."""
+    for name in LIBPQ_HOST_ENVIRONMENT:
+        monkeypatch.setenv(name, "db.example.com")
+    monkeypatch.setenv("OWNVITALS_TEST_DATABASE_URL", "postgresql+psycopg://u:p@127.0.0.1/db")
+    request.getfixturevalue("database_url")
+    assert [name for name in LIBPQ_HOST_ENVIRONMENT if name in os.environ] == []
 
 
 def test_the_database_fixture_refuses_a_remote_url_even_outside_ci(

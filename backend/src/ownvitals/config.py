@@ -31,6 +31,8 @@ SECRET_FILE_FIELDS = (
     "smtp_password",
     "oauth_google_client_secret",
 )
+# libpq connection parameters that carry a password or point at one; refused in prod URLs.
+PASSWORD_QUERY_PARAMETERS = frozenset({"password", "passfile"})
 # Hosts where unencrypted SMTP (``smtp_tls = none``) is allowed: loopback and the compose service.
 PLAIN_SMTP_HOSTS = frozenset({"localhost", "mailpit"})
 MIN_APP_SECRET_BYTES = 32
@@ -261,15 +263,24 @@ class Settings(BaseSettings):
         # The image defaults to prod, so a stack that forgets to say otherwise fails closed. In
         # prod a password embedded in a database URL (an environment variable, visible in
         # ``docker inspect`` and process listings) is refused: the passwords come from the
-        # secret files, and the URLs carry the user only. The message names the field, never
-        # the URL.
+        # secret files, and the URLs carry the user only. That covers libpq's ``password`` and
+        # ``passfile`` parameters in the query string too: both would take the password from
+        # somewhere other than the secret file. The message names the field, never the URL.
         if self.environment == "prod":
             for name in ("database_url", "migrations_database_url", "maint_database_url"):
                 url: SecretStr | None = getattr(self, name)
-                if url is not None and make_url(url.get_secret_value()).password is not None:
+                if url is None:
+                    continue
+                parsed = make_url(url.get_secret_value())
+                if parsed.password is not None:
                     raise ValueError(
                         f"{name} must not embed a password when environment is prod; "
                         "the password comes from its secret file"
+                    )
+                if {key.lower() for key in parsed.query} & PASSWORD_QUERY_PARAMETERS:
+                    raise ValueError(
+                        f"{name} must not carry a password or passfile parameter when "
+                        "environment is prod; the password comes from its secret file"
                     )
         return self
 
