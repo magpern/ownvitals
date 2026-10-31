@@ -182,6 +182,9 @@ services; emails to real people; contacting Withings; opening registration beyon
 Deploying is not part of a release and needs the owner's go-ahead.
 
 1. `main` is green and holds what the release should contain. Pick the next SemVer `vX.Y.Z`.
+   Before tagging, a PR sets `version` in `backend/pyproject.toml` to the tag without the `v`
+   (and re-locks, so `uv.lock` agrees); `release.yml` refuses a tag that differs. A pre-release
+   is spelled `X.Y.Z-rc.1` there, as in the tag; PEP 440's `X.Y.Zrc1` is refused.
 2. `git fetch origin main && git tag -a vX.Y.Z -m "vX.Y.Z" origin/main && git push origin vX.Y.Z`.
 3. `release.yml` verifies the tag is on `main`, builds and pushes the image to GHCR and creates
    a build-provenance attestation. The protected tag is **not** the control: anyone who can push
