@@ -188,8 +188,8 @@ Deploying is not part of a release and needs the owner's go-ahead.
    can create a `v*` tag, and that commit's own `release.yml` runs. The deploy mechanism (§9.2)
    is the boundary: it accepts a digest only if the tag's commit (resolved through
    `refs/tags/<tag>`) is contained in `refs/heads/main` and `gh attestation verify` passes with
-   the certificate identity `…/release.yml@refs/tags/<tag>`, `--source-ref` and
-   `--source-digest` set to that commit ([docs/dev/release.md](docs/dev/release.md), threat model
+   the certificate identity `…/release.yml@refs/tags/<tag>`,
+   `--source-ref refs/tags/<tag>` and `--source-digest` set to that commit ([docs/dev/release.md](docs/dev/release.md), threat model
    T62).
 4. Never move or delete a pushed tag: fix forward with a new version.
 
