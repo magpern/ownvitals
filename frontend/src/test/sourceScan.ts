@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 
 // The scanners behind src/sources.test.ts (what the shipped sources may contain) and
@@ -16,44 +16,129 @@ export interface Source {
   text: string
 }
 
+/** Files the operating system or the file manager leaves behind; they are not sources. */
+const OS_LITTER = /^(?:\.DS_Store|Thumbs\.db|desktop\.ini)$/i
+/** Media a browser renders but never parses for URLs or colours (a binary file may be one of these). */
+const MEDIA = /\.(?:png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)$/i
+
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
-    return entry.isDirectory() ? files(path) : [path]
+    if (entry.isDirectory()) return files(path)
+    return OS_LITTER.test(entry.name) ? [] : [path]
   })
 }
 
-function read(path: string): Source {
-  return { path: relative(ROOT, path).split(sep).join('/'), text: readFileSync(path, 'utf8') }
+/** Every file under `dir`, or none when there is no such folder. */
+function filesIfAny(dir: string): string[] {
+  try {
+    return files(dir)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+}
+
+/** The files the browser gets from the repository, as absolute paths. */
+function shippedFiles(root: string): string[] {
+  const src = join(root, 'src')
+  const inSrc = filesIfAny(src).filter(
+    (path) => !/\.test\.tsx?$/.test(path) && !relative(src, path).startsWith(`test${sep}`),
+  )
+  return [join(root, 'index.html'), ...filesIfAny(join(root, 'public')), ...inSrc]
+}
+
+function pathOf(root: string, path: string): string {
+  return relative(root, path).split(sep).join('/')
+}
+
+/** A file with a NUL byte in its first 8 KiB (git's own test) is binary and has no text to scan. */
+function isBinary(bytes: Buffer): boolean {
+  return bytes.subarray(0, 8192).includes(0)
 }
 
 /**
- * Everything the browser gets from the repository: `index.html`, `public/`, and the stylesheets,
- * scripts and components under `src/`. Tests and `src/test/` are not shipped.
+ * Everything the browser gets from the repository, as text: `index.html`, every text file in
+ * `public/` and every one under `src/` (stylesheets, scripts and components, but also `.svg`,
+ * `.json`, `.html`, `.txt`, a web manifest or any other text asset). Tests and `src/test/` are
+ * not shipped. A binary file is not here: see `binaryAssets`.
  */
-export function shippedSources(): Source[] {
-  const inSrc = files(SRC).filter(
-    (path) =>
-      /\.(?:css|ts|tsx)$/.test(path) &&
-      !/\.test\.tsx?$/.test(path) &&
-      !relative(SRC, path).startsWith(`test${sep}`),
-  )
-  let inPublic: string[] = []
-  try {
-    inPublic = files(join(ROOT, 'public'))
-  } catch {
-    // No public/ folder: nothing to scan there.
-  }
-  return [join(ROOT, 'index.html'), ...inPublic, ...inSrc].map(read)
+export function shippedSources(root: string = ROOT): Source[] {
+  return shippedFiles(root).flatMap((path) => {
+    const bytes = readFileSync(path)
+    return isBinary(bytes) ? [] : [{ path: pathOf(root, path), text: bytes.toString('utf8') }]
+  })
+}
+
+/** The shipped files `shippedSources` cannot read as text (images, fonts, anything else binary). */
+export function binaryAssets(root: string = ROOT): string[] {
+  return shippedFiles(root)
+    .filter((path) => isBinary(readFileSync(path)))
+    .map((path) => pathOf(root, path))
+}
+
+/** The binary assets that are not images or fonts: nothing that is scanned, nothing known to be harmless. */
+export function unreadableAssets(root: string = ROOT): string[] {
+  return binaryAssets(root).filter((path) => !MEDIA.test(path))
 }
 
 // --- third-party hosts ---------------------------------------------------------------------
 
-const REMOTE_URL = /(?:https?:)?\/\/(?!localhost\b|127\.0\.0\.1\b)[a-z0-9.-]+\.[a-z]{2,}/gi
+/** The only hosts a source may name: this machine, spelled exactly like this. */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
-/** The remote URLs in `text`; the SVG namespace is an identifier, not a request. */
+// XML namespaces are identifiers, not requests (every SVG names one or two). The lookahead stops
+// `http://www.w3.org/2000/svg.evil.example` from passing as one.
+const XML_NAMESPACE =
+  /http:\/\/www\.w3\.org\/(?:2000\/svg|1999\/xlink|1999\/xhtml|XML\/1998\/namespace)(?=["'\s>)]|$)/g
+
+// Where the authority of a URL (userinfo, host and port) starts: after `scheme:` and two or more
+// slashes, or after two or more slashes alone (a protocol-relative URL). A browser reads a
+// backslash as a slash in an http(s) URL, so any run of slashes and backslashes counts: `//host`,
+// `/\host`, `\/host`, `\\host`, and the JSON-escaped `\/\/host`. (A scheme of one letter is a
+// Windows drive: `C:\dir`.) The authority runs to the next slash, backslash, quote, bracket,
+// whitespace, `?` or `#`.
+const URL_AUTHORITY =
+  /(?:(?<![a-z0-9+.-])([a-z][a-z0-9+.-]+):[/\\]{2,}|(?<![a-z0-9+.:/\\-])[/\\]{2,})([^\s'"`<>()\\/?#]*)/gi
+
+/** The host of an authority: no userinfo, no port, no trailing dot, lower case. `''` if it is none. */
+function hostOf(authority: string): string {
+  let host = authority.replace(/[.,;:]+$/, '') // punctuation after a URL in running text
+  host = host.slice(host.lastIndexOf('@') + 1) // `http://localhost@evil.example` is evil.example
+  if (host.startsWith('[')) {
+    const literal = host.slice(0, host.indexOf(']') + 1)
+    return /^\[[0-9a-f:.]+\]$/i.test(literal) ? literal.toLowerCase() : '' // not `//[a-z.]+/`
+  }
+  host = host.replace(/:\d*$/, '').replace(/\.$/, '').toLowerCase()
+  return host.startsWith('.') ? '' : host // no host starts with a dot: `/\\.example\.com$/` is a regex
+}
+
+/**
+ * The URLs in `text` that name another host: any scheme with a host (`https://localhost.evil.example`,
+ * `http://203.0.113.5`, `wss://x.example`, `http://[2001:db8::1]`, `http://localhost@evil.example`,
+ * `https://127.0.0.1.nip.io`), and URLs with no scheme: `//cdn.example.org` and its backslash
+ * forms `/\cdn.example.org` and `\\cdn.example.org`. Only `localhost`, `127.0.0.1` and `[::1]`,
+ * spelled exactly like that, and XML namespaces are let through.
+ *
+ * Without a scheme a host needs a dot or is an IPv6 literal, so `// comment`, `//TODO` and
+ * `'\\n'` are not hits; with plain slashes only, a host with no dot also counts after an opening
+ * quote, `(` or `=` (`"//intranet/x"`, `src=//cdn/x`).
+ */
 export function remoteUrls(text: string): string[] {
-  return text.replaceAll('http://www.w3.org/2000/svg', '').match(REMOTE_URL) ?? []
+  const plain = text.replace(XML_NAMESPACE, '')
+  const found: string[] = []
+  for (const match of plain.matchAll(URL_AUTHORITY)) {
+    const [whole = '', scheme, authority = ''] = match
+    const host = hostOf(authority)
+    if (host === '' || LOCAL_HOSTS.has(host)) continue
+    if (scheme === undefined) {
+      const slashes = whole.slice(0, whole.length - authority.length)
+      const opened = !slashes.includes('\\') && '\'"(='.includes(plain.charAt(match.index - 1) || ' ')
+      if (!host.includes('.') && !host.startsWith('[') && !opened) continue
+    }
+    found.push(whole.replace(/[.,;:]+$/, ''))
+  }
+  return found
 }
 
 // --- colour literals -----------------------------------------------------------------------
@@ -101,6 +186,8 @@ function namedColours(value: string): string[] {
 export function colourLiterals(path: string, source: string): string[] {
   if (path === TOKENS) return []
   const isCss = path.endsWith('.css')
+  // Declarations (`fill: red`) are also written in the style element and attribute of an SVG.
+  const hasDeclarations = isCss || path.endsWith('.svg')
   const text = isCss ? source.replace(/\/\*[\s\S]*?\*\//g, '') : source
   const found: string[] = [
     ...(text.match(HEX_COLOUR) ?? []),
@@ -109,7 +196,7 @@ export function colourLiterals(path: string, source: string): string[] {
       .map((match) => match[1] ?? '')
       .filter((word) => CSS_COLOUR_NAMES.has(word.toLowerCase())),
   ]
-  if (isCss) {
+  if (hasDeclarations) {
     for (const [, property = '', value = ''] of text.matchAll(/([a-z-]+)\s*:\s*([^;{}]+)/gi)) {
       if (COLOUR_PROPERTY.test(property.toLowerCase())) found.push(...namedColours(value))
     }
@@ -138,7 +225,7 @@ export function cspViolations(path: string, text: string): string[] {
   add(/\bjavascript:/i, 'a javascript: URL')
   add(/\bdangerouslySetInnerHTML\b|\.(?:inner|outer)HTML\b|\binsertAdjacentHTML\b|\bdocument\.write\b/, 'markup inserted as a string')
   add(/\beval\s*\(|\bnew\s+Function\s*\(/, 'eval or new Function')
-  if (path.endsWith('.html')) {
+  if (/\.html?$/i.test(path)) {
     add(/<script\b(?![^>]*\bsrc=)/i, 'an inline script')
     add(/<style\b/i, 'an inline style element')
     add(/\sstyle\s*=/i, 'a style attribute')
@@ -151,6 +238,10 @@ export function cspViolations(path: string, text: string): string[] {
         found.push(`a script or stylesheet not from our own origin: ${url}`)
       }
     }
+  } else if (path.endsWith('.svg')) {
+    // Fine as an image, blocked by the CSP as soon as the file is opened as a page.
+    add(/<script\b/i, 'a script element')
+    add(/\son[a-z]+\s*=/i, 'an inline event handler')
   } else if (path.endsWith('.tsx') || path.endsWith('.ts')) {
     add(/\bstyle=[{"']/, 'an inline style attribute')
     add(/<style\b|<script\b/i, 'a style or script element')
