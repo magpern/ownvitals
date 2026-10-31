@@ -12,7 +12,9 @@
   insert the row of each current key they hold if it is missing and compare it, so a key
   swapped under an unchanged id refuses to start. A retired file with no row, or a different
   value, is never loaded (``KeyUnavailable``). Negative results are not cached: restoring the
-  file fixes it.
+  file fixes it. A retired KEK comes out of the ring as a ``RetiredKek``, which only opens.
+- A ring is **unverified** until that check passed (``KeyRing.verify``); an unverified ring
+  refuses every use. Only a database unreachable at connect defers the check at startup.
 - **The current KEK is required**; the pepper and the seed are optional in M0 (validated when
   present; M1 makes them required). **Web never holds the seed**: its ring has no seed, refuses
   any request for one (``SeedRefused``), and web refuses to start when a seed file is visible
@@ -22,6 +24,7 @@
 Key material is never logged and never in an exception message.
 """
 
+import asyncio
 import hmac
 import logging
 import re
@@ -38,6 +41,7 @@ from ownvitals.config import Settings, secrets_dir
 from ownvitals.crypto.envelope import (
     Kek,
     KeyKind,
+    RetiredKek,
     RingKey,
     WebhookPepper,
     WebhookSeed,
@@ -45,6 +49,7 @@ from ownvitals.crypto.envelope import (
     is_key_id,
 )
 from ownvitals.db import system_session
+from ownvitals.db.role_check import is_authentication_failure
 
 logger = logging.getLogger(__name__)
 
@@ -207,14 +212,22 @@ async def _record_and_compare(db: AsyncSession, keys: Iterable[RingKey]) -> None
             )
 
 
-async def _check_rows(factory: async_sessionmaker[AsyncSession], keys: list[RingKey]) -> None:
-    """The check of ``keys`` in a ``system_session`` of its own, committed before it returns.
-    A missing check table is ``KeyRingError`` naming the migration; an unreachable database
-    raises ``OperationalError`` for the caller to decide."""
-    missing_table = False
+async def _check_rows(factory: async_sessionmaker[AsyncSession], keys: list[RingKey]) -> bool:
+    """The check of ``keys`` in a ``system_session`` of its own, committed before it returns
+    ``True``. ``False`` only when the database is unreachable at connect (connection refused, a
+    connect timeout, DNS: an ``OperationalError`` before the session holds a connection that is
+    not a refused login, the classification of ``db.role_check``). Anything else raises: a
+    missing check table is ``KeyRingError`` naming the migration, and a refused login, a
+    statement or lock timeout or any other error during the check propagates."""
+    connected = missing_table = False
     try:
         async with system_session(factory) as db:
+            connected = True
             await _record_and_compare(db, keys)
+    except OperationalError as exc:
+        if connected or is_authentication_failure(exc):
+            raise
+        return False
     except ProgrammingError as exc:
         if getattr(exc.orig, "sqlstate", None) != UNDEFINED_TABLE:
             raise
@@ -224,17 +237,19 @@ async def _check_rows(factory: async_sessionmaker[AsyncSession], keys: list[Ring
             f"the connection_keks table is missing: run the migrations (up to {MIGRATION}) "
             "before starting web or the worker"
         )
+    return True
 
 
 class KeyRing:
     """The current keys, and retired ones loaded on demand. ``repr`` shows ids only.
 
-    The current keys are used only once their check rows matched (``verified``). Normally that
-    happens at startup; when the database was unreachable then, the first use of a current key
-    checks them all, and a mismatch refuses every use (``KeyRingError``), the same as a refused
-    start. That check runs in its own ``system_session`` (``factory``, required when
-    ``verified`` is false), so a caller's transaction that rolls back afterwards can never
-    leave the ring marked verified while the check rows were never committed.
+    A ring starts **unverified**, however it was built, and only a check of its current keys
+    against their check rows (``verify``) marks it verified. ``load_keyring`` runs that check at
+    startup. When the database was unreachable then, every use runs it first, and refuses until
+    it passes (``KeyRingError``); a mismatch refuses every use, the same as a refused start. The
+    check runs in its own ``system_session`` (a second pool connection while the caller holds
+    its own), one at a time, so a caller's transaction that rolls back afterwards can never leave
+    the ring verified while the check rows were never committed.
     """
 
     def __init__(
@@ -243,23 +258,24 @@ class KeyRing:
         directory: Path,
         kek: Kek,
         *,
+        factory: async_sessionmaker[AsyncSession],
         pepper: WebhookPepper | None = None,
         seed: WebhookSeed | None = None,
-        verified: bool = True,
-        factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         if role not in ROLES:
             raise ValueError("the role is web or worker")
         if role == "web" and seed is not None:
             raise SeedRefused
-        if not verified and factory is None:
-            raise ValueError("an unverified KeyRing needs a session factory for its first check")
+        if type(kek) is not Kek:
+            raise TypeError("the current KEK is a Kek")
         self._role: Role = role
         self._directory = directory
         self._kek = kek
         self._pepper = pepper
         self._seed = seed
-        self._unchecked = None if verified else factory  # kept only until the check is done
+        self._factory = factory
+        self._verified = False
+        self._checking = asyncio.Lock()
         self._retired: dict[tuple[KeyKind, str], RingKey] = {}
 
     @property
@@ -283,7 +299,7 @@ class KeyRing:
 
     @property
     def verified(self) -> bool:
-        return self._unchecked is None
+        return self._verified
 
     def __repr__(self) -> str:
         return (
@@ -297,28 +313,38 @@ class KeyRing:
     def _current_keys(self) -> list[RingKey]:
         return [key for key in (self._kek, self._pepper, self._seed) if key is not None]
 
-    async def _ensure_checked(self) -> None:
-        """The deferred startup check. It takes a **second** pool connection while the caller
-        still holds its own (and its transaction), once per process, before the first use."""
-        factory = self._unchecked
-        if factory is not None:
-            await _check_rows(factory, self._current_keys())
-            self._unchecked = None  # only after the check rows' transaction committed
+    async def _try_verify(self) -> bool:
+        """Run the check unless it passed already: ``False`` while the database is
+        unreachable at connect; ``KeyRingError`` (or the database error) when it fails."""
+        async with self._checking:
+            if not self._verified and await _check_rows(self._factory, self._current_keys()):
+                self._verified = True  # only after the check rows' transaction committed
+        return self._verified
+
+    async def verify(self) -> None:
+        """Check the current keys against their rows unless that passed already, or refuse:
+        ``KeyRingError`` (an unreachable database, a missing table, a mismatch) or the error
+        that stopped the check. ``/api/ready`` and every use call it."""
+        if not await self._try_verify():
+            raise KeyRingError(
+                "the key ring is not verified yet: the database was unreachable for its check"
+            )
 
     async def current(self, db: AsyncSession) -> Kek:
-        """The current KEK, for writes (``db`` is not used for the deferred check)."""
-        await self._ensure_checked()
+        """The current KEK, the only one that writes (``db`` is not used for the check)."""
+        await self.verify()
         return self._kek
 
-    async def kek_for(self, db: AsyncSession, key_id: str) -> Kek:
-        """The KEK named ``key_id`` (a row's column), or ``KeyUnavailable``."""
+    async def kek_for(self, db: AsyncSession, key_id: str) -> Kek | RetiredKek:
+        """The KEK named ``key_id`` (a row's column): the current ``Kek``, or a ``RetiredKek``
+        that only opens (ADR 0004 section 3); ``KeyUnavailable`` when there is none."""
         if key_id == self._kek.key_id:
             return await self.current(db)
-        return await self._retired_key(db, Kek, key_id)
+        return await self._retired_key(db, RetiredKek, key_id)
 
     async def current_pepper(self, db: AsyncSession) -> WebhookPepper:
         """The current pepper, or ``KeyUnavailable`` when none is installed."""
-        await self._ensure_checked()
+        await self.verify()
         if self._pepper is None:
             raise KeyUnavailable
         return self._pepper
@@ -332,7 +358,7 @@ class KeyRing:
     async def current_seed(self, db: AsyncSession) -> WebhookSeed:
         """The current seed (worker only), or ``KeyUnavailable`` when none is installed."""
         self._refuse_seed_in_web()
-        await self._ensure_checked()
+        await self.verify()
         if self._seed is None:
             raise KeyUnavailable
         return self._seed
@@ -349,6 +375,7 @@ class KeyRing:
             raise SeedRefused
 
     async def _retired_key[K: RingKey](self, db: AsyncSession, cls: type[K], key_id: str) -> K:
+        await self.verify()  # an unverified ring refuses every use, retired keys included
         kind = cls.KIND
         if not is_key_id(key_id, kind):
             raise KeyUnavailable
@@ -375,9 +402,10 @@ async def load_keyring(
 ) -> KeyRing:
     """Read the current keys of ``role`` and check their rows: ``KeyRingError`` when the KEK is
     missing or malformed, a present seed or pepper file is malformed, two kinds share a key, web
-    can see a seed file, the check table is missing, or a check row doesn't match. A database
-    that is unreachable at startup is not an error here, as for the role check: the first use
-    runs the check instead."""
+    can see a seed file, the check table is missing, or a check row doesn't match; any other
+    error during the check (a statement or lock timeout among them) propagates. Only a database
+    that is unreachable at connect is not an error here, as for the role check: the ring starts
+    unverified, ``/api/ready`` answers 503 and every use refuses until the check passes."""
     if role not in ROLES:
         raise ValueError("the role is web or worker")
     directory = directory if directory is not None else secrets_dir()
@@ -388,13 +416,8 @@ async def load_keyring(
         _refuse_seed_files(directory)
     else:
         seed = read_current(WebhookSeed, settings.webhook_seed_id, directory)
-    keys: list[RingKey] = [key for key in (kek, pepper, seed) if key is not None]
-    _refuse_shared_keys(keys)
-    try:
-        await _check_rows(factory, keys)
-    except OperationalError:
-        logger.debug("database unreachable at startup; the key ring is checked on first use")
-        return KeyRing(
-            role, directory, kek, pepper=pepper, seed=seed, verified=False, factory=factory
-        )
-    return KeyRing(role, directory, kek, pepper=pepper, seed=seed)
+    _refuse_shared_keys([key for key in (kek, pepper, seed) if key is not None])
+    ring = KeyRing(role, directory, kek, factory=factory, pepper=pepper, seed=seed)
+    if not await ring._try_verify():
+        logger.debug("database unreachable at startup; the key ring is checked before use")
+    return ring

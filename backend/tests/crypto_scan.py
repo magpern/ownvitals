@@ -9,25 +9,28 @@ misuse visible in review; it cannot stop obfuscated code (computed names, ``exec
 not do:
 
 - import ``ownvitals.crypto.envelope`` (any form: ``import``, ``from ... import``, relative,
-  ``from ownvitals.crypto import envelope``, or the dotted name in a string, as
-  ``importlib.import_module`` takes it), or a cryptographic primitive package (``cryptography``
-  and the other names of ``PRIMITIVE_PACKAGES``, in the same forms), unless it is in
-  ``ownvitals.connections`` or ``ownvitals.auth``, or is ``ownvitals.crypto.keks`` or the
-  envelope itself (ADR 0004 section 2). The module that holds the Withings app secret joins in
-  M1;
+  ``from ownvitals.crypto import envelope``, the dotted name in a string, as
+  ``importlib.import_module`` takes it, or an attribute chain that reaches it through any
+  imported name, such as ``ownvitals.crypto.envelope.seal`` after ``import
+  ownvitals.crypto.keks``), or a cryptographic primitive package (``cryptography`` and the other
+  names of ``PRIMITIVE_PACKAGES``, in the same forms), unless it is in ``ownvitals.connections``
+  or ``ownvitals.auth``, or is ``ownvitals.crypto.keks`` or the envelope itself (ADR 0004
+  section 2). The module that holds the Withings app secret joins in M1;
 - import the ``connection_keks`` table or ``metadata`` from ``ownvitals.crypto.keks``, reach them
-  as an attribute of ``keks``, or hold an SQL string naming ``connection_keks`` (only
-  ``ownvitals.crypto.keks`` may);
-- import ``ownvitals.connections.tables`` or its ``connections`` table, or hold an SQL string
-  naming the ``connections`` table, outside ``ownvitals.connections`` (ADR 0004 section 5; the
-  table arrives with #13).
+  by an attribute chain, or hold an SQL string naming ``connection_keks`` (also ``ONLY``,
+  ``public.``, quoted; only ``ownvitals.crypto.keks`` may);
+- import ``ownvitals.connections.tables`` or its ``connections`` table, reach it by an attribute
+  chain, or hold an SQL string naming the ``connections`` table, outside
+  ``ownvitals.connections`` (ADR 0004 section 5; the table arrives with #13).
 
 ``secret_column_problems(columns)`` (and ``check_secret_columns`` on a live database) returns
 the columns of ``public`` whose name says they hold a secret but whose type is not ``bytea``,
 the type of a ciphertext. A name holds a secret when one of its ``_``-separated words is in
-``SECRET_WORDS``, unless its last word says it is about a secret rather than one
-(``NOT_A_SECRET_LAST_WORDS``: ``token_generation``, ``secret_id``, ``password_hash``,
-``secret_nonce``), or the column is listed with its reason in ``NOT_SECRET_COLUMNS``. A ``bytea``
+``SECRET_WORDS`` (``key`` among them, so every ``*_key``: ``api_key``, ``private_key``,
+``signing_key``), unless its last word says it is about a secret rather than one
+(``NOT_A_SECRET_LAST_WORDS``: ``token_generation``, ``secret_id``, ``key_id``,
+``password_hash``, ``secret_nonce``), or the column is on the reviewed allowlist
+``NOT_SECRET_COLUMNS`` with its reason. A ``bytea``
 column passes on its type alone: the check catches a plaintext column type, not a plaintext
 value written to a ``bytea`` column (that is the envelope's tests and review).
 """
@@ -53,7 +56,9 @@ _SCHEMA = r"(?:\"?public\"?\s*\.\s*)?\"?"
 
 
 def _sql_naming(table: str) -> re.Pattern[str]:
-    return re.compile(rf"(?is)(?=.*{_SQL}).*{_KEYWORD}(?:\(full\)\s+)?{_SCHEMA}{table}\"?(?![\w$])")
+    return re.compile(
+        rf"(?is)(?=.*{_SQL}).*{_KEYWORD}(?:\(full\)\s+)?(?:only\s+)?{_SCHEMA}{table}\"?(?![\w$])"
+    )
 
 
 KEK_SQL = _sql_naming("connection_keks")
@@ -80,17 +85,31 @@ SECRET_WORDS = frozenset(
         "totp",
         "credential",
         "credentials",
+        "key",
+        "keys",
         "apikey",
         "privkey",
+        "privatekey",
     }
 )
 NOT_A_SECRET_LAST_WORDS = frozenset(
     {"id", "ids", "hash", "hmac", "generation", "nonce", "at", "count", "kind", "version"}
 )
 CIPHERTEXT_TYPE = "bytea"
-# (table, column) -> why a column with a secret word in its name holds no secret. M1's
-# ``withings_apps.webhook_secrets`` (HMACs and ids only, ADR 0004 section 4) is added by #21.
-NOT_SECRET_COLUMNS: dict[tuple[str, str], str] = {}
+# The reviewed allowlist: (table, column) -> why a column with a secret word in its name holds
+# no secret. The entries are the ``*_key`` columns the specification names; the issue that
+# creates a table adds any other with its reason here. M1's ``withings_apps.webhook_secrets``
+# (HMACs and ids only, ADR 0004 section 4) is added by #21.
+NOT_SECRET_COLUMNS: dict[tuple[str, str], str] = {
+    ("jobs", "idempotency_key"): "ADR 0005: a request id the client picks "
+    "(^[A-Za-z0-9_-]{16,64}$), unique per owner; it authorizes nothing",
+    ("jobs", "singleton_key"): "ADR 0005: names the work a queued job covers (a connection and "
+    "a stream), for collapsing duplicates",
+    ("webhook_events", "dedupe_key"): "PLAN section 5: the unique key of a notification, built "
+    "from its non-secret fields",
+    ("observations", "metric_key"): "PLAN section 5: the name of a metric",
+    ("metric_daily", "metric_key"): "PLAN section 5: the name of a metric",
+}
 
 
 def _inside(module: str, package: str) -> bool:
@@ -137,12 +156,51 @@ def may_use_crypto(module: str) -> bool:
     return module in CRYPTO_MODULES or any(_inside(module, p) for p in CRYPTO_PACKAGES)
 
 
+def _chain(node: ast.Attribute) -> list[str] | None:
+    """``a.b.c`` as ``["a", "b", "c"]``, when the chain starts at a plain name."""
+    parts: list[str] = []
+    current: ast.expr = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if not isinstance(current, ast.Name):
+        return None
+    return [current.id, *reversed(parts)]
+
+
+def _bound_names(tree: ast.AST, module: str) -> dict[str, str]:
+    """Each name an import binds -> the dotted name it stands for: ``import a.b`` binds ``a``,
+    ``import a.b as x`` binds ``x`` to ``a.b``, ``from a import b as y`` binds ``y`` to
+    ``a.b``."""
+    bound: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    bound[alias.asname] = alias.name
+                else:
+                    head = alias.name.split(".")[0]
+                    bound[head] = head
+        elif isinstance(node, ast.ImportFrom):
+            source_module = _resolve(node, module)
+            for alias in node.names:
+                if alias.name != "*":
+                    bound[alias.asname or alias.name] = f"{source_module}.{alias.name}"
+    return bound
+
+
+def _reached(chain: list[str], bound: dict[str, str]) -> str | None:
+    """The dotted name an attribute chain reaches through an imported name, else ``None``."""
+    head = bound.get(chain[0])
+    return None if head is None else ".".join([head, *chain[1:]])
+
+
 def scan_source(source: str, module: str) -> list[tuple[int, str]]:
     tree = ast.parse(source)
     may_crypto = may_use_crypto(module)
     may_keks_table = module == KEKS
     may_connections_table = _inside(module, "ownvitals.connections")
-    keks_aliases: set[str] = set()
+    bound = _bound_names(tree, module)
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -153,8 +211,6 @@ def scan_source(source: str, module: str) -> list[tuple[int, str]]:
                     found.append((node.lineno, "imports a cryptographic primitive package"))
                 if alias.name == CONNECTION_TABLES and not may_connections_table:
                     found.append((node.lineno, "imports the connections table module"))
-                if alias.name == KEKS:
-                    keks_aliases.add(alias.asname or alias.name)
         elif isinstance(node, ast.ImportFrom):
             source_module = _resolve(node, module)
             names = {alias.name for alias in node.names}
@@ -181,16 +237,17 @@ def scan_source(source: str, module: str) -> list[tuple[int, str]]:
                 }
             ):
                 found.append((node.lineno, "imports the connection_keks table"))
-            if source_module == "ownvitals.crypto" and "keks" in names:
-                keks_aliases |= {a.asname or a.name for a in node.names if a.name == "keks"}
-        elif (
-            isinstance(node, ast.Attribute)
-            and node.attr in ("connection_keks", "metadata")
-            and isinstance(node.value, ast.Name)
-            and node.value.id in keks_aliases
-            and not may_keks_table
-        ):
-            found.append((node.lineno, "uses the connection_keks table"))
+        elif isinstance(node, ast.Attribute):
+            chain = _chain(node)
+            reached = None if chain is None else _reached(chain, bound)
+            if reached is None:
+                continue
+            if not may_crypto and _inside(reached, ENVELOPE):
+                found.append((node.lineno, "uses the envelope module"))
+            if not may_keks_table and reached in (f"{KEKS}.connection_keks", f"{KEKS}.metadata"):
+                found.append((node.lineno, "uses the connection_keks table"))
+            if not may_connections_table and _inside(reached, CONNECTION_TABLES):
+                found.append((node.lineno, "uses the connections table module"))
     for line, value in _strings(tree):
         if not may_crypto and ENVELOPE in value:
             found.append((line, "names the envelope module"))
@@ -200,7 +257,7 @@ def scan_source(source: str, module: str) -> list[tuple[int, str]]:
             found.append((line, "SQL on connection_keks"))
         if not may_connections_table and CONNECTIONS_SQL.search(value):
             found.append((line, "SQL on connections"))
-    return found
+    return list(dict.fromkeys(found))  # a chain's inner attributes repeat its finding
 
 
 def holds_a_secret(column: str) -> bool:

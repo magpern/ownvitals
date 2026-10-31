@@ -62,13 +62,22 @@ async def health() -> HealthResponse:
 
 @api.get("/ready", responses={503: {"model": ReadyResponse}})
 async def ready(request: Request, response: Response) -> ReadyResponse:
-    """Readiness: the database answers ``SELECT 1``. No error detail in the body."""
+    """Readiness: the database answers ``SELECT 1`` and the key ring is verified (ADR 0004
+    section 3; a ring whose check was deferred at startup is checked here). No error detail in
+    the body."""
     try:
         async with asyncio.timeout(READY_TIMEOUT_SECONDS):
             await check_ready(request.app.state.session_factory)
     except Exception as exc:  # any failure means "not ready"
         # The exception text can name hosts and users, so only its type is logged.
         logger.warning("database not ready", extra={"error_type": type(exc).__name__})
+        response.status_code = 503
+        return ReadyResponse(status="unavailable")
+    try:
+        async with asyncio.timeout(READY_TIMEOUT_SECONDS):
+            await request.app.state.keyring.verify()
+    except Exception as exc:  # an unverified ring: not ready, every use refuses
+        logger.warning("key ring not verified", extra={"error_type": type(exc).__name__})
         response.status_code = 503
         return ReadyResponse(status="unavailable")
     return ReadyResponse(status="ready")

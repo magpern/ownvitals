@@ -164,12 +164,21 @@ def owner_database_url(role_urls: RoleUrls) -> str:
 
 
 @pytest.fixture
-def schema(owner_database_url: str) -> Iterator[None]:
+def schema(owner_database_url: str, database_url: str) -> Iterator[None]:
     """The migrated schema (every revision) for one test, removed afterwards. Web and the
     worker read ``connection_keks`` at startup (ADR 0004 section 3), so a test that starts
-    either on a real database needs it."""
+    either on a real database needs it. The check rows a start recorded are deleted first:
+    migration 0003's downgrade refuses while the table holds any."""
     with migrated(owner_database_url):
-        yield
+        try:
+            yield
+        finally:
+            engine = create_engine(database_url)
+            try:
+                with engine.begin() as connection:
+                    connection.execute(text("DELETE FROM connection_keks"))
+            finally:
+                engine.dispose()
 
 
 @pytest.fixture

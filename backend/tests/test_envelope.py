@@ -95,11 +95,17 @@ def test_stored_bytes_may_come_back_as_memoryview() -> None:
 
 
 def test_every_write_has_a_new_data_key_and_nonces() -> None:
-    first, second = sealed_for(), sealed_for()
-    assert first.ciphertext != second.ciphertext
-    assert first.nonce != second.nonce
-    assert first.wrapped_dek != second.wrapped_dek
-    assert first.dek_nonce != second.dek_nonce
+    """ADR 0004 section 2: a DEK encrypts exactly one payload. The same plaintext sealed again
+    for the same row under the same KEK gets another data key, and other nonces."""
+    wrap_aad = connection_wrap_aad("kek-1", OWNER, "withings", ROW)
+    writes = [sealed_for() for _ in range(16)]
+    data_keys = [unwrap(s.wrapped_dek, s.dek_nonce, KEK, wrap_aad) for s in writes]
+    assert all(len(dek) == 32 for dek in data_keys)
+    assert len(set(data_keys)) == len(writes)  # the data keys themselves differ
+    assert KEY_A not in data_keys  # and none is the KEK
+    assert len({s.nonce for s in writes}) == len(writes)
+    assert len({s.dek_nonce for s in writes}) == len(writes)
+    assert len({s.ciphertext for s in writes}) == len(writes)
 
 
 @pytest.mark.parametrize(

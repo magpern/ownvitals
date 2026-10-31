@@ -91,6 +91,19 @@ ALLOWED = [
     ("x = 'VACUUM (FULL) public.connections'", "ownvitals.connections.repository"),
     ("x = 'select the right connections from the list'", "ownvitals.web"),
     ('"""Docstrings may name ownvitals.crypto.envelope and cryptography."""', "ownvitals.web"),
+    # Near misses of the attribute-chain and ONLY rules.
+    ("import ownvitals.crypto.keks\nownvitals.crypto.keks.load_keyring(f, s)", "ownvitals.web"),
+    ("import ownvitals.crypto.keks\nownvitals.crypto.keks.KeyRingError", "ownvitals.worker.main"),
+    ("ownvitals = load()\nownvitals.crypto.envelope.seal(x)", "ownvitals.web"),  # not an import
+    ("import ownvitals.db\nownvitals.db.system_session", "ownvitals.web"),
+    ("import ownvitals.crypto.keks\nownvitals.crypto.envelope.seal(x)", "ownvitals.auth.mfa"),
+    (
+        "import ownvitals.connections.tables\nownvitals.connections.tables.x",
+        "ownvitals.connections.r",
+    ),
+    ("x = 'SELECT 1 FROM ONLY connection_keks_archive'", "ownvitals.keys_cli"),
+    ("x = 'SELECT check_value FROM ONLY connection_keks'", "ownvitals.crypto.keks"),
+    ("x = 'take only connections that are active'", "ownvitals.web"),
 ]
 REFUSED = [
     ("from ownvitals.crypto.envelope import seal", "ownvitals.web"),
@@ -126,6 +139,19 @@ REFUSED = [
     ("x = 'SELECT secret FROM connections WHERE id = :id'", "ownvitals.keys_cli"),
     ("x = 'UPDATE public.connections SET status = 1'", "ownvitals.auth.mfa"),
     ("x = 'VACUUM (FULL) public.connections'", "ownvitals.keys_cli"),
+    # An attribute chain through any imported name (fix round 1, item 6).
+    ("import ownvitals.crypto.keks\nownvitals.crypto.envelope.seal(x)", "ownvitals.web"),
+    ("import ownvitals.crypto\nownvitals.crypto.envelope", "ownvitals.web"),
+    ("from ownvitals import crypto\ncrypto.envelope.seal(x)", "ownvitals.web"),
+    ("import ownvitals\nownvitals.crypto.envelope.open_sealed", "ownvitals.jobs.run"),
+    ("import ownvitals.crypto.keks as k\nk.metadata.tables", "ownvitals.keys_cli"),
+    ("import ownvitals.crypto.keks\nownvitals.crypto.keks.connection_keks", "ownvitals.web"),
+    ("import ownvitals.db\nownvitals.connections.tables.connections", "ownvitals.web"),
+    # ONLY (no inheritance children) is still the table.
+    ("x = 'SELECT * FROM ONLY connection_keks'", "ownvitals.keys_cli"),
+    ("x = 'DELETE FROM ONLY public.connection_keks'", "ownvitals.web"),
+    ("x = 'UPDATE ONLY \"connection_keks\" SET key_id = 1'", "ownvitals.web"),
+    ("x = 'SELECT secret FROM ONLY connections'", "ownvitals.keys_cli"),
 ]
 
 
@@ -137,6 +163,11 @@ def test_allowed(source: str, module: str) -> None:
 @pytest.mark.parametrize(("source", "module"), REFUSED)
 def test_refused(source: str, module: str) -> None:
     assert scan_source(source, module) != []
+
+
+def test_a_chain_is_reported_once_on_its_line() -> None:
+    source = "import ownvitals.crypto.keks\n\nownvitals.crypto.envelope.seal.__call__(x)\n"
+    assert scan_source(source, "ownvitals.web") == [(3, "uses the envelope module")]
 
 
 def test_a_planted_primitive_in_the_source_tree_fails_the_guard(tmp_path: Path) -> None:
@@ -169,6 +200,16 @@ def test_a_planted_primitive_in_the_source_tree_fails_the_guard(tmp_path: Path) 
         ("wrapped_dek", True),
         ("api_credentials", True),
         ("Access_Token", True),
+        ("api_key", True),  # every *_key (fix round 1, item 10)
+        ("private_key", True),
+        ("signing_key", True),
+        ("hmac_key", True),
+        ("key", True),
+        ("keys", True),
+        ("privatekey", True),
+        ("dedupe_key", True),  # held by name; the allowlist excuses the reviewed column
+        ("monkey", False),  # whole words only
+        ("keyboard_layout", False),
         ("token_generation", False),  # ADR 0004 section 1: a counter, not a token
         ("secret_id", False),
         ("seed_id", False),
@@ -204,7 +245,31 @@ def test_secret_columns_must_be_bytea() -> None:
         "t.access_token is jsonb: a secret column holds ciphertext (bytea)",
         "t.refresh_tokens is text[]: a secret column holds ciphertext (bytea)",
     ]
-    assert NOT_SECRET_COLUMNS == {}  # #21 adds withings_apps.webhook_secrets with its reason
+
+
+def test_the_reviewed_allowlist_excuses_only_its_own_columns() -> None:
+    rows = [
+        ("jobs", "idempotency_key", "text"),
+        ("webhook_events", "dedupe_key", "text"),
+        ("jobs", "api_key", "text"),  # an allowlisted name on another column
+        ("withings_apps", "dedupe_key", "text"),  # an allowlisted column on another table
+        ("withings_apps", "signing_key", "text"),
+        ("users", "private_key", "bytea"),
+    ]
+    assert secret_column_problems(rows) == [
+        "jobs.api_key is text: a secret column holds ciphertext (bytea)",
+        "withings_apps.dedupe_key is text: a secret column holds ciphertext (bytea)",
+        "withings_apps.signing_key is text: a secret column holds ciphertext (bytea)",
+    ]
+    assert set(NOT_SECRET_COLUMNS) == {
+        ("jobs", "idempotency_key"),
+        ("jobs", "singleton_key"),
+        ("webhook_events", "dedupe_key"),
+        ("observations", "metric_key"),
+        ("metric_daily", "metric_key"),
+    }  # #21 adds withings_apps.webhook_secrets with its reason
+    assert all(holds_a_secret(column) for _, column in NOT_SECRET_COLUMNS)
+    assert all(reason.strip() for reason in NOT_SECRET_COLUMNS.values())
 
 
 @pytest.fixture
@@ -226,13 +291,14 @@ def test_a_planted_plaintext_token_column_fails_the_guard(superuser: Connection)
     superuser.execute(
         text(
             "CREATE TABLE public.t_planted_secrets (id uuid, access_token text, "
-            "client_secret bytea, token_generation bigint)"
+            "client_secret bytea, token_generation bigint, api_key text, key_id text)"
         )
     )
     superuser.execute(text("CREATE VIEW public.v_planted_secrets AS SELECT 'x'::text AS seed"))
     try:
         assert check_secret_columns(superuser) == [
             "t_planted_secrets.access_token is text: a secret column holds ciphertext (bytea)",
+            "t_planted_secrets.api_key is text: a secret column holds ciphertext (bytea)",
             "v_planted_secrets.seed is text: a secret column holds ciphertext (bytea)",
         ]
     finally:

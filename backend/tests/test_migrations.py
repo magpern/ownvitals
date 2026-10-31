@@ -5,7 +5,7 @@ from alembic import command
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from dbtools import alembic_config, applied_revisions, migrated, public_tables
 
@@ -56,6 +56,32 @@ def test_the_migrations_create_exactly_their_tables(
         assert public_tables(database_url) == {"alembic_version", "connection_keks"}
     assert applied_revisions(database_url) == []
     assert public_tables(database_url) == {"alembic_version"}  # downgraded: 0003's table gone
+
+
+def test_downgrading_0003_is_refused_while_it_holds_check_rows(
+    database_url: str, owner_database_url: str
+) -> None:
+    """A start records the current keys' check rows only, so a retired key's row could never
+    be recreated after the table was dropped (0003's docstring)."""
+    engine = create_engine(database_url)
+    try:
+        with migrated(owner_database_url):
+            with engine.begin() as connection:
+                connection.execute(
+                    text("INSERT INTO connection_keks (key_id, check_value) VALUES ('kek-0', :v)"),
+                    {"v": bytes(16)},
+                )
+            with pytest.raises(DBAPIError, match="connection_keks holds check rows"):
+                command.downgrade(alembic_config(), "0002_close_alembic_version")
+            assert applied_revisions(database_url) == [HEAD]
+            assert "connection_keks" in public_tables(database_url)
+            with engine.begin() as connection:
+                connection.execute(text("DELETE FROM connection_keks"))
+            command.downgrade(alembic_config(), "0002_close_alembic_version")  # empty: dropped
+            assert "connection_keks" not in public_tables(database_url)
+    finally:
+        engine.dispose()
+    assert applied_revisions(database_url) == []
 
 
 def test_the_app_role_cannot_read_or_change_the_migration_state(

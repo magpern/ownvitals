@@ -1,6 +1,7 @@
 """The key ring on a database: the ``connection_keks`` check, the seed and pepper slots, retired
 keys and the startup refusals (ADR 0004 sections 3 and 4). The key files themselves are
-``test_keks_files.py``. Every key here is synthetic test material."""
+``test_keks_files.py``; when the check runs (deferred, on first use, at readiness) is
+``test_keks_check.py``. Every key here is synthetic test material."""
 
 import uuid
 from collections.abc import Iterator
@@ -28,6 +29,8 @@ from keystools import (
 from ownvitals.crypto import keks
 from ownvitals.crypto.envelope import (
     Kek,
+    KeyRetired,
+    RetiredKek,
     RingKey,
     WebhookPepper,
     WebhookSeed,
@@ -35,7 +38,9 @@ from ownvitals.crypto.envelope import (
     connection_aad,
     connection_wrap_aad,
     open_sealed,
+    rewrap,
     seal,
+    wrap,
 )
 from ownvitals.db import system_session
 from ownvitals.web import create_app
@@ -55,10 +60,12 @@ def keks_schema(role_urls: RoleUrls) -> Iterator[None]:
 
 
 @pytest.fixture
-def db(keks_schema: None, database_url: str, app_database_url: str) -> str:
-    """No check rows yet; returns the app role's URL."""
+def db(keks_schema: None, database_url: str, app_database_url: str) -> Iterator[str]:
+    """No check rows yet; returns the app role's URL. The rows go again afterwards: migration
+    0003's downgrade refuses while the table holds any."""
     clear_check_rows(database_url)
-    return app_database_url
+    yield app_database_url
+    clear_check_rows(database_url)
 
 
 async def load(app_url: str, role: keks.Role, **overrides: object) -> keks.KeyRing:
@@ -188,59 +195,6 @@ async def test_two_kinds_sharing_one_key_refuse_to_start(
     assert check_rows(database_url) == {}
 
 
-async def test_an_unreachable_database_defers_the_check_to_first_use(
-    unreachable_database_url: str, db: str, database_url: str, secrets_dir: Path
-) -> None:
-    unreachable = create_app(settings_for(unreachable_database_url))
-    async with unreachable.router.lifespan_context(unreachable):
-        assert unreachable.state.keyring.verified is False
-    deferred = await load(unreachable_database_url, "worker")
-    assert deferred.verified is False
-    # On a reachable database with a swapped key the first use refuses, every time.
-    insert_check_row(database_url, "kek-1", check_value(Kek("kek-1", KEY_D)))
-    write_key(secrets_dir, "connection_kek", KEY_A)
-    async with app_factory(settings_for(db)) as factory:
-        kek = keks.read_current_kek("kek-1", secrets_dir)
-        ring = keks.KeyRing("worker", secrets_dir, kek, verified=False, factory=factory)
-        async with system_session(factory) as session:
-            for _ in range(2):
-                with pytest.raises(keks.KeyRingError, match="does not match the check value"):
-                    await ring.current(session)
-                with pytest.raises(keks.KeyRingError):
-                    await ring.kek_for(session, "kek-1")
-        assert ring.verified is False
-        # With the right key the first use checks, records nothing new and verifies.
-        clear_check_rows(database_url)
-        async with system_session(factory) as session:
-            assert (await ring.current(session)).key == KEY_A
-        assert ring.verified
-        assert check_rows(database_url) == {"kek-1": check_value(Kek("kek-1", KEY_A))}
-
-
-async def test_a_rolled_back_caller_does_not_undo_the_deferred_check(
-    db: str, database_url: str, secrets_dir: Path
-) -> None:
-    """The first-use check runs in its own transaction: the check row is committed and the ring
-    verified even when the caller's transaction rolls back afterwards."""
-
-    class Rollback(Exception):
-        pass
-
-    async with app_factory(settings_for(db)) as factory:
-        kek = keks.read_current_kek("kek-1", secrets_dir)
-        ring = keks.KeyRing("web", secrets_dir, kek, verified=False, factory=factory)
-
-        async def use_then_roll_back() -> None:
-            async with system_session(factory) as session:
-                await ring.current(session)
-                raise Rollback
-
-        with pytest.raises(Rollback):
-            await use_then_roll_back()
-    assert ring.verified
-    assert set(check_rows(database_url)) == {"kek-1"}
-
-
 async def test_retired_keks_load_only_with_a_matching_check_row(
     db: str, database_url: str, secrets_dir: Path
 ) -> None:
@@ -293,7 +247,7 @@ async def test_a_retired_kek_still_opens_what_it_sealed(
     assert set(check_rows(database_url)) == {"kek-1", "kek-2"}
     async with app_factory(settings_for(db)) as factory, system_session(factory) as session:
         retired = await ring.kek_for(session, sealed.key_id)
-        assert (retired.key_id, retired.key) == ("kek-1", KEY_A)
+        assert (type(retired), retired.key_id, retired.key) == (RetiredKek, "kek-1", KEY_A)
         assert (
             open_sealed(
                 sealed.ciphertext,
@@ -306,7 +260,34 @@ async def test_a_retired_kek_still_opens_what_it_sealed(
             )
             == payload
         )
-        assert (await ring.current(session)).key == KEY_B
+        current = await ring.current(session)
+        assert (type(current), current.key) == (Kek, KEY_B)
+        assert await ring.kek_for(session, "kek-2") is current
+    # Decrypt only (ADR 0004 section 3): the retired KEK the ring hands out never writes, and
+    # is only ever a rewrap's source, onto the current KEK (#13's ``keys rewrap``).
+    aad = connection_aad(owner, "withings", row)
+    old_wrap = connection_wrap_aad("kek-1", owner, "withings", row)
+    new_wrap = connection_wrap_aad("kek-2", owner, "withings", row)
+    with pytest.raises(KeyRetired):
+        seal(payload, aad, retired, old_wrap)  # pyright: ignore[reportArgumentType]
+    with pytest.raises(KeyRetired):
+        wrap(bytes(32), retired, old_wrap)  # pyright: ignore[reportArgumentType]
+    with pytest.raises(KeyRetired):
+        rewrap(
+            sealed.wrapped_dek,
+            sealed.dek_nonce,
+            current,
+            new_wrap,
+            retired,  # pyright: ignore[reportArgumentType]
+            old_wrap,
+        )
+    moved, moved_nonce = rewrap(
+        sealed.wrapped_dek, sealed.dek_nonce, retired, old_wrap, current, new_wrap
+    )
+    opened = open_sealed(
+        sealed.ciphertext, sealed.nonce, moved, moved_nonce, current, aad, new_wrap
+    )
+    assert opened == payload
     (secrets_dir / "connection_kek_kek-1").unlink()  # the runbook's last step
     fresh = await load(db, "web", connection_kek_id="kek-2")
     async with app_factory(settings_for(db)) as factory, system_session(factory) as session:

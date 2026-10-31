@@ -6,10 +6,11 @@ import pickle
 from pathlib import Path
 
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from keystools import KEY_A, KEY_B, KEY_C, key_file, settings_for, write_key
 from ownvitals.crypto import keks
-from ownvitals.crypto.envelope import Kek, RingKey, WebhookPepper, WebhookSeed
+from ownvitals.crypto.envelope import Kek, RetiredKek, RingKey, WebhookPepper, WebhookSeed
 
 KINDS: list[tuple[type[RingKey], str, str]] = [
     (Kek, "connection_kek", "kek-1"),
@@ -96,13 +97,20 @@ def test_a_bad_or_foreign_id_refuses(
 def test_a_ring_is_built_only_for_web_or_the_worker_and_web_never_with_a_seed(
     tmp_path: Path,
 ) -> None:
-    kek = Kek("kek-1", KEY_A)
+    kek, factory = Kek("kek-1", KEY_A), async_sessionmaker()
     with pytest.raises(keks.SeedRefused):
-        keks.KeyRing("web", tmp_path, kek, seed=WebhookSeed("seed-1", KEY_B))
+        keks.KeyRing("web", tmp_path, kek, factory=factory, seed=WebhookSeed("seed-1", KEY_B))
     with pytest.raises(ValueError, match="web or worker"):
-        keks.KeyRing("admin", tmp_path, kek)  # pyright: ignore[reportArgumentType]
-    with pytest.raises(ValueError, match="session factory"):
-        keks.KeyRing("worker", tmp_path, kek, verified=False)
+        keks.KeyRing("admin", tmp_path, kek, factory=factory)  # pyright: ignore[reportArgumentType]
+    with pytest.raises(TypeError, match="current KEK is a Kek"):
+        keks.KeyRing("worker", tmp_path, RetiredKek("kek-1", KEY_A), factory=factory)  # pyright: ignore[reportArgumentType]
+
+
+def test_a_hand_built_ring_starts_unverified(tmp_path: Path) -> None:
+    """Only a check against the check rows (``verify``) marks a ring verified; ``test_keks.py``
+    shows an unverified one refusing a swapped key and verifying a matching one."""
+    ring = keks.KeyRing("worker", tmp_path, Kek("kek-1", KEY_A), factory=async_sessionmaker())
+    assert ring.verified is False
 
 
 async def test_load_keyring_takes_only_web_or_the_worker(tmp_path: Path) -> None:
@@ -120,6 +128,7 @@ def test_a_ring_shows_ids_only_and_cannot_be_pickled(tmp_path: Path) -> None:
         "worker",
         tmp_path,
         Kek("kek-1", KEY_A),
+        factory=async_sessionmaker(),
         pepper=WebhookPepper("pep-1", KEY_B),
         seed=WebhookSeed("seed-1", KEY_C),
     )

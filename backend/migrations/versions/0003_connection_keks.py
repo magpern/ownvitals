@@ -41,6 +41,19 @@ def upgrade() -> None:
     op.execute("GRANT SELECT, INSERT ON TABLE public.connection_keks TO ownvitals_app")
 
 
+REFUSE_WHILE_ROWS = """
+    DO $$ BEGIN
+      IF EXISTS (SELECT FROM public.connection_keks) THEN
+        RAISE EXCEPTION 'connection_keks holds check rows; downgrade refused';
+      END IF;
+    END $$"""
+
+
 def downgrade() -> None:
-    """Drops the check values: the next start records them again for the keys it then holds."""
+    """Refused while ``connection_keks`` holds a row. A start records the check rows of the
+    **current** keys only, so the rows of retired KEKs (and seeds and peppers) could never be
+    recreated, and every value still under a retired KEK would stay ``key_unavailable``. An
+    empty table (a database no web or worker ever started on, or after ``keys wipe``, #13) is
+    dropped."""
+    op.execute(REFUSE_WHILE_ROWS)
     op.execute("DROP TABLE public.connection_keks")

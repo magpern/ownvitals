@@ -10,10 +10,16 @@ and unwrap of ownvitals goes through here. Only ``ownvitals.connections``, ``own
   nonce and AAD that names the key and the row. A wrapped DEK is 48 bytes (32 + the GCM tag).
 - AAD strings start with a version prefix per kind of value and join fields with ``|``; no field
   can contain one (UUIDs in canonical text form, provider names and key ids from their
-  patterns), so they cannot collide.
+  patterns), so they cannot collide. The two AADs of a value are **bound**: the wrap AAD names
+  the id of the KEK that wraps or unwraps the DEK, and the payload AAD names the same value, of
+  the matching kind. A mismatch is a ``ValueError`` when writing and ``DecryptFailed`` when
+  reading. Nonces are exactly 12 bytes.
 - The ring holds three **kinds** of key (``KeyKind``): KEKs, and the webhook-secret seed and
   pepper of ADR 0004 section 4. Each kind has its own id prefix, its own class and its own check
   message, so a key of one kind can't stand in for another: only a ``Kek`` wraps a data key.
+- A **retired** KEK (``connection_kek_<id>``) is a ``RetiredKek``: decrypt only (ADR 0004
+  section 3). It unwraps and opens; ``wrap``, ``seal`` and ``rewrap``'s target refuse it with
+  ``KeyRetired``.
 
 Any authentication failure raises ``DecryptFailed`` with no detail, and nothing else is tried.
 """
@@ -75,6 +81,14 @@ class DecryptFailed(Exception):
         super().__init__("decrypt_failed")
 
 
+class KeyRetired(Exception):
+    """A retired KEK was handed to ``wrap``, ``seal`` or ``rewrap``'s target: retired keys are
+    decrypt only (ADR 0004 section 3)."""
+
+    def __init__(self) -> None:
+        super().__init__("key_retired")
+
+
 def is_key_id(value: object, kind: KeyKind = KeyKind.KEK) -> bool:
     """Whether ``value`` is an id of ``kind`` (for a KEK ``^kek-[a-z0-9-]{1,28}$``)."""
     return isinstance(value, str) and kind.id_pattern.fullmatch(value) is not None
@@ -107,6 +121,14 @@ class RingKey:
 @dataclass(frozen=True, slots=True, repr=False, eq=False)
 class Kek(RingKey):
     """A key-encryption key (``kek-…``): the only kind that wraps a data key."""
+
+    KIND: ClassVar[KeyKind] = KeyKind.KEK
+
+
+@dataclass(frozen=True, slots=True, repr=False, eq=False)
+class RetiredKek(RingKey):
+    """A retired KEK (``connection_kek_<id>``, ``kek-…``): decrypt only (ADR 0004 section 3). It
+    unwraps and opens what it wrapped; it never wraps, seals or is ``rewrap``'s target."""
 
     KIND: ClassVar[KeyKind] = KeyKind.KEK
 
@@ -193,9 +215,46 @@ def totp_wrap_aad(key_id: str, user_id: UUID) -> bytes:
     return f"ownvitals-totp-dek-v1|{_key_id(key_id)}|{_uuid(user_id)}".encode()
 
 
-def _require_kek(kek: Kek) -> None:
+# The prefix of each kind of wrap AAD -> the payload AAD prefix of the same kind of value.
+_PAYLOAD_PREFIX_OF_WRAP = {
+    b"ownvitals-dek-v1": b"ownvitals-conn-v1",
+    b"ownvitals-totp-dek-v1": b"ownvitals-totp-v1",
+}
+
+
+def _writing(kek: Kek) -> None:
+    """Only a current KEK writes; a retired one is ``KeyRetired``."""
+    if type(kek) is RetiredKek:
+        raise KeyRetired
     if type(kek) is not Kek:
-        raise TypeError("only a KEK wraps or unwraps a data key")
+        raise TypeError("only a KEK wraps a data key")
+
+
+def _opening(kek: Kek | RetiredKek) -> None:
+    if type(kek) is not Kek and type(kek) is not RetiredKek:
+        raise TypeError("only a KEK unwraps a data key")
+
+
+def _wrap_fields(wrap_aad: bytes) -> list[bytes] | None:
+    """``[prefix, key_id, *value]`` of a wrap AAD of a known kind, else ``None``."""
+    fields = wrap_aad.split(b"|")
+    if len(fields) < 3 or fields[0] not in _PAYLOAD_PREFIX_OF_WRAP:
+        return None
+    return fields
+
+
+def _names_kek(wrap_aad: bytes, kek: RingKey) -> bool:
+    """Whether ``wrap_aad`` is a wrap AAD of a known kind naming ``kek``'s id."""
+    fields = _wrap_fields(wrap_aad)
+    return fields is not None and fields[1] == kek.key_id.encode("ascii")
+
+
+def _same_value(aad: bytes, wrap_aad: bytes) -> bool:
+    """Whether the payload AAD names the value the wrap AAD names, in the matching kind."""
+    fields = _wrap_fields(wrap_aad)
+    if fields is None:
+        return False
+    return aad == b"|".join([_PAYLOAD_PREFIX_OF_WRAP[fields[0]], *fields[2:]])
 
 
 def _bytes(value: Stored) -> bytes:
@@ -206,6 +265,8 @@ def _bytes(value: Stored) -> bytes:
 
 
 def _decrypt(key: bytes, nonce: bytes, data: bytes, aad: bytes) -> bytes:
+    if len(nonce) != NONCE_LENGTH:  # AES-GCM takes other lengths; ours are always 12 bytes
+        raise DecryptFailed
     plaintext: bytes | None = None
     # Raised after the block, so DecryptFailed carries no __context__.
     with contextlib.suppress(InvalidTag, ValueError):
@@ -216,17 +277,23 @@ def _decrypt(key: bytes, nonce: bytes, data: bytes, aad: bytes) -> bytes:
 
 
 def wrap(dek: bytes, kek: Kek, wrap_aad: bytes) -> tuple[bytes, bytes]:
-    """``(wrapped_dek, dek_nonce)``: the DEK under ``kek``, a fresh random nonce."""
-    _require_kek(kek)
+    """``(wrapped_dek, dek_nonce)``: the DEK under ``kek``, a fresh random nonce. ``kek`` is a
+    current KEK (``KeyRetired`` otherwise), and ``wrap_aad`` names its id."""
+    _writing(kek)
     if not isinstance(dek, bytes) or len(dek) != KEY_LENGTH:
         raise ValueError("a data key is exactly 32 bytes")
+    if not _names_kek(wrap_aad, kek):
+        raise ValueError("the wrap AAD must name the id of the KEK that wraps")
     nonce = secrets.token_bytes(NONCE_LENGTH)
     return AESGCM(kek.key).encrypt(nonce, dek, wrap_aad), nonce
 
 
-def unwrap(wrapped_dek: Stored, dek_nonce: Stored, kek: Kek, wrap_aad: bytes) -> bytes:
-    """The DEK, or ``DecryptFailed``."""
-    _require_kek(kek)
+def unwrap(wrapped_dek: Stored, dek_nonce: Stored, kek: Kek | RetiredKek, wrap_aad: bytes) -> bytes:
+    """The DEK, or ``DecryptFailed`` (also when ``wrap_aad`` names another KEK's id). A
+    current or a retired KEK unwraps."""
+    _opening(kek)
+    if not _names_kek(wrap_aad, kek):
+        raise DecryptFailed
     dek = _decrypt(kek.key, _bytes(dek_nonce), _bytes(wrapped_dek), wrap_aad)
     if len(dek) != KEY_LENGTH:
         raise DecryptFailed
@@ -234,10 +301,15 @@ def unwrap(wrapped_dek: Stored, dek_nonce: Stored, kek: Kek, wrap_aad: bytes) ->
 
 
 def seal(plaintext: bytes, aad: bytes, kek: Kek, wrap_aad: bytes) -> Sealed:
-    """Encrypt ``plaintext`` under a new DEK and wrap the DEK under ``kek``."""
-    _require_kek(kek)
+    """Encrypt ``plaintext`` under a new DEK and wrap the DEK under ``kek``, a current KEK
+    (``KeyRetired`` otherwise). Both AADs name the same value, the wrap AAD ``kek``'s id."""
+    _writing(kek)
     if not isinstance(plaintext, bytes):
         raise TypeError("the plaintext is bytes")
+    if not _names_kek(wrap_aad, kek):
+        raise ValueError("the wrap AAD must name the id of the KEK that wraps")
+    if not _same_value(aad, wrap_aad):
+        raise ValueError("the payload AAD and the wrap AAD must name the same value")
     dek = secrets.token_bytes(KEY_LENGTH)
     nonce = secrets.token_bytes(NONCE_LENGTH)
     ciphertext = AESGCM(dek).encrypt(nonce, plaintext, aad)
@@ -250,11 +322,14 @@ def open_sealed(
     nonce: Stored,
     wrapped_dek: Stored,
     dek_nonce: Stored,
-    kek: Kek,
+    kek: Kek | RetiredKek,
     aad: bytes,
     wrap_aad: bytes,
 ) -> bytes:
-    """Unwrap the DEK and decrypt the payload, or ``DecryptFailed``."""
+    """Unwrap the DEK and decrypt the payload, or ``DecryptFailed``. A current or a retired KEK
+    opens; the AADs must name the same value, and the wrap AAD ``kek``'s id."""
+    if not _same_value(aad, wrap_aad):
+        raise DecryptFailed
     dek = unwrap(wrapped_dek, dek_nonce, kek, wrap_aad)
     return _decrypt(dek, _bytes(nonce), _bytes(ciphertext), aad)
 
@@ -262,10 +337,20 @@ def open_sealed(
 def rewrap(
     wrapped_dek: Stored,
     dek_nonce: Stored,
-    old: Kek,
+    old: Kek | RetiredKek,
     old_wrap_aad: bytes,
     new: Kek,
     new_wrap_aad: bytes,
 ) -> tuple[bytes, bytes]:
-    """Move a wrapped DEK from ``old`` to ``new``. The DEK and the payload stay the same."""
+    """Move a wrapped DEK from ``old`` (current or retired) to ``new`` (a current KEK;
+    ``KeyRetired`` otherwise). The DEK, the payload and the value both wrap AADs name stay the
+    same: only the KEK changes."""
+    _writing(new)
+    old_fields, new_fields = _wrap_fields(old_wrap_aad), _wrap_fields(new_wrap_aad)
+    if (
+        old_fields is None
+        or new_fields is None
+        or [old_fields[0], *old_fields[2:]] != [new_fields[0], *new_fields[2:]]
+    ):
+        raise ValueError("a rewrap keeps the value its wrap AAD names; only the KEK changes")
     return wrap(unwrap(wrapped_dek, dek_nonce, old, old_wrap_aad), new, new_wrap_aad)
