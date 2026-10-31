@@ -70,8 +70,8 @@ gh api "repos/magpern/ownvitals/compare/$sha...main" --jq .status      # must be
 # and add --source-digest "$sha" to the gh attestation verify above
 ```
 
-The workflow never changes the package's visibility. How the home server pulls (a public package
-or a read-only token) is decided with the deploy (M2).
+The workflow never changes the package's visibility: whether it is public is the owner's decision
+(ADR 0001), and with it how the home server pulls (anonymously or with a read-only token).
 
 ## Pinned actions and images
 
