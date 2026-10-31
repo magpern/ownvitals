@@ -300,9 +300,12 @@ Architect's decisions (2026-10-31):
   deleted recording, a recomputed `estimated` and a new SQI version are therefore current by
   construction, and writing `estimated` re-evaluates nothing (§15). `ecg_gate_overlay` is a pure
   function in `ownvitals.ecg`, which the purity guard (`docs/dev/analysis.md`) keeps free of
-  database imports; the findings read path loads the linked recording and calls it. A
-  notification applies it when sent: one sent before `estimated` exists says "not evaluated by
-  ownvitals" and is not recalled if the gate fails later.
+  database imports; the findings read path loads the linked recording and calls it.
+- **E4 and E6 notifications wait for the gate.** One is held until a linked recording's `estimated`
+  exists with a current `input_fingerprint`, for at most 24 hours after the finding (a setting);
+  the overlay then decides as above: a failure sends nothing; a pass, or no gate result (also when
+  the 24 hours run out), sends it, the latter marked "not evaluated by ownvitals". E1 to E3 notify
+  at once. A sent notification is never recalled.
 - Every finding carries `rule_id`, `rule_version`, tier, `data_quality` and `origin`: an E1
   found while backfilling goes to the history view without a notification (PLAN §7.1 step 7).
   Only documented codes trigger a rule; a missing value never counts as negative.
@@ -348,8 +351,9 @@ R-event times and beat types. Fixed seeds; files and data labelled synthetic. Op
 **The test specification** is [0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md), part
 of this ADR: the noise models and SNR, beat matching (±150 ms, ANSI/AAMI EC57; Se and +P pooled
 per condition and rate, with a 95 % floor per accepted strip), the gate conditions, the HR and
-HRV tolerances, the assertions for ectopic beats, respiratory modulation and AF-like strips, and
-a simulation note. Its thresholds are our choices, and every seeded case must meet them.
+HRV tolerances, the assertions for ectopic beats, respiratory modulation and AF-like strips, a
+simulation note, and the assertions for §11's overlay and notification hold. Its thresholds are
+our choices, and every seeded case must meet them.
 
 Seeds: ≥ 20 per condition and rate in CI; a ≥ 200-seed `slow` sweep run by #40 and by every PR
 that bumps a module version, its numbers in `docs/dev/ecg.md`. Also: §5's filter responses; a
@@ -421,8 +425,9 @@ owner** (open question 2).
   #25 implements the rest of §1 (validation, zstd encoding, `zstandard`) and, with #21, a revision
   bump that ignores `estimated`-only updates (§15); the M5 viewer/PDF issue implements §3; the M5
   rules issue implements §11 (E1 to E4, E6 and `ecg_gate_overlay`), which every later consumer
-  uses; #47 implements §14. E5 and the rest of §12 wait for the later revision, their own issue
-  and the owner's gate.
+  uses; the M6/M7 notification issue implements §11's hold of E4 and E6 notifications; #47
+  implements §14. E5 and the rest of §12 wait for the later revision, their own issue and the
+  owner's gate.
 - The Architect adds A1 to A8 to `docs/status.md` with their settling items.
 - `estimated` carries its versions and fingerprint, so a changed parameter recomputes history
   instead of mixing versions; findings never depend on it, so they need no recompute.
@@ -440,7 +445,8 @@ owner** (open question 2).
 **Decided by the Architect (2026-10-31).** Findings hold Withings data only; our gate is a
 read-time overlay that every consumer uses: it hides E4/E6 on a gate failure, marks them "not
 evaluated by ownvitals" without a result, never hides E1 to E3 and shows the gate on them only
-behind the flag (§11). E4 with unknown sex applies only > 500 ms to QTc (§11). `ownvitals ecg
+behind the flag (§11). E4/E6 notifications wait up to 24 hours for the gate (a setting); E1 to E3
+notify at once (§11). E4 with unknown sex applies only > 500 ms to QTc (§11). `ownvitals ecg
 validate` is owner-run, #47 (§14). Other rates such as 250 Hz are decided after the probe and stay
 assumption A3 (§2). Version 1 has no interpretation; the E5 index is deferred (§12).
 

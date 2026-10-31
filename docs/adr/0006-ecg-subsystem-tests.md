@@ -4,7 +4,7 @@ Part of [ADR 0006](0006-ecg-subsystem.md), with the same status, split out to ke
 lines. "§n" means a section of ADR 0006, whose references this file cites. **Synthetic signals
 only**: no real or public recordings. The generator and its options are in §13; strips are 30 s
 long. Every threshold and tolerance here is our choice, and every seeded CI case must satisfy every
-assertion; #40 implements them.
+assertion; #40 implements them, except those of the last section, which names its issues.
 
 ## Noise
 
@@ -67,3 +67,19 @@ Ground truth applies §8's formulas to the generator's sinus intervals over the 
   per background: no wrong exclusion with a sinus background of up to ± 5 %; 2 strips at ± 6 %;
 - AF-like strips (lognormal RR, CV 0.25), 40,000 per rate: HRV computed in 1 strip at 100 bpm
   and in none at 120 or 150 bpm (8 at 80 bpm, outside the generator's range).
+
+## The overlay and the notification hold (§11)
+
+The M5 rules issue tests the overlay and the M6/M7 notification issue the hold, with synthetic
+findings and recordings:
+
+- `ecg_gate_overlay` for E1 to E3, E4 and E6 against every gate state: pass; fail; and no gate
+  result (no linked recording, no `estimated`, a mismatched `input_fingerprint`,
+  `unsupported_sampling_rate`, `signal_missing`). Only E4 and E6 on a failure are hidden; every
+  no-result state shows "not evaluated by ownvitals"; E1 to E3 are never hidden and show the gate
+  outcome only with the owner-only flag.
+- The hold, with a fake clock and the bound changed through its setting. An E4 or E6 notification
+  is not sent while no current `estimated` exists and the finding is younger than the bound. A
+  pass sends it; a failure never does; a no-result `estimated` sends it marked "not evaluated".
+  Just before the bound it is still held; at the bound it is sent marked "not evaluated". A link
+  that appears during the hold counts. E1 to E3 are sent at once. A later failure recalls nothing.
