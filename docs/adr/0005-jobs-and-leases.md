@@ -1,6 +1,6 @@
 # ADR 0005: Jobs, leases, fencing and the worker
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 (see "Amendments")
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 and #72 (see "Amendments")
 
 ## Context
 
@@ -134,22 +134,25 @@ queued ──claim──> running ──> completed | failed | cancelled
     table, and `ownvitals_queue` has no privilege on it;
   - from #21, `ensure_month_partitions(table, from_month, to_month)` (ADR 0002 §2), owned by
     `ownvitals_owner` (creating partitions requires owning the parent); a guard keeps every
-    caller but the scheduler and backfill modules out (amended 2026-10-31, #49: a month range
-    and the backfill caller);
+    caller but the scheduler module and the writers of partitioned tables out (amended
+    2026-10-31, #49: a month range; #72: every writer, ADR 0002 §2);
   - from M1, the webhook-secret function (ADR 0004 §4), owned by the `NOLOGIN` role
     `ownvitals_webhook_secrets` with ADR 0002 §3's column privileges (amended 2026-10-31, #49;
     it was `ownvitals_owner`): it appends, retires (one entry, or all at once), re-hashes or
     deletes retired entries in the `webhook_secrets` column of one `withings_apps` row under ADR
     0004 §4's input rules, compare-and-clears the rotation request (`rotation_requested_at`,
-    `rotation_reason`), and writes the admin-audit row, nothing else;
+    `rotation_reason`), and writes the admin-audit row, nothing else; it takes the rotation
+    lock of §9 first (amended 2026-10-31, #72);
     `ownvitals_app` may execute it. #21 builds the role and the function; #24's guard keeps
     every caller but the worker's rotation module out.
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day
   `webhook_events` purge, scheduler enqueue, rate bucket, and the cancel of a replaced
-  rotation's queued `notify update` jobs, ADR 0004 §4; ADR 0002 §3) by amending this list with
-  each family's role, grants and digests; anything else is refused.
+  rotation's queued `notify update` jobs, ADR 0008; ADR 0002 §3) by amending this list with
+  each family's role, grants and digests; the notifications issue (M6/M7) adds the mail
+  outbox's functions (claim, mark and the owner-notice write) the same way (ADR 0007; amended
+  2026-10-31, #72). Anything else is refused.
 - **The privileged step.** Handing a function to `ownvitals_queue` needs the superuser, so the
   role, its grants and the functions live in one idempotent script,
   `docker/postgres/queue/20-queue.sql`, run **as the superuser** by the one-shot `db-functions`
@@ -293,13 +296,16 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
   function; over quota, the event is recorded and no job is added (Withings still gets 200; the
   poll catches up).
 - **Owner-less upkeep** (retention purges such as the 30-day `webhook_events` purge, creating
-  partitions ahead through `ensure_month_partitions` (ADR 0002 §2), secret rotation scheduling
-  and picking up a rotation request in the order its `rotation_reason` names (ADR 0004 §4;
-  amended 2026-10-31, #49)) runs as maintenance tasks in the worker loop, like reap and purge,
+  partitions ahead through `ensure_month_partitions` (ADR 0002 §2), secret rotation scheduling,
+  and picking up a rotation request in the order its `rotation_reason` names, one step at a
+  time under the rotation lock (ADR 0008, §9 below; amended 2026-10-31, #49 and
+  #72)) runs as maintenance tasks in the worker loop, like reap and purge,
   never as queue rows without an owner: `jobs` stays an owned table.
-- **Past months for a backfill** (amended 2026-10-31, #49): a `withings_backfill` run calls
-  `ensure_month_partitions` for its window's months before inserting the window, in a short
-  fenced transaction of its own, never in the transaction that inserts the window (ADR 0002 §2).
+- **Partitions before every write** (amended 2026-10-31, #49 and #72): every run that writes a
+  partitioned table (backfill, incremental and webhook-triggered sync, reconciliation) calls
+  `ensure_month_partitions` for the months it actually writes before inserting them, in a
+  short fenced transaction of its own, never in the transaction that inserts the rows; a row
+  outside the function's range is skipped and counted as ADR 0002 §2 says.
 
 ### 9. Advisory-lock namespaces (amended 2026-10-31, #49)
 
@@ -313,6 +319,7 @@ the SQL in `db-functions` uses the same numbers. A UUID key is hashed to `int4`
 | 1, job creation | `pg_advisory_xact_lock` | the owner id, hashed | §2 |
 | 2, token refresh | `pg_advisory_lock` (session-scoped) | the connection id, hashed | ADR 0004 §6 |
 | 3, partitions | `pg_advisory_xact_lock` | the parent table's oid, as `int4` | ADR 0002 §2 |
+| 4, webhook-secret rotation (amended 2026-10-31, #72) | `pg_advisory_xact_lock` | the `withings_apps` id, hashed | ADR 0008 §2 (each rotation step), ADR 0004 §4 (the function) |
 
 A new advisory lock adds its row here in the PR that introduces it.
 
@@ -356,3 +363,15 @@ Architect decisions, made in place above and marked "amended 2026-10-31, #49":
 - §2, §9: every advisory lock uses the two-key form with a namespace from §9's registry.
 - §8: a backfill creates the past months its window needs, in a short transaction before the
   window's write; the upkeep picks up a rotation request in the order its reason names.
+
+### 2026-10-31 (#72): follow-ups of the #58 review
+
+Architect decisions, made in place above and marked "amended 2026-10-31, #72":
+
+- §3: the partition function's callers are the scheduler module and every writer of a
+  partitioned table; the webhook-secret function takes the rotation lock; the notifications
+  issue adds the outbox's functions (ADR 0007).
+- §8: every run that writes a partitioned table creates the months it actually writes first
+  (the earlier text said "its window's months"); the upkeep acts on a rotation request one step
+  at a time under the rotation lock; the rotation orders are cited from ADR 0008.
+- §9: namespace 4, webhook-secret rotation, keyed by the app.
