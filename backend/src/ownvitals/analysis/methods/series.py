@@ -45,8 +45,9 @@ class InputSummary:
 
     ``n`` points on ``n_days`` distinct days (``floor`` of the time) of a window of
     ``window_days`` days; ``coverage = n_days / window_days``. The window is the one given to the
-    ``Series`` (the period the finding is about, e.g. 90 days) or, when none was given, the span
-    from the first to the last day with data, both counted.
+    ``Series`` (the period the finding is about, e.g. 90 days) or, when none was given, the days
+    from the first to the last day with data, both counted (a window of days, not the elapsed span
+    of the minimum-data policy, which counts one less).
     """
 
     n: int
@@ -145,7 +146,7 @@ class Series:
             return InputSummary(0, 0, self.window_days or 0, Fraction(0), None, None)
         n_days = self.n_days
         window = self.window_days
-        if window is None:
+        if window is None:  # first to last day with data, both counted
             window = int(math.floor(self.t[-1]) - math.floor(self.t[0])) + 1
         return InputSummary(
             n=self.n,
