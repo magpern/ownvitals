@@ -6,10 +6,14 @@ export interface LockPackage {
   license?: unknown
   /** npm: only reachable through `devDependencies`. */
   dev?: boolean
+  /** npm: a dev dependency that is also an optional (peer) dependency of something that ships. */
+  devOptional?: boolean
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
+  /** A peer marked `optional` is only installed if something asks for it; it is followed all the same. */
+  peerDependenciesMeta?: Record<string, { optional?: boolean } | undefined>
 }
 
 export interface Lockfile {
@@ -18,8 +22,14 @@ export interface Lockfile {
   packages: Record<string, LockPackage>
 }
 
-/** The licences the project accepts (SPDX identifiers, compared without regard to case). */
-export const ACCEPTED_LICENCES = new Set(['MIT', 'ISC', 'Apache-2.0', 'OFL-1.1'].map((id) => id.toLowerCase()))
+/**
+ * The licences the project accepts, as SPDX identifiers. The one list: `licenceAccepted` below
+ * and the check of the direct dependencies in src/packageJson.test.ts both read it.
+ */
+export const ACCEPTED_LICENCE_IDS: readonly string[] = ['MIT', 'ISC', 'Apache-2.0', 'OFL-1.1']
+
+/** The same, in lower case: `licenceAccepted` compares without regard to case. */
+export const ACCEPTED_LICENCES = new Set(ACCEPTED_LICENCE_IDS.map((id) => id.toLowerCase()))
 
 /**
  * Whether an SPDX licence expression is acceptable: `A OR B` when either side is, `A AND B` when
@@ -96,6 +106,13 @@ function resolve(lock: Lockfile, from: string, name: string): string | undefined
  * The install paths reachable from the project's `dependencies` (and optional dependencies)
  * through each package's dependencies, optional dependencies and peer dependencies: the
  * production tree, worked out here rather than taken from npm's `dev` flags.
+ *
+ * Every peer that is installed is followed, optional (`peerDependenciesMeta`) or not, and whatever
+ * its `dev` flag says. The bundler decides what ships, not the lockfile: Vite follows the imports
+ * of a shipped package into `node_modules`, so an optional peer that a dev tool made npm install
+ * is bundled as soon as a shipped package imports it. (npm marks such a package `devOptional`,
+ * not `dev`, so the cross-check against npm's flags agrees.) A peer that is not installed is
+ * ignored.
  */
 export function productionClosure(lock: Lockfile): string[] {
   const seen = new Set<string>()

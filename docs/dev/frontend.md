@@ -36,7 +36,8 @@ src/pages/      sign in, sign up, mail-link and reset pages, the two second-fact
 src/components/ forms, the page frame, the QR code, the Google button
 src/styles/     tokens.css (the only place with colours), app.css
 src/test/       fake API (fakeApi.ts), render helper, the network guard (networkGuard.ts, installed by
-                setup.ts), and the scanners behind sources.test.ts, build.test.ts and licences.test.ts
+                setup.ts; setup.test.ts runs that file on scratch tests), and the scanners behind
+                sources.test.ts, build.test.ts and licences.test.ts
 ```
 
 ## Session and guards
@@ -101,6 +102,19 @@ not an image or a font, so a file cannot hide from the scan by being unreadable.
   through. A host without a scheme needs a dot (or is an IPv6 literal), so `// comment`, `//TODO`
   and `'\\n'` are not hits. Known limit: percent- or entity-encoded slashes are not decoded
   (a browser does not read `%2F` in an authority as a separator).
+  - **Same-origin template URLs.** An authority that is exactly one `${location.host}`,
+    `${location.hostname}`, `${window.location.host}` or `${window.location.hostname}` expression
+    is our own origin, whatever it is, and is not a hit: ``` `wss://${location.host}/api/ws` ``` and
+    ``` `${location.protocol}//${location.host}/x` ``` pass. Nothing around the expression is
+    exempt: `${location.host}.evil.example`, `${location.host}@evil.example`,
+    `${location.host}:8000` (another port is another origin), `${location.origin}`,
+    `${other.location.host}` and a literal host anywhere else in the file are still hits. The
+    scan reads no spaces inside the braces, so write `${location.host}`, not `${ location.host }`;
+    for anything more elaborate build the URL with `new URL('/api/ws', location.href)`, which has
+    no host in its text at all.
+  - **`e.g.` and `i.e.`** written right after the slashes of a comment (`//e.g. foo`) are not
+    hosts either (no top-level domain is one letter). They are let through only with no scheme
+    and only as a whole word: `https://e.g`, `//e.g/x` and `//e.g.example.com` are hits.
 - **No colour literal outside `tokens.css`**: no hex, no `rgb()`/`hsl()`/`oklch()`/`color-mix()`,
   no named colour in a stylesheet, in an SVG (attribute, `<style>` or `style=`) or in a colour
   attribute. Known limit: a named colour in JSON or a manifest is not caught (hex and colour
@@ -132,7 +146,18 @@ and no `sendBeacon`; the guard adds them, so code that uses them cannot slip by.
   test only; `unstubGlobals` and `restoreMocks` in `vite.config.ts` put the guard back before the next.
 - **What it does not guard.** What a page loads by itself (`img`, `script`, `link`): jsdom loads
   none of it, and the CSP stops it in the browser (the scan above and `build.test.ts` check the
-  sources and the build). `src/test/networkGuard.test.ts` tests the guard.
+  sources and the build).
+- **The tests of the guard.** `src/test/networkGuard.test.ts` tests the guard itself: what it
+  refuses, what it records, what `drain()` returns. It cannot tell if the `afterEach` in
+  `setup.ts` stops failing the test, because each test there drains the list itself.
+  `src/test/setup.test.ts` covers that hook. It starts Vitest as a child process, in a scratch
+  folder with a small configuration of its own and the real `setup.ts`, on test files that swallow
+  a refused `fetch` and `EventSource` and ignore the answer of `sendBeacon`, and on a test that
+  stubs `fetch`. The run must fail exactly the tests that made an attempt, with the attempt in
+  the message and no query string, and pass the others. Removing the hook, not calling `drain()`,
+  not throwing or not installing the guard all fail it. The scratch files use relative URLs only
+  and import nothing (`globals: true`), so nothing leaves the machine even with the guard gone.
+  The nested run adds a few seconds.
 
 ### Licences
 
@@ -147,6 +172,19 @@ are refused.
   optional dependencies and peer dependencies, and a test requires it to equal the packages npm
   does not flag `dev`. A package counts as shipped if either says so, so a hand-set `dev: true`
   cannot hide one.
+  - **Optional peers are followed too.** A peer a shipped package marks optional in
+    `peerDependenciesMeta` is checked like any other, as long as it is installed, whatever its
+    flags. The bundler decides what ships, not the lockfile: Vite follows the imports of a shipped
+    package into `node_modules`, so an optional peer that a dev tool made npm install ends up in
+    the bundle as soon as a shipped package imports it. npm marks such a package `devOptional`
+    (never `dev`), which counts as not dev-only, so the cross-check above agrees. A peer that is
+    not installed is ignored. A package flagged `dev` by hand that a shipped package names as a
+    peer is reported, and the cross-check fails on it.
+- **One list of accepted ids.** `ACCEPTED_LICENCE_IDS` in `src/test/licenceScan.ts` is the only
+  list (`MIT`, `ISC`, `Apache-2.0`, `OFL-1.1`). `licenceAccepted` (the lockfile check) and
+  `packageJson.test.ts` (the direct dependencies) both read it. A test pins its value, so a change
+  is one deliberate edit, and another reads the source of `packageJson.test.ts` to check that it
+  imports the list whole and names no licence of its own.
 - **Dev-only tooling is exempt** (Vite, ESLint, Vitest, the CSS tooling ...): it is not
   distributed. Some of it is under other permissive or weak-copyleft licences (BSD, MPL-2.0
   unmodified, MIT-0, CC0, BlueOak-1.0.0, CC-BY-4.0 data); the decisions log in `docs/status.md`

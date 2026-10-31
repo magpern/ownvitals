@@ -236,6 +236,39 @@ describe('no third-party hosts', () => {
     [String.raw`const u = '\\\\evil.example\\x'`, [String.raw`\\\\evil.example`]],
     // Running text.
     ['// loaded from https://cdn.example.com.', ['https://cdn.example.com']],
+    // The template exemption covers one expression of the page's own host and nothing around it.
+    ['`wss://${location.host}.evil.example/x`', ['wss://${location.host}.evil.example']],
+    ['`wss://${location.host}@evil.example/x`', ['wss://${location.host}@evil.example']],
+    ['`wss://${location.host}:8000/x`', ['wss://${location.host}:8000']],
+    ['`wss://${location.host}${suffix}/x`', ['wss://${location.host}${suffix}']],
+    ['`wss://${location.host}evil/x`', ['wss://${location.host}evil']],
+    ['`wss://x${location.host}/x`', ['wss://x${location.host}']],
+    ['`wss://${location.hosts}/x`', ['wss://${location.hosts}']],
+    ['`wss://${location.origin}/x`', ['wss://${location.origin}']],
+    ['`wss://${location.host.evil}/x`', ['wss://${location.host.evil}']],
+    ['`wss://${other.location.host}/x`', ['wss://${other.location.host}']],
+    ['`wss://${evil.location.host}/x`', ['wss://${evil.location.host}']],
+    ['`wss://${window.location.hostx}/x`', ['wss://${window.location.hostx}']],
+    ['`wss://${Location.host}/x`', ['wss://${Location.host}']],
+    ['`wss://${location.host + ".evil.example"}/x`', ['wss://${location.host']],
+    ['`wss://${ location.host }/x`', ['wss://${']],
+    ['`wss://${host}/x`', ['wss://${host}']],
+    ['`//${location.host}.evil.example/x`', ['//${location.host}.evil.example']],
+    ['`${location.protocol}//${location.host}@evil.example/x`', ['//${location.host}@evil.example']],
+    // A literal host next to a same-origin template is still reported, and only that.
+    [
+      '`wss://${location.host}/a` + "https://evil.example/b"',
+      ['https://evil.example'],
+    ],
+    // `e.g.` and `i.e.` are let through only with no scheme and as a whole word.
+    ['https://e.g/x', ['https://e.g']],
+    ['see https://e.g for details', ['https://e.g']],
+    ['"//e.g/x"', ['//e.g']],
+    ['"//e.g"', ['//e.g']],
+    ['//e.g.evil.example/x', ['//e.g.evil.example']],
+    ['//e.gx.com/x', ['//e.gx.com']],
+    ['//e.g@evil.example/x', ['//e.g@evil.example']],
+    ['//i.e.evil.example/x', ['//i.e.evil.example']],
   ])('catches a remote host in %s', (text, expected) => {
     expect(remoteUrls(text)).toEqual(expected)
   })
@@ -278,6 +311,45 @@ describe('no third-party hosts', () => {
     String.raw`x = a / \b.c`,
   ])('lets %s through', (text) => {
     expect(remoteUrls(text)).toEqual([])
+  })
+
+  // The page's own host as a template expression is our own origin, whatever it is.
+  it.each([
+    '`wss://${location.host}/api/ws`',
+    '`https://${location.host}/api/stream`',
+    '`${location.protocol}//${location.host}/x`',
+    '`//${location.host}/x`',
+    '`//${location.hostname}/x`',
+    '`ws://${location.hostname}/x`',
+    '`https://${window.location.host}/x`',
+    '`wss://${window.location.hostname}/x`',
+    '`${window.location.protocol}//${window.location.host}/x`',
+    'new EventSource(`wss://${location.host}/live?a=1`)',
+    '// the socket is wss://${location.host}.',
+    '\\\\${location.host}\\x', // the backslash form of //
+  ])('lets the same-origin template %s through', (text) => {
+    expect(remoteUrls(text)).toEqual([])
+  })
+
+  // `e.g.` and `i.e.` right after the slashes of a comment are not hosts.
+  it.each([
+    '//e.g. a note',
+    '//e.g.',
+    '//e.g',
+    '//e.g, a note',
+    '//E.G. a note',
+    '//i.e. a note',
+    '//i.e., a note',
+    '// e.g. a note',
+    'const a = 1 //e.g. a note',
+    'x //e.g.\nnext line',
+  ])('lets the comment %j through', (text) => {
+    expect(remoteUrls(text)).toEqual([])
+  })
+
+  it('lets a template through without letting a literal host next to it through', () => {
+    const text = 'new WebSocket(`wss://${location.host}/live`); fetch("https://evil.example/x"); //e.g. a note'
+    expect(remoteUrls(text)).toEqual(['https://evil.example'])
   })
 })
 
