@@ -169,15 +169,22 @@ else changes.
 ### 6. Sign-up and providers
 
 - **Google is the only OAuth provider.** It is on only when its client id setting and the
-  `oauth_google_client_secret` secret file both exist. The web process's outbound allowlist holds
-  Google's OIDC hosts only (#6). GitHub and Microsoft code, their re-auth caveats and their
-  accepted risks are not ported.
+  `oauth_google_client_secret` secret file both exist. GitHub and Microsoft code, their re-auth
+  caveats and their accepted risks are not ported.
+- **Web's outbound connections** are exactly those of
+  [roadmap Amendment 1](../roadmap.md): Google's OIDC hosts for sign-in (#6), the configured SMTP
+  server for the account mails, which run in the request as in classbeat (the mail module is the
+  one web-only path the egress guard lists for it), and, from M1, the one Withings
+  authorization-code exchange (ADR 0004 §7). Nothing else; #6 and #22 test both processes'
+  lists.
 - **Sign-up modes:** `invite` (default) and `closed`. **`open` is refused until the M8 gate**:
   the setting's validation rejects it, and the stored flag can only tighten what the environment
   allows (stricter wins, #12).
 - **First admin:** `python -m ownvitals invite create`, then the owner signs up with an address
   in `OWNVITALS_ADMIN_EMAILS`; since TOTP is mandatory, the first sign-in goes straight to
-  enrolment, before any admin route is reachable.
+  enrolment, before any admin route is reachable. As in classbeat, an account exists only with a
+  verified email (Google's address is used only when Google marks it verified), so the list
+  grants the role only to an address its holder has proved (threat model T75).
 
 ### 7. Rate limits in the household phase
 

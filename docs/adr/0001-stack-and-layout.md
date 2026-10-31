@@ -85,9 +85,10 @@ and health data (D7, §9.3) instead of workout plans.
 - **ADRs name a new setting by its purpose and default** (for example "the step-up window,
   default 10 minutes"); the issue that implements it chooses the variable name, under the
   `config.py` lock of `docs/status.md`.
-- **The KEK files and the webhook-secret pepper** (ADR 0004) are secret files like the others,
-  mounted read-only; on the home server they live outside the database volume (§9.2 Hardening)
-  and are backed up separately from the database dumps (§9.2 Backups).
+- **The KEK files, the webhook-secret seed and the pepper** (ADR 0004) are secret files like the
+  others, mounted read-only (the seed on the worker only); on the home server they live outside
+  the database volume (§9.2 Hardening) and are backed up separately from the database dumps
+  (§9.2 Backups).
 
 ### 5. The classbeat port rule (PLAN §3)
 

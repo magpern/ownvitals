@@ -11,9 +11,9 @@ a status beyond what D10 allows: no control is INTEGRATION_VERIFIED or PRODUCTIO
   **special-category health data** (PLAN §3). The "From" column names the classbeat threat a row
   adapts (`cb T5`) or says `new`. What was dropped is listed at the end.
 - **Enforced by** names the issue and the test that enforce a mitigation in M0, using the test
-  names the M0 issues port; the milestone and PLAN section for a mitigation that comes later
-  (`M1: …`); `owner` for an owner action; or `accepted` (see "Accepted risks"). #16 replaces every
-  planned test name with the merged one.
+  names the M0 issues port; the M1 issue (#18 to #30, #36) for a Withings mitigation; the
+  milestone and PLAN section for one that comes later (`M4: …`); `owner` for an owner action; or
+  `accepted` (see "Accepted risks"). #16 replaces every planned test name with the merged one.
 - Open items (`O1` …) are listed at the end with who decides them.
 - ADR references are to [docs/adr/](../adr/README.md); §-references without a file are PLAN.md,
   §9.x and §10.x are PLAN-operations.md.
@@ -26,7 +26,7 @@ a status beyond what D10 allows: no control is INTEGRATION_VERIFIED or PRODUCTIO
 | **Derived health information**: observations, daily values, findings (experimental tier included), scores, reports; AI conversations from M7 | owned tables | as above; an experimental finding can also read as a medical claim (D9) |
 | **Health metadata**: webhook events (who measured what, when), job inputs, sync cursors, devices, Withings user ids | system and owned tables, logs, metrics | reveals that and when someone took an ECG or stood on the scale |
 | Withings access and refresh tokens | `connections`, enveloped | read access to the user's whole Withings history; the refresh token lives a year |
-| Withings app client secret, webhook secrets, the pepper | `withings_apps` (enveloped, HMACs), secret files | the client secret mints and revokes tokens; a webhook secret triggers fetches |
+| Withings app client secret, webhook secrets, the webhook seed and pepper | `withings_apps` (client secret enveloped, webhook secrets as HMACs only), secret files | the client secret mints and revokes tokens; a webhook secret triggers fetches; the seed derives every webhook secret |
 | KEKs | secret files on the host, backed up separately | open every token, seed and the client secret |
 | TOTP seeds and recovery codes | account tables (enveloped, HMACs) | the second factor of every account |
 | Accounts, passwords, sessions, identities | account tables | a takeover reaches everything above |
@@ -69,7 +69,13 @@ shared home host 192.168.1.222 (also a torrent client, flaresolverr, Portainer)
 │  worker ── egress allowlist ──▶ wbsapi.withings.net, account.withings.com,
 │                                 api.anthropic.com (M7, opt-in only)
 │  web, worker ── SMTP ──▶ mail relay
-│  KEK and pepper files (read-only, outside the database volume)
+│  KEK, webhook seed and pepper files (read-only, outside the database volume; seed on the
+│  worker only)
+
+admin's browser ── same path as above ──▶ web admin routes ── ownvitals_maint (BYPASSRLS,
+                                          column allowlist, no health table, audited)
+owner with host access ── docker compose exec/run ──▶ operator CLI (per-owner contexts);
+                          `maint` profile ──▶ owner role (`keys wipe`)
 
 GitHub ── Actions ── GHCR image + attestation ── forced-command deploy key ──▶ home server
 backups ── encrypted dump ──▶ another machine; KEKs backed up separately
@@ -84,12 +90,18 @@ development machine: agents, fakes and the demo account only; no real health dat
   every secret (T60).
 - The SWAG → web hop carries plaintext on the home LAN; the host firewall admits port 8096 only
   from SWAG (§9.2).
+- **The admin path** is a browser like any other, behind TOTP, step-up and the admin role; its
+  database role bypasses RLS but reads no health table, and every use is audited (T26, T52,
+  T53). **The operator path** needs host access: it is trusted (accepted risk 18), audited where
+  it acts on users, and the only way to the owner role (T18, T32).
 
 ## What changes from classbeat, for health data
 
 - **Impact.** Any confidentiality failure discloses special-category data, usually about another
-  household member. GDPR doesn't apply in the household phase (§9.3), but the controls are built
-  as if it did, so the M8 gate assesses rather than redesigns.
+  household member. Whether GDPR's household exemption (Art. 2(2)(c)) applies depends on the
+  nature and scope of the processing, not on where the server sits (§9.3), so it lowers no
+  technical bar: the controls are built as if GDPR applied, and the M8 gate assesses rather than
+  redesigns.
 - **A password alone reaches nothing** (T4); sensitive actions need step-up (T6).
 - **Admins can't read health data** (T26); classbeat's maint role could read allowlisted content.
 - **Health data at rest is not envelope-encrypted**; only tokens, seeds and the client secret are.
@@ -127,21 +139,22 @@ development machine: agents, fakes and the demo account only; no real health dat
 | T16 | Sign-up opened beyond the household before the M8 gate (D7) | `open` refused by setting validation; the stored flag can only tighten (ADR 0003 §6) | #10 `test_flags.py`; #12 `test_flags_db.py` | new |
 | T17 | A client choosing its own IP to escape or poison rate-limit buckets | Peer address unless the peer is a trusted proxy (SWAG); `CF-Connecting-IP` only from SWAG; port 8096 open only to SWAG; SWAG sets that header only for Cloudflare's ranges (ADR 0003 §8) | #10 `test_auth_ratelimit.py` (client-IP cases); owner, M2 (O6) | new |
 | T18 | A lost authenticator locking a user out, or the recovery path used for a takeover | Recovery codes; `admin mfa-reset` only from the CLI (host access), audited, revokes sessions, mails a reset link; first enrolment race accepted (accepted risk 6) (ADR 0003 §2) | #10 `test_auth_cli.py`, `test_auth_mfa.py` | new |
+| T75 | Taking over the first admin through `OWNVITALS_ADMIN_EMAILS` with an unverified email | An account exists only with a verified email (Google's address used only when Google marks it verified), so the list grants the role only to an address its holder proved; the grant revokes the user's sessions, and the role counts only with TOTP (ADR 0003 §6, §7) | #10 `test_auth_signin.py`, `test_auth_oauth_signin.py` (admin-email grants) | cb T28 |
 
 ### B. Tenant isolation ([ADR 0002](../adr/0002-tenant-isolation.md))
 
 | # | Threat | Mitigation | Enforced by | From |
 |---|---|---|---|---|
 | T19 | Cross-tenant read or write of health data (a missing filter, an id from the browser) | `UserContext` everywhere, repository filters, forced RLS with one permissive policy, `UNIQUE (owner_id, id)`, owner-inclusive foreign keys, 404 for foreign ids (ADR 0002 §1, §2) | #5 `test_rls_guard.py`, `test_two_user_isolation.py`, `test_owner_filter.py`, `test_isolation.py`; guard 7 per route from #10 | cb T5 |
-| T20 | A webhook, scheduler, worker, admin or CLI context reaching another user's rows | No ambient authority: webhook and scheduler create jobs only inside definer functions that return no owner id; contexts issued only by auth (after TOTP) and from a claimed job row; RLS tests per context (ADR 0002 §4, ADR 0005 §4) | #5 harness; #9 worker; #15 `test_isolation_contexts*.py` and its table-enumerating guard; M1 webhook and scheduler functions | cb T5 |
+| T20 | A webhook, scheduler, worker, admin or CLI context reaching another user's rows | No ambient authority: webhook and scheduler create jobs only inside definer functions that return no owner id; contexts issued only by auth (after TOTP) and from a claimed job row; RLS tests per context (ADR 0002 §4, ADR 0005 §4) | #5 harness; #9 worker; #15 `test_isolation_contexts*.py` and its table-enumerating guard; #24 webhook ingest, #18 scheduler kinds, #30 context tests on every M1 table | cb T5 |
 | T21 | Code forging, copying or deserialising a `UserContext` | Issuer token checked by identity; copy, replace, pickle and Pydantic construction refused; AST guard (ADR 0002 §1) | #5 `test_context.py`, `test_user_context_guard.py` | cb ADR 0002 |
 | T22 | A pooled connection carrying one user's setting, cursor or state to the next | Transaction-local `set_config`; `user_session` owns the transaction; `DISCARD ALL` on return; checkout check (ADR 0002 §6) | #5 `test_session_guard.py`, `test_db.py` | cb ADR 0002 |
 | T23 | Web or worker running with a role that bypasses RLS | Startup and per-connection refusal of superuser, `BYPASSRLS`, dangerous memberships and ownership, no override; the owner password never on web or worker (ADR 0002 §5) | #5 `test_role_check.py`, `test_roles_script.py`, `test_roles_rerun.py` | cb ADR 0002 |
 | T24 | SQL injection: the app role can set `app.user_id`, so injected SQL defeats both layers | Bound parameters only, no SQL built from strings (ruff's rule); no `TRUNCATE`, `MAINTAIN` or ownership; role-default timeouts checked at startup and per connection (residual denial of service until detected) (ADR 0002 §5) | #2 ruff settings; #5 guard 2 (`role_guard.py`) and the startup check | cb T26 |
-| T25 | Learning or blocking another user's rows through a unique index or foreign key | Owner-inclusive unique indexes and foreign keys; the single exception, `connections (app_id, withings_userid)`, reveals only that a Withings account the caller controls is linked elsewhere (ADR 0002 §2) | #5 guard 1 (`rls_guard.py`); M1 allows the exception by name | cb ADR 0002 |
+| T25 | Learning or blocking another user's rows through a unique index or foreign key | Owner-inclusive unique indexes and foreign keys; the single exception, `connections (app_id, withings_userid)`, reveals only that a Withings account the caller controls is linked elsewhere (ADR 0002 §2) | #5 guard 1 (`rls_guard.py`); #21 allows the exception by name | cb ADR 0002 |
 | T26 | An admin, or a stolen admin session, reading health data | `ownvitals_maint` has no privilege on any health table; column-level allowlist without secret columns; read-only by default; every use audited (ADR 0002 §4) | #12 `maint_guard.py`, `test_maint_privileges.py` | new |
 | T27 | `NOTIFY` payloads read by any database listener | Only ids; data read afterwards in a user session (ADR 0005 §7) | #9 `test_jobs_events.py`, `test_queue_functions.py` | cb T30 |
-| T28 | A monthly partition of a health table read directly, around its parent's policy, or a partition created without RLS | Parent and every partition with forced RLS and the `owner_isolation` policy; the app role has privileges on the parent only (`REVOKE ALL` on each partition); partitions created only by the reviewed, pinned `ensure_month_partitions` function, called by the scheduler (ADR 0002 §2) | #5 guard 1 refuses partitioned tables until #21; #21 extends guard 1 to check the parent and every partition, and tests the function | new |
+| T28 | A monthly partition of a health table read directly, around its parent's policy, a partition created without RLS, or a partitioned table's key escaping the owner rule | `PRIMARY KEY (owner_id, id, <partition key>)` and never the target of a foreign key, its own foreign keys owner-inclusive ([roadmap Amendment 2](../roadmap.md)); parent and every partition with forced RLS and the `owner_isolation` policy; the app role has privileges on the parent only (`REVOKE ALL` on each partition); partitions created only by the reviewed, pinned `ensure_month_partitions` function, called by the scheduler (ADR 0002 §2) | #5 guard 1 refuses partitioned tables until #21; #21 extends guard 1 (key shape, no foreign key into a partitioned table, RLS and privileges on every partition) and tests the function | new |
 
 ### C. Keys, tokens and connections ([ADR 0004](../adr/0004-connections-and-encryption.md))
 
@@ -149,37 +162,37 @@ development machine: agents, fakes and the demo account only; no real health dat
 |---|---|---|---|---|
 | T29 | Withings tokens read from a database dump or backup | Envelope encryption: a data key per write, AES-256-GCM, AAD naming owner, provider and row, KEK in a file outside the database, a check value against a swapped KEK; backups hold ciphertext (ADR 0004 §2, §3) | #8 `test_envelope.py`, `test_keks.py`; #13 `test_connections.py` (`pg_dump` test) | cb T6, T40 |
 | T30 | A token leaking through logs, errors, job rows, events or SSE | Only `ownvitals.connections` decrypts; a redacting credentials object; jobs hold the connection id; `ConnectionFailure` without cause or context; masked log keys (ADR 0004 §5, §8, §9) | #13 `test_connections.py`, `test_connection_errors.py`; #2 `test_logging.py` | cb T41 |
-| T31 | One user's tokens used for another user's sync | Owned table read through `UserContext`; credentials rebuilt from the claimed job's owner; moved ciphertext fails its AAD (ADR 0004 §2, §5) | #8 wrong-AAD tests; #13; #15 worker context; M1 two-user test with `fake-withings` recording each call's token | cb T42 |
-| T32 | A KEK, or the whole secrets directory, leaked | Everything goes: stop, new KEK, `keys wipe` with the services down (connection rows to `needs_reconnect` without credentials, TOTP reset), older backups treated as compromised; the owner rotates the Withings client secret so stolen refresh tokens are useless, and the pepper with every webhook secret; no upstream revoke (stolen access tokens live up to 3 h: accepted risk 19) (ADR 0004 §3) | #13 `test_keys_wipe.py`; owner (runbook, M1) | cb T40 |
+| T31 | One user's tokens used for another user's sync | Owned table read through `UserContext`; credentials rebuilt from the claimed job's owner; moved ciphertext fails its AAD (ADR 0004 §2, §5) | #8 wrong-AAD tests; #13; #15 worker context; #25 two-user sync test with `fake-withings` recording each call's token; #30 context tests | cb T42 |
+| T32 | A KEK, or the whole secrets directory, leaked | Everything goes: stop, new KEK, `keys wipe` with the services down (connection rows to `needs_reconnect` without credentials, TOTP reset), older backups treated as compromised; the owner rotates the Withings client secret so stolen refresh tokens are useless; a compromise of the KEK ring is a seed compromise too, so the seed and pepper are rotated and every old webhook secret retired at once, and subscriptions without tokens follow on reconnect (accepted risk 20); no upstream revoke (stolen access tokens live up to 3 h: accepted risk 19) (ADR 0004 §3) | #13 `test_keys_wipe.py`; #22 webhook-secret CLI; owner (runbook, M1) | cb T40 |
 | T33 | The current KEK lost | KEKs backed up separately from the dumps; restore drill; without the KEK every user reconnects and re-enrols, by design | owner, M2 (backups, restore drill) | new |
-| T34 | A stale refresh, reconnect or 401 overwriting newer tokens or flipping a fresh connection | `token_generation` raised by every token write; token writes and status changes are compare-and-swap on the generation read; rewrap doesn't change it (ADR 0004 §6) | #13 generation CAS test; M1 PLAN §4.3 tests | cb T77 |
-| T35 | Losing the only valid refresh token, or using the new access token before the new pair is saved | PLAN §4.3: per-connection lock, durable intent, CAS write, first use after the commit, one recovery retry within the 8-hour grace, then `needs_reconnect`; never the generic retry (ADR 0004 §6) | M1: PLAN §4.3's crash and race tests | new |
-| T36 | Withings OAuth abuse: forged state, code injection, a victim's session finishing an attacker's flow, a Withings account already linked to another ownvitals account | State hashed, bound to the session, 10 minutes, single use, taken before the exchange; the code exchanged in the request through web's one narrow egress entry (roadmap Amendment 1); a Withings user linked to another account refused, and a different Withings account refused while one is connected; connect needs recent auth and step-up; `fake-withings` only in tests (ADR 0004 §7) | #13 (step-up on connect); M1 OAuth tests | new |
-| T37 | The Withings app client secret leaking | Enveloped in `withings_apps` with AAD bound to the app; writes admin-only; never logged; rotated by the owner at Withings after any suspected leak (ADR 0004 §2, §3) | M1; owner | new |
+| T34 | A stale refresh, reconnect or 401 overwriting newer tokens or flipping a fresh connection | `token_generation` raised by every token write; token writes and status changes are compare-and-swap on the generation read; rewrap doesn't change it (ADR 0004 §6) | #13 generation CAS test; #22 PLAN §4.3 tests | cb T77 |
+| T35 | Losing the only valid refresh token, or using the new access token before the new pair is saved | PLAN §4.3: per-connection lock, durable intent, CAS write, first use after the commit, one recovery retry within the 8-hour grace, then `needs_reconnect`; never the generic retry; a session-scoped advisory lock across the intent commit; reconnect clears a stale intent (ADR 0004 §6, §7) | #22: PLAN §4.3's crash and race tests | new |
+| T36 | Withings OAuth abuse: forged state, code injection, a victim's session finishing an attacker's flow, a Withings account already linked to another ownvitals account | State hashed, bound to the session, 10 minutes, single use, taken before the exchange; the code exchanged in the request through web's one narrow egress entry (roadmap Amendment 1); a Withings user linked to another account refused, and a different Withings account refused while one is connected; connect needs recent auth and step-up; `fake-withings` only in tests (ADR 0004 §7) | #13 (step-up on connect); #22 `test_withings_oauth*.py` (state, linked elsewhere, web-only exchange); #27 (a different account refused while connected) | new |
+| T37 | The Withings app client secret leaking | Enveloped in `withings_apps` with AAD bound to the app; web (the code exchange) and the worker (refresh, revoke) hold it in memory only for the call; the app role reads it through a column grant and writes nothing; writes only through the operator CLI, audited; never logged; rotated by the owner at Withings after any suspected leak (ADR 0002 §3, ADR 0004 §2, §3) | #21 (table, grants); #22 (`withings_apps` CLI, `test_withings_oauth*.py`); owner (runbook) | new |
 
 ### D. The Withings webhook (PLAN §4.4; ADR 0002 §4, ADR 0004 §4, ADR 0005 §8)
 
 | # | Threat | Mitigation | Enforced by | From |
 |---|---|---|---|---|
-| T38 | Forged notifications from anyone who knows the URL pattern | A 256-bit secret per app in the path, stored only as a peppered HMAC, compared in constant time; an unknown secret refused before any database work (O14); the payload is only a hint: data is always fetched from the API with the user's own token | M1 webhook fuzzing, forged (PLAN §10.3) | new |
-| T39 | Replayed or flooded notifications with a valid (leaked) secret, burning the shared 120/min budget | Dedupe key; singleton jobs with debounce; per-connection and per-app quotas in the ingest function; lanes keep "sync now" first; the worst case is rate budget, never data; rotation with two active secrets | M1 webhook fuzzing (replayed, duplicate), 601-storm test | new |
-| T40 | Oversized or malformed bodies against the parser | `HEAD` → 200; `POST` only form-encoded, over 2 KB refused before parsing, strict fields with sane date bounds | M1 webhook fuzzing (oversized, malformed) | new |
-| T41 | The secret leaking through logs or traces | Path redacted in app logs, traces and errors; SWAG's webhook location logs without the URI; log-redaction tests. Cloudflare, if proxied, still sees it (accepted risk 5) | M1 log-redaction tests; owner, M2 (O6) | new |
-| T42 | Probing the webhook to learn which Withings users are linked | A generic 200 for an unknown user; internal logging rate-limited | M1 | new |
-| T43 | Missed, late, duplicated or out-of-order notifications leaving data incomplete while the UI implies "nothing" or "normal" | Sync cursors, not webhooks, define correctness; poll every 6 h and reconcile nightly; deletions only after two complete reconciliations; per-stream completeness and capability states; missing data never shown as zero (D3, PLAN §4.2, §4.4) | M1 checklist (PLAN §4.4) | new |
+| T38 | Forged notifications from anyone who knows the URL pattern, or a webhook secret recovered from a dump | A 256-bit secret per app in the path, derived from an off-database seed that only the worker holds, never stored; the database keeps only a peppered HMAC with the secret and seed ids, which web (pepper only) compares in constant time; an unknown or retired secret refused before any database work (O14); the payload is only a hint: data is always fetched from the API with the user's own token (ADR 0004 §4) | #24 webhook fuzzing, forged (PLAN §10.3), and rotation tests; #8 (web can't load the seed) | new |
+| T39 | Replayed or flooded notifications with a valid (leaked) secret, burning the shared 120/min budget | Dedupe key; singleton jobs with debounce; per-connection and per-app quotas in the ingest function; lanes keep "sync now" first; the worst case is rate budget, never data; rotation with two active secrets | #24 fuzzing (replayed, duplicate) and quotas; #23 601-storm test | new |
+| T40 | Oversized or malformed bodies against the parser | `HEAD` → 200; `POST` only form-encoded, over 2 KB refused before parsing, strict fields with sane date bounds | #24 fuzzing (oversized, malformed) | new |
+| T41 | The secret leaking through logs or traces | Path redacted in app logs, traces and errors; SWAG's webhook location logs without the URI; log-redaction tests. Cloudflare, if proxied, still sees it (accepted risk 5) | #24 log-redaction test; owner, M2 (O6) | new |
+| T42 | Probing the webhook to learn which Withings users are linked | A generic 200 for an unknown user; internal logging rate-limited | #24 (unknown user, logging) | new |
+| T43 | Missed, late, duplicated or out-of-order notifications leaving data incomplete while the UI implies "nothing" or "normal" | Sync cursors, not webhooks, define correctness; poll every 6 h and reconcile nightly; deletions only after two complete reconciliations; per-stream completeness and capability states; missing data never shown as zero (D3, PLAN §4.2, §4.4) | #25 (completeness, capability states); #26 (two-pass deletions, drift); #30 (PLAN §4.4 checklist) | new |
 
 ### E. Jobs, worker and egress ([ADR 0005](../adr/0005-jobs-and-leases.md))
 
 | # | Threat | Mitigation | Enforced by | From |
 |---|---|---|---|---|
 | T44 | The queue's definer functions used to read or move other users' jobs | Three functions owned by `NOLOGIN` `ownvitals_queue`, fixed `search_path`, no caller ids, minimal returns; installed by the superuser script; md5-pinned startup check; no other user code in the database (ADR 0005 §3) | #9 `test_queue_functions.py`, `test_queue_guard.py` (guard 9) | cb T45 |
-| T45 | A worker that lost its lease writing job state or health rows | The fencing token checked first in every worker transaction and held to the commit; health rows, revisions and cursors written in fenced transactions (ADR 0005 §4) | #9 `test_jobs_fence.py`, `test_jobs_worker.py`; M1 crash mid-backfill test | cb T12 |
+| T45 | A worker that lost its lease writing job state or health rows | The fencing token checked first in every worker transaction and held to the commit; health rows, revisions and cursors written in fenced transactions (ADR 0005 §4) | #9 `test_jobs_fence.py`, `test_jobs_worker.py`; #25 crash mid-backfill test | cb T12 |
 | T46 | A repeated request creating duplicate jobs | `Idempotency-Key` with a request hash, 409 on another body (ADR 0005 §2) | #9 `test_jobs_api.py` | cb T46 |
 | T47 | Job events or SSE leaking another user's progress, secrets or health values | Owned events read per request; 404 for foreign ids; payload models allow enums, own ids, counts and dates only (ADR 0005 §7) | #9 `test_jobs_events.py`, `test_jobs_stream.py` | cb T48 |
-| T48 | Web or worker reaching arbitrary hosts (SSRF, exfiltration) | One module builds every client; per-process allowlists (worker: Withings hosts, Anthropic only with AI on; web: Google sign-in and, from M1, only the Withings authorization-code exchange, roadmap Amendment 1); https, port 443, every redirect hop checked; total deadlines and request budgets; no TLS key log; no URL from user or provider input is fetched | #6 `test_egress.py`, `test_egress_guard.py`, `test_egress_deadline.py`, `test_egress_budget.py`, `test_egress_runtime.py` | cb T19, T49 |
-| T49 | A poison job or retry storm exhausting the shared Withings budget for everyone | Retry budget, capped backoff, non-retryable categories, poison rows failed by the reaper; M1: tokens consumed when claimed and never refunded, 601 pauses the bucket, refresh never retried generically (ADR 0005 §6, §8) | #9 `test_jobs_worker.py`, `test_jobs_errors.py`; M1 601-storm and crashed-call tests | cb T50 |
+| T48 | Web or worker reaching arbitrary hosts (SSRF, exfiltration) | One module builds every client; per-process allowlists (worker: Withings hosts, Anthropic only with AI on; web: Google sign-in, the SMTP server for account mails and, from M1, only the Withings authorization-code exchange, [roadmap Amendment 1](../roadmap.md)); https, port 443, every redirect hop checked; total deadlines and request budgets; no TLS key log; no URL from user or provider input is fetched | #6 `test_egress.py`, `test_egress_guard.py`, `test_egress_deadline.py`, `test_egress_budget.py`, `test_egress_runtime.py`; #22 (web can't refresh, revoke or call another Withings action) | cb T19, T49 |
+| T49 | A poison job or retry storm exhausting the shared Withings budget for everyone | Retry budget, capped backoff, non-retryable categories, poison rows failed by the reaper; M1: tokens consumed when claimed and never refunded, 601 pauses the bucket, refresh never retried generically (ADR 0005 §6, §8) | #9 `test_jobs_worker.py`, `test_jobs_errors.py`; #18 retry budget and dead-letter; #23 601-storm and crashed-call tests | cb T50 |
 | T50 | A job continuing for a disabled or deleted user | Owner checked after every claim; jobs cascade with the user, so the fence fails on the next write (ADR 0005 §4) | #9 `test_jobs_runner.py` | cb T53 |
-| T51 | One user's backfill starving another's sync | Lanes, per-owner fairness, a capped backfill share (ADR 0005 §8) | M1 | new |
+| T51 | One user's backfill starving another's sync | Lanes, per-owner fairness, a capped backfill share (ADR 0005 §8) | #23 (lanes, fairness: a backfill can't starve another user's sync); #18 (lanes in the queue) | new |
 
 ### F. Admin, flags and the browser
 
@@ -195,8 +208,8 @@ development machine: agents, fakes and the demo account only; no real health dat
 
 | # | Threat | Mitigation | Enforced by | From |
 |---|---|---|---|---|
-| T57 | Health values, tokens or secrets in logs, errors or traces | Secrets only from files, as `SecretStr`; JSON logs with a redaction filter; no exception text in responses; logs never hold measurement values, ECG samples, tokens, webhook secrets or full webhook paths (AGENTS.md) | #2 `test_logging.py`; #10 `test_auth_logging.py`; #13; M1 log-redaction tests (PLAN §10.3) | cb T7 |
-| T58 | Health values or user identifiers exported as Prometheus metrics | Labels limited to app, stream and category; no user id, Withings user id or value in a label (proposed) | M1 (O7) | new |
+| T57 | Health values, tokens or secrets in logs, errors or traces | Secrets only from files, as `SecretStr`; JSON logs with a redaction filter; no exception text in responses; logs never hold measurement values, ECG samples, tokens, webhook secrets or full webhook paths (AGENTS.md) | #2 `test_logging.py`; #10 `test_auth_logging.py`; #13; #20 and #24 log tests (PLAN §10.3) | cb T7 |
+| T58 | Health values or user identifiers exported as Prometheus metrics | Labels limited to app, stream and category; no user id, Withings user id or value in a label | #28 label test (O7) | new |
 | T59 | Health data in emails, which pass through a relay and mailboxes outside our control | Notification mails say something is waiting and link to the app; no values, finding text or ECG results (proposed) | M4/M6 (O8) | new |
 
 ### H. Hosting, supply chain and agents
@@ -210,7 +223,7 @@ development machine: agents, fakes and the demo account only; no real health dat
 | T64 | Cloudflare and SWAG seeing plaintext (pages, API responses, webhook URLs); plain HTTP from SWAG to web on the LAN | SSL Full (strict); firewall; accepted for the household (accepted risk 4); Cloudflare is a processor question at M8 (§9.3) | owner, M2 (O12); M8 | new |
 | T65 | A compromised dependency, base image or Action | Lockfiles, exact versions, SHA-pinned Actions, checksum-verified tools, Dependabot, least-privilege `permissions`, `persist-credentials: false`; Trivy image scan | #1 CI; #7 Dependabot; #14 Trivy | cb T17 |
 | T66 | An agent committing a secret or weakening a check | gitleaks on each PR's commits and weekly on the history; frozen-spec guard; the review gate; the ruleset's required checks | #1 `ci` / `checks` | cb T18 |
-| T67 | Real health data reaching agents, fixtures, tests, logs, PRs or issues | No real data on the development machine; synthetic, labelled fixtures; `fake-withings` and the demo account only; the probe prints shapes only and the owner runs it; agents never connect a real account (AGENTS.md, §10.4) | #1 AGENTS.md and review checks; M1 probe tests; O9 | new |
+| T67 | Real health data reaching agents, fixtures, tests, logs, PRs or issues | No real data on the development machine; synthetic, labelled fixtures; `fake-withings` and the demo account only; the probe prints shapes only and the owner runs it; agents never connect a real account (AGENTS.md, §10.4) | #1 AGENTS.md and review checks; #29 probe tests (shapes only); #19 synthetic fixtures (O9) | new |
 | T68 | Prompt injection of the development agents through issues, PRs or upstream text | Repository and web content treated as data; the review gate and ruleset on every merge; no secret in any prompt | #1 AGENTS.md, `.claude/agents/` | cb T31 |
 | T69 | The public repository telling an attacker the design | No control relies on secrecy of the design; secrets never in the repository | #1 gitleaks; accepted | new |
 
@@ -219,18 +232,18 @@ development machine: agents, fakes and the demo account only; no real health dat
 | # | Threat | Mitigation | Enforced by | From |
 |---|---|---|---|---|
 | T70 | Health data surviving account deletion, or a disconnect that silently keeps upstream access | `owner_id` references `users (id) ON DELETE CASCADE` on every owned table (ADR 0002 §2); system tables with user-linked rows purged (`webhook_events` after 30 days and on deletion, `auth_events`); upstream revoke before the purge (PLAN §4.3); disconnect revokes, deletes the secrets even when a revoke fails and records the failure, and keeps imported data unless the user asks to delete it too (ADR 0004 §7); backups age out (accepted risk 13) | #27: account-deletion test (cascade check, plant-and-delete over every owned and user-linked system table) and disconnect tests | cb T22 |
-| T71 | Another household member's measurement attributed to the user (`attrib=1`) | Kept as Withings reports it, excluded from analysis and shown as "unconfirmed" (PLAN §7.1) | M4; accepted risk 14 | new |
-| T72 | Misleading health information: a sparse series shown as a trend, estimates shown as certified, experimental interpretations shown to the wrong people | Minimum-data policy, confidence and data quality on every finding; tiers, the experimental tier behind the owner-only flag; estimates never shown as Withings' values (D9, PLAN §7) | M4, M5; M8 medical-claims review | new |
-| T73 | Health data sent to a model provider beyond need or without consent | Opt-in flag, explicit consent, minimal tool results, provider review, audit with redacted content, prompt-injection evals; experimental findings never for non-household users; never tokens (PLAN §7.4) | M7 | cb T32 |
-| T74 | A stolen session exporting a user's full history | Export requires step-up (PLAN §6) | M7 | new |
+| T71 | Another household member's measurement attributed to the user (`attrib=1`) | Kept as Withings reports it, excluded from analysis and shown as "unconfirmed" (PLAN §7.1) | M4 (PLAN §7.1); accepted risk 14 | new |
+| T72 | Misleading health information: a sparse series shown as a trend, estimates shown as certified, experimental interpretations shown to the wrong people | Minimum-data policy, confidence and data quality on every finding; tiers, the experimental tier behind the owner-only flag; estimates never shown as Withings' values (D9, PLAN §7) | M4, M5 (PLAN §7); M8 medical-claims review | new |
+| T73 | Health data sent to a model provider beyond need or without consent | Opt-in flag, explicit consent, minimal tool results, provider review, audit with redacted content, prompt-injection evals; experimental findings never for non-household users; never tokens (PLAN §7.4) | M7 (PLAN §7.4) | cb T32 |
+| T74 | A stolen session exporting a user's full history | Export requires step-up (PLAN §6) | M7 (PLAN §6) | new |
 
 ## Accepted risks (household phase)
 
 Each holds only while every user is a household member; the M8 gate re-decides all of them.
-Items 1, 3, 4, 5, 14 and 17 follow from the specification (§9.2, §4.4, §7.1, §10.2), and item 19
-was decided by the Architect (2026-10-31). The others are proposed by this model, most of them
-carried over from classbeat's accepted risks; the owner confirms or rejects them before the M2
-real-data gate (O15).
+Items 1, 3, 4, 5, 14 and 17 follow from the specification (§9.2, §4.4, §7.1, §10.2). Items 19
+and 20 follow from Architect decisions (2026-10-31); the others are proposed by this model, most
+of them carried over from classbeat's accepted risks. The owner confirms or rejects every item
+that doesn't come from the specification before the M2 real-data gate (O15).
 
 1. **Shared home host.** A co-tenant with the Docker socket is root on the host and can read the
    database, the KEK files and every secret (T60). Revisited with the VPS move before M8 (§9.2).
@@ -273,29 +286,35 @@ real-data gate (O15).
     (the tokens it would need are the compromised ones); rotating the Withings client secret makes
     stolen refresh tokens useless, and stolen access tokens stay valid for up to 3 hours (T32,
     ADR 0004 §3).
+20. **Old webhook URLs after a seed compromise** (or a compromise of the KEK ring that holds the
+    seed). Subscriptions whose access tokens the wipe removed can't be re-pointed and keep the old
+    callback URL until the user reconnects; notifications to it get the generic 200 and are
+    ignored, so webhook-driven sync stops for those users until then. Payloads are only hints,
+    and after reconnect the backfill, poll and reconciliation bring the data up to date (D3)
+    (T32, T38, ADR 0004 §3).
 
 ## Open items
 
 | # | Item | Who, when |
 |---|---|---|
 | O6 | SWAG: `CF-Connecting-IP` only from Cloudflare's ranges, the webhook location's `access_log` without the URI, no buffering on the SSE path; firewall 8096 from SWAG only (T17, T41) | owner, M2 |
-| O7 | Metric labels without user ids or values (T58) | M1 issue |
+| O7 | Metric labels without user ids or values (T58) | #28 (its acceptance criterion) |
 | O8 | No health data in notification mails (T59) | Architect, M4/M6 |
-| O9 | A guard that every fixture is labelled synthetic (`synthetic: true` or a `synthetic_` file prefix) (T67) | M1, with `fake-withings` |
+| O9 | A guard that every fixture is labelled synthetic (`synthetic: true` or a `synthetic_` file prefix) (T67) | #19, with `fake-withings` |
 | O12 | Disk encryption on the home server; Cloudflare proxied or DNS-only (T60, T64) | owner, M2 gate |
 | O13 | After the port: confirm each M0 mitigation against the merged code, replace every planned test name, close or re-home every open item | #16 |
-| O14 | Refuse an unknown webhook secret before any database work (T38) | M1 |
-| O15 | Confirm or reject the proposed accepted risks (2, 6 to 13, 15, 16, 18) | owner, before the M2 real-data gate |
+| O14 | Refuse an unknown webhook secret before any database work (T38) | #24 |
+| O15 | Confirm or reject the accepted risks that don't come from the specification (2, 6 to 13, 15, 16, 18 to 20) | owner, before the M2 real-data gate |
 
 Decided by the Architect on 2026-10-31 (numbers kept so earlier references stay valid):
 
 | # | Item | Decision, recorded in |
 |---|---|---|
-| O1 | Partitioned owned tables (T28) | Allowed under forced RLS on parent and partitions, no app privilege on partitions, one partition function; guard 1 extended by #21 (ADR 0002 §2) |
+| O1 | Partitioned owned tables (T28) | Allowed with `PRIMARY KEY (owner_id, id, <partition key>)` and no foreign key into them ([roadmap Amendment 2](../roadmap.md)), forced RLS on parent and partitions, no app privilege on partitions, one partition function; guard 1 extended by #21 (ADR 0002 §2) |
 | O2 | Reconnect and disconnect (T70) | A different Withings account is refused until disconnect; disconnect revokes, deletes the secrets, keeps the row as `disconnected` and the data unless the user asks to delete it; a failed revoke is recorded and retried (ADR 0004 §7) |
 | O3 | `webhook_events` retention (T70) | 30 days, then purged by the scheduler; #27's account-deletion test covers it (ADR 0002 §3) |
-| O4 | Upstream revoke after a KEK compromise (T32) | Not attempted; the owner rotates the client secret; accepted risk 19 (ADR 0004 §3) |
-| O5 | Token exchange in the callback (T36, T48) | One narrow web egress entry for the code exchange only, roadmap Amendment 1 (ADR 0004 §7) |
+| O4 | Upstream revoke after a KEK compromise (T32) | Not attempted; the owner rotates the client secret; accepted risk 19, for the owner to confirm (O15) (ADR 0004 §3) |
+| O5 | Token exchange in the callback (T36, T48) | One narrow web egress entry for the code exchange only, [roadmap Amendment 1](../roadmap.md) (ADR 0004 §7) |
 | O10 | Step-up readings (T6, T7) | A recovery code counts; "disable 2FA" returns the account to enrolment; first enrolment needs no step-up, replacing an authenticator does (ADR 0003 §4) |
 | O11 | Session lifetimes (T5) | Idle 72 hours, absolute 30 days, configurable (ADR 0003 §3) |
 

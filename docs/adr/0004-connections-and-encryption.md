@@ -1,8 +1,9 @@
 # ADR 0004: Provider connections, envelope encryption and the KEK ring
 
 Status: Accepted (2026-10-31, #4). Its three open questions were decided by the Architect on
-2026-10-31 (§7 the code exchange, recorded as roadmap Amendment 1; §7 reconnect and disconnect;
-§3 revocation after a KEK compromise).
+2026-10-31 (§7 the code exchange, recorded as [roadmap Amendment 1](../roadmap.md); §7 reconnect
+and disconnect; §3 revocation after a KEK compromise), and so was the source of the webhook
+secrets (§4), raised in review.
 
 ## Context
 
@@ -22,12 +23,14 @@ Spotify tokens. What changes here:
 - a **token generation** counter raised by every token write, instead of classbeat's
   `wrapped_dek` guard and its later separate `generation` column (§6);
 - TOTP seeds are on the envelope scheme from the start (no interim form);
-- a **pepper** for webhook-secret HMACs lives in the same ring (§4);
+- a **pepper** for webhook-secret HMACs and a **seed** the webhook secrets are derived from live
+  in the same ring (§4);
 - the Withings tokens give read access to a user's whole health history for up to a year, so a
   leak is a special-category disclosure, not only an account takeover.
 
-#8 builds the envelope and the KEK ring (with the pepper slot), #13 the generic connections layer
-with the generation column, rewrap and the keys CLI, and M1 the Withings provider on top.
+#8 builds the envelope and the KEK ring (with the pepper and seed slots), #13 the generic
+connections layer with the generation column, rewrap and the keys CLI, and M1 the Withings
+provider on top.
 
 ## Decision
 
@@ -41,7 +44,7 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 |---|---|
 | `id uuid` | primary key with the `gen_random_uuid()` default, but **the application always supplies it** on insert, before encrypting, because the AAD names it (§2) |
 | `owner_id uuid` | `REFERENCES users (id) ON DELETE CASCADE` |
-| `provider text` | checked against the provider list (`withings` from M1; #13 admits its test-only provider without making it reachable in production). #13 creates `UNIQUE (owner_id, provider)`; #27, which adds `disconnected`, narrows it to a unique index on `(owner_id, provider) WHERE status <> 'disconnected'` (one live connection; §7) |
+| `provider text` | checked against the provider list (`withings` from M1; #13 admits its test-only provider without making it reachable in production). #13 creates a unique index on `(owner_id, provider) WHERE status <> 'disconnected'` (one live connection; §7), not a plain `UNIQUE (owner_id, provider)`, so a `disconnected` row never blocks a new connection |
 | `status text` | `connected`, `needs_reconnect` (#13); M1 adds `blocked_by_provider_plan` (PLAN §4.2) and `disconnected` (§7, #27) |
 | `last_error text NULL` | a category from §8, checked against the list; never provider text |
 | `public jsonb` | non-secret fields needed without decrypting: for Withings `{app_id, withings_userid, scopes}` (PLAN §5); nothing else personal |
@@ -118,8 +121,10 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 - **After a suspected KEK compromise, everything goes** (classbeat ADR 0004 §2): rewrap does not
   re-encrypt payloads, so an old KEK plus an old dump still reads a rewrapped row. The response:
   1. stop web and worker;
-  2. install a new KEK under a new id and remove every old KEK file; if the secrets directory
-     leaked, also rotate `app_secret_key`, the database passwords and the pepper (§4);
+  2. install a new KEK under a new id and remove every old KEK file. A compromise of the KEK
+     ring counts as a seed compromise too, so install a new webhook seed and pepper the same way
+     (§4); if the secrets directory leaked, also rotate `app_secret_key` and the database
+     passwords;
   3. `docker compose --profile maint run --rm maint python -m ownvitals keys wipe --confirm`, as
      the owner role (never given to web or worker), with no KEK. It refuses while any app-role
      session is connected or while the configured KEK id already has a check row. Per user, in one
@@ -134,37 +139,72 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
      the new one (M1 runbook step, owner): a stolen refresh token can't be used without it;
   5. backups taken before the wipe, WAL archives included, count as compromised: destroy them,
      or wipe again after restoring one;
-  6. start web and worker; users reconnect and re-enrol.
+  6. start web and worker; add a webhook secret derived from the new seed and **retire every old
+     webhook secret at once** (#22's CLI, §4); users reconnect and re-enrol.
 - **Revocation after a compromise is not attempted** (Architect decision, 2026-10-31). The wipe
   has no KEK and no outbound access, so it can't revoke at Withings. Step 4 makes every stolen
   refresh token useless; a stolen access token stays valid for up to its 3-hour lifetime
-  (withings-findings §2). That window is an accepted risk (threat model, accepted risk 19). The
-  pepper, which usually sits in the same secrets directory, is rotated with every webhook secret
-  (§4). Health data itself is not under the KEK: a KEK leak alone doesn't expose it, though the
-  host compromise that leaks a KEK usually does (threat model T60).
+  (withings-findings §2). That window is an accepted risk (threat model, accepted risk 19).
+- **Webhook subscriptions after a seed compromise (or a compromise of the KEK ring that holds
+  the seed)** (Architect decision, 2026-10-31): the seed and the pepper are rotated and the old
+  secret retired at once. Re-pointing a subscription (`notify update`) needs the user's access
+  token: where the connection still has one, the worker re-points it; where the wipe removed it,
+  the subscription keeps the old callback URL until the user reconnects, and reconnect
+  subscribes with the new secret (§4). Until then, notifications to the old URL get the generic
+  200 and are ignored. Payloads are only hints, and after reconnect the backfill, poll and
+  reconciliation bring the data up to date (D3). Accepted risk 20 of the threat model.
+- Health data itself is not under the KEK: a KEK leak alone doesn't expose it, though the host
+  compromise that leaks a KEK usually does (threat model T60).
 
-### 4. The webhook-secret pepper (#8 slot; used from M1)
+### 4. Webhook secrets: the seed and the pepper (#8 slots; used from M1)
 
-- PLAN §4.4: each Withings app has 256-bit webhook secrets, stored only as
-  **`HMAC-SHA256(pepper, secret)`** with a `secret_id`, compared in constant time; during a
-  rotation two are active.
-- **The pepper is a key in the KEK ring**, of its own kind: a secret file `webhook_pepper`
-  (current; id from a setting, default `pep-1`, pattern `^pep-[a-z0-9-]{1,28}$`) and
-  `webhook_pepper_<id>` (retired), in the KEK file format, with its own check row
-  (`HMAC-SHA256(pepper, "ownvitals-pepper-check-v1")`) in `connection_keks`. A KEK can't be loaded
-  as a pepper or the other way round. It never encrypts anything.
-- **M0 (#8):** the ring defines the slot and validates the file if present; nothing uses it.
-  **M1:** web (the receiver) and worker (rotation) require it.
-- Each stored entry records the pepper id it was made with: `webhook_secrets` entries are
-  `{secret_id, pepper_id, hmac, active_from, retire_at}`, PLAN §5's fields plus `pepper_id`.
-- **Rotating the pepper is a webhook-secret rotation** (PLAN §4.4): a new secret under the new
-  pepper, `notify update` on every subscription, then the old secret and pepper are retired.
-- **Why the ring and not a key derived from `app_secret_key`:** rotating `app_secret_key` (CSRF,
-  devices, recovery codes) must not break webhook delivery for every user; and the pepper, like the
-  KEKs, belongs outside the database and its dumps, backed up separately.
-- The receiver (M1) compares `HMAC(pepper of the entry's pepper_id, presented secret)` with each
-  active entry by `hmac.compare_digest`. M1 should reject an unknown secret before any database
-  work, for example from an in-process copy of the active entries (threat model T38).
+- PLAN §4.4: each Withings app has 256-bit webhook secrets in its callback URL
+  (`/api/webhooks/withings/{secret}`), stored only as **`HMAC-SHA256(pepper, secret)`** with a
+  `secret_id`, compared in constant time; during a rotation two are active. Withings subscribes
+  per user and `appli` with that URL, so the worker needs the plaintext again whenever it
+  subscribes (connect, #24), repairs drift (#26) or re-points a subscription (`notify update`).
+- **The secret is derived, never stored** (Architect decision, 2026-10-31):
+  `secret = HMAC-SHA256(seed[seed_id], "ownvitals-webhook-v1" ‖ app_id ‖ secret_id)`, where ‖ is
+  the `|` join of §2's encodings; 32 bytes, encoded base64url without padding. Each
+  `webhook_secrets` entry records `{secret_id, seed_id, hmac, active_from, retire_at}`: PLAN §5's
+  fields plus the id of the seed it was derived from. **A seed rotation is a secret rotation**: a
+  new `secret_id` under the new seed. A dump yields no secret and no way to compute one.
+- **Two keys in the KEK ring**, each of its own kind, in the KEK file format, with its own check
+  row in `connection_keks`; a key of one kind can't be loaded as another:
+  - the **seed**: a secret file `webhook_seed` (current; id from a setting, default `seed-1`,
+    pattern `^seed-[a-z0-9-]{1,28}$`) and `webhook_seed_<id>` (retired), check value
+    `HMAC-SHA256(seed, "ownvitals-seed-check-v1")`. **Only the worker** (and #22's CLI, run in
+    the worker's container) mounts and loads it: it derives a secret to build a callback URL
+    and to add a new `webhook_secrets` entry;
+  - the **pepper**: `webhook_pepper` (current; default `pep-1`, pattern `^pep-[a-z0-9-]{1,28}$`)
+    and `webhook_pepper_<id>` (retired), check value
+    `HMAC-SHA256(pepper, "ownvitals-pepper-check-v1")`. **Web** loads it to verify; the worker
+    loads it to compute the HMAC of a new entry. It never encrypts anything.
+
+  **Web holds only the pepper**: its service never mounts the seed, and its ring loader refuses
+  the seed kind (#8 test).
+- **Verification (web, #24):** `HMAC(pepper, presented secret)` compared by
+  `hmac.compare_digest` with each active entry of `withings_apps.webhook_secrets`. During a
+  pepper rotation the current and the retired pepper are both loaded and both tried (at most
+  four comparisons with two active entries). M1 should reject an unknown secret before any
+  database work, for example from an in-process copy of the active entries (threat model T38).
+- **Derivation check (worker):** the worker derives with the entry's `seed_id` and, before using
+  the result, checks that `HMAC(pepper, derived)` equals the entry's `hmac` (trying the loaded
+  peppers as web does); a missing seed or a mismatch refuses and builds no URL (fail closed). The plaintext lives only in memory for the
+  call; it is never logged, stored or put in a job row, and the callback URL is redacted like
+  the webhook path (§9).
+- **Rotation** (PLAN §4.4): add an entry for a new `secret_id` (under the current seed),
+  re-point every subscription with `notify update` (worker, per user, with that user's token),
+  then set `retire_at` on the old entry. Rotating the pepper or the seed is such a rotation, and
+  the old key file is removed once no active entry needs it. After a seed compromise (or a
+  compromise of the KEK ring that holds the seed), the old secret is retired at once;
+  subscriptions are re-pointed where the connection still has a token, and on reconnect
+  otherwise (§3).
+- **M0 (#8):** the ring defines both slots and validates the files if present; nothing uses them.
+  **M1:** web requires the pepper, the worker the seed and the pepper.
+- **Why the ring and not keys derived from `app_secret_key`:** rotating `app_secret_key` (CSRF,
+  devices, recovery codes) must not break webhook delivery for every user; and the seed and the
+  pepper, like the KEKs, belong outside the database and its dumps, backed up separately.
 
 ### 5. From the row to the provider call (#13; M1)
 
@@ -191,10 +231,13 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 - **The M1 refresh protocol is PLAN §4.3** (intent row, call, one CAS transaction to
   `generation + 1`, first use only after the commit, one recovery retry within 8 hours, then
   `needs_reconnect`; never the generic retry path). This ADR adds the constraints M1 must meet:
-  - the per-connection lock covers steps 1 to 3. A transaction-scoped lock means the Withings
-    call's total deadline stays below `ownvitals_app`'s 60 s idle-in-transaction and 30 s statement
-    timeouts (ADR 0002 §5); a session-scoped advisory lock lives on a dedicated connection and is
-    released explicitly (the pool's `DISCARD ALL` also releases it);
+  - the per-connection lock covers steps 1 to 3, and step 1 commits the intent, so it is a
+    **session-scoped advisory lock** (`pg_advisory_lock`), not a transaction-scoped one. It is
+    taken on a dedicated connection that holds no transaction while the Withings call runs (so
+    the 60 s idle-in-transaction timeout of ADR 0002 §5 doesn't apply), and released explicitly
+    after step 3; if the worker dies, the connection's end releases it, and the pool's
+    `DISCARD ALL` releases it on reuse. The intent commit and the CAS write are short
+    transactions of their own;
   - inside a job, the intent and the CAS write are fenced writes (ADR 0005 §4), so a worker that
     lost its lease can't record a refresh;
   - `TokenInvalid` (401, 2553, 2555; PLAN §4.2) goes to this path, never to a generic retry;
@@ -219,7 +262,9 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   - the user has a **live connection to a different Withings account**: refused until the user
     disconnects it;
   - the user's own row for this Withings account, live or `disconnected`: that row is reused
-    (`connected` again, the new tokens, `token_generation + 1`), and its imported data with it;
+    (`connected` again, the new tokens, `token_generation + 1`), and its imported data with it.
+    The same write clears `refresh_in_flight` and `refresh_intent_at`, so a stale intent from
+    the old grant can't start `token_refresh_recover` against the new tokens;
   - otherwise a new row.
 
   The write follows classbeat's path: the provider call first, outside any transaction; then one
@@ -228,8 +273,8 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   which would keep an old id with a payload encrypted for a new one.
 - The `UNIQUE (app_id, withings_userid)` index covers `disconnected` rows too, so a Withings
   account stays tied to the ownvitals account that holds its imported data; another account can
-  link it only once that row is gone (account deletion, or what #27 decides for "also delete
-  imported data").
+  link it only once that row is gone: account deletion, or a disconnect with "also delete
+  imported data", which removes the row too (#27).
 - **Rate limits:** connect start per IP (classbeat's OAuth start limit, 30 per 15 minutes) and per
   user. No Withings password ever passes through ownvitals, so classbeat's per-MOWL-email limit has
   no counterpart.
@@ -281,31 +326,36 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 - Tests (#13; M1 extends them to Withings): caplog over connect, use and every error path shows
   no token, code or state; a `pg_dump` of a test database with a planted token doesn't contain it;
   `repr` of credentials contains no secret; a `ConnectionFailure` has neither cause nor context;
-  the e2e `docker inspect` check (#14) covers `connection_kek`, and `webhook_pepper` from M1.
+  the e2e `docker inspect` check (#14) covers `connection_kek`, and `webhook_pepper` and
+  `webhook_seed` from M1.
 
 ## Alternatives
 
 - **`pgcrypto`:** the key would travel to the database in every query and could reach its logs.
 - **One key for every row, no envelope:** rotation would re-encrypt every payload, and one
   leaked value would expose the column.
-- **KEK or pepper derived from `app_secret_key`:** couples unrelated rotations (§4).
+- **KEK, seed or pepper derived from `app_secret_key`:** couples unrelated rotations (§4).
 - **A KMS or Vault:** not available on the home server; the KEK loader is the seam where one plugs
   in later (VPS, M8).
-- **Webhook secrets stored encrypted rather than as HMACs:** verification needs no plaintext; a
-  peppered HMAC can't be turned back into a secret from a dump.
+- **Webhook secrets stored encrypted under the KEK, next to their HMAC:** it would give the worker
+  its plaintext too, but puts a recoverable secret in the database, against PLAN §4.4's "stored
+  only as HMAC". Deriving it from an off-database seed keeps the database at HMACs only.
+- **Webhook secrets generated randomly and never kept:** nothing could rebuild the callback URL
+  for a later subscribe, drift repair or `notify update`.
 - **Envelope-encrypting the health data columns:** analysis runs in SQL over the values, and the
   KEK sits on the same host; it would not change who can read them. The threat model records the
   plaintext-at-rest risk instead.
 
 ## Consequences
 
-- #8: the envelope module, the KEK ring with its check table and the pepper slot, the crypto
-  guard. #13: the `connections` table with `token_generation` and its CAS helper, nullable
-  credential columns with their check, step-up on connect and disconnect, `keys rewrap` and
-  `keys wipe` (rows to `needs_reconnect`, credentials removed). M1: the Withings provider, the
-  web egress entry of roadmap Amendment 1, the refresh protocol, the pepper in use, the app
-  secret; #27: disconnect, the `disconnected` status and the narrowed unique index, the "also
-  delete imported data" option, revoke retries.
+- #8: the envelope module, the KEK ring with its check table and the pepper and seed slots, the
+  crypto guard. #13: the `connections` table with `token_generation` and its CAS helper, nullable
+  credential columns with their check, the partial unique index on `(owner_id, provider)`,
+  step-up on connect and disconnect, `keys rewrap` and `keys wipe` (rows to `needs_reconnect`,
+  credentials removed). M1: #22 the web egress entry of roadmap Amendment 1, the refresh
+  protocol, the app secret and the `withings_apps` CLI; #24 the derived webhook secrets with the
+  seed and the pepper in use; #27 disconnect, the `disconnected` status, the "also delete
+  imported data" option, revoke retries.
 - Losing the current KEK means every user reconnects Withings and re-enrols TOTP; there is no
   recovery path by design.
 - Backups hold tokens and seeds as ciphertext only; restoring one needs the KEK files of its time,

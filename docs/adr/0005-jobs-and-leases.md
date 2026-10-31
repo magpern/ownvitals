@@ -21,9 +21,11 @@ classbeat's product:
 - the **credit seam** (`credit_state`, `queue_unsettled`): ownvitals has no plans (D11); M7 ports
   the per-user AI cost cap without tiers (PLAN §3) and decides then how it meets the jobs;
 - **external operations** (classbeat ADR 0005 §7): its uncertain-write machinery protects
-  non-idempotent writes into a user's account. ownvitals' only upstream writes are
+  non-idempotent writes into a user's account. ownvitals' upstream writes are
   `notify subscribe/update/revoke` and `oauth2 revoke`, which are safe to repeat and reconciled by
-  `notify list` (PLAN §4.4).
+  `notify list` (PLAN §4.4), and the token refresh (`oauth2 requesttoken` with a refresh token),
+  which can't be repeated: Withings rotates the refresh token. PLAN §4.3's intent protocol (ADR
+  0004 §6) covers that one write, which is why the generic machinery isn't needed.
 
 Health data changes what a stale worker can damage: a sync job that keeps writing after losing
 its lease could duplicate or half-write measurements and their revision counters (PLAN §5
@@ -132,9 +134,9 @@ queued ──claim──> running ──> completed | failed | cancelled
   - from #21, `ensure_month_partitions` (ADR 0002 §2), owned by `ownvitals_owner`.
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
-  its table, timing and events. M1 adds its function families (webhook ingest, scheduler enqueue,
-  rate bucket; ADR 0002 §3) by amending this list with each family's role, grants and digests;
-  anything else is refused.
+  its table, timing and events. M1 adds its function families (webhook ingest and the 30-day
+  `webhook_events` purge, scheduler enqueue, rate bucket; ADR 0002 §3) by amending this list with
+  each family's role, grants and digests; anything else is refused.
 - **The privileged step.** Handing a function to `ownvitals_queue` needs the superuser, so the
   role, its grants and the functions live in one idempotent script,
   `docker/postgres/queue/20-queue.sql`, run **as the superuser** by the one-shot `db-functions`

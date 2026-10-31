@@ -1,7 +1,8 @@
 # ADR 0002: Tenant isolation: UserContext, forced RLS, roles and execution contexts
 
 Status: Accepted (2026-10-31, #4). Its two open questions were decided by the Architect on
-2026-10-31 (§2 partitions, §3 `webhook_events` retention).
+2026-10-31 (§2 partitions, whose keys [roadmap Amendment 2](../roadmap.md) sets; §3
+`webhook_events` retention).
 
 ## Context
 
@@ -23,7 +24,8 @@ is the base; this ADR keeps its contract and records what changes:
   claimed (§4);
 - one sanctioned global unique index, `connections (app_id, withings_userid)` (§2);
 - the admin role has no access to health data at all (§4, §5);
-- partitioned health tables, which classbeat forbids, allowed here under the rules of §2.
+- partitioned health tables, which classbeat forbids, allowed here under the rules of §2, with
+  their own key shape (roadmap Amendment 2).
 
 ## Decision
 
@@ -74,10 +76,12 @@ workout and intraday tables, `observations`, `metric_daily`, `findings`, `scores
 - `owner_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE` (from #10, when `users`
   exists). Account deletion therefore removes every owned row; Postgres runs referential actions
   without row security, so the cascade works under `FORCE`.
-- `id uuid` primary key with the server default `gen_random_uuid()`, and `UNIQUE (owner_id, id)`
-  so children can reference it.
-- **Every other unique constraint or unique index includes `owner_id`**, because uniqueness is
-  checked without RLS and a global one leaks which values other users hold.
+- `id uuid` with the server default `gen_random_uuid()`. On every owned table except the
+  partitioned ones below, `id` is the primary key and `UNIQUE (owner_id, id)` lets children
+  reference it.
+- **Every other unique constraint or unique index includes `owner_id`**, and every exclusion
+  constraint has `owner_id WITH =`, because both are checked without RLS and a global one leaks
+  which values other users hold.
   **The one sanctioned exception** is `connections (app_id, withings_userid)` through generated
   columns (PLAN §5), which PLAN §4.3 needs to refuse linking a Withings account that is already
   linked to another ownvitals account. It reveals only that a Withings account the caller has
@@ -105,27 +109,37 @@ CREATE POLICY owner_isolation ON <t>
   `AS RESTRICTIVE` (append-only event tables use that, ADR 0005 §1).
 - Repositories still filter `owner_id = ctx.user_id`; RLS is the second layer.
 - Owned tables live in schema `public`; inheritance is never used. classbeat forbids partitioned
-  owned tables. PLAN §5 requires monthly partitions for `sleep_series`, `intraday` and
-  `observations`, "created 3 months ahead by the scheduler", while a partition queried directly is
-  governed by its own RLS settings, not the parent's, and adding a partition is DDL that only the
-  table owner may run. **A partitioned owned table is allowed only when** (Architect decision,
-  2026-10-31; no amendment needed):
-  1. the parent has RLS enabled and forced, with the `owner_isolation` policy above;
-  2. every partition also has RLS enabled and forced, with the same policy (defence in depth);
-  3. `ownvitals_app` has privileges on the parent only: each partition gets `REVOKE ALL` from it
+  owned tables. PLAN §5 requires monthly partitions for `observations`, `sleep_series` and
+  `intraday`, "created 3 months ahead by the scheduler". Three things set them apart: a partition
+  queried directly is governed by its own RLS settings, not the parent's; adding a partition is
+  DDL that only the table owner may run; and PostgreSQL requires every primary key and unique
+  constraint on a partitioned table to include the partition key, so `UNIQUE (owner_id, id)`
+  can't exist there. **A partitioned owned table is allowed only when** (Architect decision,
+  2026-10-31; the key rule is **[roadmap Amendment 2](../roadmap.md)**):
+  1. its key is **`PRIMARY KEY (owner_id, id, <partition key>)`** (for example
+     `(owner_id, id, ts)`) in place of `UNIQUE (owner_id, id)`; any other unique constraint on it
+     includes `owner_id` and the partition key. `id` alone is therefore not unique across
+     partitions, so ingest deduplicates by a natural key that includes the time column (for
+     example `(owner_id, connection_id, <stream fields>, ts)`), never by `id`;
+  2. **no foreign key references it**: a partitioned table is a leaf that nothing points at, and
+     guard 1 refuses a foreign key whose target is one. Its own foreign keys stay
+     owner-inclusive, for example `(owner_id, connection_id) → connections (owner_id, id)`;
+  3. the parent has RLS enabled and forced, with the `owner_isolation` policy above;
+  4. every partition also has RLS enabled and forced, with the same policy (defence in depth);
+  5. `ownvitals_app` has privileges on the parent only: each partition gets `REVOKE ALL` from it
      (the owner's default privileges would otherwise grant them), so the app reaches rows only
      through the parent and its policy;
-  4. partitions are created only by **one reviewed `SECURITY DEFINER` function owned by
+  6. partitions are created only by **one reviewed `SECURITY DEFINER` function owned by
      `ownvitals_owner`**, for example `ensure_month_partitions(table, months_ahead)`. It accepts
      only an allowlisted table and a bounded `months_ahead`, creates the missing monthly
-     partitions, and applies 2 and 3 to each in the same transaction. The scheduler calls it
+     partitions, and applies 4 and 5 to each in the same transaction. The scheduler calls it
      (§4). It is installed and pinned like the other definer functions (ADR 0005 §3). Web and
      worker share the `ownvitals_app` role, so "the worker only" is enforced in code: only the
      scheduler module calls it, and #21 adds a guard that no other module names it.
 
   Until #21 lands, guard 1 refuses partitioned tables. #21, the first issue that creates one,
-  extends guard 1 to check 1 to 3 for every partitioned table and its partitions instead of
-  refusing them (not #5).
+  extends guard 1 to check rules 1 to 5 for every partitioned table and its partitions instead
+  of refusing them (not #5).
 
 ### 3. System tables and `SECURITY DEFINER` functions
 
@@ -135,15 +149,25 @@ CREATE POLICY owner_isolation ON <t>
 | When | System tables |
 |---|---|
 | M0 | the account tables (ADR 0003 §1, reached only through `ownvitals.auth`, guard 8); the KEK check table (ADR 0004 §3); stored flags and the admin audit log (#12) |
-| M1 | `withings_apps` (writes admin-only; the worker reads the client credentials); `webhook_events`; the per-app rate bucket (PLAN §4.4) |
+| M1 | `withings_apps` (below); `webhook_events`; the per-app rate bucket (PLAN §4.4) |
 
+- `withings_apps` holds each app's client id, its enveloped client secret (ADR 0004 §2) and the
+  webhook-secret HMAC entries (ADR 0004 §4). `ownvitals_app` gets **column-level `SELECT` only**,
+  on exactly those columns: web reads the client secret for the code exchange (roadmap
+  Amendment 1) and the HMAC entries to verify a webhook; the worker reads the client secret for
+  refresh and revoke. The role is shared, so who calls what is enforced by egress (ADR 0004 §7)
+  and the crypto guard, not by grants. `ownvitals_app` has no `INSERT`, `UPDATE` or `DELETE` on
+  it: creating an app, setting its client secret and adding or retiring a webhook secret are
+  operator writes through #22's audited CLI.
 - `webhook_events` holds a Withings user id, an `appli` and a measurement time window: health
   metadata. `ownvitals_app` gets **no privilege on it at all** (the default grants are revoked in
-  its migration); only the ingest function's role reads and writes it (§4). **Rows are kept 30
-  days, then purged by the scheduler** (Architect decision, 2026-10-31), well beyond Withings'
-  retry schedule of about 5 hours (withings-findings §2) that the dedupe key must outlive. The
-  rows carry a Withings user id rather than an `owner_id`, so #27's account-deletion test covers
-  the table explicitly.
+  its migration); only the ingest function's role reads and writes it (§4). Its `job_id` is a
+  plain column, not a foreign key (no foreign key from a system table into an owned table).
+  **Rows are kept 30 days, then purged by the scheduler** (Architect decision, 2026-10-31)
+  through a definer function of the webhook family (ADR 0005 §3), well beyond Withings' retry
+  schedule of about 5 hours (withings-findings §2) that the dedupe key must outlive. The rows
+  carry a Withings user id rather than an `owner_id`, so #27's account-deletion test covers the
+  table explicitly.
 - **Cross-user operations go only through narrow `SECURITY DEFINER` functions** (PLAN §5: queue
   claim, reaper, webhook ingest, rate bucket). Rules, from classbeat ADR 0002 §3 as amended by its
   ADR 0005 §3:
@@ -189,8 +213,8 @@ CREATE POLICY owner_isolation ON <t>
 - **Scheduler** (PLAN §4.4 poll and reconcile): definer functions enqueue the due jobs for every
   connection that needs one and return counts. Owner-less upkeep runs as maintenance through its
   own narrow function or on system tables: creating partitions ahead through
-  `ensure_month_partitions` (§2), the 30-day `webhook_events` purge (§3), other retention purges
-  and KEK checks.
+  `ensure_month_partitions` (§2), the 30-day `webhook_events` purge through its definer function
+  (§3), other retention purges and KEK checks.
 - **The issuer for webhook- and scheduler-triggered jobs is the job issuer.** Such jobs are created
   without a context and get one only when claimed, from the claimed row alone, exactly like a
   job a user created (ADR 0005 §4: the owner must exist and be active; `role="user"`; connection
@@ -263,7 +287,7 @@ CREATE POLICY owner_isolation ON <t>
 
 | # | Checks | Issue |
 |---|---|---|
-| 1 | Every table in `public` is in `SYSTEM_TABLES` (no `owner_id`) or owned: `owner_id NOT NULL`, forced RLS, exactly the one permissive policy, `UNIQUE (owner_id, id)`, owner-inclusive unique indexes (the one exception of §2 allowed by name) and foreign keys, `ON DELETE` as §2, `id uuid` with `gen_random_uuid()`; no inherited table; a partitioned table only under §2's rules 1 to 3 (refused until #21 extends the check); no view in `public`; no foreign key from a system to an owned table | #5 |
+| 1 | Every table in `public` is in `SYSTEM_TABLES` (no `owner_id`) or owned: `owner_id NOT NULL`, forced RLS, exactly the one permissive policy, `UNIQUE (owner_id, id)`, owner-inclusive unique indexes (the one exception of §2 allowed by name) and foreign keys, no exclusion constraint without `owner_id WITH =`, `ON DELETE` as §2, `id uuid` with `gen_random_uuid()`; no inherited table; no view in `public`; no foreign key from a system to an owned table. A partitioned table is refused until #21 extends the check to §2's partition rules 1 to 5: `PRIMARY KEY (owner_id, id, <partition key>)` instead of `UNIQUE (owner_id, id)`, no foreign key referencing it, and forced RLS, the policy and no app privilege on every partition (roadmap Amendment 2) | #5; partitions #21 |
 | 2 | `ownvitals_app`'s privileges equal the allowlist of §5 (catalog-wide, as an allowlist, so a new privilege kind fails); nothing granted to `PUBLIC` beyond Postgres' built-ins; `ownvitals_owner` has no `BYPASSRLS` | #5 |
 | 3 | On test-only owned parent and child tables, two users: no cross-user read, update, delete, insert or child-to-foreign-parent reference; no rows without a context; the app role can't disable RLS; a global-looking unique value can't be probed | #5 |
 | 4 | A pooled connection carries no `app.user_id` after a `user_session`; a `WITH HOLD` cursor can't be fetched by the next user; `commit()` inside `user_session` raises | #5 |
@@ -299,11 +323,13 @@ these tests instead of skipping.
 
 ## Consequences
 
-- Every per-user table needs `owner_id`, `UNIQUE (owner_id, id)`, owner-inclusive keys and
-  `enable_owner_rls`, or guard 1 fails the PR; its `users` cascade is checked by #27's deletion
-  test (§7).
+- Every per-user table needs `owner_id`, `UNIQUE (owner_id, id)` (or, if partitioned,
+  `PRIMARY KEY (owner_id, id, <partition key>)`), owner-inclusive keys and `enable_owner_rls`, or
+  guard 1 fails the PR; its `users` cascade is checked by #27's deletion test (§7).
 - #21 adds the first partitioned tables, `ensure_month_partitions`, the scheduler call and the
-  guard 1 extension for partitions, together.
+  guard 1 extension for partitions, together. Nothing may reference `observations`,
+  `sleep_series` or `intraday`; a design that needs to point at one of their rows needs a new
+  ADR.
 - Webhook and scheduler work exists only as definer functions plus owned jobs; M1 adds those
   functions through amendments to ADR 0005 §3 (role, grants, digest).
 - `ownvitals_maint`'s allowlist never grows to a health table without a new ADR.
