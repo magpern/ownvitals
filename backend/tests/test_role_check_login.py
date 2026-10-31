@@ -32,6 +32,7 @@ MEMBER = "is a member of another role"
 SWITCH = "logs in as one role and runs as another"
 SETTINGS = "has role settings other than the expected three timeouts"
 LIVE_USER = "starts its sessions with app.user_id set"
+APP_DEFAULT = "has a default for an app.* setting"
 OWNS = ("owns tables, views or materialized views", "owns the database", "owns a schema")
 TIMEOUTS = (
     f"ALTER ROLE {LOGIN} SET statement_timeout = '30s'",
@@ -160,6 +161,26 @@ async def test_a_login_role_that_starts_as_the_app_role_is_refused(
     # The plant works: the session runs as the app role, the role the old check looked at.
     assert session_and_current_user(url) == (LOGIN, APP_ROLE)
     await assert_refused(url, expected, absent)
+
+
+# Flag 8 reads the ``app.*`` defaults of the login role, not of the role the session runs as
+# (mutation R5 of the #81 review): here only the login role has one, and the session runs as the
+# app role, which has none. Flag 10 and the settings check would refuse the login anyway, so the
+# report text is what pins flag 8.
+async def test_an_app_default_on_a_login_that_runs_as_the_app_role_is_named(
+    database_url: str, login_role: None
+) -> None:
+    db = make_url(database_url).database
+    plant, _ = LOGINS["a NOINHERIT member of the owner"]
+    admin_run(
+        database_url,
+        *(s.format(db=db) for s in plant),
+        *TIMEOUTS,
+        f"ALTER ROLE {LOGIN} SET app.user_id = '{SYNTHETIC_USER}'",
+    )
+    url = with_options(url_for(database_url, LOGIN, PASSWORD), f"-c role={APP_ROLE}")
+    assert session_and_current_user(url) == (LOGIN, APP_ROLE)
+    await assert_refused(url, [APP_DEFAULT, SWITCH, LIVE_USER, SETTINGS, MEMBER])
 
 
 # app.user_id set outside the catalog: the connect check reads the live value, so startup fails

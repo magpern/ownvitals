@@ -57,7 +57,7 @@ def secrets_dir(
     """A secrets directory of the test's own, so ``/run/secrets`` of the machine never leaks
     into a test. It holds only ``connection_kek``, the random test KEK of this run (never a
     committed one), so web and the worker find a valid current KEK (ADR 0004 section 3); its
-    bytes are the ``current_kek`` fixture. One key per run, not per test: a schema that a
+    bytes are ``TEST_RUN_KEK``. One key per run, not per test: a schema that a
     module's tests share keeps the one check row of ``kek-1`` that the first start recorded, and
     every later start must match it. Tests that need other keys or secret files write them
     here."""
@@ -65,12 +65,6 @@ def secrets_dir(
     (directory / "connection_kek").write_bytes(TEST_RUN_KEK.hex().encode() + b"\n")
     monkeypatch.setenv("OWNVITALS_SECRETS_DIR", str(directory))
     return directory
-
-
-@pytest.fixture
-def current_kek(secrets_dir: Path) -> bytes:
-    """The 32 bytes of this test's current KEK (``secrets_dir / "connection_kek"``)."""
-    return bytes.fromhex((secrets_dir / "connection_kek").read_text(encoding="ascii").strip())
 
 
 def pytest_configure(config: pytest.Config) -> None:

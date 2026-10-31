@@ -64,9 +64,15 @@ user of the URL, `session_user`):
 The attribute and ownership checks also cover every role the role is a member of, so a report
 names what a membership would give. The engine repeats the check on every new connection, and on
 every pool checkout checks that the connection carries no `app.user_id` and has exactly the
-role's timeouts (otherwise the pool replaces it). A refused login is fatal too; an unreachable
-database is not (the per-connection check still applies). There is no override, not even in
-`dev`. Guard 2 (`role_guard.py`) checks the same on the test database, and refuses an `app.*`
+role's timeouts (otherwise the pool replaces it). A login the database refuses is fatal too
+(`DatabaseRoleError`, #89): SQLSTATE class 28 or 42501, which psycopg doesn't report at connect,
+so `role_check.REFUSED_LOGIN` matches the server's message: a wrong password or role, a role
+that may not log in, no `pg_hba.conf` entry, no CONNECT privilege, or a connection option the
+role may not set (`-c session_authorization=...` or `-c role=...` in `options` or `PGOPTIONS`).
+The queue check and the key ring use the same classification. A real connection failure
+(refused, a timeout, DNS, a server that is starting up or full, a missing database) is not fatal:
+the per-connection check still applies. The match reads English server messages, the server's
+default. There is no override, not even in `dev`. Guard 2 (`role_guard.py`) checks the same on the test database, and refuses an `app.*`
 default for any role or database.
 
 ## The test database
@@ -126,20 +132,21 @@ re-grant), so a re-run of the script keeps the narrower grants (`test_roles_reru
 
 `tests/session_scan.py` keeps two allowlists (packages and exact modules):
 
-| Session | Allowed |
-|---|---|
-| `user_session` | `ownvitals.db`, `ownvitals.auth`, `ownvitals.connections` |
-| `system_session` | `ownvitals.db`, `ownvitals.auth` |
+| Session | Packages | Exact modules |
+|---|---|---|
+| `user_session` | `ownvitals.db`, `ownvitals.auth`, `ownvitals.connections` | `ownvitals.jobs.fence` (every write a worker makes for a job), `ownvitals.jobs.service` and `ownvitals.jobs.progress` (the jobs API's own writes and reads for the signed-in user, web only) |
+| `system_session` | `ownvitals.db`, `ownvitals.auth` | `ownvitals.jobs.queue` (the calls of the queue's `SECURITY DEFINER` functions), `ownvitals.crypto.keks` (the key ring's startup check) |
 
-Everything else, worker and job-kind code included, fails `test_session_guard.py`: any reference
-to the names (and to `_owned_session` and `SET_USER`, which only `ownvitals.db` may name), an
-import of `ownvitals.db.session` or anything in it, a name or attribute chain that reaches that
-module (`ownvitals.db.session.X`, `db.session.X` after `from ownvitals import db`, `m.X` after
-`import ownvitals.db.session as m`), or a string that sets `app.user_id`. Relative imports are
-resolved to absolute names first (`from ..db import session` in `ownvitals.jobs.sync` is caught),
-and one above the top-level package is refused. Worker writes go through the fenced helper of #9. A package joins a list in its own PR, with the reason
-in `session_scan.py`'s docstring and the pinning test updated (#8 KEK check, #9 jobs, #12 flags
-and admin are expected).
+Everything else fails `test_session_guard.py`: the rest of `ownvitals.jobs` (the runner, the job
+kinds, the issuer), all of `ownvitals.worker`, and every other package. Worker code writes through
+`ownvitals.jobs.fence`. What fails is any reference to the names (and to `_owned_session` and
+`SET_USER`, which only `ownvitals.db` may name), an import of `ownvitals.db.session` or anything
+in it, a name or attribute chain that reaches that module (`ownvitals.db.session.X`,
+`db.session.X` after `from ownvitals import db`, `m.X` after `import ownvitals.db.session as m`),
+or a string that sets `app.user_id`. Relative imports are resolved to absolute names first
+(`from ..db import session` in `ownvitals.jobs.sync` is caught), and one above the top-level
+package is refused. A package or module joins a list in its own PR, with the reason in
+`session_scan.py`'s docstring and the pinning test updated (#12 flags and admin are expected).
 
 Only `ownvitals/context.py`, `ownvitals/auth/deps.py` (#10) and `ownvitals/jobs/issuer.py` (#9)
 may build a `UserContext` (`user_context_scan.py`); handlers get it through the auth dependency,
@@ -161,19 +168,39 @@ never from a path, query, body or header. The same scan refuses, in every module
   `super(type(ctx), ctx).__setattr__` (`super` with or without arguments) and
   `type(ctx).__mro__[-1].__setattr__` reach `object.__setattr__` past the frozen class's own, and
   a slot descriptor (`type(ctx).role.__set__(ctx, "admin")`, also after `d = K.role`) writes a
-  field directly. Defining these methods in a class stays allowed.
+  field directly. Defining these methods in a class stays allowed;
+- `__globals__` as an attribute, a name or a string: a function's globals hold the issuer token
+  (`require_context.__globals__`), and with it `K = type(ctx); K(uid, "admin", issuer=tok)`
+  builds an admin context (#89);
+- an `issuer=` keyword in any call, also as a `**{"issuer": ...}` literal or `**dict(issuer=...)`:
+  only the issuer modules pass the token, and they are not scanned. A third-party API with a
+  keyword of that name (a JWT library's `issuer=`, say) needs the Architect (#89);
+- `copyreg` as an import, a name, an attribute or a string (`importlib.import_module("copyreg")`):
+  `copyreg.__newobj__(type(ctx))` and `copyreg._reconstructor` make a blank context without the
+  token (#89).
 
 The guard reads "anywhere" with one exception (Architect, 2026-10-31): the frozen-dataclass idiom
 `object.__setattr__(self, "field", value)` written directly in a class's undecorated
 `__post_init__(self, ...)`, with the bare `self` first, a string literal that does not start with
-`__` second, and `self` never rebound there. With the rules above only the dataclass's own
-`__init__` calls that method, so `self` is an instance of that class. Another target, another
-method, a computed or dunder field name, a nested function or lambda, or an alias stays refused.
+`__` second, and `self` never rebound there. Code that **names** the method can't call it (the
+rules above refuse the name), but code can still reach it without the name: `for f in
+vars(A).values(): f(ctx)` runs it with a context as `self`. So the exemption never covers one of
+`UserContext`'s own field names (`user_id`, `role`, `connections`; `CONTEXT_FIELDS`, pinned to
+the class by `test_user_context_writers.py`), in any method (#89). Another target, another method,
+a computed, dunder or context field name, a nested function or lambda, or an alias stays refused.
 
-What the scan catches is accidental misuse and the obvious forgeries, as listed. It does not
-stop deliberate obfuscation (a name built at run time such as `getattr(K, "__post_" + "init__")`,
-`inspect`, `importlib`): ADR 0002 §1 leaves deliberately malicious code inside the process to the
-review gate.
+What the scan catches is accidental misuse and the obvious forgeries, as listed: it reads source
+text, so it sees only names written out. It does not stop deliberate code, which ADR 0002 §1
+leaves to the review gate. Known limits:
+
+- a name built at run time: `getattr(K, "__post_" + "init__")`,
+  `getattr(super(type(ctx), ctx), "__SETATTR__".lower())`, `b"__setattr__".decode()`, a module
+  name passed to `importlib` the same way, or `**kwargs` built at run time holding `issuer`;
+- class-level patching: `type(ctx).role = property(...)` changes what every context reads
+  (accepted by the Architect);
+- a hook reached without its name, as above, when it sets a field that isn't one of the context's:
+  harmless to a context, which has only those slots;
+- `inspect`, and other ways into a function's closure or frame.
 
 ## Guards (ADR 0002 §7)
 
@@ -184,7 +211,7 @@ review gate.
 | 3 | two users on test-only owned tables: no cross-user read, write, move, child reference or unique-value probe; no rows without a context; the app role can't change the schema | `test_isolation.py` |
 | 4 | no `app.user_id` or held cursor left on a pooled connection; `commit()` inside a session raises | `test_isolation.py` |
 | 5 | `UserContext` only from its issuers | `test_user_context_guard.py`, `test_user_context_writers.py`, `test_context.py` |
-| 6 | startup refusal of a privileged role | `test_role_check.py`, `test_role_check_login.py` |
+| 6 | startup refusal of a privileged role, and of a login the database refuses | `test_role_check.py`, `test_role_check_login.py`, `test_role_check_refused.py` |
 | — | only allowlisted modules open a session | `test_session_guard.py` |
 
 Each guard has tests that plant a violation and show the guard catches it.

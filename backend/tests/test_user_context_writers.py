@@ -6,6 +6,7 @@ from ``__new__`` writes a field anyway. Each function below is one of the #65 re
 constructions: it runs here on a real context, and ``user_context_scan`` must refuse its source.
 """
 
+import dataclasses
 import inspect
 import textwrap
 from collections.abc import Callable
@@ -15,7 +16,7 @@ import pytest
 
 from ctx import make_context
 from ownvitals.context import UserContext, require_context
-from user_context_scan import scan_source
+from user_context_scan import CONTEXT_FIELDS, scan_source
 
 
 def super_with_arguments(ctx: Any) -> Any:
@@ -119,4 +120,143 @@ def test_every_other_spelling_of_a_field_write_is_refused(source: str) -> None:
 
 @pytest.mark.parametrize("source", ALLOWED.values(), ids=ALLOWED.keys())
 def test_defining_the_methods_and_super_new_in_new_stay_allowed(source: str) -> None:
+    assert scan_source(source) == []
+
+
+# The #81 review's N2 (#89): three more constructions, each run here on a real context.
+def token_through_globals(ctx: Any) -> Any:
+    token = next(v for v in require_context.__globals__.values() if type(v) is object)
+    K = type(ctx)
+    return K(ctx.user_id, "admin", issuer=token)
+
+
+def idiom_called_through_vars(ctx: Any) -> Any:
+    class A:
+        def __post_init__(self) -> None:
+            object.__setattr__(self, "role", "admin")
+
+    for hook in vars(A).values():
+        if callable(hook):
+            hook(ctx)
+    return ctx
+
+
+def blank_through_copyreg(ctx: Any) -> Any:
+    import copyreg
+
+    return copyreg.__newobj__(type(ctx))  # pyright: ignore[reportAttributeAccessIssue]
+
+
+FORGERIES: dict[str, Callable[[Any], Any]] = {
+    "the token through __globals__": token_through_globals,
+    "the idiom called through vars()": idiom_called_through_vars,
+}
+
+
+@pytest.mark.parametrize("forgery", FORGERIES.values(), ids=FORGERIES.keys())
+def test_the_review_forgeries_build_an_admin_context_at_run_time(
+    forgery: Callable[[Any], Any],
+) -> None:
+    forged = forgery(make_context(role="user"))
+    assert require_context(forged) is forged
+    assert forged.role == "admin"
+
+
+def test_copyreg_builds_a_blank_context_without_the_token() -> None:
+    blank = blank_through_copyreg(make_context(role="user"))
+    assert require_context(blank) is blank
+    with pytest.raises(AttributeError):
+        _ = blank.role
+
+
+@pytest.mark.parametrize(
+    "construction",
+    [*FORGERIES.values(), blank_through_copyreg],
+    ids=[*FORGERIES.keys(), "copyreg.__newobj__"],
+)
+def test_the_scan_refuses_each_review_forgery(construction: Callable[[Any], Any]) -> None:
+    assert scan_source(textwrap.dedent(inspect.getsource(construction))) != []
+
+
+def test_the_scan_knows_every_field_of_the_context() -> None:
+    assert {field.name for field in dataclasses.fields(UserContext)} == CONTEXT_FIELDS
+
+
+def post_init(*statements: str) -> str:
+    return "class A:\n    def __post_init__(self):\n" + "".join(
+        f"        {statement}\n" for statement in statements
+    )
+
+
+# Rules (a) to (d) of #89: each refused spelling, and a near miss that stays allowed.
+RULES: dict[str, tuple[dict[str, str], dict[str, str]]] = {
+    "__globals__": (
+        {
+            "the attribute": body("return f.__globals__"),
+            "getattr": body("return getattr(f, '__globals__')"),
+            "from vars": body("return vars(f)['__globals__']"),
+            "a bare name": body("return __globals__"),
+        },
+        {
+            "globals()": body("return globals()['X']"),
+            "an attribute named globals": body("return f.globals"),
+            "a string that is not the name": body("return '__globals'"),
+        },
+    ),
+    "issuer=": (
+        {
+            "a call": body("return K(ctx.user_id, 'admin', issuer=t)"),
+            "functools.partial": body("import functools", "functools.partial(K, issuer=t)"),
+            "a ** literal": body("return K(ctx.user_id, 'admin', **{'issuer': t})"),
+            "dict(issuer=...)": body("return K(ctx.user_id, 'admin', **dict(issuer=t))"),
+        },
+        {
+            "another keyword": body("return f(issuer_url=1, iss=2)"),
+            "a ** literal without it": body("return f(**{'iss': 1})"),
+            "a ** name": body("return f(**options)"),
+            "the word as a value": body("return config['issuer']"),
+        },
+    ),
+    "the idiom on a context field": (
+        {
+            "role": post_init("object.__setattr__(self, 'role', 'admin')"),
+            "user_id": post_init("object.__setattr__(self, 'user_id', 1)"),
+            "connections": post_init("object.__setattr__(self, 'connections', frozenset())"),
+            "in another method": "class A:\n    def hook(self):\n"
+            "        object.__setattr__(self, 'role', 'admin')\n",
+        },
+        {
+            "another field": post_init("object.__setattr__(self, 'roles', ())"),
+            "a field with a context name as a prefix": post_init(
+                "object.__setattr__(self, 'user_id_hash', b'')"
+            ),
+        },
+    ),
+    "copyreg": (
+        {
+            "import": "import copyreg\n",
+            "import as": "import copyreg as c\n",
+            "from import": "from copyreg import __newobj__\n",
+            "a string": body("import importlib", "return importlib.import_module('copyreg')"),
+            "sys.modules": body("import sys", "return sys.modules['copyreg']"),
+            "an attribute": body("return m.copyreg"),
+        },
+        {
+            "copy": "import copy\nfrom copy import deepcopy\n",
+            "pickle": "import pickle\n",
+            "a similar name": body("return copyregistry.x"),
+        },
+    ),
+}
+REFUSED_BY_RULE = {f"{rule}: {k}": v for rule, (r, _) in RULES.items() for k, v in r.items()}
+ALLOWED_BY_RULE = {f"{rule}: {k}": v for rule, (_, a) in RULES.items() for k, v in a.items()}
+
+
+@pytest.mark.parametrize("source", REFUSED_BY_RULE.values(), ids=REFUSED_BY_RULE.keys())
+def test_each_new_rule_refuses_its_spellings(source: str) -> None:
+    assert scan_source(source) != []
+
+
+@pytest.mark.parametrize("source", ALLOWED_BY_RULE.values(), ids=ALLOWED_BY_RULE.keys())
+def test_each_new_rule_leaves_its_near_misses_alone(source: str) -> None:
     assert scan_source(source) == []

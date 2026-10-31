@@ -27,11 +27,18 @@
   ``type(ctx).__mro__[-1].__setattr__``, and a slot descriptor's ``__set__`` or ``__delete__``
   (``type(ctx).role.__set__(ctx, "admin")``, also after ``d = K.role``) writes a field directly.
 
+- (#89) the attribute, name or string ``__globals__`` (a function's globals hold the issuer
+  token); an ``issuer=`` keyword, also as a ``**{"issuer": ...}`` literal (only the issuer
+  modules, which are not scanned, pass the token); and ``copyreg`` as an import, a name, an
+  attribute or a string (``copyreg.__newobj__(K)`` makes a blank context without the token).
+
 One exception (Architect, 2026-10-31): the frozen-dataclass idiom ``object.__setattr__(self,
 "field", value)`` written directly in the undecorated ``__post_init__(self, ...)`` method of a
 class, with the bare ``self`` as the first argument, a string literal that does not start with
-``__`` as the second, and ``self`` never rebound there. With the rules above, nothing but the
-dataclass's own ``__init__`` can call that method, so ``self`` is an instance of that class.
+``__`` and is not one of ``UserContext``'s field names (``CONTEXT_FIELDS``, #89) as the second,
+and ``self`` never rebound there. Named, that method runs only from the dataclass's own
+``__init__``; it can still be reached without its name (``for f in vars(A).values(): f(ctx)``),
+which is why a ``UserContext`` field name is never exempt.
 - ``Depends(UserContext)``, ``Security(UserContext)``, and a bare ``Depends()`` or
   ``Security()`` (no dependency, or ``None``) on a ``UserContext`` parameter (default value
   or ``Annotated[UserContext, Depends()]``), so FastAPI would try to build one from the
@@ -45,8 +52,10 @@ dataclass's own ``__init__`` can call that method, so ``self`` is an instance of
 
 This layer and the runtime barrier in ``ownvitals.context`` stop accidental misuse and make the
 obvious forgeries fail CI. They do not stop deliberate obfuscation (a name built at run time, for
-example ``getattr(K, "__post_" + "init__")``, or ``inspect``): ADR 0002 section 1 leaves
-deliberately malicious code inside the process to the review gate.
+example ``getattr(K, "__post_" + "init__")``, ``"__SETATTR__".lower()`` or
+``b"__setattr__".decode()``; class-level patching such as ``type(ctx).role = property(...)``;
+``inspect``): ADR 0002 section 1 leaves deliberately malicious code inside the process to the
+review gate. ``docs/dev/isolation.md`` lists these limits.
 """
 
 import ast
@@ -69,7 +78,15 @@ HOOKS = {"__init__", "__post_init__"}
 SUPER_ONLY = {*HOOKS, "__new__"}
 # Never named: each writes or deletes a field past the frozen class's own ``__setattr__``.
 WRITERS = {"__setattr__", "__delattr__", "__set__", "__delete__"}
-REFUSED_STRINGS = {"__class__", *SUPER_ONLY, *WRITERS}
+# Never named (#89): a function's globals reach the issuer token; ``copyreg`` builds a blank
+# instance without calling ``__init__``.
+NEVER_NAMED = {"__globals__", "copyreg"}
+REFUSED_STRINGS = {"__class__", *SUPER_ONLY, *WRITERS, *NEVER_NAMED}
+# The issuer token's keyword (``UserContext(..., issuer=...)``): only the issuer modules pass it.
+ISSUER_KEYWORD = "issuer"
+# ``UserContext``'s fields: the frozen-dataclass idiom never sets one of these names (#89).
+# ``test_user_context_writers.py`` pins this set to the class.
+CONTEXT_FIELDS = {"user_id", "role", "connections"}
 
 
 def _dotted(node: ast.AST) -> str | None:
@@ -316,6 +333,7 @@ def _sets_own_field(node: ast.AST) -> bool:
         and isinstance(node.args[1], ast.Constant)
         and isinstance(node.args[1].value, str)
         and not node.args[1].value.startswith("__")
+        and node.args[1].value not in CONTEXT_FIELDS
         and not isinstance(node.args[2], ast.Starred)
     )
 
@@ -346,7 +364,30 @@ def _super_hook_calls(tree: ast.AST) -> set[int]:
     return allowed
 
 
+def _passes_issuer(node: ast.Call) -> bool:
+    """``f(..., issuer=x)`` or ``f(..., **{"issuer": x})``."""
+    for keyword in node.keywords:
+        if keyword.arg == ISSUER_KEYWORD:
+            return True
+        if keyword.arg is None and isinstance(keyword.value, ast.Dict):
+            keys = keyword.value.keys
+            if any(isinstance(k, ast.Constant) and k.value == ISSUER_KEYWORD for k in keys):
+                return True
+    return False
+
+
+def _imports(node: ast.Import | ast.ImportFrom, module: str) -> bool:
+    """``import module``, ``import module.x``, ``from module import ...`` (any alias)."""
+    if isinstance(node, ast.Import):
+        return any(a.name == module or a.name.startswith(f"{module}.") for a in node.names)
+    return node.module is not None and (
+        node.module == module or node.module.startswith(f"{module}.")
+    )
+
+
 def _forging_call(node: ast.Call) -> str | None:
+    if _passes_issuer(node):
+        return "an issuer= keyword outside the issuer modules"
     func = node.func
     if isinstance(func, ast.Attribute) and func.attr == "__class__":
         return "call of x.__class__(...)"
@@ -407,7 +448,13 @@ def scan_source(source: str) -> list[tuple[int, str]]:
     for node in ast.walk(tree):
         if id(node) in annotation_nodes:
             continue
-        if isinstance(node, ast.Name) and (node.id in aliases or node.id in TOKEN_NAMES):
+        if isinstance(node, ast.Import | ast.ImportFrom) and _imports(node, "copyreg"):
+            found.append((node.lineno, "import of copyreg"))
+        elif isinstance(node, ast.Name) and node.id in NEVER_NAMED:
+            found.append((node.lineno, f"use of {node.id}"))
+        elif isinstance(node, ast.Attribute) and node.attr in NEVER_NAMED:
+            found.append((node.lineno, f"use of {node.attr}"))
+        elif isinstance(node, ast.Name) and (node.id in aliases or node.id in TOKEN_NAMES):
             found.append((node.lineno, f"reference to {node.id}"))
         elif isinstance(node, ast.Attribute) and (node.attr == NAME or node.attr in TOKEN_NAMES):
             found.append((node.lineno, f"reference to {_dotted(node) or node.attr}"))
