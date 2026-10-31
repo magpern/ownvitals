@@ -160,6 +160,24 @@ def test_pelt_returns_the_optimum_of_the_unpruned_recursion(seed: int) -> None:
     assert all(b - a >= minimum for a, b in pairwise([0, *points, n]))
 
 
+def test_the_minimum_segment_delay_by_hand_without_a_random_generator() -> None:
+    # The ten seeds above were found in numpy's random stream, which can change between versions.
+    # This case is written out. Values 3 3 3 -3 1 1 3 -3 (n = 8), penalty 4, minimum segment 2.
+    # Costs are sums of squares about each segment's mean:
+    #   no change point:     56 - 8 * 1^2 = 48
+    #   change at 3:         [3 3 3] 0 + [-3 1 1 3 -3] (29 - 5 * 0.04 = 28.8) = 28.8, plus 4 = 32.8
+    #   changes at 3 and 5:  0 + [-3 1] 8 + [1 3 -3] (19 - 3/9 = 18.667) = 26.667, plus 8 = 34.667
+    # so the optimum is the single change at 3. A candidate that is dropped as soon as it looks
+    # beaten (instead of `min_segment` steps later, when a segment may start at the current point)
+    # leaves PELT with the changes at 3 and 5, which is worse: this is the case that catches it.
+    values = np.array([3.0, 3.0, 3.0, -3.0, 1.0, 1.0, 3.0, -3.0])
+    points, cost = pelt(values, penalty=4.0, min_segment=2)
+    assert points == (3,)
+    assert cost == pytest.approx(28.8)
+    assert cost + 4.0 == pytest.approx(32.8)
+    assert optimal_partitioning(values, 4.0, 2) == ((3,), pytest.approx(28.8))
+
+
 def test_pelt_with_nothing_to_find_or_no_data() -> None:
     assert pelt(np.zeros(0), penalty=5.0, min_segment=3) == ((), 0.0)
     assert pelt(np.array([1.0, 2.0]), penalty=5.0, min_segment=3) == ((), pytest.approx(0.5))
@@ -206,10 +224,15 @@ def test_a_planted_shift_downwards_and_two_shifts_are_found_with_their_sizes() -
     assert first.shift == pytest.approx(4.0, abs=0.8)
     assert second.shift == pytest.approx(-3.0, abs=0.8)
     assert first.mean_after == second.mean_before
+    # shift_sigmas is in long-run standard deviations. For independent noise the estimate is
+    # cautious (about 1.3 to 1.5 times the standard deviation of 1; docs/dev/analysis-methods.md),
+    # so shifts of 4 and -3 read as about 2.5 and -1.8 and no longer as 4 and -3
     assert first.shift_sigmas is not None
-    assert first.shift_sigmas > 3.0
+    assert first.shift_sigmas == pytest.approx(first.shift / result.sigma)
+    assert first.shift_sigmas > 2.0
     assert second.shift_sigmas is not None
-    assert second.shift_sigmas < -2.0
+    assert second.shift_sigmas < -1.5
+    assert 1.0 <= result.sigma <= 2.0
 
 
 def test_a_stationary_series_has_no_change_point() -> None:
@@ -342,7 +365,7 @@ def test_bad_arguments_are_refused(kwargs: dict[str, float]) -> None:
 def test_the_result_carries_n_coverage_and_the_algorithm_version_and_is_json_safe() -> None:
     series = Series.from_arrays(np.arange(10.0), steps((5, 0.0), (5, 10.0)), window_days=20)
     result = find_changes(series, sigma=1.0)
-    assert result.algo_version == ALGO_VERSION == "changepoint/1"
+    assert result.algo_version == ALGO_VERSION == "changepoint/2"
     assert result.inputs.n == 10
     assert float(result.inputs.coverage) == 0.5
     decoded = json.loads(json.dumps(result.as_dict()))
@@ -405,7 +428,7 @@ def test_days_outside_the_window_are_ignored() -> None:
 def test_the_purpose_the_metric_and_an_explicit_requirement_choose_the_threshold() -> None:
     daily = daily_values(list(range(0, 40, 4)), [80.0 + (i // 5) * 4.0 for i in range(10)])
     end = START + timedelta(days=39)
-    # ten days with data over a 37-day span in a 40-day window
+    # ten days with data over a 36-day elapsed span (day 0 to day 36) in a 40-day window
     assert isinstance(
         detect_changes(daily, metric_key="weight", window_end=end, window_days=40),
         ChangePointResult,
