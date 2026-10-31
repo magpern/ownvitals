@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "source": "error envelope: HTTP 200 with a non-zero status",
+  "endpoint": "errors",
+  "response": {
+    "status": 2553,
+    "error": "invalid refresh token"
+  }
+}

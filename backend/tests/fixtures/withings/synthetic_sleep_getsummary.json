@@ -1,0 +1,47 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/sleep:getsummary",
+  "response": {
+    "status": 0,
+    "body": {
+      "series": [
+        {
+          "id": 80001,
+          "timezone": "UTC",
+          "model": 32,
+          "model_id": 63,
+          "startdate": 1793318400,
+          "enddate": 1793347200,
+          "date": "2026-10-30",
+          "created": 1793347320,
+          "modified": 1793347320,
+          "hash_deviceid": "2222222222222222222222222222222222222222",
+          "completed": true,
+          "data": {
+            "total_timeinbed": 28800,
+            "total_sleep_time": 25200,
+            "lightsleepduration": 13000,
+            "deepsleepduration": 5200,
+            "remsleepduration": 7000,
+            "sleep_efficiency": 0.875,
+            "sleep_latency": 900,
+            "wakeupcount": 2,
+            "hr_average": 58,
+            "sleep_score": 81,
+            "night_events": {
+              "1": [
+                900
+              ],
+              "2": [
+                960
+              ]
+            }
+          }
+        }
+      ],
+      "more": false,
+      "offset": 0
+    }
+  }
+}

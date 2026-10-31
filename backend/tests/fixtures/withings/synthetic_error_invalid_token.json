@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "source": "error envelope: HTTP 200 with a non-zero status",
+  "endpoint": "errors",
+  "response": {
+    "status": 401,
+    "error": "invalid_token: the access token provided is invalid"
+  }
+}
