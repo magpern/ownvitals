@@ -1,7 +1,8 @@
 # ADR 0003: Accounts, sessions, mandatory TOTP and step-up
 
-Status: Accepted (2026-10-31, #4). Its two open questions were decided by the Architect on
-2026-10-31 (§3 session lifetimes, §4 step-up readings).
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 (see "Amendments"). Its two open
+questions were decided by the Architect on 2026-10-31 (§3 session lifetimes, §4 step-up
+readings).
 
 ## Context
 
@@ -173,10 +174,12 @@ else changes.
   caveats and their accepted risks are not ported.
 - **Web's outbound connections** are exactly those of
   [roadmap Amendment 1](../roadmap.md): Google's OIDC hosts for sign-in (#6), the configured SMTP
-  server for the account mails, which run in the request as in classbeat (the mail module is the
-  one web-only path the egress guard lists for it), and, from M1, the one Withings
-  authorization-code exchange (ADR 0004 §7). Nothing else; #6 and #22 test both processes'
-  lists.
+  server for the account mails, which run in the request as in classbeat, and, from M1, the one
+  Withings authorization-code exchange (ADR 0004 §7). Nothing else; #6 and #22 test both
+  processes' lists.
+- **SMTP never from the worker** (Architect decision, amended 2026-10-31, #49). Mail goes out
+  through one mail module, from web and from the operator CLI (for example `keys wipe`'s notice,
+  from its one-off container; ADR 0004 §3), never from the worker.
 - **Sign-up modes:** `invite` (default) and `closed`. **`open` is refused until the M8 gate**:
   the setting's validation rejects it, and the stored flag can only tighten what the environment
   allows (stricter wins, #12).
@@ -243,3 +246,11 @@ accepted risk.
   sign-in with TOTP, Google with TOTP, a step-up action and a password reset end to end.
 - #13's connect and disconnect routes depend on #11's `require_stepup`.
 - Threat model T1 to T18 cite this ADR.
+
+## Amendments
+
+### 2026-10-31 (#49): follow-ups of the #41 review
+
+- §6: SMTP never from the worker. Mail goes out through one mail module, from web and from the
+  operator CLI's one-off containers (Architect decision); the earlier text called the mail
+  module a web-only path.

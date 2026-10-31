@@ -220,8 +220,10 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   **one reviewed `SECURITY DEFINER` function owned by the dedicated `NOLOGIN` role
   `ownvitals_webhook_secrets`** (its privileges: ADR 0002 §3). The function acts on the
   `webhook_secrets` column of one `withings_apps` row, clears `rotation_requested_at` once the
-  new secret is active (#24), writes the admin-audit row, and writes no other column. Its input
-  rules, each with a test:
+  new secret is active (#24), writes the admin-audit row, and writes no other column. #21
+  builds the role and the function with the data model; #24 calls it from the worker's
+  rotation module and owns the single-caller guard (ADR 0002 §3). Its input rules, each with a
+  test in #21:
   - the operation is one of append, retire, rehash or delete-retired; a rehash changes only an
     entry's `pepper_id` and `hmac`;
   - the `secret_id` format is fixed;
@@ -230,9 +232,9 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   - at most two entries are not retired (PLAN §4.4: two active at once);
   - only existing ids may be retired, and only retired entries deleted.
 
-  It is pinned like the other definer functions (ADR 0005 §3), and a guard makes the worker's
-  rotation module its only caller. Web shares the app role, so code running in web could still
-  call it: accepted risk 21 of the threat model.
+  It is pinned like the other definer functions (ADR 0005 §3), and #24's guard makes the
+  worker's rotation module its only caller. Web shares the app role, so code running in web
+  could still call it: accepted risk 21 of the threat model.
 - **Entry lifecycle** (amended 2026-10-31, #49). An entry verifies from `active_from` until it
   is retired (`retire_at`), and then never again. A retired entry is kept only while the worker
   still needs its URL: `notify update` and `notify revoke` name a subscription by its current
@@ -434,10 +436,11 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   credentials removed). M1: #22 the web egress entry of roadmap Amendment 1, the refresh
   protocol, the app secret and the `withings_apps` CLI (owner role) with its client-secret
   rewrap, and the `notify list` clean-up on connect and reconnect; #24 the derived webhook
-  secrets with the seed and the pepper in use, the rotation, the entry lifecycle and the
-  ignored-webhook metric; #21 and #24 the webhook-secret function with its owner role and input
-  rules; #27 disconnect, the `disconnected` status, the "also delete imported data" option,
-  revoke retries.
+  secrets with the seed and the pepper in use, the rotation module that calls the webhook-secret
+  function and its single-caller guard, the entry lifecycle and the ignored-webhook metric; #21
+  the webhook-secret function with its `NOLOGIN` owner role, privileges and input-rule tests;
+  #27 disconnect, the `disconnected` status, the "also delete imported data" option, revoke
+  retries.
 - Losing the current KEK means every user reconnects Withings and re-enrols TOTP; there is no
   recovery path by design.
 - Backups hold tokens and seeds as ciphertext only; restoring one needs the KEK files of its time,
@@ -459,6 +462,7 @@ Architect decisions, made in place above and marked "amended 2026-10-31, #49":
   unknown and retired secrets (the generic 200, counted); `notify list` URLs never stored or
   logged.
 - §4: the webhook-secret function is owned by `ownvitals_webhook_secrets` (ADR 0002 §3), may
-  clear `rotation_requested_at`, and has input rules.
+  clear `rotation_requested_at`, and has input rules; #21 builds it, #24 calls it and owns the
+  single-caller guard.
 - §3: the app client secret is rewrapped by #22's tool under the owner role, not by `keys
   rewrap`.

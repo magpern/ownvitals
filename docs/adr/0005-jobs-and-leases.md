@@ -140,8 +140,8 @@ queued ──claim──> running ──> completed | failed | cancelled
     it was `ownvitals_owner`): it appends, retires, re-hashes or deletes retired entries in the
     `webhook_secrets` column of one `withings_apps` row under ADR 0004 §4's input rules, may
     clear `rotation_requested_at`, and writes the admin-audit row, nothing else;
-    `ownvitals_app` may execute it, and a guard keeps every caller but the worker's rotation
-    module out.
+    `ownvitals_app` may execute it. #21 builds the role and the function; #24's guard keeps
+    every caller but the worker's rotation module out.
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day

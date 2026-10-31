@@ -217,7 +217,10 @@ CREATE POLICY owner_isolation ON <t>
   `INSERT` on the admin audit table, plus the column-level `SELECT` that PostgreSQL requires for
   what those statements read: `withings_apps (id, webhook_secrets)` and `connection_keks
   (key_id)` (ADR 0004 §4's known-id rule); never a secret column. It is pinned and installed
-  like the others; caller: the worker's rotation module (a guard checks it).
+  like the others. **#21 builds** the role and the function with the data model, in its
+  superuser `db-functions` script (`docker/postgres/withings/`; never a migration, ADR 0005 §3);
+  **#24 calls** it from the worker's rotation module, its only caller, and owns that
+  single-caller guard (Architect decision, 2026-10-31).
 
 ### 4. Execution contexts
 
@@ -381,7 +384,8 @@ Architect decisions, made in place above and marked "amended 2026-10-31, #49":
   (oldest backfill month to now + 3 months), called by the scheduler and the backfill module.
 - §3, §5: the webhook-secret function is owned by the `NOLOGIN` role `ownvitals_webhook_secrets`
   instead of `ownvitals_owner`, with column-level privileges only; it may also clear
-  `rotation_requested_at`, which #22's `rotate` sets.
+  `rotation_requested_at`, which #22's `rotate` sets. #21 builds the role and the function;
+  #24 calls it and owns the single-caller guard.
 - §3, §4, §5, §7: `ownvitals_maint` can't write `withings_apps` and reads only its non-secret
   columns (guard 11, from #21); PLAN §5's "admin-only" means admins view, the operator changes;
   the client-secret rewrap is an operator step under the owner role.
