@@ -166,13 +166,27 @@ jobs:
             exit 1
           fi
 
-      - name: Create the application database
+      # The script the compose db container runs (docker/postgres/init, ADR 0002 section 5),
+      # against the service container, twice: the second run proves it is idempotent. The test
+      # fixtures replace the role passwords with random ones of their own.
+      - name: Create the application database and its roles
         if: steps.present.outputs.present == 'true'
+        working-directory: .
         env:
           PGHOST: 127.0.0.1
           PGUSER: postgres
           PGPASSWORD: test
-        run: psql -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE ownvitals'
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE ownvitals'
+          secrets="$RUNNER_TEMP/secrets"
+          mkdir -p "$secrets"
+          openssl rand -hex 16 > "$secrets/database_owner_password"
+          openssl rand -hex 16 > "$secrets/database_password"
+          export DATABASE_OWNER_PASSWORD_FILE="$secrets/database_owner_password"
+          export DATABASE_PASSWORD_FILE="$secrets/database_password"
+          psql -v ON_ERROR_STOP=1 -d ownvitals -f docker/postgres/init/10-roles.sql
+          psql -v ON_ERROR_STOP=1 -d ownvitals -f docker/postgres/init/10-roles.sql
 
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: steps.present.outputs.present == 'true'

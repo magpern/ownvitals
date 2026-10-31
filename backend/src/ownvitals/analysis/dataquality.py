@@ -5,10 +5,15 @@ It describes the daily values inside a window of ``window_days`` calendar days e
 
 * ``n_readings`` and ``n_days``: usable readings and days with data in the window;
 * ``coverage``: ``n_days / window_days``, the share of the window's days that have data;
-* ``span_days``: from the first to the last day with data, both ends counted
-  (``(last - first).days + 1``); ``span_fraction``: ``span_days / window_days``;
+* ``span_days``: the days **elapsed** from the first to the last day with data,
+  ``(last - first).days``: data on 1 June and 29 June is a span of 28 days (four weeks), one
+  day with data is a span of 0. ``span_fraction``: ``span_days / window_days``, the share of the
+  window's length that the data reaches over; a window of ``window_days`` days has at most
+  ``window_days - 1`` elapsed days between its first and last day, so the fraction is always
+  below 1;
 * ``gaps``: runs of consecutive days without data inside the window (including at its edges) of
-  at least ``min_gap_days`` days; ``longest_gap_days`` covers every run;
+  at least ``min_gap_days`` days; ``longest_gap_days`` covers every run. A gap is a *count* of
+  missing calendar days (two missing days are a gap of 2), not a span between two dates;
 * measurement frequency: ``readings_per_week`` over the window and ``median_days_between``,
   the median distance between consecutive days with data.
 
@@ -25,7 +30,7 @@ from typing import Any
 
 from ownvitals.analysis.daily import DailyValue
 
-ALGO_VERSION = "dataquality/1"
+ALGO_VERSION = "dataquality/2"
 
 DEFAULT_MIN_GAP_DAYS = 3
 
@@ -127,7 +132,7 @@ def summarise(
     days = sorted(inside)
     runs = _missing_runs(days, window_start, window_end)
     n_readings = sum(v.n for v in inside.values())
-    span_days = (days[-1] - days[0]).days + 1 if days else 0
+    span_days = (days[-1] - days[0]).days if days else 0
     between = [Fraction((b - a).days) for a, b in pairwise(days)]
     return DataQuality(
         window_start=window_start,
