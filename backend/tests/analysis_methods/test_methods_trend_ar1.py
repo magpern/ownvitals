@@ -204,7 +204,9 @@ def test_plain_p_value_is_that_of_the_none_correction() -> None:
 # alpha, and the bound shrinks as the runs grow: for these two cells (8 and 15 points, phi 0.6)
 # it holds with a margin of about one point at 1000 runs (the seeded runs give 6.4 % and 5.4 %),
 # so they guard against a regression of the margin, and must not be given more than about 2000
-# runs without a new look at the bound. It is not loosened to describe the larger run.
+# runs without a new look at the bound. It is not loosened to describe the larger run. If this
+# cell fails after a numpy upgrade, re-seed and re-check every cell against alpha + 3 SE; never
+# widen the bound.
 CELLS = [
     (8, 0.3, RUNS),
     (8, 0.6, RUNS),

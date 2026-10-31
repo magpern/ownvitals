@@ -36,15 +36,17 @@ so that ``Var*(S) = Var(S) · n/n*``. Our decisions where the paper leaves room:
 
 **AR(1) correction** (the default; ``Correction.AR1``). Hamed-Rao uses only the lags whose sample
 autocorrelation is significant, so it under-corrects (docs/dev/analysis-methods.md has the
-measured rates at 100 points: 9.2 % at phi 0.3 and 15.1 % at phi 0.6 for a test at 5 %). The AR(1)
+measured rates at 100 points: 9.2 % at phi 0.3 and 14.8 % at phi 0.6 for a test at 5 %). The AR(1)
 correction keeps the same variance formula and weights but takes the autocorrelation from a
 fitted AR(1) model at every lag, ``rho_k = phi^k`` (the effective sample size of an AR(1) series,
-Bayley and Hammersley 1946; used for Mann-Kendall by Yue and Wang 2004), so ``n/n*`` is a smooth
-function of one estimated number, ``phi``:
+Bayley and Hammersley 1946). Yue and Wang (2004) also modify the Mann-Kendall variance by an
+effective sample size, but take it from the sample serial correlation of the detrended series,
+with no model of it; here the fit, the bias term and the margin are ours, so this borrows their
+idea and is not their method. ``n/n*`` is a smooth function of one estimated number, ``phi``:
 
     r     = 2 sin(pi r_1 / 6)            r_1: lag-1 autocorrelation of the ranks of the residuals;
                                          the map takes a rank correlation back to the Gaussian
-                                         scale (Pearson 1907; Kruskal 1958), so outliers do not
+                                         scale (Kruskal 1958, eq. 6.4), so outliers do not
                                          move it and AR(1) data give r near phi
     phi   = clip(r + (6 + 6 r)/n, 0, 0.95)
 

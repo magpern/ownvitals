@@ -43,14 +43,18 @@ penalty ``3 ln n`` is a margin over, and a shift is measured in long-run standar
 (``shift_sigmas``).
 
 The estimate has to survive the level shifts it is there to find. It uses **differences**, which
-a shift touches at only a few of them (Chakar, Lebarbier, Levy-Leduc and Robin 2017 estimate the
-AR(1) coefficient of a series with mean shifts from differences, robustly; this is the same idea
-with simpler estimators). For AR(1) noise with marginal variance ``g`` the variance of the lag-h
-differences ``y[i+h] - y[i]`` is ``v_h = 2 g (1 - phi^h)`` (a variogram), so ``phi`` and ``g``
-follow from the ``v_h`` for h = 1 to 5, here by least squares over a grid of ``phi`` from 0 to
-0.7 (for a given ``phi`` the best ``2 g`` is a one-line formula). Each ``v_h`` is a robust variance
-(a difference beyond 3 robust standard deviations of the median is left out, and the variance of the
-rest is corrected for the truncation of a normal distribution). Then
+a shift touches at only a few of them, as Chakar, Lebarbier, Levy-Leduc and Robin (2017) do to
+estimate the AR(1) coefficient of a series with mean shifts: theirs is the squared ratio of the
+medians of the lag-2 and lag-1 absolute differences, minus 1. The estimator here is not simpler
+than theirs but more elaborate (five lags, trimmed variances instead of medians, a curve fit,
+then a margin and a ceiling), and it is ours; the ``v_2/v_1 - 1`` variant tried first (see
+docs/dev/analysis-methods.md) is the closer analogue. For AR(1) noise with marginal variance
+``g`` the variance of the lag-h differences ``y[i+h] - y[i]`` is ``v_h = 2 g (1 - phi^h)`` (a
+variogram), so ``phi`` and ``g`` follow from the ``v_h`` for h = 1 to 5, here by least squares
+over a grid of ``phi`` from 0 to 0.7 (for a given ``phi`` the best ``2 g`` is a one-line
+formula). Each ``v_h`` is a robust variance (a difference beyond 3 robust standard deviations of
+the median is left out, and the variance of the rest is corrected for the truncation of a normal
+distribution). Then
 
     phi   = min(phi_fitted + 1/sqrt(n), 0.7)
     sigma = sqrt( g (1 + phi) / (1 - phi) )
