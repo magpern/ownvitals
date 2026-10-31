@@ -9,14 +9,18 @@ from sqlalchemy.exc import ProgrammingError
 
 from dbtools import alembic_config, applied_revisions, migrated, public_tables
 
-HEAD = "0002_close_alembic_version"
+HEAD = "0003_jobs"
 
 
 def test_the_revisions_form_one_line() -> None:
     script = ScriptDirectory.from_config(alembic_config())
     assert script.get_heads() == [HEAD]
     assert script.get_base() == "0001_baseline"
-    assert [r.revision for r in script.walk_revisions()] == [HEAD, "0001_baseline"]
+    assert [r.revision for r in script.walk_revisions()] == [
+        HEAD,
+        "0002_close_alembic_version",
+        "0001_baseline",
+    ]
 
 
 def test_offline_mode_renders_sql_without_a_database(capsys: pytest.CaptureFixture[str]) -> None:
@@ -44,11 +48,13 @@ def test_upgrade_head_then_downgrade_base(
         command.downgrade(config, "base")
 
 
-def test_the_migrations_create_no_tables_of_their_own(
+def test_the_migrations_create_only_the_job_tables(
     database_url: str, owner_database_url: str
 ) -> None:
+    """Besides Alembic's own table, only 0003's job tables (ADR 0005 section 1); the account and
+    connection tables arrive with #10 and #13."""
     with migrated(owner_database_url):
-        assert public_tables(database_url) == {"alembic_version"}
+        assert public_tables(database_url) == {"alembic_version", "jobs", "job_events"}
     assert applied_revisions(database_url) == []
 
 

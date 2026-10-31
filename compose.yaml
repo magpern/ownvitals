@@ -1,9 +1,10 @@
-# Local stack: db, migrate (one-shot) and web.
+# Local stack: db, migrate and db-functions (one-shot), web and worker.
 # Ports bind 127.0.0.1 only and come from .env (scripts/worktree.sh init writes it).
 # Passwords are files under secrets/ mounted as Docker secrets, never environment variables.
 # The database roles (ADR 0002 section 5): db creates ownvitals_owner and ownvitals_app on the
-# first start of an empty volume (docker/postgres/init); migrate connects as the owner, web as
-# the app role. No service but db holds the postgres superuser's password.
+# first start of an empty volume (docker/postgres/init); migrate connects as the owner, web and
+# the worker as the app role. Only db and db-functions (the job queue's functions, ADR 0005
+# section 3) hold the postgres superuser's password.
 
 x-app: &app
   build: .
@@ -11,9 +12,8 @@ x-app: &app
   restart: "no"
   environment: &app-env
     OWNVITALS_ENVIRONMENT: dev
-    # Web (and later the worker) connect as the app role; the password comes from the
-    # database_password secret file (Settings reads it). Migrations use the owner role (see
-    # `migrate`).
+    # Web and the worker connect as the app role; the password comes from the database_password
+    # secret file (Settings reads it). Migrations use the owner role (see `migrate`).
     OWNVITALS_DATABASE_URL: postgresql+psycopg://ownvitals_app@db:5432/ownvitals
     # The origin the browser uses; the Origin check compares against it.
     OWNVITALS_PUBLIC_BASE_URL: http://127.0.0.1:${WEB_PORT:-8000}
@@ -58,6 +58,26 @@ services:
       db:
         condition: service_healthy
 
+  # The job queue's role and SECURITY DEFINER functions (ADR 0005 section 3): 20-queue.sql as the
+  # superuser after the migrations, in one transaction, run again on every start (it is
+  # idempotent and repairs drift). Besides `db`, the only service with the postgres_password
+  # secret; the password goes into a PGPASSFILE on a tmpfs built at run time, never into the
+  # environment or the command line, so it is not in `docker inspect`.
+  db-functions:
+    image: postgres:17.11
+    restart: "no"
+    user: postgres
+    entrypoint: ["sh", "/queue/db-functions.sh"]
+    secrets:
+      - postgres_password
+    tmpfs:
+      - /run/pgpass:mode=0700,uid=999,gid=999
+    volumes:
+      - ./docker/postgres/queue:/queue:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   web:
     <<: *app
     restart: unless-stopped
@@ -68,7 +88,7 @@ services:
     ports:
       - "127.0.0.1:${WEB_PORT:-8000}:8000"
     depends_on:
-      migrate:
+      db-functions:
         condition: service_completed_successfully
     healthcheck:
       test:
@@ -79,6 +99,22 @@ services:
       interval: 3s
       timeout: 5s
       retries: 20
+
+  # The job worker (ADR 0005 section 5). It refuses to start on a privileged role or a drifted
+  # queue (exit code 2). On SIGTERM it waits up to 25 s for runs to reach a checkpoint, then hands
+  # their leases back (each under the role's 5 s lock_timeout), within these 30 s.
+  worker:
+    <<: *app
+    restart: unless-stopped
+    command: ["python", "-m", "ownvitals.worker"]
+    stop_grace_period: 30s
+    # Only the app role's password: the worker reads no connection secret before #77 adds the KEK
+    # ring check (connection_kek) and M1 the Withings kinds.
+    secrets:
+      - database_password
+    depends_on:
+      db-functions:
+        condition: service_completed_successfully
 
 secrets:
   postgres_password:

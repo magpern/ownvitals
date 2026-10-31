@@ -119,7 +119,7 @@ jobs:
             rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
             -color
 
-  # The backend skeleton issue makes this job real; the isolation and jobs issues add the
+  # The backend skeleton issue makes this job real; the isolation and jobs issues added the
   # database roles and the queue functions to it.
   backend:
     name: Backend
@@ -196,6 +196,33 @@ jobs:
       - name: Install dependencies
         if: steps.present.outputs.present == 'true'
         run: uv sync --locked
+
+      # The job queue's script (docker/postgres/queue/20-queue.sql, ADR 0005 section 3) as the
+      # compose db-functions service runs it: after the migrations, as the superuser, in one
+      # transaction, twice (the second run proves it is idempotent). The digests the worker checks
+      # must then match what this Postgres image renders (a stale queue_digests.py fails here).
+      # Afterwards the queue is uninstalled and the schema migrated back: guard 2 (role_guard.py)
+      # does not know the queue role yet (#77 item 2), and the test fixtures install the queue
+      # themselves and remove it again.
+      - name: Install the job queue twice and check its digests
+        if: steps.present.outputs.present == 'true'
+        env:
+          PGHOST: 127.0.0.1
+          PGUSER: postgres
+          PGPASSWORD: test
+          OWNVITALS_MIGRATIONS_DATABASE_URL: postgresql+psycopg://ownvitals_owner@127.0.0.1:5432/ownvitals
+        run: |
+          set -euo pipefail
+          export OWNVITALS_SECRETS_DIR="$RUNNER_TEMP/secrets"
+          uv run alembic upgrade head
+          for _ in 1 2; do
+            psql --single-transaction -v ON_ERROR_STOP=1 -X -q -d ownvitals \
+              -f ../docker/postgres/queue/20-queue.sql
+          done
+          uv run python tests/queue_digests.py --check
+          psql -v ON_ERROR_STOP=1 -X -q -d ownvitals \
+            -c 'DROP OWNED BY ownvitals_queue CASCADE' -c 'DROP ROLE ownvitals_queue'
+          uv run alembic downgrade base
 
       - name: Lint
         if: steps.present.outputs.present == 'true'
