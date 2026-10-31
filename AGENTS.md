@@ -183,9 +183,14 @@ Deploying is not part of a release and needs the owner's go-ahead.
 
 1. `main` is green and holds what the release should contain. Pick the next SemVer `vX.Y.Z`.
 2. `git fetch origin main && git tag -a vX.Y.Z -m "vX.Y.Z" origin/main && git push origin vX.Y.Z`.
-3. `release.yml` (M0) verifies the tag is on `main`, builds and pushes the image to GHCR and
-   creates a build-provenance attestation. The deploy mechanism (§9.2) only accepts an attested
-   digest from a protected `v*` tag.
+3. `release.yml` verifies the tag is on `main`, builds and pushes the image to GHCR and creates
+   a build-provenance attestation. The protected tag is **not** the control: anyone who can push
+   can create a `v*` tag, and that commit's own `release.yml` runs. The deploy mechanism (§9.2)
+   is the boundary: it accepts a digest only if the tag's commit (resolved through
+   `refs/tags/<tag>`) is contained in `refs/heads/main` and `gh attestation verify` passes with
+   the certificate identity `…/release.yml@refs/tags/<tag>`,
+   `--source-ref refs/tags/<tag>` and `--source-digest` set to that commit ([docs/dev/release.md](docs/dev/release.md), threat model
+   T62).
 4. Never move or delete a pushed tag: fix forward with a new version.
 
 ## Security rules
@@ -202,13 +207,12 @@ Deploying is not part of a release and needs the owner's go-ahead.
 - Every owned row carries `owner_id` and is read through `UserContext` under forced RLS. Cross-user
   work (webhooks, scheduler, purge, admin) goes through reviewed `SECURITY DEFINER` functions or
   the issuer pattern of §5; RLS tests run in every execution context.
-- Every outbound HTTP call goes through `egress.py`, the only module that builds HTTP clients;
-  the host lists are code. The one other outbound connection is SMTP, built only in the
-  guard-listed web-only mail module. The worker owns the calls to Withings (`wbsapi.withings.net`,
+- Every outbound HTTP call goes through the `ownvitals.egress` package, the only code that
+  builds HTTP clients; the host lists are code. The one other outbound connection is SMTP, built
+  only in the guard-listed mail module, which refuses to run in the worker (web and the operator
+  CLI send mail). The worker owns the calls to Withings (`wbsapi.withings.net`,
   `account.withings.com`) and, only when AI is enabled, `api.anthropic.com`. Web makes only
-  Google sign-in calls, the one authorization-code exchange of roadmap Amendment 1, and mail
-  through the guard-listed web-only mail path (its SMTP host is a setting, not an allowlist
-  entry).
+  Google sign-in calls and the one authorization-code exchange of roadmap Amendment 1.
 - Webhook secrets are derived in the worker and never stored; the database keeps only their
   HMACs (ADR 0004); bodies over 2 KB are refused; the payload is only a trigger to fetch (§4.4).
 
