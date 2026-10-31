@@ -61,6 +61,8 @@ App (ready)   /                    Overview: "Needs a look", then tiles by area
               /findings            Live | History, tier and area filters
               /connections         Withings: streams, capabilities, devices, disconnect
               /settings            Profile and display | Sign-in and security | Notifications | Your data
+                                   the tabs are /settings/profile, /settings/security,
+                                   /settings/notifications and /settings/data; /settings shows the first
               /admin               Overview | Accounts | Jobs | Withings app | Flags | Audit log
 ```
 

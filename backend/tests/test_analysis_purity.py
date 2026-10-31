@@ -2,7 +2,8 @@
 
 They import nothing that does I/O or knows who is acting (``FORBIDDEN``: the database, web,
 Withings, jobs, egress, accounts, connections, context, configuration and logging modules of
-``ownvitals``, and ``sqlalchemy``, ``psycopg``, ``httpx`` and ``requests``), so they can be
+``ownvitals``, its entry point ``ownvitals.__main__``, and ``sqlalchemy``, ``psycopg``, ``httpx``
+and ``requests``), so they can be
 tested, reasoned about and run without a database, a web app or a network. Two checks:
 
 * static: every import in the package's source (absolute, relative, ``from ownvitals import db``,
@@ -55,6 +56,7 @@ FORBIDDEN = (
     "ownvitals.config",  # reads the environment and secret files
     "ownvitals.log",
     "ownvitals.headers",
+    "ownvitals.__main__",  # the entry point: uvicorn, the web app, configuration and logging
     "httpx",
     "requests",
     "sqlalchemy",
