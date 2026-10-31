@@ -1,9 +1,41 @@
 # One grouped PR per ecosystem per week for minor/patch, and a separate one for majors, so a
-# breaking major does not hold back the rest. Only GitHub Actions until the other manifests
-# exist: the release issue adds uv (backend/), npm (frontend/, e2e/) and Docker. Runtime versions
-# (Python 3.12, Postgres 17, Node 24) change only through their own issue.
+# breaking major does not hold back the rest and the number of CI runs stays down. Runtime
+# versions are fixed: Python 3.12, Postgres 17, Node 24. Upgrading one of them is a deliberate
+# change with its own issue, so Dependabot only offers patch updates for Python and minor/patch
+# for Postgres and Node; @types/node follows the Node major. What Dependabot does not see (images
+# in `run:` steps and action inputs, the CI Postgres service) is listed in docs/dev/release.md.
 version: 2
 updates:
+  - package-ecosystem: uv
+    directory: /backend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build(deps)
+      prefix-development: build(deps-dev)
+    groups:
+      python:
+        update-types: [minor, patch]
+      python-major:
+        update-types: [major]
+
+  # /frontend only for now: the e2e harness issue adds /e2e here when it creates e2e/.
+  - package-ecosystem: npm
+    directories: [/frontend]
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build(deps)
+      prefix-development: build(deps-dev)
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    groups:
+      npm:
+        update-types: [minor, patch]
+      npm-major:
+        update-types: [major]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -14,4 +46,42 @@ updates:
       actions:
         update-types: [minor, patch]
       actions-major:
+        update-types: [major]
+
+  # The Dockerfile's base images.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build(deps)
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+      # ghcr.io/astral-sh/uv (Dependabot names an image without its registry) must stay the uv
+      # version CI installs (setup-uv `version:` in ci.yml), which Dependabot does not update:
+      # both move together, by hand.
+      - dependency-name: astral-sh/uv
+    groups:
+      docker:
+        update-types: [minor, patch]
+      docker-major:
+        update-types: [major]
+
+  # compose.yaml's images (Postgres).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build(deps)
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+    groups:
+      docker-compose:
+        update-types: [minor, patch]
+      docker-compose-major:
         update-types: [major]
