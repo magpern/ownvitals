@@ -5,6 +5,8 @@ the script as it is, and ``test_deploy_mutations`` runs them on copies with one 
 show each check is what makes its scenario pass. All data is synthetic.
 """
 
+import stat
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -21,10 +23,21 @@ from test_deploy_fakes import (
     SLSA,
     parse_override,
 )
-from test_deploy_harness import COMMITS, SENTINEL, TOKEN, Host, Run, digest_of, tag_ruleset
+from test_deploy_harness import (
+    COMMITS,
+    SENTINEL,
+    TOKEN,
+    Host,
+    Run,
+    commit_of,
+    digest_of,
+    tag_ruleset,
+)
 
 REFUSED = "refused: nothing was recorded and the running release is unchanged"
 APP_SERVICES = ("migrate", "web", "worker")
+UP_STARTS = ["db", "web", "worker"]  # every service but migrate, which the override scales to 0
+COMPARE_C = f"repos/{REPO}/compare/{COMMITS['C']}...refs/heads/main?per_page=1"
 CHECKS = [
     "lock:",
     "state:",
@@ -62,16 +75,31 @@ def started(host: Host) -> list[list[str]]:
     return [a for a in docker if a[0] == "pull" or compose_rest(a)[:1] in (["run"], ["up"])]
 
 
-def state(current: str, previous: str = "") -> str:
-    p_digest = digest_of(previous) if previous else ""
+def migrations(host: Host) -> list[str]:
+    """The image of every migrate container the fakes started: by ``run``, or by an ``up -d``
+    that started every service whose scale isn't 0, as compose does."""
+    return [
+        c["override"]["migrate"]["image"]
+        for c in host.calls("docker")
+        if compose_rest(c["argv"])[:1] == ["run"] or "migrate" in c.get("started", [])
+    ]
+
+
+def state(current: str, previous: str = "", highest: str | None = None) -> str:
+    """The state file the script writes; the highest release defaults to the current one."""
+    p_digest, highest = (digest_of(previous) if previous else ""), highest or current
     return (
         f"current_tag={current}\ncurrent_digest={digest_of(current)}\n"
         f"previous_tag={previous}\nprevious_digest={p_digest}\n"
+        f"highest_tag={highest}\nhighest_commit={commit_of(highest)}\n"
+        f"highest_digest={digest_of(highest)}\n"
     )
 
 
-def gh_calls(tag: str, commit: str) -> list[list[str]]:
+def gh_calls(tag: str, commit: str, highest: str | None = None) -> list[list[str]]:
+    """A deploy's gh calls; ``highest`` (a commit) adds the history check of a later deploy."""
     api = ["api", "--method", "GET"]
+    history = f"repos/{REPO}/compare/{highest}...{commit}?per_page=1"
     return [
         ["--version"],
         [*api, f"repos/{REPO}/commits/refs/tags/{tag}", "--jq", ".sha"],
@@ -79,6 +107,7 @@ def gh_calls(tag: str, commit: str) -> list[list[str]]:
         [*api, f"repos/{REPO}/rulesets/900001", "--jq", RULESET_JQ],
         [*api, f"repos/{REPO}/rulesets/900002", "--jq", RULESET_JQ],
         [*api, f"repos/{REPO}/compare/{commit}...refs/heads/main?per_page=1", "--jq", ".status"],
+        *([[*api, history, "--jq", ".status"]] if highest else []),
         [
             "attestation",
             "verify",
@@ -101,8 +130,11 @@ def gh_calls(tag: str, commit: str) -> list[list[str]]:
 
 
 def pinned(tag: str) -> dict[str, dict[str, str]]:
+    """The override for ``tag``: the app services on its digest, migrate at scale 0."""
     image = f"{IMAGE}@{digest_of(tag)}"
-    return {s: {"image": image, "pull_policy": "never"} for s in APP_SERVICES}
+    services = {s: {"image": image, "pull_policy": "never"} for s in APP_SERVICES}
+    services["migrate"]["scale"] = "0"
+    return services
 
 
 # --- scenarios ------------------------------------------------------------------------------
@@ -133,6 +165,8 @@ def scenario_deploy(host: Host) -> None:
         ["up", "-d", "--pull", "never", "--no-build"],
     ]
     assert all(c["override"] == pinned("v1.2.0") for c in docker[2:])
+    assert docker[-1]["started"] == UP_STARTS
+    assert migrations(host) == [f"{IMAGE}@{digest}"]  # the run step, once; up -d starts none
     assert [c["tool"] for c in host.calls()][:2] == ["flock", "gh"]
     assert all(c["status"] == 0 and c["leaked_env"] == [] for c in host.calls())
     assert all(c["gh_token_ok"] for c in host.calls("gh"))
@@ -154,6 +188,21 @@ def scenario_refuses_unprotected_tag(host: Host) -> None:
 def scenario_refuses_evaluate_mode_ruleset(host: Host) -> None:
     host.world["rulesets"] = [tag_ruleset(enforcement="evaluate")]
     refused(deploy(host, "v1.2.0"), "tag: no active tag ruleset")
+
+
+def scenario_refuses_a_ruleset_the_owner_may_bypass(host: Host) -> None:
+    """current_user_can_bypass: the token owner's role is on the bypass list."""
+    host.world["rulesets"] = [tag_ruleset(current_user_can_bypass="always")]
+    refused(deploy(host, "v1.2.0"), "tag: no active tag ruleset")
+
+
+def scenario_refuses_an_unexpected_ruleset_id(host: Host) -> None:
+    """An id that is not 1 to 19 digits is never put into an API path."""
+    for bad in ["abc", "-1", "1.5", "9" * 20, "900002/../900002"]:
+        host.world["rulesets"] = [tag_ruleset(id=bad)]
+        host.log.unlink(missing_ok=True)
+        refused(deploy(host, "v1.2.0"), "tag: the API returned an unexpected ruleset id")
+        assert not any(f"repos/{REPO}/rulesets/" in " ".join(c["argv"]) for c in host.calls("gh"))
 
 
 def scenario_refuses_excluded_tag(host: Host) -> None:
@@ -195,6 +244,7 @@ def scenario_refuses_a_state_file_it_did_not_write(host: Host) -> None:
         good + "x=1\n",
         good.replace("current_tag=v1.2.0", "current_tag=v1.2"),
         good.replace(f"previous_digest={digest_of('v1.1.0')}", "previous_digest="),
+        good.replace(f"highest_commit={COMMITS['C']}", "highest_commit=C"),
     ]:
         (host.state_dir / "state").write_bytes(text.encode())
         refused(host.run("rollback"), "state: ")
@@ -266,7 +316,21 @@ def scenario_rollback_runs_every_check(host: Host) -> None:
     assert docker[0]["argv"] == ["pull", "--quiet", f"{IMAGE}@{digest_of('v1.1.0')}"]
     assert [compose_rest(c["argv"])[0] for c in docker[1:]] == ["config", "config", "up"]
     assert docker[-1]["override"] == pinned("v1.1.0")
-    assert host.state() == state("v1.1.0")
+    assert host.state() == state("v1.1.0", highest="v1.2.0")
+
+
+def scenario_rollback_runs_no_migration(host: Host) -> None:
+    """up -d starts every service whose scale isn't 0, and web waits for migrate: the override's
+    scale 0 is what keeps the older release's migrate (which fails on the newer schema) from
+    running and failing the rollback."""
+    assert deploy(host, "v1.1.0").code == 0
+    assert deploy(host, "v1.2.0").code == 0
+    host.log.unlink()
+    host.world["migrate_exit"] = 1  # v1.1.0's alembic does not know v1.2.0's revision
+    run = host.run("rollback")
+    assert run.code == 0, (run.out, run.err)
+    assert migrations(host) == []
+    assert [c.get("started") for c in host.calls("docker") if "started" in c] == [UP_STARTS]
 
 
 def scenario_rollback_refused_when_previous_attestation_is_gone(host: Host) -> None:
@@ -289,86 +353,12 @@ def scenario_state_records_deployed_and_previous(host: Host) -> None:
         assert deploy(host, tag).code == 0
         assert host.state() == expected
     assert host.run("rollback").code == 0
-    assert host.state() == state("v1.1.0")
+    assert host.state() == state("v1.1.0", highest="v1.2.0")  # a rollback keeps the highest
     refused(host.run("rollback"), "rollback: no previous deployment is recorded")
-    refused(deploy(host, "v1.0.0"), "version: v1.0.0 is older than the deployed v1.1.0")
-    assert host.state() == state("v1.1.0")
+    refused(deploy(host, "v1.0.0"), "version: v1.0.0 is below the highest deployed v1.2.0")
+    assert host.state() == state("v1.1.0", highest="v1.2.0")
     assert deploy(host, "v1.2.0").code == 0  # forward again after a rollback
     assert host.state() == state("v1.2.0", "v1.1.0")
-
-
-def over(host: Host, current: str, tag: str, digest: str | None = None) -> Run:
-    """``deploy <tag>`` over a recorded ``current``. gh is too old here, so a version that is let
-    through stops at the next check and nothing else runs."""
-    (host.state_dir / "state").write_bytes(state(current).encode())
-    host.world["gh_version"] = "2.0.0"
-    host.log.unlink(missing_ok=True)
-    return deploy(host, tag, digest)
-
-
-def goes_ahead(run: Run) -> None:
-    assert "ok    version: " in run.out, (run.out, run.err)
-    assert "FAIL  gh: 2.0.0 is older" in run.err, run.err
-
-
-def held_back(host: Host, run: Run) -> None:
-    refused(run, "version: ")
-    assert host.calls("gh") == []
-
-
-BIG, BIGGER = "v999999999999999.0.0", "v1000000000000000.0.0"  # as long as a command allows
-
-
-def scenario_refuses_an_older_release(host: Host) -> None:
-    for current, tag in [
-        ("v1.2.0", "v1.1.0"),
-        ("v1.2.0", "v1.1.99"),
-        ("v1.2.0", "v0.9.9"),
-        ("v2.0.0", "v1.99.99"),
-        ("v1.2.1", "v1.2.0"),
-    ]:
-        held_back(host, over(host, current, tag))
-
-
-def scenario_refuses_the_same_release_with_another_digest(host: Host) -> None:
-    held_back(host, over(host, "v1.2.0", "v1.2.0", digest_of("v1.1.0")))
-
-
-def scenario_accepts_the_same_release_again(host: Host) -> None:
-    goes_ahead(over(host, "v1.2.0", "v1.2.0"))
-
-
-def scenario_accepts_a_newer_release(host: Host) -> None:
-    for current, tag in [
-        ("v1.2.0", "v1.2.1"),
-        ("v1.2.0", "v1.3.0"),
-        ("v1.2.0", "v2.0.0"),
-        ("v0.0.0", "v0.0.1"),
-    ]:
-        goes_ahead(over(host, current, tag))
-
-
-def scenario_compares_versions_as_numbers(host: Host) -> None:
-    for current, tag, newer in [
-        ("v1.9.0", "v1.10.0", True),
-        ("v1.10.0", "v1.9.0", False),
-        ("v1.2.9", "v1.2.10", True),
-        ("v9.0.0", "v10.0.0", True),
-        ("v10.0.0", "v9.9.9", False),
-        (BIG, BIGGER, True),
-        (BIGGER, BIG, False),
-    ]:
-        run = over(host, current, tag)
-        if newer:
-            goes_ahead(run)
-        else:
-            held_back(host, run)
-
-
-def scenario_first_deploy_takes_any_release(host: Host) -> None:
-    run = deploy(host, "v1.0.0")
-    assert run.code == 0, run.err
-    assert "ok    version: no deployment recorded" in run.out
 
 
 def scenario_up_failure_keeps_the_rollback_target(host: Host) -> None:
@@ -381,7 +371,7 @@ def scenario_up_failure_keeps_the_rollback_target(host: Host) -> None:
     assert host.state() == state("v1.2.0", "v1.1.0")
     host.world["up_exit"] = 0
     assert host.run("rollback").code == 0
-    assert host.state() == state("v1.1.0")
+    assert host.state() == state("v1.1.0", highest="v1.2.0")
 
 
 def scenario_migration_failure_records_nothing(host: Host) -> None:
@@ -447,15 +437,39 @@ def scenario_environment_reaches_no_tool(host: Host) -> None:
 
 
 def scenario_tool_output_is_never_shown(host: Host) -> None:
+    """The fakes print a marker on every gh api, compose config, pull, verify, run and up call
+    (on stderr only where the script reads stdout): a compose error can quote .env lines."""
     host.world["noise"] = "TOOL-LOG-MARKER-0193"
-    attestations, host.world["attestations"] = host.world["attestations"], []
-    failed = deploy(host, "v1.2.0")
-    refused(failed, "attestation:")
-    host.world["attestations"] = attestations
-    run = deploy(host, "v1.2.0")
-    assert run.code == 0, run.err
-    for text in (run.out, run.err, failed.out, failed.err):
-        assert "TOOL-LOG-MARKER-0193" not in text
+    runs: list[Run] = []
+    for change, check in [
+        ({"attestations": []}, "attestation:"),
+        ({"api_errors": [COMPARE_C]}, "main:"),  # a failing gh api call
+        ({"compose_valid": False}, "compose:"),  # a failing config --services
+    ]:
+        world = dict(host.world)
+        host.world |= change
+        runs.append(deploy(host, "v1.2.0"))
+        refused(runs[-1], check)
+        host.world = world
+    runs.append(deploy(host, "v1.2.0"))
+    assert runs[-1].code == 0, runs[-1].err
+    for run in runs:
+        assert "TOOL-LOG-MARKER-0193" not in run.out + run.err
+
+
+def scenario_files_are_root_only(host: Host) -> None:
+    """umask 077: the state file, the override and the lock are 0600, gh's directory 0700, even
+    when the script starts with umask 022."""
+    if sys.platform == "win32":
+        pytest.skip("POSIX file modes; CI runs this on Linux")
+    assert deploy(host, "v1.1.0").code == 0
+    assert deploy(host, "v1.2.0").code == 0
+    modes = {
+        p.name: stat.S_IMODE(p.stat().st_mode)
+        for p in host.state_dir.iterdir()
+        if not p.name.endswith(".held")  # the fake flock's own
+    }
+    assert modes == {"state": 0o600, "compose.image.yaml": 0o600, "lock": 0o600, "gh": 0o700}
 
 
 # --- tests ----------------------------------------------------------------------------------

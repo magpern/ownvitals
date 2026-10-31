@@ -114,12 +114,40 @@ def tag_ruleset(**changes: Any) -> dict[str, Any]:
         "conditions": {"ref_name": {"exclude": [], "include": ["refs/tags/v*"]}},
         "rules": [{"type": "update"}, {"type": "deletion"}, {"type": "non_fast_forward"}],
         "bypass_actors": [],
+        "current_user_can_bypass": "never",
     } | changes
 
 
 # main is A-B-C; D is off main (a side branch from B); E descends from C but is not on main yet.
 COMMITS = {name: synthetic_commit(name) for name in "ABCDE"}
+PARENTS = {"A": None, "B": "A", "C": "B", "D": "B", "E": "C"}
 TAGS = {"v1.0.0": "A", "v1.1.0": "B", "v1.2.0": "C", "v2.0.0": "D", "v3.0.0": "E"}
+
+
+def commit_of(tag: str) -> str:
+    """The commit of one of ``TAGS``; any other tag gets its own (``add_release``)."""
+    return COMMITS[TAGS[tag]] if tag in TAGS else synthetic_commit(tag)
+
+
+def add_release(
+    world: dict[str, Any],
+    tag: str,
+    *,
+    parent: str | None = None,
+    commit: str | None = None,
+    main: bool = False,
+) -> str:
+    """Release ``tag``, attested by release.yml and in GHCR: on ``commit``, or on a new commit
+    whose parent is ``parent``; ``main`` moves main to it. Returns the commit."""
+    if commit is None:
+        commit = commit_of(tag)
+        world["parents"][commit] = parent
+    world["tags"][tag] = commit
+    world["attestations"].append(attestation(tag, commit))
+    world["registry"].append(digest_of(tag))
+    if main:
+        world["main"] = commit
+    return commit
 
 
 def default_world() -> dict[str, Any]:
@@ -127,9 +155,8 @@ def default_world() -> dict[str, Any]:
         "synthetic": True,
         "token": TOKEN,
         "gh_version": "2.103.3",
-        "main": [COMMITS[c] for c in "ABC"],
-        "off_main": [COMMITS["D"], COMMITS["E"]],
-        "behind": [COMMITS["E"]],
+        "parents": {COMMITS[c]: p and COMMITS[p] for c, p in PARENTS.items()},
+        "main": COMMITS["C"],
         "tags": {tag: COMMITS[c] for tag, c in TAGS.items()},
         "rulesets": [
             {
@@ -290,6 +317,7 @@ class Host:
             stderr=subprocess.PIPE,
             encoding="utf-8",
             errors="replace",
+            umask=-1 if sys.platform == "win32" else 0o022,  # sshd's usual: the script sets its own
         )
 
     def calls(self, tool: str | None = None) -> list[dict[str, Any]]:

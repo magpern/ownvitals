@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from test_deploy_fakes import IMAGE, RULESETS_PATH
-from test_deploy_harness import COMMITS, TOKEN, Host, digest_of, tag_ruleset
+from test_deploy_harness import COMMITS, TOKEN, Host, add_release, digest_of, tag_ruleset
 from test_deploy_script import deploy, refused, started, state
 
 DIGEST = digest_of("v1.2.0")
@@ -157,6 +157,15 @@ UNPROTECTED: dict[str, Variant] = {
     "no deletion rule": lambda w: w.update(rulesets=[tag_ruleset(rules=[{"type": "update"}])]),
     "no update rule": lambda w: w.update(rulesets=[tag_ruleset(rules=[{"type": "deletion"}])]),
     "no rules": lambda w: w.update(rulesets=[tag_ruleset(rules=[])]),
+    "the owner may bypass": lambda w: w.update(
+        rulesets=[tag_ruleset(current_user_can_bypass="always")]
+    ),
+    "the owner may bypass by pull request": lambda w: w.update(
+        rulesets=[tag_ruleset(current_user_can_bypass="pull_requests_only")]
+    ),
+    "the bypass not reported": lambda w: w.update(
+        rulesets=[{k: v for k, v in tag_ruleset().items() if k != "current_user_can_bypass"}]
+    ),
     "the list unreadable": lambda w: w.update(api_errors=[RULESETS_PATH]),
     "the ruleset unreadable": lambda w: w.update(
         api_errors=["repos/magpern/ownvitals/rulesets/900002"]
@@ -328,7 +337,15 @@ STATES = {
     "a bad digest": state("v1.2.0").replace(DIGEST, DIGEST.upper()),
     "CRLF": state("v1.2.0", "v1.1.0").replace("\n", "\r\n"),
     "half a previous pair": state("v1.2.0").replace("previous_tag=", "previous_tag=v1.1.0"),
-    "no current": "current_tag=\ncurrent_digest=\nprevious_tag=\nprevious_digest=\n",
+    "no current": state("v1.2.0")
+    .replace("current_tag=v1.2.0", "current_tag=")
+    .replace(f"current_digest={DIGEST}", "current_digest="),
+    "the four lines of before": "".join(state("v1.2.0").splitlines(keepends=True)[:4]),
+    "no highest commit": state("v1.2.0").replace(
+        f"highest_commit={COMMITS['C']}", "highest_commit="
+    ),
+    "a bad highest commit": state("v1.2.0").replace(COMMITS["C"], COMMITS["C"].upper()),
+    "a bad highest tag": state("v1.2.0").replace("highest_tag=v1.2.0", "highest_tag=1.2.0"),
     "empty": "",
 }
 
@@ -352,15 +369,18 @@ def test_a_rollback_with_nothing_recorded_is_refused(host: Host) -> None:
     assert host.calls("gh")[-1]["argv"][0] == "attestation"  # the deploy's; rollback called none
 
 
+def _main_rewritten(world: dict[str, Any]) -> None:
+    """main moves to a new commit on A: B is no longer on it."""
+    add_release(world, "v9.0.0", parent=COMMITS["A"], main=True)
+
+
 ROLLBACK: dict[str, Variant] = {
     "attestation gone": lambda w: w.update(
         attestations=[a for a in w["attestations"] if a["sha"] != COMMITS["B"]]
     ),
     "tag ruleset gone": lambda w: w.update(rulesets=[]),
     "tag deleted": lambda w: w["tags"].pop("v1.1.0"),
-    "commit no longer on main": lambda w: w.update(
-        main=[COMMITS["A"], COMMITS["C"]], off_main=[*w["off_main"], COMMITS["B"]]
-    ),
+    "commit no longer on main": _main_rewritten,
     "gh too old now": lambda w: w.update(gh_version="2.90.0"),
     "image gone from GHCR": lambda w: w.update(
         registry=[d for d in w["registry"] if d != digest_of("v1.1.0")]

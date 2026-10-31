@@ -2,10 +2,10 @@
 
 ``test_deploy_harness.Host`` puts small wrappers named ``gh``, ``docker`` and ``sudo`` first on the
 script's PATH; each runs ``python -I test_deploy_fakes.py <tool> <world.json> <arguments...>``.
-Standard library only. The fakes answer from ``world.json`` (GitHub's tags, main, rulesets and
-attestations, GHCR's digests, the host's compose file), never from the network, and log every
-call to ``calls.jsonl`` beside it. Everything in a world is synthetic: made-up commits, tags and
-digests, and no health data at all.
+Standard library only. The fakes answer from ``world.json`` (GitHub's tags, commit graph, main,
+rulesets and attestations, GHCR's digests, the host's compose file), never from the network, and
+log every call to ``calls.jsonl`` beside it. Everything in a world is synthetic: made-up commits,
+tags and digests, and no health data at all.
 
 They are strict on purpose: an API path, jq program, flag or compose command the script was not
 written to use fails the call, so a test notices when the script asks for something else (a bare
@@ -31,6 +31,7 @@ GITHUB_ISSUER = "https://token.actions.githubusercontent.com"
 RULESETS_PATH = f"repos/{REPO}/rulesets?includes_parents=true&targets=tag&per_page=100"
 RULESET_JQ = (
     '"target\\t\\(.target | tojson)", "enforcement\\t\\(.enforcement | tojson)",\n'
+    '"bypass\\t\\(.current_user_can_bypass | tojson)",\n'
     '(.conditions.ref_name.include[]? | "include\\t\\(tojson)"),\n'
     '(.conditions.ref_name.exclude[]? | "exclude\\t\\(tojson)"), '
     '(.rules[]? | "rule\\t\\(.type | tojson)")'
@@ -41,7 +42,7 @@ PULL_REF = re.compile(rf"{re.escape(IMAGE)}@({DIGEST})")
 RULESET_PATH = re.compile(rf"repos/{REPO}/rulesets/(\d+)")
 TAG_PATH = re.compile(rf"repos/{REPO}/commits/refs/tags/(.+)")
 COMPARE_PATH = re.compile(
-    rf"repos/{REPO}/compare/([0-9a-f]{{40}})\.\.\.refs/heads/main\?per_page=1"
+    rf"repos/{REPO}/compare/([0-9a-f]{{40}})\.\.\.(refs/heads/main|[0-9a-f]{{40}})\?per_page=1"
 )
 VALUE_FLAGS = {
     "--repo", "--owner", "--cert-identity", "--cert-identity-regex", "--cert-oidc-issuer",
@@ -65,6 +66,7 @@ def ruleset_lines(ruleset: dict[str, Any]) -> list[str]:
     return [
         f"target\t{_tojson(ruleset.get('target'))}",
         f"enforcement\t{_tojson(ruleset.get('enforcement'))}",
+        f"bypass\t{_tojson(ruleset.get('current_user_can_bypass'))}",
         *(f"include\t{_tojson(x)}" for x in _items(ref_name.get("include"))),
         *(f"exclude\t{_tojson(x)}" for x in _items(ref_name.get("exclude"))),
         *(f"rule\t{_tojson(rule.get('type'))}" for rule in _items(ruleset.get("rules"))),
@@ -97,14 +99,37 @@ def _same_path(a: str | None, b: str) -> bool:
     )
 
 
-def _noise(world: dict[str, Any]) -> None:
-    """Output the script must never pass on (tool logs; the marker is checked by the tests)."""
+def _noise(world: dict[str, Any], *, stdout: bool = True) -> None:
+    """Output the script must never pass on (tool logs; the marker is checked by the tests). A
+    call whose output the script reads gets it on stderr only, as warnings and errors are."""
     if world.get("noise"):
-        print(f"tool output {world['noise']}")
+        if stdout:
+            print(f"tool output {world['noise']}")
         print(f"tool error {world['noise']}", file=sys.stderr)
 
 
 # --- gh -------------------------------------------------------------------------------------
+
+
+def _lineage(parents: dict[str, str | None], commit: str | None) -> list[str]:
+    """``commit`` and its ancestors (each synthetic commit has one parent)."""
+    chain: list[str] = []
+    while commit is not None and commit not in chain:
+        chain.append(commit)
+        commit = parents.get(commit)
+    return chain
+
+
+def compare_status(world: dict[str, Any], base: str, head: str) -> str | None:
+    """GitHub's ``compare/<base>...<head>`` status, or None for an unknown commit (a 404)."""
+    parents = world["parents"]
+    if base not in parents or head not in parents:
+        return None
+    if base == head:
+        return "identical"
+    if base in _lineage(parents, head):
+        return "ahead"
+    return "behind" if head in _lineage(parents, base) else "diverged"
 
 
 def _api(world: dict[str, Any], path: str) -> Any:
@@ -120,14 +145,9 @@ def _api(world: dict[str, Any], path: str) -> Any:
         sha = world["tags"].get(m[1])
         return None if sha is None else {"sha": sha, "commit": {"message": "synthetic"}}
     if m := COMPARE_PATH.fullmatch(path):
-        base, main = m[1], world["main"]
-        if base == main[-1]:
-            return {"status": "identical"}
-        if base in main:
-            return {"status": "ahead"}
-        if base in world["behind"]:
-            return {"status": "behind"}
-        return {"status": "diverged"} if base in world["off_main"] else None
+        head = world["main"] if m[2] == "refs/heads/main" else m[2]
+        status = compare_status(world, m[1], head)
+        return None if status is None else {"status": status}
     return None
 
 
@@ -194,6 +214,7 @@ def gh(world: dict[str, Any], args: list[str]) -> int:
         print("gh: unexpected arguments", file=sys.stderr)
         return 64
     path, program = args[3], args[5]
+    _noise(world, stdout=False)
     if program not in JQ:
         print("gh: the fake does not know this jq program", file=sys.stderr)
         return 65
@@ -213,7 +234,8 @@ def gh(world: dict[str, Any], args: list[str]) -> int:
 
 
 def parse_override(text: str) -> dict[str, dict[str, str]]:
-    """The override the script writes: ``services:``, then per service its image and pull policy."""
+    """The override the script writes: ``services:``, then per service its image, pull policy
+    and (migrate) scale."""
     services: dict[str, dict[str, str]] = {}
     lines = [ln for ln in text.splitlines() if ln and not ln.startswith("#")]
     if not lines or lines[0] != "services:":
@@ -224,6 +246,8 @@ def parse_override(text: str) -> dict[str, dict[str, str]]:
             current = services.setdefault(m[1], {})
         elif (m := re.fullmatch(r"    (image|pull_policy): (\S+)", line)) and current is not None:
             current[m[1]] = m[2]
+        elif (m := re.fullmatch(r"    scale: (0|[1-9][0-9]?)", line)) and current is not None:
+            current["scale"] = m[1]
         else:
             raise ValueError(f"unexpected line {line!r}")
     return services
@@ -255,6 +279,8 @@ def _compose(world: dict[str, Any], args: list[str], entry: dict[str, Any]) -> i
     if not files or not _same_path(files[0], world["compose_file"]) or len(files) > 2:
         return 64
     base: dict[str, str] = world["compose"]
+    if rest[:1] == ["config"]:  # warnings and errors (which can quote .env lines) on stderr
+        _noise(world, stdout=False)
     if len(files) == 1:
         if rest != ["config", "--services"]:
             return 64
@@ -271,13 +297,19 @@ def _compose(world: dict[str, Any], args: list[str], entry: dict[str, Any]) -> i
     if rest == ["config", "--images"]:
         print("\n".join(images.values()))
         return 0
-    if rest == ["run", "--rm", "-T", "--pull", "never", "migrate"]:
+    if rest == ["run", "--rm", "-T", "--pull", "never", "migrate"]:  # runs it whatever its scale
         _noise(world)
         _block(world, "migrate")
         return world["migrate_exit"]
     if rest == ["up", "-d", "--pull", "never", "--no-build"]:
+        # Compose starts every service whose scale is not 0, migrate included, and web waits for
+        # migrate to complete (the repository's depends_on chain): a failed migrate fails up -d.
         _noise(world)
+        scales = {name: s.get("scale", "1") for name, s in override.items()}
+        entry["started"] = [name for name in images if scales.get(name, "1") != "0"]
         _block(world, "up")
+        if "migrate" in entry["started"] and world["migrate_exit"]:
+            return world["migrate_exit"]
         return world["up_exit"]
     return 64
 
@@ -285,6 +317,7 @@ def _compose(world: dict[str, Any], args: list[str], entry: dict[str, Any]) -> i
 def docker(world: dict[str, Any], args: list[str], entry: dict[str, Any]) -> int:
     if len(args) == 3 and args[:2] == ["pull", "--quiet"]:
         _noise(world)
+        time.sleep(world.get("pull_seconds") or 0)  # a hung pull; killed, it logs nothing
         m = PULL_REF.fullmatch(args[2])
         entry["by_digest"] = m is not None
         return world["pull_exit"] if m is not None and m[1] in world["registry"] else 1
@@ -323,6 +356,7 @@ RULESET_SAMPLES: list[dict[str, Any]] = [
         "id": 1,
         "target": "tag",
         "enforcement": "active",
+        "current_user_can_bypass": "never",
         "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
         "rules": [{"type": "update"}, {"type": "deletion"}, {"type": "non_fast_forward"}],
     },
@@ -332,6 +366,7 @@ RULESET_SAMPLES: list[dict[str, Any]] = [
         "id": 4,
         "target": "tag",
         "enforcement": "active",
+        "current_user_can_bypass": "pull_requests_only",
         "conditions": {
             "ref_name": {"include": ["~ALL", 'x\t"y\nz'], "exclude": ["a\\b", "\N{EM DASH}"]}
         },
@@ -408,11 +443,29 @@ def test_the_attestation_policy_follows_gh_flags() -> None:
 
 
 def test_the_override_parser_is_strict() -> None:
-    good = "# c\nservices:\n  web:\n    image: x@sha256:1\n    pull_policy: never\n"
-    assert parse_override(good) == {"web": {"image": "x@sha256:1", "pull_policy": "never"}}
-    for bad in ["", "services:\n  web:\n    build: .\n", "x: 1\n", "services:\n web:\n"]:
+    good = "# c\nservices:\n  web:\n    image: x@sha256:1\n    pull_policy: never\n    scale: 0\n"
+    assert parse_override(good) == {
+        "web": {"image": "x@sha256:1", "pull_policy": "never", "scale": "0"}
+    }
+    for bad in [
+        "",
+        "services:\n  web:\n    build: .\n",
+        "x: 1\n",
+        "services:\n web:\n",
+        "services:\n  web:\n    scale: -1\n",
+        "services:\n  web:\n    scale: 00\n",
+    ]:
         try:
             parse_override(bad)
         except ValueError:
             continue
         raise AssertionError(f"accepted {bad!r}")
+
+
+def test_compare_follows_the_commit_graph() -> None:
+    world = {"parents": {"a": None, "b": "a", "c": "b", "d": "b"}}
+    assert compare_status(world, "a", "c") == "ahead"
+    assert compare_status(world, "c", "c") == "identical"
+    assert compare_status(world, "c", "a") == "behind"
+    assert compare_status(world, "c", "d") == "diverged"
+    assert compare_status(world, "x", "c") is None
