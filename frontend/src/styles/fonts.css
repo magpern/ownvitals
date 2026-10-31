@@ -1,0 +1,16 @@
+/*
+ * IBM Plex Sans (UI) and IBM Plex Mono (ids, versions, raw values), SIL Open Font License 1.1,
+ * self-hosted through @fontsource: the build copies the font files to assets/ and the browser
+ * loads them from this origin. Never Google Fonts or another host (the CSP allows 'self' alone).
+ *
+ * Only the weights and styles the mock-ups use, in the Latin subset (which has Swedish letters):
+ *   Sans 400, 500 and 600, and italic 400 and 500 (the "est." value style); Mono 400.
+ * src/styles/fonts.test.ts holds this list to the build.
+ */
+
+@import '@fontsource/ibm-plex-sans/latin-400.css';
+@import '@fontsource/ibm-plex-sans/latin-500.css';
+@import '@fontsource/ibm-plex-sans/latin-600.css';
+@import '@fontsource/ibm-plex-sans/latin-400-italic.css';
+@import '@fontsource/ibm-plex-sans/latin-500-italic.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
