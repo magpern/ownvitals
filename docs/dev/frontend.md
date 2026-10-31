@@ -120,10 +120,8 @@ issue: `useThemePreference()` returns `[preference, setPreference]`, and `setThe
 `getThemePreference` and `THEME_PREFERENCES` are plain functions. Whether the choice should also
 follow the account is that issue's question.
 
-A module that is deferred cannot run before the browser's first paint of an empty page, so on a
-cold load a visitor whose choice differs from their device can see the page background in the
-device's theme for a moment, before the app (which renders only after the theme is applied) appears.
-Closing that gap needs a classic script in `<head>`, which `sources.test.ts` forbids today.
+The app renders only after the theme is applied, so it is never painted in the wrong theme. One gap
+remains on a cold load: see "Not here yet".
 
 ### Fonts
 
@@ -163,16 +161,20 @@ sign-up and mail-link pages, the two second-factor pages and "Page not found". T
 from the address, not the session, so a page does not move when the session arrives.
 
 - **Items.** `components/shell/nav.ts` has the groups and items of the mock-up. Admin is shown only
-  to an admin (`isAdmin`: the session's role), in the rail and in the account menu, and `/admin`
-  is "Page not found" for anyone else. The phone has no Admin tab; it is in the account menu.
+  to an admin (`isAdmin` in `src/auth/access.ts`: the session's role), in the rail and in the
+  account menu, and `/admin` is "Page not found" for anyone else. The phone has no Admin tab; it is in the account menu.
 - **Status at the end of an item** (`3 of 4`, `n/a`, a dot, a count) is data. `Rail` takes it as
   `status`, and shows nothing until a screen that owns the data passes it.
 - **Routes** follow the information architecture: `/`, `/body`, `/heart`, `/nerve`, `/sleep`,
   `/activity`, `/m/:metric`, `/m/:metric/:day`, `/heart/ecg`, `/heart/ecg/:id`, `/findings`,
-  `/connections`, `/settings`, `/settings/security` (the Security rail item and the "Sign-in and
-  security" tab of Settings), `/admin`. A screen that is not built shows its page header and the
+  `/connections`, the four tabs of Settings (`/settings/profile`, `/settings/security`,
+  `/settings/notifications`, `/settings/data`; `/settings` shows the first, and the Security rail
+  item is the second tab), `/admin`. A screen that is not built shows its page header and the
   "Coming later" row. To build one, put its component in `BUILT` in `src/pages/appPages.tsx`.
 - The document title follows the page (`Weight · ownvitals`).
+- `index.html` asks for `viewport-fit=cover`, so the page reaches under a notch, the status bar and
+  the home indicator; both frames pad themselves by `env(safe-area-inset-*)` on every side
+  (`src/viewport.test.ts`). It is not checked on a real notched device.
 
 ## Rules the tests enforce
 
@@ -292,7 +294,19 @@ Account settings, step-up and re-authentication dialogs (the shared "Confirm it'
 #11's), "log out everywhere" and every screen of the app come in later issues (#10, #11, #12, M6).
 The email-change page and the admin pages are not ported.
 
-The shell also leaves out what needs data or a call that does not exist yet: the status line under
-the top bar (freshness, imports, broken connections), the range selector of the Overview and Metric
-top bars, the status at the end of a rail item (`Rail`'s `status`), and the account menu's "This
-device since ..." line. The theme choice has no control until the Settings issue.
+The shell leaves out what needs data or a call that does not exist yet, and what each waits for:
+
+| Left out | Waits for |
+|---|---|
+| The status line under the top bar (freshness, imports, broken connections) | The dashboard data (the M6 overview) |
+| The status at the end of a rail item (`3 of 4`, `n/a`, a dot, a count; `Rail` takes it as `status`, tested, and shows nothing until a screen passes it) | The dashboard data (the M6 overview) for Nerve health, Sleep, Activity and the findings count; the connections status for the Connections dot |
+| The range selector in the Overview and Metric top bars | The metric pages (M6) |
+| The account menu's "This device since ..." line | The sessions API (#11) |
+| A control for the theme choice (`useThemePreference()` is ready) | The Settings issue (M6) |
+
+**Theme flash on a cold load (accepted for now).** A deferred module cannot run before the browser's
+first paint of an empty page. `initTheme()` runs before React renders, so the app is never painted
+in the wrong theme, but on a cold load a visitor whose choice differs from their device can see the
+page background in the device's theme for a moment. A classic same-origin `<script src>` in `<head>`
+would close it; `sources.test.ts` keeps its rule of one script in `index.html` and nothing was
+loosened. The Settings issue decides whether a second pinned same-origin script is worth it.

@@ -35,12 +35,16 @@ export type RouteId =
   | 'connections'
   | 'settings'
   | 'security'
+  | 'notifications'
+  | 'data'
   | 'admin'
 
 export interface AppRoute {
   id: RouteId
   /** The path; `:name` matches one segment. */
   pattern: string
+  /** Other paths of the same screen (`/settings` shows the first tab, `/settings/profile`). */
+  also?: readonly string[]
   /** The page header (the h1 of the top bar, and the start of the document title). */
   title: string
   /** What the placeholder card calls the screen, where that differs from the title. */
@@ -72,7 +76,17 @@ export const APP_ROUTES: readonly AppRoute[] = [
     later: 'The connections page comes in M6.',
     nav: 'connections',
   },
-  { id: 'settings', pattern: '/settings', title: 'Settings', later: 'The settings page comes in M6.', nav: 'settings' },
+  // The tabs of Settings: /settings/profile, /settings/security, /settings/notifications and
+  // /settings/data (docs/design/README.md); /settings shows the first.
+  {
+    id: 'settings',
+    pattern: '/settings',
+    also: ['/settings/profile'],
+    title: 'Settings',
+    label: 'Profile and display',
+    later: 'The settings page comes in M6.',
+    nav: 'settings',
+  },
   {
     id: 'security',
     pattern: '/settings/security',
@@ -80,6 +94,22 @@ export const APP_ROUTES: readonly AppRoute[] = [
     label: 'Sign-in and security',
     later: 'The sign-in and security page comes in M6.',
     nav: 'security',
+  },
+  {
+    id: 'notifications',
+    pattern: '/settings/notifications',
+    title: 'Settings',
+    label: 'Notifications',
+    later: 'The notifications settings come in M6.',
+    nav: 'settings',
+  },
+  {
+    id: 'data',
+    pattern: '/settings/data',
+    title: 'Settings',
+    label: 'Your data',
+    later: 'Export and delete come in M6.',
+    nav: 'settings',
   },
   {
     id: 'admin',
@@ -109,22 +139,28 @@ function decode(segment: string): string | null {
   }
 }
 
+function matchPattern(pattern: string[], parts: string[]): Record<string, string> | null {
+  if (pattern.length !== parts.length) return null
+  const params: Record<string, string> = {}
+  const matches = pattern.every((expected, i) => {
+    const actual = parts[i] ?? ''
+    if (!expected.startsWith(':')) return expected === actual
+    const value = decode(actual)
+    if (value === null) return false
+    params[expected.slice(1)] = value
+    return true
+  })
+  return matches ? params : null
+}
+
 /** The screen at `pathname` (a trailing slash does not matter), or null when it is none of them. */
 export function matchAppRoute(pathname: string): RouteMatch | null {
   const parts = segments(pathname)
   for (const route of APP_ROUTES) {
-    const pattern = segments(route.pattern)
-    if (pattern.length !== parts.length) continue
-    const params: Record<string, string> = {}
-    const matches = pattern.every((expected, i) => {
-      const actual = parts[i] ?? ''
-      if (!expected.startsWith(':')) return expected === actual
-      const value = decode(actual)
-      if (value === null) return false
-      params[expected.slice(1)] = value
-      return true
-    })
-    if (matches) return { route, params }
+    for (const path of [route.pattern, ...(route.also ?? [])]) {
+      const params = matchPattern(segments(path), parts)
+      if (params !== null) return { route, params }
+    }
   }
   return null
 }

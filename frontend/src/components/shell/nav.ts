@@ -1,4 +1,3 @@
-import type { SessionState } from '../../api/auth'
 import type { NavId } from '../../router/appRoutes'
 import type { IconName } from '../ui/Icon'
 
@@ -90,9 +89,4 @@ export function phoneTabOf(nav: NavId): NavId | null {
     case 'admin':
       return null
   }
-}
-
-/** Whether this session is an administrator's (the server decides what an admin may do). */
-export function isAdmin(session: SessionState | null): boolean {
-  return session?.authenticated === true && session.user?.role === 'admin'
 }

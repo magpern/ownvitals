@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { isAdmin } from '../../auth/access'
 import { useSession } from '../../auth/SessionContext'
 import { Link } from '../../router/Router'
 import type { NavId } from '../../router/appRoutes'
@@ -7,7 +8,7 @@ import { useSignOut } from '../useSignOut'
 import { Logo } from '../ui/Icon'
 import { AccountMenu } from './AccountMenu'
 import { PhoneTabs, Rail, type NavStatuses } from './Rail'
-import { isAdmin, phoneTabOf } from './nav'
+import { phoneTabOf } from './nav'
 
 // The frame of every app page (docs/design/mockups/src/Dashboard.dc.html and the others): the
 // navigation rail on the left, and on the right a top bar (the page header, the account menu)

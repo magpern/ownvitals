@@ -2,10 +2,9 @@ import { render } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { SessionState } from '../../api/auth'
 import { ROOT } from '../../test/sourceScan'
 import { Icon } from '../ui/Icon'
-import { PHONE_TABS, isAdmin, phoneTabOf, railGroups } from './nav'
+import { PHONE_TABS, phoneTabOf, railGroups } from './nav'
 
 // The items of the navigation, held to the mock-ups they come from: docs/design/mockups/src/
 // Rail.dc.html (the rail) and Onboarding.dc.html (the tabs of the phone frame).
@@ -103,26 +102,5 @@ describe('the phone tabs', () => {
     for (const nav of ['overview', 'body', 'heart', 'nerve', 'sleep', 'activity', 'findings', 'connections', 'settings', 'security'] as const) {
       expect(tabs.has(phoneTabOf(nav) ?? 'admin'), nav).toBe(true)
     }
-  })
-})
-
-describe('isAdmin', () => {
-  const session = (role: string): SessionState => ({
-    authenticated: true,
-    user: { id: 'u', email: 'a@example.test', role },
-    session: { expiresAt: '', recentAuth: true, mfa: true, stepup: false },
-    totpEnabled: true,
-  })
-
-  it('is true for the admin role only', () => {
-    expect(isAdmin(session('admin'))).toBe(true)
-    expect(isAdmin(session('user'))).toBe(false)
-    expect(isAdmin(session('Admin'))).toBe(false)
-    expect(isAdmin(session(''))).toBe(false)
-  })
-
-  it('is false for nobody and for a signed-out visitor', () => {
-    expect(isAdmin(null)).toBe(false)
-    expect(isAdmin({ authenticated: false, user: null, session: null, totpEnabled: false })).toBe(false)
   })
 })

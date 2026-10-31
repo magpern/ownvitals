@@ -23,10 +23,33 @@ describe('the routes of the app', () => {
       '/connections',
       '/settings',
       '/settings/security',
+      '/settings/notifications',
+      '/settings/data',
       '/admin',
     ])
     expect(new Set(IDS()).size).toBe(APP_ROUTES.length)
     expect(new Set(APP_ROUTES.map((route) => route.pattern)).size).toBe(APP_ROUTES.length)
+  })
+
+  it('give Settings its four tabs, and /settings shows the first', () => {
+    // docs/design/README.md: /settings/profile, /settings/security, /settings/notifications, /settings/data.
+    const tabs = ['/settings/profile', '/settings/security', '/settings/notifications', '/settings/data']
+    expect(tabs.map((path) => matchAppRoute(path)?.route.label)).toEqual([
+      'Profile and display',
+      'Sign-in and security',
+      'Notifications',
+      'Your data',
+    ])
+    expect(matchAppRoute('/settings')?.route).toBe(matchAppRoute('/settings/profile')?.route)
+    expect(matchAppRoute('/settings')?.route.id).toBe('settings')
+  })
+
+  it('keep the alias of a screen from taking the address of another', () => {
+    const own = APP_ROUTES.flatMap((route) => [route.pattern, ...(route.also ?? [])])
+    expect(new Set(own).size).toBe(own.length)
+    for (const route of APP_ROUTES) {
+      for (const path of route.also ?? []) expect(matchAppRoute(path)?.route.id, path).toBe(route.id)
+    }
   })
 
   it('give every screen a page header, a "Coming later" line and a navigation item', () => {
@@ -61,7 +84,10 @@ describe('matchAppRoute', () => {
     ['/findings', 'findings'],
     ['/connections', 'connections'],
     ['/settings', 'settings'],
+    ['/settings/profile', 'settings'],
     ['/settings/security', 'security'],
+    ['/settings/notifications', 'notifications'],
+    ['/settings/data', 'data'],
     ['/admin', 'admin'],
   ])('%s is the %s screen', (path, id) => {
     expect(matchAppRoute(path)?.route.id).toBe(id)
@@ -92,7 +118,8 @@ describe('matchAppRoute', () => {
     '/m',
     '/m/weight/2026-10-14/extra',
     '/heart/ecg/a/b',
-    '/settings/profile',
+    '/settings/other',
+    '/settings/security/extra',
     '/Admin',
     '/m/%E0%A4%A',
   ])('%s is no screen of the app', (path) => {
