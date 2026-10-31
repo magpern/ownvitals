@@ -13,9 +13,9 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | M1 | Withings core | #19 (#63) and #66 (#71) merged; backlog #18, #20–#30, #36 (dependency graph below) | — |
 | M2 | Home deploy (early) | #84 (the forced-command deploy script, pulled forward) in progress; the rest are mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
-| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67) and #56 (#74) merged; #68 (#87) in review; #76 in progress | — |
-| M5 | ECG & nerve health | ADR 0006 (#46) merged; #40 in progress; #88 (ADR follow-ups) ready; #47 waits for #40, #21 and #25 | — |
-| M6 | MVP UI | not started; the UI design is chosen ([docs/design/](design/README.md), #85; spec corrections in #91) | — |
+| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74) and #68 (#87) merged; #76 (#94) in review; #95 ready | — |
+| M5 | ECG & nerve health | ADR 0006 (#46) merged; #40 and #88 (ADR follow-ups) in progress; #47 waits for #40, #21 and #25 | — |
+| M6 | MVP UI | not started; the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91) | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
 
@@ -26,14 +26,13 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | #6 | Egress allowlist and mail | Opus | #55 | second FAIL (`efae7bb`); root cause changed: network capability derived from the locked environment and one reviewed table; fix round |
 | #8 | Envelope encryption and KEK ring | Opus | #82 | first FAIL (`5679e7d`: a retired KEK could seal; no test pinned a new data key per write); fix round |
 | #9 | Job queue, leases, fencing and worker | Opus | — | in progress |
-| #68 | Autocorrelation-robust trend test and change points | Sonnet | #87 | in review |
-| #76 | Purity guard and policy follow-ups from the #74 review | Sonnet | — | in progress |
+| #76 | Purity guard and policy follow-ups from the #74 review | Sonnet | #94 | in review |
 | #84 | Forced-command deploy script (M2, pulled forward) | Opus | — | in progress |
 | #40 | ECG signal-processing core | Sonnet | — | in progress |
-| #91 | Align the design mock-ups with the spec (follow-ups from the #86 review) | Architect | #92 | in review |
-| #90 | Status after the #46, #81, #83 and #86 merges (this update) | Architect | this PR | in review |
+| #88 | ADR follow-ups from the #46 and #83 reviews | Sonnet | — | in progress |
+| #90 | Status after the #46, #81, #83, #86, #87 and #92 merges (this update) | Architect | #93 | fix round after FAIL `2c2ccb5` |
 
-Ready, waiting for a free slot: #88 (Sonnet). At most five Developers work on
+Ready, waiting for a free slot: #95 (Sonnet). At most five Developers work on
 issues at once; a fix round on an open PR may run while five are busy, and no new issue starts
 until fewer than five are.
 
@@ -90,6 +89,7 @@ until fewer than five are.
 
 Pure libraries with synthetic-data tests; no database, I/O or Withings imports (purity guard in
 #37). Wiring into `observations`, `metric_daily`, findings and jobs stays in their milestones.
+Two rows are not libraries: #84 is M2's deploy script and #88 amends ADRs.
 
 | Issue | What | Owner model | Depends on |
 |---|---|---|---|
@@ -99,6 +99,7 @@ Pure libraries with synthetic-data tests; no database, I/O or Withings imports (
 | #40 | M5 ECG signal-processing core: filters, R-peaks, SQI gate, HRV | Sonnet | #2, #39 |
 | #56 | Analysis follow-ups from the #54 review (purity-guard gaps, nerve baseline span) | Sonnet | #37; after #38 merges (both touch `test_analysis_purity.py` and `policy.py` semantics) |
 | #68 | Autocorrelation-robust trend test and change points (follow-up from #38; before trend or change-point findings go live) | Sonnet | #38 |
+| #95 | Calibration and test follow-ups from the #87 review | Sonnet | #68 |
 | #76 | Purity guard and policy follow-ups from the #74 review | Sonnet | #56 |
 | #84 | M2 forced-command deploy script, the release trust boundary (installing it is the owner's) | Opus | #7 |
 | #88 | ADR follow-ups from the #46 and #83 reviews (ADR 0006 amendment; ADRs 0002, 0004, 0005, 0007 and the threat model) | Sonnet (Opus reviewer) | #46, #83 |
@@ -113,10 +114,11 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 
 | Date | Decision | Where |
 |---|---|---|
-| 2026-10-31 | ECG, from the #46 review: the noisy RMSSD tolerance at 60–99 bpm widens from ± 6.5 to ± 7.0 ms (the 20 % margin rule, applied as for clean 60–99 bpm); every listed recording gets an `estimated`, and one stored with `signal` NULL gets `signal_missing` (no gate result), so a hold on it ends at once; A9 stays open until the M6/M7 hold records its end reasons, and OC5 reports its late-link count as not applicable until then; the M4 wiring carries the groups the value came from (the morning group, or the readings the median used), not the day's fingerprint inputs | #88 |
-| 2026-10-31 | `transaction_timeout` (#83): a 5-minute role default on `ownvitals_app` (#77) and `ownvitals_maint` (#12). It ends the whole connection, and bounds role-default transactions only: a session can set it to 0, and a session-level lock 4 outlives it | ADR 0002 §5, #77, #12 |
+| 2026-10-31 | Analysis methods (#87): Theil–Sen with an AR(1) variance correction for the trend test (`trend/2`) and PELT with a long-run noise scale from a robust variogram (`changepoint/2`). The power lost on short series is accepted. At φ 0.6 and fewer than 20 points the false-trend rate is about 6 % (5.8–6.4 % on 42,000 series per cell), not 5 %, so the M4 findings issue treats such trends as low-confidence; #95 restates the documented rates. `shift_sigmas` is in long-run noise units, and φ above 0.7 reads as level changes | #68 (#87), #95 |
+| 2026-10-31 | ECG, Architect decisions on the #46 review (**#88 is open**: ADR 0006 as merged still says ± 6.5 ms and doesn't carry these until #88 merges): the noisy RMSSD tolerance at 60–99 bpm widens from ± 6.5 to ± 7.0 ms (the 20 % margin rule, applied as for clean 60–99 bpm); every listed recording gets an `estimated`, and one stored with `signal` NULL gets `signal_missing` (no gate result), so a hold on it ends at once; A9 stays open until the M6/M7 hold records its end reasons, and OC5 reports its late-link count as not applicable until then; the M4 wiring carries the groups the value came from (the morning group, or the readings the median used), not the day's fingerprint inputs | #88 |
+| 2026-10-31 | `transaction_timeout` (#83): a 5-minute role default on `ownvitals_app` (#77) and `ownvitals_maint` (#12). It bounds role-default transactions only: a session can set it to 0, and a session-level lock 4 outlives it. The #83 reviewer saw it end the whole connection, not just the transaction; **#88 is open** and adds that to ADR 0002 §5 | ADR 0002 §5, #77, #12, #88 |
 | 2026-10-31 | Role check (#81): it judges the login role (`session_user`), not `current_user`; a login that Postgres refuses (SQLSTATE class 28 or 42501) will fail closed with `DatabaseRoleError` instead of reading as "database unreachable" | #75, #89 |
-| 2026-10-31 | Compose (#9, **not merged**): the one-shot `db-functions` holds the superuser's password, read into a `PGPASSFILE` on a tmpfs at run time (never an environment variable or argument), because it owns the `SECURITY DEFINER` functions and runs on every deploy; web and the worker wait for it with `service_completed_successfully` | #9 |
+| 2026-10-31 | Compose (**#9 is open**): the one-shot `db-functions` holds the superuser's password, read into a `PGPASSFILE` on a tmpfs at run time (never an environment variable, argument or URL), because it owns the `SECURITY DEFINER` functions and runs the functions script on every deploy; web and the worker wait for it with `service_completed_successfully` | #9 (Architect comment of 2026-10-31) |
 | 2026-10-31 | Owner: the UI design is "Quiet instrument", exactly as in the mock-ups in `docs/design/mockups/` (IBM Plex self-hosted, the health score shown with its components, range bars on the phone, a System/Light/Dark theme setting). The mock-ups bind every UI change; gaps go to the Architect, design changes to the owner | #85, `docs/design/README.md`, AGENTS.md "UI design" |
 | 2026-10-31 | numpy and scipy join #2's dependencies so #37, #38 and #40 don't need the `pyproject.toml` lock | #2 |
 | 2026-10-31 | Roadmap Amendment 2: partitioned owned tables keyed `(owner_id, id, partition key)`, never FK targets | roadmap, ADR 0002 |
@@ -173,6 +175,8 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
   #22 and #29 and the closed-world network classification).
 - After #8 merges: record its decisions (web and worker refuse to start when the KEK check can't
   run, including on an unmigrated database; the seed and pepper ids are settings).
+- The M4 findings issue treats a trend on under 20 points with φ above 0.5 as low-confidence
+  (#87), and labels `shift_sigmas` as long-run noise units or reports the shift in metric units.
 - The M4 wiring issue also carries a daily value's source groups as provenance (ADR 0006's
   trigger rule, #46) and uses `from_daily`, not `from_instants`, which counts UTC days.
 
@@ -197,12 +201,13 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/tests/conftest.py`, `backend/tests/test_web.py` | #8 |
 | `backend/tests/role_guard.py`, `docker/postgres/init/10-roles.sql` | #8 |
 | `backend/tests/session_scan.py` | #9 (one `system_session` entry by #8) |
-| `backend/src/ownvitals/db/role_check.py`, `backend/tests/user_context_scan.py`, `docs/dev/isolation.md` | — (#89 after #8; #8 edits one test function in `test_role_check.py`) |
+| `backend/src/ownvitals/db/role_check.py`, `backend/tests/user_context_scan.py`, `docs/dev/isolation.md` | — (#89 after #8, with `test_role_check*.py`, `test_user_context_writers.py` and the `db/engine.py` docstring; #8 edits one test function in `test_role_check.py`) |
 | `backend/tests/test_migrations.py` | #8 and #9 (head pin): the second to merge renumbers (the migration rule below) |
 | `docs/dev/backend.md` | #8 |
 | `backend/tests/test_config_milestone.py` | #8 |
 | `backend/tests/rls_guard.py`, `backend/tests/test_compose_roles.py` | #9 |
-| `scripts/ci-changes.sh`, `scripts/test-ci-gate.sh` | #84 (one filter line); #42 next |
+| `scripts/ci-changes.sh` | #84 (one filter line) |
+| `scripts/test-ci-gate.sh` | #84 (its filter case); #42 coordinates if it changes the job lists in `scripts/ci-gate.sh` (the second to merge re-runs the gate tests) |
 | `docs/dev/stack.md` | — |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
@@ -211,6 +216,8 @@ review.
 
 ## Completed
 
+- 2026-10-31: #68 autocorrelation-robust trend test and change points merged as #87 (Sonnet PASS `0a246b5`, merge check `b015be7`) → IMPLEMENTED; not wired into findings until M4.
+- 2026-10-31: #91 design mock-ups aligned with the spec, merged as #92 (Sonnet PASS `05e6d57`).
 - 2026-10-31: #75 role-check follow-ups merged as #81 (Opus PASS `db494a2`, merge check `5681e0e`) → IMPLEMENTED.
 - 2026-10-31: #85 the chosen UI design and its mock-ups merged as #86 (Sonnet PASS `d01ff96`, merge check `2bb7dc4`); the review's spec findings go into #91.
 - 2026-10-31: #78 ADR follow-ups merged as #83 (Opus PASS `6095563`, merge check `59154ea`).
