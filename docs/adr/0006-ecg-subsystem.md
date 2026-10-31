@@ -1,7 +1,8 @@
 # ADR 0006: The ECG subsystem: data contract, quality gate, descriptive analysis and validation
 
-Status: Accepted (2026-10-31, #39). Assumptions A1 to A9 stay open until the owner's probe and
-checks (§2); two questions are blocked on the owner (see the end).
+Status: Accepted (2026-10-31, #39); amended 2026-10-31 by #88 (see "Amendments"). Assumptions A1 to
+A9 stay open until the owner's probe and checks (§2); two questions are blocked on the owner (see
+the end).
 
 ## Context
 
@@ -45,6 +46,10 @@ library (`backend/src/ownvitals/ecg/`); interpretation (§12) is deferred.
   range, at most 1,000,000 samples (our choice); `sampling_frequency` is a positive integer up to
   2,000. Anything else is a `Permanent` failure with category `ecg_signal_out_of_contract`
   (PLAN §4.2): the list row is kept with `signal` NULL, and nothing is coerced, rounded or rescaled.
+  Every listed recording gets an `estimated`, a row kept with `signal` NULL included (amended
+  2026-10-31, #88): #25 enqueues its recompute (§15) when it stores the row, and #40's `input` step
+  (§4) gives it the reason `signal_missing`, which is no gate result (§11). A hold on it (§11) then
+  ends at once, with "not evaluated by ownvitals", instead of waiting out the 24-hour bound.
 - **Encoding, version 1** (#25). The uncompressed payload is `b"OVE1"`, `n_leads` (uint16 LE), a
   reserved uint16 (0), `n_samples` per lead (uint32 LE each), then the samples as int32 LE, lead
   after lead, in the order the API returned them. It is stored as one zstd frame (level 19,
@@ -72,8 +77,8 @@ categorical output, never samples, values or timestamps. Agents never mark an as
 | A5 | One array per recording (findings §3) | Probe: ECG array count and lengths. If > 1, OC4: equal length and rate, and R-peaks coincide within 20 ms (our choice) for ≥ 95 % of beats. R-peak times differ between leads, so it errs toward "not simultaneous", the safe direction | All arrays are stored; analysis uses the first; six-lead stays off (§10) |
 | A6 | Strips last about 30 s | Probe: array length and sampling rate | Strips without a 20-s beat span never pass the gate (§7) |
 | A7 | `getmeas` intervals (135–138) and AFib result (130) belong to the ECG with the same device and timestamp (findings §5 question 5) | Probe: counts of 135–138 against the ECG count. OC5: every ECG has a matching group (yes/no, count without) | E4 and E6 still run on the measures; only the link to a strip (viewer, §11 overlay) is lost, and their notifications go out "not evaluated by ownvitals" as soon as no recording can be linked (§11), without waiting for the 24-hour bound |
-| A9 | Withings lists an ECG in `heart list` by the time its 135–138 group is in `getmeas`, so an `ecg` sync that started after the group was stored and completed successfully sees it (§11's hold) | OC5 also counts the findings that got a link only after their hold had ended for want of one (the M6/M7 notification issue records how each hold ended, as a reason code; count only) | A late-listed strip's E4/E6 notification goes out "not evaluated by ownvitals"; if the strip then fails our gate, the overlay hides the finding, but the notification isn't recalled |
 | A8 | `heart_rate` from `heart list` is the strip's mean rate | V3 (§14), which also validates our HR: a V3 failure needs a follow-up to tell which | Only V3's comparison |
+| A9 | Withings lists an ECG in `heart list` by the time its 135–138 group is in `getmeas`, so an `ecg` sync that started after the group was stored and completed successfully sees it (§11's hold) | OC5 also counts the findings that got a link only after their hold had ended for want of one (the M6/M7 notification issue records how each hold ended, as a reason code; count only). A9 stays open until that hold exists; until then OC5 reports the count as "not applicable", since the end reasons don't exist yet (amended 2026-10-31, #88) | A late-listed strip's E4/E6 notification goes out "not evaluated by ownvitals"; if the strip then fails our gate, the overlay hides the finding, but the notification isn't recalled |
 
 ### 3. Preserve and display (PLAN §7.3 step 2)
 
@@ -290,8 +295,8 @@ Architect's decisions (2026-10-31):
     the finding fire. The function that produces a value records them, and that provenance is
     carried into the finding's evidence; no other component re-derives the set. A single reading's
     trigger is its own group (E4's one group); a daily value's (`daily_values`, #37) is its morning
-    reading's group when its method is `morning`, and every reading of the day when it is `median`.
-    A group that is also in the baseline counts as a trigger.
+    reading's group when its method is `morning`, and every reading the median used when it is
+    `median` (amended 2026-10-31, #88). A group that is also in the baseline counts as a trigger.
   - **Linked**: only the trigger's recordings, through the A7 link resolved at read time, never
     stored; a soft-deleted recording counts as no link. Recordings only in the 90-day baseline
     (the finding's other PLAN §5 inputs) are never linked and count toward neither the overlay
@@ -356,12 +361,13 @@ Agents never mark the gate passed.
 
 ### 13. Validation in CI: synthetic signals only (#40)
 
-**The test specification** is [0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md), part
-of this ADR: the generator (`backend/tests/ecgsynth.py`, after McSharry et al. 2003), noise, beat
-matching (ANSI/AAMI EC57; Se and +P pooled per condition and rate, a 95 % floor per strip), gate
-conditions, §5's filter responses, HR, HRV and SQI tolerances, seeds, a simulation note, and §11's
-overlay, read-function and hold tests. Its thresholds are our choices; every seeded case must meet
-them. An unreachable threshold is reported to the Architect; tests never loosen silently.
+**The test specification** is [0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md), part of
+this ADR: the generator (`backend/tests/ecgsynth.py`, after McSharry et al. 2003), noise, beat
+matching (ANSI/AAMI EC57; Se and +P pooled per condition and rate, a 95 % floor on every accepted
+strip), gate conditions, §5's filter responses, HR, HRV and SQI tolerances, seeds, a simulation
+note, and §11's overlay, read-function and hold tests. Its thresholds are our choices; every seeded
+case must meet them. An unreachable threshold is reported to the Architect; tests never loosen
+silently.
 
 ### 14. Owner-run validation (M5 done-when)
 
@@ -391,13 +397,13 @@ owner** (open question 2).
 - **Staleness, a deliberate reading of PLAN §5.** PLAN §5 calls a derived row stale when its input
   revision or fingerprint differs. `estimated` derives from its own row only, so it is stale when
   its `algo_version` or `input_fingerprint` differs: the `ecg` revision counter is stream-wide and
-  would mark every recording stale whenever any recording arrives, while the fingerprint covers
-  this row's payload. `input_revision` is still stored. A backfill-lane job recomputes it
-  (`origin=backfill`, no notifications), enqueued by a new or rewritten signal and by the sweep
-  after a module version bump. Until then §11's rule applies: an `estimated` counts as absent
-  when its `input_fingerprint` differs from the row's or its gate modules (`modules.input`,
-  `filters`, `rpeaks`, `sqi`) differ from the running ones, so an `hrv`-only bump keeps the gate
-  results. Every output shows only up-to-date estimates (§9).
+  would mark every recording stale whenever any recording arrives, while the fingerprint covers this
+  row's payload. `input_revision` is still stored. A backfill-lane job recomputes it
+  (`origin=backfill`, no notifications), enqueued by a new row (§1) or a rewritten signal and by the
+  sweep after a module version bump (amended 2026-10-31, #88). Until then §11's rule applies: an
+  `estimated` counts as absent when its `input_fingerprint` differs from the row's or its gate
+  modules (`modules.input`, `filters`, `rpeaks`, `sqi`) differ from the running ones, so an
+  `hrv`-only bump keeps the gate results. Every output shows only up-to-date estimates (§9).
 - **No revision bump and no re-evaluation, also deliberate.** `estimated` is derived output kept
   on the source row; bumping `data_revisions` on its write would make each analysis stale its own
   input. The revision bump (#21, #25) ignores updates that touch only `estimated`, and since no
@@ -432,9 +438,11 @@ owner** (open question 2).
   estimates, with its guard test), which every later consumer uses; the M6/M7 notification issue
   implements §11's hold of E4 and E6 notifications; #47 implements §14. E5 and the rest of §12 wait
   for the later revision, their own issue and the owner's gate.
-- **Trigger provenance** (§11): the M4 wiring issue makes each daily value carry its source
-  groups' ids (#37's `DailyValue` has none today) through to the findings, and the M5 rules
-  issue puts them in each finding's evidence; nothing re-derives them.
+- **Trigger provenance** (§11; amended 2026-10-31, #88): the M4 wiring issue makes each daily value
+  carry its source groups' ids (#37's `DailyValue` has none today) through to the findings: the
+  groups its value came from (the morning reading's group for `morning`, the readings the median
+  used for `median`), not the day's fingerprint inputs. The M5 rules issue puts them in each
+  finding's evidence; nothing re-derives them.
 - `estimated` carries its versions and fingerprint, so a changed parameter recomputes history
   instead of mixing versions, and no output shows a superseded one meanwhile (§9); findings never
   depend on it, so they need no recompute.
@@ -457,44 +465,32 @@ interpretation, and the E5 index is deferred (§12).
 
 ## References
 
-- ANSI/AAMI EC57:2012. Testing and reporting performance results of cardiac rhythm and ST segment
-  measurement algorithms.
-- Behar J, Oster J, Li Q, Clifford GD. ECG signal quality during arrhythmia and its application to
-  false alarm reduction. IEEE Trans Biomed Eng 2013;60(6):1660–1666.
-- Bland JM, Altman DG. Statistical methods for assessing agreement between two methods of clinical
-  measurement. Lancet 1986;1(8476):307–310.
-- Clifford GD, Behar J, Li Q, Rezek I. Signal quality indices and data fusion for determining
-  clinical acceptability of electrocardiograms. Physiol Meas 2012;33(9):1419–1433.
-- Dash S, Chon KH, Lu S, Raeder EA. Automatic real time detection of atrial fibrillation. Ann
-  Biomed Eng 2009;37(9):1701–1709.
-- Elgendi M. Fast QRS detection with an optimized knowledge-based method: evaluation on 11
-  standard ECG databases. PLoS ONE 2013;8(9):e73557.
-- Hamilton PS, Tompkins WJ. Quantitative investigation of QRS detection rules using the MIT/BIH
-  arrhythmia database. IEEE Trans Biomed Eng 1986;33(12):1157–1165.
-- Kligfield P, Gettes LS, Bailey JJ, et al. Recommendations for the standardization and
-  interpretation of the electrocardiogram, part I. Circulation 2007;115(10):1306–1324.
-- Li Q, Mark RG, Clifford GD. Robust heart rate estimation from multiple asynchronous noisy sources
-  using signal quality indices and a Kalman filter. Physiol Meas 2008;29(1):15–32.
-- Lippman N, Stein KM, Lerman BB. Comparison of methods for removal of ectopy in measurement of
-  heart rate variability. Am J Physiol 1994;267(1 Pt 2):H411–H418.
-- Lipponen JA, Tarvainen MP. A robust algorithm for heart rate variability time series artefact
-  correction using novel beat classification. J Med Eng Technol 2019;43(3):173–181.
-- Malik M, et al. Heart rate variability in relation to prognosis after myocardial infarction:
-  selection of optimal processing techniques. Eur Heart J 1989;10(12):1060–1074.
-- Martínez JP, Almeida R, Olmos S, Rocha AP, Laguna P. A wavelet-based ECG delineator: evaluation
-  on standard databases. IEEE Trans Biomed Eng 2004;51(4):570–581.
-- McSharry PE, Clifford GD, Tarassenko L, Smith LA. A dynamical model for generating synthetic
-  electrocardiogram signals. IEEE Trans Biomed Eng 2003;50(3):289–294.
-- Moody GB, Muldrow WE, Mark RG. A noise stress test for arrhythmia detectors. Computers in
-  Cardiology 1984;11:381–384.
-- Munoz ML, van Roon A, Riese H, et al. Validity of (ultra-)short recordings for heart rate
-  variability measurements. PLoS ONE 2015;10(9):e0138921.
-- Orphanidou C, et al. Signal-quality indices for the electrocardiogram and photoplethysmogram:
-  derivation and applications to wireless monitoring. IEEE J Biomed Health Inform 2015;19:832–838.
-- Pan J, Tompkins WJ. A real-time QRS detection algorithm. IEEE Trans Biomed Eng 1985;32:230–236.
-- Peltola MA. Role of editing of R–R intervals in the analysis of heart rate variability. Front
-  Physiol 2012;3:148.
-- Shaffer F, Ginsberg JP. An overview of heart rate variability metrics and norms. Front Public
-  Health 2017;5:258.
-- Task Force of the ESC and NASPE. Heart rate variability: standards of measurement, physiological
-  interpretation and clinical use. Circulation 1996;93(5):1043–1065.
+The sources cited here and in the test specification are listed at the end of
+[0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md#references) (moved there by #88; amended
+2026-10-31).
+
+## Amendments
+
+### 2026-10-31 (#88): follow-ups of the #46 review
+
+Architect decisions on the non-blocking findings N41 to N45 of the #46 review (its Opus PASS at
+`01d0fa3`), made in place above and in the test specification, marked "amended 2026-10-31, #88". The
+test specification is part of this ADR, so its amendments are listed here too:
+
+- §1, §15 (N44): every listed recording gets an `estimated`. A row kept with `signal` NULL gets one
+  with `signal_missing`, which is no gate result, when it is stored, so a hold on it ends at once,
+  with "not evaluated by ownvitals", instead of waiting out the 24-hour bound. #25 enqueues its
+  recompute; #40's `input` step gives it the reason. §15 lists a new row among the recompute's
+  triggers; the test specification's hold section gains the case.
+- §2 (N43, N45): A9 stays open until the M6/M7 notification hold exists, and until then OC5 reports
+  its late-link count as "not applicable". A9 moved after A8.
+- §11 and Consequences (N41): a daily value's trigger is the groups its value came from (the morning
+  reading's group, or the readings the median used), not the day's fingerprint inputs.
+- §13 (N45): "a 95 % floor on every accepted strip", the test specification's wording, which
+  governs.
+- Test specification, "HR and HRV" (N42, the Architect's decision): the noisy RMSSD tolerance at 60
+  to under 100 bpm is ± 7.0 ms, not ± 6.5 ms. That applies the 20 % margin rule as clean 60 to 99
+  bpm already does; the evidence is in its simulation note. #40 follows whichever value is on `main`
+  when it updates.
+- References: moved verbatim to the end of the test specification, so that this file stays within
+  500 lines. No decision changed.

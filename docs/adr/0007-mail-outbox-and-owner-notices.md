@@ -1,8 +1,8 @@
 # ADR 0007: Mail outbox and owner notices
 
-Status: Accepted (2026-10-31, #72); amended 2026-10-31 by #78 (see "Amendments"). It records
-the Architect's decisions on the non-blocking findings 1 and 2 of the #58 review (its Opus PASS
-at `f15a46d`).
+Status: Accepted (2026-10-31, #72); amended 2026-10-31 by #78 and #88 (see "Amendments"). It
+records the Architect's decisions on the non-blocking findings 1 and 2 of the #58 review (its
+Opus PASS at `f15a46d`).
 
 ## Context
 
@@ -131,13 +131,17 @@ but never marked, how long sent rows are kept, and how fast the sender sends.
   (amended 2026-10-31, #72), and tests that the system table admits only owner-notice kinds
   (amended 2026-10-31, #78).
 - Any code that can call the family holds the app role, which can already set `app.user_id`
-  and read every owned row (threat model T24), so the family shows it nothing new. A caller
-  other than the sender could claim rows and so suppress their mail: denial of service only.
-- **Any app-role code can queue owner notices** (amended 2026-10-31, #78), not only the
-  worker's: the write is the family's, and the app role holds `EXECUTE` on it. It takes only
-  an owner-notice `kind` and a route key, and the notice goes only to the admins, with its
-  kind's fixed template. The worst case is unwanted mail to the admins, a nuisance: never a
-  disclosure and never mail to anyone else. It is accepted under threat model risk 21.
+  and read every owned row (threat model T24), so the family shows it nothing new (amended
+  2026-10-31, #78). A caller other than the sender could claim rows and so suppress their
+  mail: denial of service only.
+- **Any app-role code can queue owner notices** (amended 2026-10-31, #78 and #88), not only
+  the worker's: the write is the family's, and the app role holds `EXECUTE` on it. It takes
+  only an owner-notice `kind` and a route key, and the notice goes only to the admins, with
+  its kind's fixed template. The worst case is unwanted mail to the admins and, in volume, a
+  backlog that delays other outbox mail, since the write has no dedupe and no rate limit:
+  denial of service, never a disclosure and never mail to anyone else. It is accepted under
+  threat model risk 21. The notifications issue keeps at most one pending row per owner-notice
+  kind, which bounds the backlog.
 - Threat model T48, T59 and accepted risk 21 cite this ADR (amended 2026-10-31, #78).
 
 ## Amendments
@@ -153,3 +157,14 @@ Architect decisions on the non-blocking finding 1 of the #73 review (its Opus PA
   "family" too.
 - Consequences: any app-role code can queue owner notices to the admins, bounded by the fixed
   kinds and routes, and accepted under threat model risk 21.
+
+### 2026-10-31 (#88): follow-ups of the #83 review
+
+Architect decisions on the non-blocking findings 1 and 4 of the #83 review (its Opus PASS at
+`6095563`), made in place above and marked "amended 2026-10-31, #88" (finding 4: "#78"):
+
+- Consequences: the owner-notice nuisance includes volume (no dedupe, no rate limit, so a flood
+  can delay other outbox mail: denial of service, which risk 21 already accepts), and the
+  notifications issue keeps at most one pending row per owner-notice kind.
+- Consequences: the bullet on the family carries #78's marker, which it lacked ("pair" became
+  "family" there in #78); no text changed.
