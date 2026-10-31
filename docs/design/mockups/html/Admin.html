@@ -62,7 +62,7 @@ a{color:#1F6F78}a:hover{color:#14535A}
           <a href="Findings.html" class="" aria-current="false">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-8h11L20 13 M4 13v6h16v-6 M4 13h5l1 2h4l1-2h5" class="ic"></path></svg>
             <span>Findings</span>
-            <span class="end count attn">3</span>
+            <span class="end count attn">2</span>
           </a>
         
       </div>
@@ -130,9 +130,9 @@ a{color:#1F6F78}a:hover{color:#14535A}
         <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Accounts</span><span class="num" style="font-size: 28px; font-weight: 600">4</span><span class="small muted">Household · invite only</span></div>
         <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Connections</span><span class="num" style="font-size: 28px; font-weight: 600">2 <span class="muted" style="font-size: 15px; font-weight: 500">healthy</span></span><span class="small row" style="gap: 6px"><span class="dot urgent"></span>1 needs reconnect</span></div>
         <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Job queue</span><span class="num" style="font-size: 28px; font-weight: 600">12 <span class="muted" style="font-size: 15px; font-weight: 500">queued</span></span><span class="small row" style="gap: 6px">2 running · <span class="dot attn"></span>1 dead-letter</span></div>
-        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Webhooks</span><span class="num" style="font-size: 28px; font-weight: 600">2 <span class="muted" style="font-size: 15px; font-weight: 500">min ago</span></span><span class="small muted">Delivery age p95 48 s</span></div>
-        <div class="card stack" style="gap: 6px; padding: 16px"><span class="eyebrow">Withings API budget</span><span class="num" style="font-size: 28px; font-weight: 600">23 <span class="muted" style="font-size: 15px; font-weight: 500">of 100 / min</span></span><div class="bar"><span style="width: 23%"></span></div><span class="small muted">Rate-limit refusals today: 0</span></div>
+        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Second factor</span><span class="num" style="font-size: 28px; font-weight: 600">3 <span class="muted" style="font-size: 15px; font-weight: 500">of 4 set up</span></span><span class="small row" style="gap: 6px"><span class="dot attn"></span>1 setup pending</span></div>
       </div>
+      <p class="small muted">Webhook delivery, sync freshness and the Withings API budget are server metrics in Prometheus, not part of the admin area.</p>
 
       <section class="stack" style="gap: 12px" aria-labelledby="ad-accounts">
         <div class="between"><h2 id="ad-accounts">Accounts</h2><button class="btn primary" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Invite someone…</button></div>
@@ -140,8 +140,8 @@ a{color:#1F6F78}a:hover{color:#14535A}
           <table class="tbl">
             <thead><tr><th>Account</th><th>Role</th><th>Second factor</th><th>Withings</th><th>Last sign-in</th><th class="r">Sessions</th><th><span class="sr">Actions</span></th></tr></thead>
             <tbody>
-              <tr><td>alex@example.org</td><td>Admin</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Healthy</span></td><td class="num">Today 07:30</td><td class="r">3</td><td><button class="btn" type="button">Sign out all…</button></td></tr>
-              <tr><td>sam@example.org</td><td>User</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state urgent" style="min-height: 22px; font-size: 12px">Needs reconnect</span></td><td class="num">29 Oct</td><td class="r">1</td><td><button class="btn" type="button">Sign out all…</button></td></tr>
+              <tr><td>alex@example.org</td><td>Admin</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Healthy</span></td><td class="num">Today 07:30</td><td class="r">3</td><td><button class="btn" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Sign out all…</button></td></tr>
+              <tr><td>sam@example.org</td><td>User</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state urgent" style="min-height: 22px; font-size: 12px">Needs reconnect</span></td><td class="num">29 Oct</td><td class="r">1</td><td><button class="btn" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Sign out all…</button></td></tr>
               <tr><td>kim@example.org</td><td>User</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state off" style="min-height: 22px; font-size: 12px">Not connected</span></td><td class="num">14 Oct</td><td class="r">0</td><td></td></tr>
               <tr><td>robin@example.org</td><td>User</td><td><span class="state attn" style="min-height: 22px; font-size: 12px">Setup pending</span></td><td><span class="state off" style="min-height: 22px; font-size: 12px">Not connected</span></td><td class="muted">Never</td><td class="r">0</td><td></td></tr>
             </tbody>
@@ -155,17 +155,17 @@ a{color:#1F6F78}a:hover{color:#14535A}
           <h2 id="ad-jobs">Jobs</h2>
           <div class="tbl-wrap">
             <table class="tbl">
-              <thead><tr><th>Kind</th><th class="r">Queued</th><th class="r">Running</th><th class="r">Retrying</th><th class="r">Dead-letter</th></tr></thead>
+              <thead><tr><th>State</th><th class="r">Jobs</th></tr></thead>
               <tbody>
-                <tr><td class="mono">withings_sync</td><td class="r">4</td><td class="r">1</td><td class="r">0</td><td class="r">0</td></tr>
-                <tr><td class="mono">withings_backfill</td><td class="r">6</td><td class="r">1</td><td class="r">0</td><td class="r">0</td></tr>
-                <tr><td class="mono">ecg_fetch</td><td class="r">2</td><td class="r">0</td><td class="r">1</td><td class="r" style="color: var(--attn); font-weight: 600">1</td></tr>
-                <tr><td class="mono">withings_reconcile</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td></tr>
-                <tr><td class="mono">analysis</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td></tr>
+                <tr><td class="mono">queued</td><td class="r">12</td></tr>
+                <tr><td class="mono">running</td><td class="r">2</td></tr>
+                <tr><td class="mono">failed</td><td class="r">0</td></tr>
+                <tr><td class="mono">cancelled</td><td class="r">0</td></tr>
+                <tr><td class="mono">dead_letter</td><td class="r" style="color: var(--attn); font-weight: 600">1</td></tr>
               </tbody>
             </table>
           </div>
-          <p class="small muted">Counts only, no ids or owners. A dead-lettered job is replayed on the server with <span class="mono">ownvitals jobs replay</span>, and the replay is audited.</p>
+          <p class="small muted">Counts per state only: no ids, kinds, owners or job input. A dead-lettered job is replayed on the server with <span class="mono">ownvitals jobs replay</span>, and the replay is audited.</p>
         </section>
 
         <section class="stack" style="gap: 12px" aria-labelledby="ad-app">
@@ -174,12 +174,9 @@ a{color:#1F6F78}a:hover{color:#14535A}
             <dl class="kv">
               <dt>App</dt><dd>ownvitals · client <span class="mono">…a91f</span></dd>
               <dt>API</dt><dd class="mono">wbsapi.withings.net</dd>
-              <dt>Mode</dt><dd>Standard, not restricted (HTTPS on 443)</dd>
-              <dt>Webhook secrets</dt><dd><span class="mono">ws-07</span> since 1 Sep, retires 14 Nov · <span class="mono">ws-08</span> since 31 Oct</dd>
-              <dt>Re-pointing</dt><dd>9 of 12 subscriptions on <span class="mono">ws-08</span></dd>
             </dl>
           </div>
-          <p class="small muted">Read-only here. The app's configuration and secrets change only from the operator command line.</p>
+          <p class="small muted">Read-only, and only the non-secret columns: the client secret and the webhook secrets are never shown here. The configuration changes only from the operator command line.</p>
         </section>
       </div>
 

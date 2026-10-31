@@ -32,6 +32,8 @@ you never fix.
      IMPLEMENTED;
    - CI is green (`gh pr checks <n>`) and no test, lint, guard or check was weakened or skipped;
    - nothing outside the stated scope changed.
+   - for a UI change: the result matches the mock-ups in `docs/design/mockups/` (compare
+     with the screenshots in `png/`), and nothing is invented beside them (AGENTS.md "UI design").
 5. Classify each finding as **blocking** (must be fixed before merge) or **non-blocking**.
 6. Record the verdict as one PR comment (`gh pr comment <n> --body-file …`) starting exactly:
    `Agent review (<model>): PASS <head SHA>` or `Agent review (<model>): FAIL <head SHA>`
