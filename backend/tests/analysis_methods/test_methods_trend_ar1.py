@@ -4,9 +4,10 @@ Checked three ways: hand-computed values of the factor and of the coefficient, p
 correction only ever inflates, ignores the scale of the values, is not moved by an outlier), and
 seeded simulations of the rate at which a series with no trend at all is called a trend. The
 simulations are the acceptance test of issue #68: at alpha = 0.05 the rate of AR(1) series with
-phi 0.3 and 0.6 must stay within alpha plus three binomial standard errors at the lengths the
-minimum-data policy lets through (8 days, the smallest, up to a year of daily values). The
-rates they pin are tabulated, with a larger run, in ``docs/dev/analysis-methods.md``.
+phi 0.3 and 0.6 must stay within alpha plus three binomial standard errors of the runs made, at
+the lengths the minimum-data policy lets through (8 days, the smallest, up to a year of daily
+values). The rates are tabulated, from 40,000 series per cell, in ``docs/dev/analysis-methods.md``:
+at phi 0.6 and fewer than 20 points the true rate is about 6 %, not 5 %.
 """
 
 import math
@@ -195,6 +196,17 @@ def test_plain_p_value_is_that_of_the_none_correction() -> None:
 # (n, phi, runs). 8 is the smallest number of days with data the default trend policy accepts and
 # a year of daily values the longest window. The runs are fewer where a call is slow: the bound
 # below uses the standard error of the runs that were made.
+#
+# The bound is alpha plus three standard errors of that number of runs (7.07 % at 1000), not a
+# claim about the true rate. docs/dev/analysis-methods.md has the true rates from 40,000 series
+# per cell: phi 0.3 is 3.1 to 3.9 % at 8 to 20 points, but phi 0.6 is 5.9 % at 8 and 15 points
+# and up to 6.4 % at 10 and 12 (4.3 to 4.8 % from 60 points on). That is about one point above
+# alpha, and the bound shrinks as the runs grow: for these two cells (8 and 15 points, phi 0.6)
+# it holds with a margin of about one point at 1000 runs (the seeded runs give 6.4 % and 5.4 %),
+# so they guard against a regression of the margin, and must not be given more than about 2000
+# runs without a new look at the bound. It is not loosened to describe the larger run. If this
+# cell fails after a numpy upgrade, re-seed and re-check every cell against alpha + 3 SE; never
+# widen the bound.
 CELLS = [
     (8, 0.3, RUNS),
     (8, 0.6, RUNS),
@@ -224,7 +236,8 @@ def test_autocorrelated_series_are_flagged_within_alpha_plus_three_standard_erro
 
 
 def test_the_correction_is_needed_and_enough_at_the_length_of_the_baseline() -> None:
-    # n = 100, phi 0.3: plain 13-14 %, Hamed-Rao 8-9.5 %, here about 4-5 %: the documented table
+    # n = 100, phi 0.3: plain 14.3 %, Hamed-Rao 9.2 %, here 4.3 %: the documented table (40,000
+    # series)
     plain_p, corrected_p = plain_and_ar1_p_values(100, 0.3, 500, SEED)
     assert float(np.mean(plain_p < ALPHA)) > 2.0 * ALPHA
     assert 0.02 <= float(np.mean(corrected_p < ALPHA)) <= ALPHA + binomial_slack(ALPHA, 500)
@@ -246,9 +259,10 @@ def power(n: int, drift: float, runs: int, seed: int) -> tuple[float, float]:
 
 def test_with_independent_noise_the_correction_costs_little_power_at_the_usual_length() -> None:
     # the independent-noise behaviour of #38 within a tolerance: a trend of 1.6 standard
-    # deviations over 60 points is found by plain Mann-Kendall in about 93 % of the series and
-    # by the corrected test in about 89 %. (At 20 points the margin that holds the level at
-    # phi 0.6 costs more: about 86 % against 67 %, see docs/dev/analysis-methods.md.)
+    # deviations over 60 points is found by plain Mann-Kendall in 92.9 % of the series and by the
+    # corrected test in 88.8 %. (At 20 points the margin that holds the level at phi 0.6 costs
+    # more: a trend of 2.5 standard deviations is found in 85.0 % against 65.5 %. Both are from the
+    # one run of 40,000 series per cell in docs/dev/analysis-methods.md.)
     plain, corrected = power(60, 1.6, 600, SEED)
     assert plain > 0.85
     assert corrected >= 0.9 * plain
