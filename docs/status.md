@@ -9,13 +9,13 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #45 (#48), #49 (#58), #52 (#64), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55) in a fix round after its second FAIL; #8 (#82) in a fix round after its first FAIL; #9 in progress; #77 and #89 wait for #8 (and #77 for #6 and #9); #42 and #57 wait for the `ci.yml` lock (held by #9) | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #9 (#96), #45 (#48), #49 (#58), #52 (#64), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55) in review after its second fix round; #8 (#82) renumbering its migration after its first fix round; #42 in progress (the `ci.yml` lock); #77 and #89 wait for #8 (and #77 for #6); #57 and #101 wait for locks | — |
 | M1 | Withings core | #19 (#63) and #66 (#71) merged; backlog #18, #20–#30, #36 (dependency graph below) | — |
-| M2 | Home deploy (early) | #84 (the forced-command deploy script, pulled forward) in progress; the rest are mostly owner actions (see "Blocked on the owner") | — |
+| M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward): an Architect change (no downgrade) before its review; the rest are mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
-| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74) and #68 (#87) merged; #76 (#94) in review; #95 ready | — |
-| M5 | ECG & nerve health | ADR 0006 (#46) merged; #40 and #88 (ADR follow-ups) in progress; #47 waits for #40, #21 and #25 | — |
-| M6 | MVP UI | not started; the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91) | — |
+| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74), #68 (#87) and #76 (#94) merged; #95 in progress; #99 (#102) in review | — |
+| M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 in progress (it carries an ADR 0006 amendment for five unreachable assertions); #47 waits for #40, #21 and #25 | — |
+| M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (shell, tokens, theme, fonts and primitives; pulled forward) in progress | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
 
@@ -23,18 +23,19 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #6 | Egress allowlist and mail | Opus | #55 | second FAIL (`efae7bb`); root cause changed: network capability derived from the locked environment and one reviewed table; fix round |
-| #8 | Envelope encryption and KEK ring | Opus | #82 | first FAIL (`5679e7d`: a retired KEK could seal; no test pinned a new data key per write); fix round |
-| #9 | Job queue, leases, fencing and worker | Opus | — | in progress |
-| #76 | Purity guard and policy follow-ups from the #74 review | Sonnet | #94 | in review |
-| #84 | Forced-command deploy script (M2, pulled forward) | Opus | — | in progress |
-| #40 | ECG signal-processing core | Sonnet | — | in progress |
-| #88 | ADR follow-ups from the #46 and #83 reviews | Sonnet | — | in progress |
-| #90 | Status after the #46, #81, #83, #86, #87 and #92 merges (this update) | Architect | #93 | fix round after FAIL `2c2ccb5` |
+| #6 | Egress allowlist and mail | Opus | #55 | second fix round pushed (`3f1b007`, updated from `main`); fresh Opus delta review |
+| #8 | Envelope encryption and KEK ring | Opus | #82 | first fix round done (`59a6ed1`); renumbering its migration to `0004` after #96, then a fresh Opus delta review |
+| #84 | Forced-command deploy script (M2, pulled forward) | Opus | #100 | the Architect's no-downgrade change, then an Opus review |
+| #40 | ECG signal-processing core | Sonnet | — | in progress; five unreachable assertions decided (an ADR 0006 amendment in its PR, Opus review) |
+| #42 | CI dependency audits | Sonnet | — | in progress |
+| #95 | Calibration and test follow-ups from the #87 review | Sonnet | — | in progress |
+| #98 | App shell, tokens, theme, Plex fonts and design primitives (M6) | Sonnet | — | in progress |
+| #99 | Purity guard follow-ups from the #94 review | Sonnet | #102 | in review |
+| #103 | Status after the #94, #96 and #97 merges (this update) | Architect | this PR | in review |
 
-Ready, waiting for a free slot: #95 (Sonnet). At most five Developers work on
-issues at once; a fix round on an open PR may run while five are busy, and no new issue starts
-until fewer than five are.
+Ready, waiting for a free slot: none (#57 and #101 wait for the `ci.yml` and `compose.yaml`
+locks). At most five Developers work on issues at once; a fix round on an open PR may run while
+five are busy, and no new issue starts until fewer than five are.
 
 ## M0 dependency graph
 
@@ -55,7 +56,7 @@ until fewer than five are.
 | #14 | E2E harness, auth flows, image scan | Sonnet | #3, #11 | 6 |
 | #15 | RLS tests in every execution context | Opus | #9, #12, #13 | 7 |
 | #16 | Threat-model update, M0 acceptance | Opus | #4, #14, #15 | 8 |
-| #42 | CI dependency audits (pip-audit, npm audit, Trivy repo scan); remove the skip steps | Sonnet | #2, #3; the `ci.yml` lock (#9) | 2 |
+| #42 | CI dependency audits (pip-audit, npm audit, Trivy repo scan); remove the skip steps | Sonnet | #2, #3; the `ci.yml` lock (released by #96) | 2 |
 | #49 | ADR follow-ups from the #41 review (webhook-secret lifecycle, re-pointing, definer-function role, partitions for past months) | Opus | #41 | 2 |
 | #52 | Frontend test follow-ups from the #48 review (guard `afterEach`, template URLs) | Sonnet | #45 | 3 |
 | #57 | Release follow-ups from the #53 review (deploy recipe, guard tests in CI, version check, Dependabot cooldown and titles, base-image digests) | Opus | #7; the `ci.yml` (#9, then #42) and `Dockerfile` locks | 3 |
@@ -64,6 +65,7 @@ until fewer than five are.
 | #77 | Wiring after #8, #9 and #6: worker allowlist and KEK ring, guard 2 learns the queue grantee, web's queue check, `transaction_timeout` on runtime roles | Opus | #6, #8, #9, #75 | 4 |
 | #78 | ADR follow-ups from the #73 review; the `transaction_timeout` decision | Opus | #72 | 4 |
 | #89 | Role-check and guard 5 follow-ups from the #81 review (flag 8 pinned, a refused login fails closed, guard 5 hardening) | Opus | #75, #8 | 4 |
+| #101 | `db-functions` follow-ups from the #96 review (escaping test, exact volumes, digest pin, shellcheck of `docker/postgres`) | Opus | #9; the `compose.yaml` and `ci.yml` locks | 5 |
 
 ## M1 dependency graph
 
@@ -89,7 +91,8 @@ until fewer than five are.
 
 Pure libraries with synthetic-data tests; no database, I/O or Withings imports (purity guard in
 #37). Wiring into `observations`, `metric_daily`, findings and jobs stays in their milestones.
-Two rows are not libraries: #84 is M2's deploy script and #88 amends ADRs.
+Some rows are not libraries: #39 and #88 are ADR work, #84 is M2's deploy script and #98 is
+M6's frontend shell.
 
 | Issue | What | Owner model | Depends on |
 |---|---|---|---|
@@ -100,6 +103,8 @@ Two rows are not libraries: #84 is M2's deploy script and #88 amends ADRs.
 | #56 | Analysis follow-ups from the #54 review (purity-guard gaps, nerve baseline span) | Sonnet | #37; after #38 merges (both touch `test_analysis_purity.py` and `policy.py` semantics) |
 | #68 | Autocorrelation-robust trend test and change points (follow-up from #38; before trend or change-point findings go live) | Sonnet | #38 |
 | #95 | Calibration and test follow-ups from the #87 review | Sonnet | #68 |
+| #99 | Purity guard follow-ups from the #94 review | Sonnet | #76 |
+| #98 | M6 app shell, tokens, theme, Plex fonts and design primitives | Sonnet | #3, #85 |
 | #76 | Purity guard and policy follow-ups from the #74 review | Sonnet | #56 |
 | #84 | M2 forced-command deploy script, the release trust boundary (installing it is the owner's) | Opus | #7 |
 | #88 | ADR follow-ups from the #46 and #83 reviews (ADR 0006 amendment; ADRs 0002, 0004, 0005, 0007 and the threat model) | Sonnet (Opus reviewer) | #46, #83 |
@@ -114,11 +119,16 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-31 | ECG (**#40 is open**; Architect decisions on five assertions the specified algorithms can't meet, carried by an ADR 0006 amendment in #40's PR): the generator scales each beat's event amplitudes by ω_k/ω̄, so R amplitude doesn't follow RR; the premature interval is max(60–70 % of the sinus interval, 250 ms); the gate-pass target for white noise at 12 dB is ≥ 85 % below 50 bpm; downstream beats are confirmed beats (a Pan–Tompkins detection matched by Elgendi within ± 50 ms; unmatched ones are dropped and their intervals deleted as `unconfirmed_beat`); the 20 % rule holds except within ± 0.5 % of its limit. An accepted strip's floors and HR/HRV tolerances are never loosened: it meets them or its HRV is null | #40 |
+| 2026-10-31 | Deploy (**#100 is open**): `deploy` refuses a SemVer lower than the recorded current tag, and the same version with another digest; `rollback` (one step, through every check) is the only way back; pre-release tags are refused, as in `release.yml`; the script lives in `deploy/`; the state is recorded after migrations and before `up -d` | #84 (#100) |
+| 2026-10-31 | Owner notices (#97): the owner-notice write takes only a `kind`; its route comes from a fixed per-kind mapping inside the definer function, and the notifications issue keeps at most one pending row per kind (bounds the backlog, not the send rate). Owned outbox rows still hold a route key from the fixed list | ADR 0007 (#97) |
+| 2026-10-31 | Job queue (#96): classbeat's `expire` step is dropped (it served approvals), so the reaper is the only maintenance step; the advisory-lock registry in `queue_locks.py` is tested against ADR 0005 §9's table; until #77, guard 2 can't see the queue, web doesn't refuse a drifted queue, and the worker loads neither the allowlist nor the key ring, each seam failing closed and pinned by a test | #9 (#96), #77 |
+| 2026-10-31 | Purity guard (#94): `ownvitals.config`, `admin`, `flags`, `cli`, `log`, `headers`, `auth`, `context` and `connections`, `sqlalchemy`, `psycopg` and `requests` are forbidden in `ownvitals.analysis` and `ownvitals.ecg`; the identifiers and strings `patch`, `compile`, `exec`, `eval`, `import_module`, `__import__`, `run_module`, `run_path` and `resolve_name` are refused there | #76 (#94), #99 |
 | 2026-10-31 | Analysis methods (#87): Theil–Sen with an AR(1) variance correction for the trend test (`trend/2`) and PELT with a long-run noise scale from a robust variogram (`changepoint/2`). The power lost on short series is accepted. At φ 0.6 and fewer than 20 points the false-trend rate is about 6 % (5.8–6.4 % on 42,000 series per cell), not 5 %, so the M4 findings issue treats such trends as low-confidence; #95 restates the documented rates. `shift_sigmas` is in long-run noise units, and φ above 0.7 reads as level changes | #68 (#87), #95 |
-| 2026-10-31 | ECG, Architect decisions on the #46 review (**#88 is open**: ADR 0006 as merged still says ± 6.5 ms and doesn't carry these until #88 merges): the noisy RMSSD tolerance at 60–99 bpm widens from ± 6.5 to ± 7.0 ms (the 20 % margin rule, applied as for clean 60–99 bpm); every listed recording gets an `estimated`, and one stored with `signal` NULL gets `signal_missing` (no gate result), so a hold on it ends at once; A9 stays open until the M6/M7 hold records its end reasons, and OC5 reports its late-link count as not applicable until then; the M4 wiring carries the groups the value came from (the morning group, or the readings the median used), not the day's fingerprint inputs | #88 |
-| 2026-10-31 | `transaction_timeout` (#83): a 5-minute role default on `ownvitals_app` (#77) and `ownvitals_maint` (#12). It bounds role-default transactions only: a session can set it to 0, and a session-level lock 4 outlives it. The #83 reviewer saw it end the whole connection, not just the transaction; **#88 is open** and adds that to ADR 0002 §5 | ADR 0002 §5, #77, #12, #88 |
+| 2026-10-31 | ECG, Architect decisions on the #46 review (ADR 0006 as amended by #88, merged in #97): the noisy RMSSD tolerance at 60–99 bpm widens from ± 6.5 to ± 7.0 ms (the 20 % margin rule, applied as for clean 60–99 bpm); every listed recording gets an `estimated`, and one stored with `signal` NULL gets `signal_missing` (no gate result), so a hold on it ends at once; A9 stays open until the M6/M7 hold records its end reasons, and OC5 reports its late-link count as not applicable until then; the M4 wiring carries the groups the value came from (the morning group, or the readings the median used), not the day's fingerprint inputs | #88 (#97) |
+| 2026-10-31 | `transaction_timeout` (#83): a 5-minute role default on `ownvitals_app` (#77) and `ownvitals_maint` (#12). It bounds role-default transactions only: a session can set it to 0, and a session-level lock 4 outlives it. It ends the whole connection, not just the transaction (ADR 0002 §5 as amended by #88) | ADR 0002 §5, #77, #12, #88 (#97) |
 | 2026-10-31 | Role check (#81): it judges the login role (`session_user`), not `current_user`; a login that Postgres refuses (SQLSTATE class 28 or 42501) will fail closed with `DatabaseRoleError` instead of reading as "database unreachable" | #75, #89 |
-| 2026-10-31 | Compose (**#9 is open**): the one-shot `db-functions` holds the superuser's password, read into a `PGPASSFILE` on a tmpfs at run time (never an environment variable, argument or URL), because it owns the `SECURITY DEFINER` functions and runs the functions script on every deploy; web and the worker wait for it with `service_completed_successfully` | #9 (Architect comment of 2026-10-31) |
+| 2026-10-31 | Compose (#9, merged in #96): the one-shot `db-functions` holds the superuser's password, read into a `PGPASSFILE` on a tmpfs at run time (never an environment variable, argument or URL), because it owns the `SECURITY DEFINER` functions and runs the functions script on every deploy; web and the worker wait for it with `service_completed_successfully` | #9 (Architect comment of 2026-10-31) |
 | 2026-10-31 | Owner: the UI design is "Quiet instrument", exactly as in the mock-ups in `docs/design/mockups/` (IBM Plex self-hosted, the health score shown with its components, range bars on the phone, a System/Light/Dark theme setting). The mock-ups bind every UI change; gaps go to the Architect, design changes to the owner | #85, `docs/design/README.md`, AGENTS.md "UI design" |
 | 2026-10-31 | numpy and scipy join #2's dependencies so #37, #38 and #40 don't need the `pyproject.toml` lock | #2 |
 | 2026-10-31 | Roadmap Amendment 2: partitioned owned tables keyed `(owner_id, id, partition key)`, never FK targets | roadmap, ADR 0002 |
@@ -159,9 +169,13 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
   tokens first. Point the UI parts of #10, #11 and #12 at the `Auth`, `Security` and `Admin`
   mock-ups.
 - The M6/M7 notifications issue (to create): at most one pending outbox row per owner-notice kind
-  (#83 finding 1), and the hold records how it ended as a reason code (ADR 0006 A9, OC5).
-- When #82 updates from `main`, a fresh Reviewer checks the merge: #81 changed
-  `db/role_check.py`, which web's startup calls, and #82 edits one `test_role_check.py` function.
+  (#83 finding 1) on the `kind`-only write with its per-kind route mapping, tested by its signature
+  and mapping (#97, N8), and the hold records how it ended as a reason code (ADR 0006 A9, OC5).
+- #82's next review (a fresh Opus delta) also covers its merges of `main`: #81 changed
+  `db/role_check.py`, which web's startup calls, and #96's migration `0003` makes #82 renumber.
+- After #100 merges: align threat model T62 ("an optional pre-release") with the deploy
+  script's refusal, and note `deploy/` in ADR 0001's layout; with them, the ADR 0007 wording N6
+  and N7 from the #97 review.
 - The M4 wiring issue (to create) reconciles `metric_daily` (morning, mean, min, max, n; PLAN §5)
   with #37's `DailyValue` (morning or median, min, max, MAD), and keys duplicates of segmental
   types 173–175 on `(grpid, position)`.
@@ -175,7 +189,7 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
   #22 and #29 and the closed-world network classification).
 - After #8 merges: record its decisions (web and worker refuse to start when the KEK check can't
   run, including on an unmigrated database; the seed and pepper ids are settings).
-- The M4 findings issue treats a trend on under 20 points with φ above 0.5 as low-confidence
+- The M4 wiring issue treats a trend on under 20 points with φ above 0.5 as low-confidence
   (#87), and labels `shift_sigmas` as long-run noise units or reports the shift in metric units.
 - The M4 wiring issue also carries a daily value's source groups as provenance (ADR 0006's
   trigger rule, #46) and uses `from_daily`, not `from_instants`, which counts UTC days.
@@ -187,28 +201,32 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `.github/workflows/ci.yml` | #9 (backend job); #42, then #57 |
+| `.github/workflows/ci.yml` | #42; then #57, then #101 |
 | `backend/src/ownvitals/config.py` | #8 |
-| `backend/pyproject.toml`, `backend/uv.lock` | — |
-| `backend/src/ownvitals/cli.py` | #9 |
-| `compose.yaml` | #9 |
+| `backend/pyproject.toml`, `backend/uv.lock` | #42 (the `audit` group) |
+| `backend/src/ownvitals/cli.py` | — |
+| `compose.yaml` | — (#101 next) |
 | `Dockerfile` | — (#57 next) |
-| `AGENTS.md` | — |
+| `AGENTS.md` | #42 (the CI table) |
 | `backend/src/ownvitals/web.py` | #8 |
 | `backend/src/ownvitals/db/engine.py` | — |
 | `backend/src/ownvitals/db/tables.py` | #8 |
 | `backend/tests/dbtools.py` | — |
 | `backend/tests/conftest.py`, `backend/tests/test_web.py` | #8 |
 | `backend/tests/role_guard.py`, `docker/postgres/init/10-roles.sql` | #8 |
-| `backend/tests/session_scan.py` | #9 (one `system_session` entry by #8) |
+| `backend/tests/session_scan.py` | — (#8 edits one `system_session` entry) |
 | `backend/src/ownvitals/db/role_check.py`, `backend/tests/user_context_scan.py`, `docs/dev/isolation.md` | — (#89 after #8, with `test_role_check*.py`, `test_user_context_writers.py` and the `db/engine.py` docstring; #8 edits one test function in `test_role_check.py`) |
-| `backend/tests/test_migrations.py` | #8 and #9 (head pin): the second to merge renumbers (the migration rule below) |
+| `backend/tests/test_migrations.py` | #8 (head pin; it renumbers to `0004` after #96) |
 | `docs/dev/backend.md` | #8 |
 | `backend/tests/test_config_milestone.py` | #8 |
-| `backend/tests/rls_guard.py`, `backend/tests/test_compose_roles.py` | #9 |
+| `backend/tests/rls_guard.py` | — |
+| `backend/tests/test_compose_roles.py` | — (#101 next) |
 | `scripts/ci-changes.sh` | #84 (one filter line) |
 | `scripts/test-ci-gate.sh` | #84 (its filter case); #42 coordinates if it changes the job lists in `scripts/ci-gate.sh` (the second to merge re-runs the gate tests) |
 | `docs/dev/stack.md` | — |
+| `scripts/ci-gate.sh`, `scripts/ci-uv-version.sh`, `.trivyignore` | #42 |
+| `frontend/package.json`, `frontend/package-lock.json` | #98 (the two font packages) |
+| `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/router/**`, `frontend/src/styles/**`, `frontend/src/components/**`, `docs/dev/frontend.md` | #98 |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
 migration merges first, it renumbers and re-chains on its update, which needs a fresh scoped
@@ -216,6 +234,10 @@ review.
 
 ## Completed
 
+- 2026-10-31: #88 ADR follow-ups merged as #97 (Opus delta PASS `0155ddc` after FAILs `80a0606` and `cfb5039`, merge check `eec8f60`).
+- 2026-10-31: #9 job queue, leases, fencing and the worker merged as #96 (Opus PASS `8fe99e3`, merge check `71ff8fb`) → IMPLEMENTED; its seams wait for #77.
+- 2026-10-31: #76 purity guard and policy follow-ups merged as #94 (Sonnet PASS `99f64f1`, merge check `50adba8`) → IMPLEMENTED.
+- 2026-10-31: #90 status merged as #93 (Sonnet delta PASS `9db9cce` after FAIL `2c2ccb5`).
 - 2026-10-31: #68 autocorrelation-robust trend test and change points merged as #87 (Sonnet PASS `0a246b5`, merge check `b015be7`) → IMPLEMENTED; not wired into findings until M4.
 - 2026-10-31: #91 design mock-ups aligned with the spec, merged as #92 (Sonnet PASS `05e6d57`).
 - 2026-10-31: #75 role-check follow-ups merged as #81 (Opus PASS `db494a2`, merge check `5681e0e`) → IMPLEMENTED.
