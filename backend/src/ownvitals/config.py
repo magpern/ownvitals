@@ -31,6 +31,26 @@ SECRET_FILE_FIELDS = (
     "smtp_password",
     "oauth_google_client_secret",
 )
+# The only libpq parameters a database URL may carry in its query string in prod (an allowlist,
+# compared exactly): verifying the server and labelling the connection. Everything else is
+# refused, among them ``password``, ``passfile`` and ``sslpassword`` (a password from somewhere
+# other than the secret file), ``conninfo`` and ``dsn`` (a whole second connection string,
+# password included), ``service`` (a service file picks host, user and password), ``options``
+# (``-c`` sets session settings, ``app.user_id`` among them) and ``host``/``hostaddr`` (the host
+# is the URL's own).
+PROD_QUERY_PARAMETERS = frozenset(
+    {
+        "application_name",
+        "channel_binding",
+        "require_auth",
+        "ssl_min_protocol_version",
+        "sslcrl",
+        "sslcrldir",
+        "sslmode",
+        "sslrootcert",
+        "sslsni",
+    }
+)
 # Hosts where unencrypted SMTP (``smtp_tls = none``) is allowed: loopback and the compose service.
 PLAIN_SMTP_HOSTS = frozenset({"localhost", "mailpit"})
 MIN_APP_SECRET_BYTES = 32
@@ -261,15 +281,25 @@ class Settings(BaseSettings):
         # The image defaults to prod, so a stack that forgets to say otherwise fails closed. In
         # prod a password embedded in a database URL (an environment variable, visible in
         # ``docker inspect`` and process listings) is refused: the passwords come from the
-        # secret files, and the URLs carry the user only. The message names the field, never
-        # the URL.
+        # secret files, and the URLs carry the user only. The query string may hold only the
+        # parameters of ``PROD_QUERY_PARAMETERS``. The message names the field, never the URL
+        # or the parameter (a mistyped key could be a password).
         if self.environment == "prod":
             for name in ("database_url", "migrations_database_url", "maint_database_url"):
                 url: SecretStr | None = getattr(self, name)
-                if url is not None and make_url(url.get_secret_value()).password is not None:
+                if url is None:
+                    continue
+                parsed = make_url(url.get_secret_value())
+                if parsed.password is not None:
                     raise ValueError(
                         f"{name} must not embed a password when environment is prod; "
                         "the password comes from its secret file"
+                    )
+                if not set(parsed.query) <= PROD_QUERY_PARAMETERS:
+                    raise ValueError(
+                        f"{name} may carry only these query parameters when environment is "
+                        f"prod: {', '.join(sorted(PROD_QUERY_PARAMETERS))}; the password comes "
+                        "from its secret file"
                     )
         return self
 

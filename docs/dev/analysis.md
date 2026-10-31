@@ -136,11 +136,21 @@ Pass `QualityResult.usable`; a repeated `grpid` is a `ValueError`. Per local day
 ## Data quality (`summarise`)
 
 For the window of `window_days` calendar days ending on `window_end` (both ends inclusive):
-`n_readings`, `n_days` (days with data), `coverage = n_days / window_days`, `span_days` (first to
-last day with data, **both counted**), `span_fraction = span_days / window_days`, `gaps` (runs of
-consecutive days without data of at least `min_gap_days`, default 3, including at the window's
-edges), `longest_gap_days` (over every run), `readings_per_week` and `median_days_between`.
-Ratios are exact `Fraction`s; `as_dict()` gives a JSON-safe form for `findings.data_quality`.
+`n_readings`, `n_days` (days with data), `coverage = n_days / window_days`, `span_days`,
+`span_fraction = span_days / window_days`, `gaps` (runs of consecutive days without data of at
+least `min_gap_days`, default 3, including at the window's edges), `longest_gap_days` (over every
+run), `readings_per_week` and `median_days_between`. Ratios are exact `Fraction`s; `as_dict()`
+gives a JSON-safe form for `findings.data_quality`.
+
+**A span is days elapsed.** `span_days = (last_day - first_day).days`: data on 1 June and 29 June
+is a span of 28 days (four weeks), and one day with data is a span of 0. "28 days" in a
+requirement therefore means 28 days elapsed, never 27 (until `dataquality/2` the span counted both
+end days, so 27 days elapsed passed as 28). Every span in the module follows this: the
+`min_span_days` thresholds, and `span_fraction`, which is days elapsed over the window's length in
+days (`window_days`), so a window can never be spanned completely: first to last day of a 30-day
+window is 29 days, a fraction of 29/30. Counts of calendar days are not spans and stay counts: the
+window (`window_days`), a gap (`Gap.days`, two missing days are a gap of 2) and
+`longest_gap_days`.
 
 ## Minimum-data policy (`policy.py`)
 
@@ -148,9 +158,15 @@ Declarative, per metric and purpose. A "point" is a day with data. Every thresho
 
 | Requirement | Days with data | Span | Where |
 |---|---|---|---|
-| trend (default) | at least 8 | at least 60 % of the window (`span_days / window_days >= 3/5`, exact) | PLAN §7.1 step 4 |
-| baseline (default) | at least 10 | at least 21 days | PLAN §7.1 step 4 |
-| trend, nerve metrics (`nerve_health_score`, `nerve_response_score`, `esc`) | at least 4 | at least 28 days | N1, PLAN §7.2 |
+| trend (default) | at least 8 | at least 60 % of the window (`span_days / window_days >= 3/5`, exact: 18 days elapsed in a 30-day window) | PLAN §7.1 step 4 |
+| baseline (default) | at least 10 | at least 21 days elapsed | PLAN §7.1 step 4 |
+| trend, nerve metrics (`nerve_health_score`, `nerve_response_score`, `esc`) | at least 4 | at least 28 days elapsed | N1, PLAN §7.2 |
+| baseline, nerve metrics (same three) | at least 10 | at least 28 days elapsed | derived from N1 (below) |
+
+The nerve baseline has its own requirement (`NERVE_BASELINE`) so that it is never easier to meet
+than N1: with the default baseline's 21 days, ten measures over three weeks would give a
+sufficient baseline while the trend still says "insufficient data". A test checks, over a grid of
+days with data and spans, that a nerve baseline is never sufficient while N1 is not.
 
 Below a requirement the result is `InsufficientData` (`requirement`, `shortfalls`, `n`,
 `coverage`, the whole `data_quality`); at or above it, `Sufficient` with the same
@@ -159,7 +175,7 @@ Below a requirement the result is `InsufficientData` (`requirement`, `shortfalls
 
 ## Provenance: `ALGO_VERSION`
 
-Each module has an `ALGO_VERSION` (`quality/1`, `daily/1`, `dataquality/1`, `policy/1`) and
+Each module has an `ALGO_VERSION` (`quality/1`, `daily/1`, `dataquality/2`, `policy/2`) and
 every result carries it (PLAN §5: derived rows store `algo_version`). **Bump the module's number
 whenever its behaviour changes** (a threshold, a window, a rule, the canonical order), in the same
 change as the tests; derived rows computed with the old number then show as stale.
@@ -174,19 +190,33 @@ duplicates, and returns what it planted (`truth`). Named tests cover the morning
 edges), the median fallback, DST (spring forward, fall back, the repeated hour, a 30-minute
 change), crossing midnight (to the microsecond, in seven zones), travel, and the day assignment
 against exact integer arithmetic. Each policy threshold is tested at, just below and just above its
-boundary.
+boundary, in days elapsed: some of those tests build the days with explicit dates, not with the
+`spread_days` helper, so a helper and a rule cannot be wrong in the same way.
 
 ## Purity guard
 
-`tests/test_analysis_purity.py` fails when `ownvitals.analysis` or `ownvitals.ecg` (once it
-exists) imports `ownvitals.db`, `ownvitals.web`, `ownvitals.withings`, `ownvitals.jobs`,
-`ownvitals.egress` or `httpx`:
+`tests/test_analysis_purity.py` fails when `ownvitals.analysis` (the `methods/` subpackage
+included) or `ownvitals.ecg` (once it exists) imports `ownvitals.db`, `ownvitals.web`,
+`ownvitals.withings`, `ownvitals.jobs`, `ownvitals.egress` or `httpx`:
 
 - **static**: every import in the package's source is read from the syntax tree (absolute and
   relative imports, `from ownvitals import db`, `import ownvitals` then `ownvitals.db`,
-  `importlib.import_module` and `__import__`; an import with a non-literal target also counts);
+  `importlib.import_module` and `__import__`). The scanner fails closed, so it also reports:
+  - an import call whose target is not a string literal, or starts with `.` (a relative target
+    such as `'.db'` or `'..db'` is resolved against a package the scanner cannot see);
+  - an import call with a second positional argument, `package=`, `level=` or `**kwargs`;
+  - an import call whose `fromlist` names a forbidden module (`__import__('ownvitals',
+    fromlist=['db'])`) or is not a literal;
+  - any use of `exec`, `eval` or `compile` (also as `builtins.exec`), which can run an import
+    that no syntax tree shows (`re.compile` is not the builtin and is fine);
+  - `import_module` or `__import__` used as a value or under another name
+    (`from importlib import import_module as load`, `load = importlib.import_module`);
 - **dynamic**: importing every module in a clean interpreter must not load any forbidden module,
   which also catches an indirect import;
-- the scanner is tested by planting each form of forbidden import into a copy of the package.
+- the scanner is tested by planting each of those forms into a copy of the package, once in
+  `quality.py` and once in `methods/trend.py`, and the report must name the rule that catches it;
+- **no silent skip**: a guarded name is skipped only while neither `ownvitals/<name>/` nor
+  `ownvitals/<name>.py` exists. If `ecg/` exists its checks run; if `ecg.py` exists the guard
+  **fails**, because the ECG core (#40) must be a package that the scan can walk.
 
 To widen the list, edit `FORBIDDEN` there; to guard a new pure package, add it to `GUARDED`.
