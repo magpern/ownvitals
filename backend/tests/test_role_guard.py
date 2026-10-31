@@ -121,6 +121,36 @@ def admin_problems(database_url: str, *statements: str, undo: tuple[str, ...] = 
             "role settings must be exactly",
         ),
         (
+            ["ALTER DATABASE {db} SET app.user_id = '00000000-0000-4000-8000-000000000001'"],
+            ["ALTER DATABASE {db} RESET app.user_id"],
+            "default for an app.* setting",
+        ),
+        (
+            ["ALTER ROLE ALL SET app.user_id = '00000000-0000-4000-8000-000000000001'"],
+            ["ALTER ROLE ALL RESET app.user_id"],
+            "default for an app.* setting",
+        ),
+        (
+            ["ALTER ROLE ALL IN DATABASE {db} SET \"App.Note\" = 'x'"],
+            ['ALTER ROLE ALL IN DATABASE {db} RESET "App.Note"'],
+            "default for an app.* setting",
+        ),
+        (
+            ["ALTER ROLE ownvitals_owner SET app.user_id = '00000000-0000-4000-8000-000000000001'"],
+            ["ALTER ROLE ownvitals_owner RESET app.user_id"],
+            "default for an app.* setting",
+        ),
+        (
+            ["ALTER ROLE ownvitals_app REPLICATION"],
+            ["ALTER ROLE ownvitals_app NOREPLICATION"],
+            "must not have rolreplication",
+        ),
+        (
+            ["GRANT ownvitals_owner TO ownvitals_app WITH INHERIT FALSE, SET FALSE"],
+            ["REVOKE ownvitals_owner FROM ownvitals_app"],
+            "must be a member of no role",
+        ),
+        (
             ["GRANT CONNECT ON DATABASE postgres TO PUBLIC"],
             ["REVOKE CONNECT ON DATABASE postgres FROM PUBLIC"],
             "must not connect to",

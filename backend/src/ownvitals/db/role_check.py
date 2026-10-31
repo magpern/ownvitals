@@ -15,29 +15,42 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
 
-# One row of booleans for the connected role. Memberships are followed transitively, because a
-# member of a BYPASSRLS or superuser role can SET ROLE to it.
+# One row for the connected role: the flags of ``PROBLEMS``, then the role's own settings.
+#
+# ``roles`` is the role itself and every role it is a member of, directly or indirectly, with or
+# without INHERIT or SET (``pg_has_role(..., 'MEMBER')`` ignores both options). A member of a role
+# can use that role's rights: through INHERIT, or by SET ROLE. A member of the role that owns the
+# tables can then disable their row security, and a member of ``pg_read_all_data`` ignores every
+# grant. So **any** membership is refused (flag 4; ADR 0002 section 5: "member of no role"), and
+# the attribute and ownership flags are evaluated over ``roles`` as well, so each report names
+# what the membership would give. No membership is allowed: the roles script grants none.
+#
+# The last flag refuses a default for any ``app.*`` setting (``app.user_id`` is the RLS user) on
+# the role itself (any database), on the database (``ALTER DATABASE ... SET``) or on every role
+# (``ALTER ROLE ALL [IN DATABASE ...] SET``): such a default would start every session as a user.
+# Postgres keeps the name as written and compares it case-insensitively, hence ``lower``.
 ROLE_QUERY = """
-WITH RECURSIVE me AS (
+WITH me AS (
     SELECT oid FROM pg_roles WHERE rolname = current_user
-), reachable AS (
-    SELECT oid FROM me
-    UNION
-    SELECT am.roleid FROM pg_auth_members am JOIN reachable r ON am.member = r.oid
+), roles AS (
+    SELECT r.oid, r.rolsuper, r.rolbypassrls, r.rolreplication FROM pg_roles r
+    WHERE r.oid = (SELECT oid FROM me) OR pg_has_role((SELECT oid FROM me), r.oid, 'MEMBER')
 )
 SELECT
-    EXISTS (SELECT 1 FROM pg_roles x WHERE x.oid = (SELECT oid FROM me) AND x.rolsuper),
-    EXISTS (SELECT 1 FROM pg_roles x WHERE x.oid = (SELECT oid FROM me) AND x.rolbypassrls),
-    EXISTS (SELECT 1 FROM pg_roles x JOIN reachable r ON r.oid = x.oid
-             WHERE x.oid <> (SELECT oid FROM me) AND (x.rolsuper OR x.rolbypassrls)),
-    EXISTS (SELECT 1 FROM pg_class c WHERE c.relowner = (SELECT oid FROM me)
-             AND c.relkind IN ('r', 'p', 'f', 'm', 'v')),
-    EXISTS (SELECT 1 FROM pg_database d WHERE d.datname = current_database()
-             AND d.datdba = (SELECT oid FROM me)),
-    EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspowner = (SELECT oid FROM me)),
-    EXISTS (SELECT 1 FROM pg_roles x JOIN reachable r ON r.oid = x.oid
-             WHERE x.rolname IN ('pg_execute_server_program', 'pg_read_server_files',
-                                 'pg_write_server_files')),
+    EXISTS (SELECT 1 FROM roles WHERE rolsuper),
+    EXISTS (SELECT 1 FROM roles WHERE rolbypassrls),
+    EXISTS (SELECT 1 FROM roles WHERE rolreplication),
+    EXISTS (SELECT 1 FROM roles WHERE oid <> (SELECT oid FROM me)),
+    EXISTS (SELECT 1 FROM pg_class c JOIN roles r ON r.oid = c.relowner
+             WHERE c.relkind IN ('r', 'p', 'f', 'm', 'v')),
+    EXISTS (SELECT 1 FROM pg_database d JOIN roles r ON r.oid = d.datdba
+             WHERE d.datname = current_database()),
+    EXISTS (SELECT 1 FROM pg_namespace n JOIN roles r ON r.oid = n.nspowner),
+    EXISTS (SELECT 1 FROM pg_db_role_setting s, unnest(s.setconfig) c
+             WHERE (s.setrole = (SELECT oid FROM me)
+                    OR (s.setrole = 0 AND s.setdatabase IN
+                        (0, (SELECT oid FROM pg_database WHERE datname = current_database()))))
+               AND starts_with(lower(split_part(c, '=', 1)), 'app.')),
     ARRAY(SELECT s.setdatabase::text || ':' || c FROM pg_db_role_setting s, unnest(s.setconfig) c
            WHERE s.setrole = (SELECT oid FROM me))
 """
@@ -49,7 +62,7 @@ EXPECTED_ROLE_SETTINGS = {
     "idle_in_transaction_session_timeout": "60s",
 }
 SETTINGS_PROBLEM = "has role settings other than the expected three timeouts"
-FLAG_COUNT = 7
+FLAG_COUNT = 8
 CHECKOUT_QUERY = "SELECT current_setting('app.user_id', true)"
 SETTINGS_MS_QUERY = (
     "SELECT name, setting FROM pg_settings WHERE name IN "
@@ -61,13 +74,14 @@ EXPECTED_TIMEOUTS_MS = {
     "idle_in_transaction_session_timeout": "60000",
 }
 PROBLEMS = (
-    "is a superuser",
-    "has BYPASSRLS",
-    "is a member of a superuser or BYPASSRLS role",
-    "owns tables, views or materialized views",
-    "owns the database",
-    "owns a schema",
-    "is a member of pg_execute_server_program, pg_read_server_files or pg_write_server_files",
+    "is a superuser or a member of one",
+    "has BYPASSRLS or is a member of a role that has it",
+    "has REPLICATION or is a member of a role that has it",
+    "is a member of another role (no membership is allowed)",
+    "owns tables, views or materialized views, or is a member of a role that does",
+    "owns the database, or is a member of its owner",
+    "owns a schema, or is a member of a role that does",
+    "has a default for an app.* setting (on the role, the database or every role)",
 )
 
 
@@ -76,9 +90,9 @@ class DatabaseRoleError(RuntimeError):
 
 
 def problems_for(row: Any) -> list[str]:
-    """Problems for one ``ROLE_QUERY`` row: the seven flags, then the role's settings."""
+    """Problems for one ``ROLE_QUERY`` row: the ``FLAG_COUNT`` flags, then the role's settings."""
     if row is None or len(row) != FLAG_COUNT + 1:
-        raise ValueError("the role query must return the seven flags and the settings")
+        raise ValueError(f"the role query must return the {FLAG_COUNT} flags and the settings")
     found = [problem for problem, flag in zip(PROBLEMS, row[:FLAG_COUNT], strict=True) if flag]
     expected = {f"0:{key}={value}" for key, value in EXPECTED_ROLE_SETTINGS.items()}
     if set(row[FLAG_COUNT]) != expected:

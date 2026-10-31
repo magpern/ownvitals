@@ -5,14 +5,25 @@
 - any reference to ``UserContext`` that is not a type annotation or an import used only for
   annotations (calls, also through an alias, subclassing, ``isinstance``, ``cast``, strings);
 - any reference to the issuer token (``issuer_token``, ``_ISSUER``);
-- ``dataclasses.replace`` (also imported as ``replace``), ``object.__setattr__`` and
-  ``object.__new__``, ``x.__class__(...)`` and ``type(x)(...)``, in any module, whether or not
-  it mentions ``UserContext``; ``functools.partial`` in a module that does. The one exception is
-  the frozen-dataclass idiom ``object.__setattr__(self, ...)`` written directly in the
-  ``__post_init__(self, ...)`` method of a class, where ``self`` is never rebound: it can only
-  reach an instance of that class, never a ``UserContext`` (which lives in its own module and
-  can't be subclassed or named elsewhere). Calling ``__post_init__`` explicitly (other than
-  through ``super()``) is refused, so no other object can be passed as its ``self``;
+- ``dataclasses.replace`` (also imported as ``replace``), ``object.__setattr__``,
+  ``object.__delattr__`` and ``object.__new__`` (also taken as a value), ``x.__class__(...)`` and
+  ``type(x)(...)``, in any module, whether or not it mentions ``UserContext``;
+  ``functools.partial`` in a module that does;
+- assigning ``__class__`` (``x.__class__ = K``, ``del x.__class__``) and the strings
+  ``"__class__"``, ``"__init__"`` and ``"__post_init__"`` (so ``setattr(x, "__class__", K)``,
+  ``getattr(K, "__post_init__")`` and ``vars(K)["__init__"]`` are refused);
+- naming ``__init__`` or ``__post_init__`` at all, except ``super().__init__(...)`` and
+  ``super().__post_init__(...)`` (zero-argument ``super``) written directly in a method of the
+  same name. ``K.__post_init__(ctx)``, ``hook = K.__post_init__`` and ``K.__init__(ctx, ...)``
+  would run a class's own code with a real context as ``self``: a frozen dataclass's generated
+  ``__init__`` sets its fields with ``object.__setattr__``, so one with the same field names
+  rewrites a ``UserContext`` in place.
+
+One exception (Architect, 2026-10-31): the frozen-dataclass idiom ``object.__setattr__(self,
+"field", value)`` written directly in the undecorated ``__post_init__(self, ...)`` method of a
+class, with the bare ``self`` as the first argument, a string literal that does not start with
+``__`` as the second, and ``self`` never rebound there. With the rules above, nothing but the
+dataclass's own ``__init__`` can call that method, so ``self`` is an instance of that class.
 - ``Depends(UserContext)``, ``Security(UserContext)``, and a bare ``Depends()`` or
   ``Security()`` (no dependency, or ``None``) on a ``UserContext`` parameter (default value
   or ``Annotated[UserContext, Depends()]``), so FastAPI would try to build one from the
@@ -24,8 +35,10 @@
   ``Depends(some_dependency)`` and ``Security(some_dependency)`` are fine: a context reaches
   a handler from the authentication dependency, which returns one built by its issuer.
 
-This layer and the runtime barrier in ``ownvitals.context`` stop accidental misuse. Deliberately
-malicious code inside the process is out of scope; the review gate catches it.
+This layer and the runtime barrier in ``ownvitals.context`` stop accidental misuse and make the
+obvious forgeries fail CI. They do not stop deliberate obfuscation (a name built at run time, for
+example ``getattr(K, "__post_" + "init__")``, or ``inspect``): ADR 0002 section 1 leaves
+deliberately malicious code inside the process to the review gate.
 """
 
 import ast
@@ -42,6 +55,9 @@ ISSUER_MODULES = ("ownvitals/auth/deps.py", "ownvitals/jobs/issuer.py", DEFINITI
 ALWAYS_REFUSED = {"dataclasses": "replace"}
 REFUSED_WITH_CONTEXT = {"functools": "partial"}
 REFUSED_BUILTIN_CALLS = {"object.__setattr__", "object.__new__", "object.__delattr__"}
+# Methods that run a class's own code on whatever is passed as ``self``; see the docstring.
+HOOKS = {"__init__", "__post_init__"}
+REFUSED_STRINGS = {"__class__", *HOOKS}
 
 
 def _dotted(node: ast.AST) -> str | None:
@@ -271,29 +287,49 @@ def _post_init_setattrs(tree: ast.AST) -> set[int]:
             nodes = _own_nodes(method)
             if any(_rebinds_self(n) for n in nodes):
                 continue
-            allowed |= {
-                id(n)
-                for n in nodes
-                if isinstance(n, ast.Call)
-                and _dotted(n.func) == "object.__setattr__"
-                and n.args
-                and isinstance(n.args[0], ast.Name)
-                and n.args[0].id == "self"
-            }
+            allowed |= {id(n) for n in nodes if _sets_own_field(n)}
     return allowed
 
 
-def _explicit_post_init(node: ast.Call) -> bool:
-    """``x.__post_init__(...)``, but not ``super().__post_init__(...)``."""
-    func = node.func
-    if not (isinstance(func, ast.Attribute) and func.attr == "__post_init__"):
-        return False
-    receiver = func.value
-    return not (
-        isinstance(receiver, ast.Call)
-        and isinstance(receiver.func, ast.Name)
-        and receiver.func.id == "super"
+def _sets_own_field(node: ast.AST) -> bool:
+    """``object.__setattr__(self, "field", value)``: the bare ``self``, a literal field name that
+    is not a dunder (never ``"__class__"``), no keywords and no ``*args``."""
+    return (
+        isinstance(node, ast.Call)
+        and _dotted(node.func) == "object.__setattr__"
+        and len(node.args) == 3
+        and not node.keywords
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id == "self"
+        and isinstance(node.args[1], ast.Constant)
+        and isinstance(node.args[1].value, str)
+        and not node.args[1].value.startswith("__")
+        and not isinstance(node.args[2], ast.Starred)
     )
+
+
+def _super_hook_calls(tree: ast.AST) -> set[int]:
+    """Ids of the attribute in ``super().__init__(...)`` and ``super().__post_init__(...)``
+    written directly in a method of the same name: the only uses of either name allowed."""
+    allowed: set[int] = set()
+    for function in ast.walk(tree):
+        if not (
+            isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef) and function.name in HOOKS
+        ):
+            continue
+        for node in _own_nodes(function):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == function.name
+                and isinstance(node.func.value, ast.Call)
+                and isinstance(node.func.value.func, ast.Name)
+                and node.func.value.func.id == "super"
+                and not node.func.value.args
+                and not node.func.value.keywords
+            ):
+                allowed.add(id(node.func))
+    return allowed
 
 
 def _forging_call(node: ast.Call) -> str | None:
@@ -341,6 +377,7 @@ def scan_source(source: str) -> list[tuple[int, str]]:
         _spellings(tree, REFUSED_WITH_CONTEXT) if NAME in source else set()
     )
     post_init_setattrs = _post_init_setattrs(tree)
+    super_hooks = _super_hook_calls(tree)
     called = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -350,8 +387,6 @@ def scan_source(source: str) -> list[tuple[int, str]]:
             continue  # the frozen-dataclass idiom on its own instance (see the module docstring)
         if callee in refused or callee in REFUSED_BUILTIN_CALLS:
             found.append((node.lineno, f"call to {callee}"))
-        elif _explicit_post_init(node):
-            found.append((node.lineno, "explicit call of __post_init__"))
         elif (why := _forging_call(node)) is not None:
             found.append((node.lineno, why))
 
@@ -372,4 +407,20 @@ def scan_source(source: str) -> list[tuple[int, str]]:
         ):
             # ``s = object.__setattr__`` and a call through ``s`` later: refused where it is taken.
             found.append((node.lineno, f"reference to {_dotted(node)}"))
+        elif isinstance(node, ast.Attribute) and node.attr in HOOKS and id(node) not in super_hooks:
+            found.append((node.lineno, f"explicit use of {node.attr}"))
+        elif isinstance(node, ast.Name) and node.id in HOOKS:
+            found.append((node.lineno, f"explicit use of {node.id}"))
+        elif (
+            isinstance(node, ast.Attribute)
+            and node.attr == "__class__"
+            and not isinstance(node.ctx, ast.Load)
+        ):
+            found.append((node.lineno, "assignment to __class__"))
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value in REFUSED_STRINGS
+        ):
+            found.append((node.lineno, f"string {node.value!r}"))
     return sorted(set(found))

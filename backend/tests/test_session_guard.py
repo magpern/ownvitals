@@ -22,7 +22,9 @@ def test_only_allowlisted_modules_open_a_session() -> None:
     violations = [
         (_module(path), line, why)
         for path in paths
-        for line, why in scan_source(path.read_text("utf-8"), _module(path))
+        for line, why in scan_source(
+            path.read_text("utf-8"), _module(path), is_package=path.name == "__init__.py"
+        )
     ]
     assert violations == []
 
@@ -33,7 +35,12 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
     system = Allowlist(prefixes=("ownvitals.db", "ownvitals.auth"))
     private = Allowlist(prefixes=("ownvitals.db",))
     assert (user, system) == (USER_SESSION, SYSTEM_SESSION)
-    assert {"user_session": user, "system_session": system, "_owned_session": private} == GUARDED
+    assert {
+        "user_session": user,
+        "system_session": system,
+        "_owned_session": private,
+        "SET_USER": private,
+    } == GUARDED
 
 
 @pytest.mark.parametrize(
@@ -100,7 +107,46 @@ REFUSED = {
     "session module string": "import importlib\nimportlib.import_module('ownvitals.db.session')",
     "raw set_config": "q = \"SELECT set_config('app.user_id', :u, true)\"",
     "raw SET": "q = 'SET LOCAL app.user_id = x'",
+    "SET_USER by name": "from ownvitals.db.session import SET_USER",
+    "SET_USER as a string": "q = getattr(m, 'SET_USER')",
+    "SET_USER as an attribute": "q = m.SET_USER",
 }
+
+
+# The #5 review's bypasses of the import ban, in a job-kind module: each reaches
+# ownvitals.db.session (whose SET_USER sets app.user_id to any value). Line numbers of the
+# findings: the import itself where it is refused, and the line that reaches the module.
+JOB_KIND = "ownvitals.jobs.sync"
+REACHES = {
+    "relative import from the module": ("from ..db.session import TransactionGuard", [1]),
+    "relative import of the module": ("from ..db import session", [1]),
+    "relative package, then a chain": ("from .. import db\n\nq = db.session.TransactionGuard", [3]),
+    "absolute chain": ("import ownvitals.db\n\nq = ownvitals.db.session.TransactionGuard", [3]),
+    "aliased package, then a chain": ("from ownvitals import db as d\n\nq = d.session.X", [3]),
+    "aliased module, then a chain": (
+        "import ownvitals.db.session as m\n\nq = m.TransactionGuard",
+        [1, 3],
+    ),
+    "aliased name from the module": (
+        "from ownvitals.db.session import _Guard as G\n\nG(x)",
+        [1, 3],
+    ),
+    "relative import above the top level": ("from .... import ownvitals", [1]),
+}
+
+
+@pytest.mark.parametrize(("source", "lines"), REACHES.values(), ids=REACHES.keys())
+def test_relative_imports_and_attribute_chains_are_resolved(source: str, lines: list[int]) -> None:
+    assert sorted({line for line, _ in scan_source(source, JOB_KIND)}) == lines
+
+
+def test_a_package_resolves_relative_imports_from_itself() -> None:
+    source = "from .. import db\n\nq = db.session.TransactionGuard"
+    assert [line for line, _ in scan_source(source, "ownvitals.jobs", is_package=True)] == [3]
+    # The same text in a module one level higher climbs above the top level.
+    assert [line for line, _ in scan_source(source, "ownvitals.jobs")] == [1]
+    assert scan_source("from ..db import create_engine", JOB_KIND) == []
+    assert scan_source("from . import session\nsession.SET_USER", "ownvitals.db.engine") == []
 
 
 @pytest.mark.parametrize("source", ALLOWED)

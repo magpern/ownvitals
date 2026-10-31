@@ -18,6 +18,7 @@ from ownvitals.config import Settings
 from ownvitals.db import DatabaseRoleError, create_engine, verify_database_role
 from ownvitals.db.role_check import (
     EXPECTED_ROLE_SETTINGS,
+    FLAG_COUNT,
     PROBLEMS,
     SETTINGS_PROBLEM,
     problems_for,
@@ -34,6 +35,7 @@ PROBE_ROLES = (
     "guard_read",
     "guard_write",
     "guard_schema",
+    "guard_replication",
     "guard_plain",
 )
 
@@ -76,6 +78,7 @@ def probe_roles(database_url: str) -> Iterator[None]:
             "GRANT pg_write_server_files TO guard_write",
             f"CREATE ROLE guard_schema LOGIN PASSWORD '{PASSWORD}'",
             "CREATE SCHEMA guard_s AUTHORIZATION guard_schema",
+            f"CREATE ROLE guard_replication LOGIN REPLICATION PASSWORD '{PASSWORD}'",
             f"CREATE ROLE guard_plain LOGIN PASSWORD '{PASSWORD}'",
             "ALTER ROLE guard_plain SET statement_timeout = '30s'",
             "ALTER ROLE guard_plain SET lock_timeout = '5s'",
@@ -96,33 +99,143 @@ def settings_for(database_url: str, role: str, **overrides: object) -> Settings:
     return Settings(**values)  # pyright: ignore[reportArgumentType]
 
 
+MEMBER = "is a member of another role"
+
+
+async def assert_refused(settings: Settings, *problems: str) -> None:
+    """Startup and a new pooled connection both refuse ``settings``' role, naming ``problems``."""
+    engine = create_engine(settings)
+    try:
+        with pytest.raises(DatabaseRoleError) as startup:
+            await verify_database_role(engine)
+        with pytest.raises(DatabaseRoleError) as pooled:
+            async with engine.connect() as connection:  # the per-connection check
+                await connection.execute(text("SELECT 1"))
+        for error in (startup.value, pooled.value):
+            assert all(problem in str(error) for problem in problems), str(error)
+            assert PASSWORD not in str(error)
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.parametrize(
-    ("role", "problem"),
+    ("role", "problems"),
     [
-        ("guard_super", "is a superuser"),
-        ("guard_bypass", "has BYPASSRLS"),
-        ("guard_member", "member of a superuser or BYPASSRLS role"),
-        ("guard_table_owner", "owns tables"),
-        ("guard_prog", "pg_execute_server_program"),
-        ("guard_read", "pg_read_server_files"),
-        ("guard_write", "pg_write_server_files"),
-        ("guard_schema", "owns a schema"),
+        ("guard_super", ["is a superuser"]),
+        ("guard_bypass", ["has BYPASSRLS"]),
+        ("guard_member", [MEMBER, "has BYPASSRLS or is a member of a role that has it"]),
+        ("guard_table_owner", ["owns tables"]),
+        ("guard_prog", [MEMBER]),
+        ("guard_read", [MEMBER]),
+        ("guard_write", [MEMBER]),
+        ("guard_schema", ["owns a schema"]),
+        ("guard_replication", ["has REPLICATION"]),
     ],
 )
 async def test_startup_and_every_connection_refuse_a_privileged_role(
-    database_url: str, probe_roles: None, role: str, problem: str
+    database_url: str, probe_roles: None, role: str, problems: list[str]
 ) -> None:
-    settings = settings_for(database_url, role)
+    await assert_refused(settings_for(database_url, role), *problems)
+
+
+# Memberships planted on the real app role (ADR 0002 section 5: "member of no role"). Each is
+# refused whatever its INHERIT and SET options; the listed problems name what it would give.
+OWNS = ("owns the database, or is a member of its owner", "owns a schema, or is a member")
+MEMBERSHIPS = {
+    "owner, INHERIT TRUE": (
+        ["GRANT ownvitals_owner TO ownvitals_app WITH INHERIT TRUE, SET TRUE"],
+        [MEMBER, *OWNS],
+    ),
+    "owner, INHERIT FALSE, SET TRUE": (
+        ["GRANT ownvitals_owner TO ownvitals_app WITH INHERIT FALSE, SET TRUE"],
+        [MEMBER, *OWNS],
+    ),
+    "owner, INHERIT FALSE, SET FALSE": (
+        ["GRANT ownvitals_owner TO ownvitals_app WITH INHERIT FALSE, SET FALSE"],
+        [MEMBER, *OWNS],
+    ),
+    "superuser through an intermediate role": (
+        [
+            "CREATE ROLE guard_su NOLOGIN SUPERUSER",
+            "CREATE ROLE guard_mid NOLOGIN",
+            "GRANT guard_su TO guard_mid",
+            "GRANT guard_mid TO ownvitals_app",
+        ],
+        [MEMBER, "is a superuser or a member of one"],
+    ),
+    "REPLICATION through a role": (
+        ["CREATE ROLE guard_repl NOLOGIN REPLICATION", "GRANT guard_repl TO ownvitals_app"],
+        [MEMBER, "has REPLICATION or is a member of a role that has it"],
+    ),
+    "pg_read_all_data": (["GRANT pg_read_all_data TO ownvitals_app"], [MEMBER]),
+    "pg_execute_server_program": (["GRANT pg_execute_server_program TO ownvitals_app"], [MEMBER]),
+}
+
+
+def admin_run(database_url: str, *statements: str) -> None:
+    engine = create_sync_engine(database_url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
+    finally:
+        engine.dispose()
+
+
+def drop_planted_memberships(database_url: str) -> None:
+    for granted in ("ownvitals_owner", "pg_read_all_data", "pg_execute_server_program"):
+        admin_run(database_url, f"REVOKE {granted} FROM ownvitals_app")
+    for role in ("guard_mid", "guard_su", "guard_repl"):
+        admin_run(database_url, f"DROP ROLE IF EXISTS {role}")
+
+
+async def assert_accepted(settings: Settings) -> None:
     engine = create_engine(settings)
     try:
-        with pytest.raises(DatabaseRoleError, match=problem) as startup:
-            await verify_database_role(engine)
-        with pytest.raises(DatabaseRoleError, match=problem):
-            async with engine.connect() as connection:  # the per-connection check
-                await connection.execute(text("SELECT 1"))
-        assert PASSWORD not in str(startup.value)
+        await verify_database_role(engine)
     finally:
         await engine.dispose()
+
+
+@pytest.mark.parametrize(("plant", "problems"), MEMBERSHIPS.values(), ids=MEMBERSHIPS.keys())
+async def test_any_membership_of_the_app_role_is_refused(
+    database_url: str, app_database_url: str, plant: list[str], problems: list[str]
+) -> None:
+    settings = Settings(database_url=app_database_url, environment="test")  # pyright: ignore[reportArgumentType]
+    drop_planted_memberships(database_url)
+    try:
+        admin_run(database_url, *plant)
+        await assert_refused(settings, *problems)
+    finally:
+        drop_planted_memberships(database_url)
+    await assert_accepted(settings)  # and the undo restores a clean role
+
+
+# A default for an app.* setting would start every session of the role as some user.
+APP_DEFAULTS = {
+    "database": "ALTER DATABASE {db} {op} app.user_id",
+    "every role": "ALTER ROLE ALL {op} app.user_id",
+    "every role in the database": 'ALTER ROLE ALL IN DATABASE {db} {op} "App.Note"',
+    "the role itself": "ALTER ROLE ownvitals_app {op} app.user_id",
+}
+
+
+@pytest.mark.parametrize("statement", APP_DEFAULTS.values(), ids=APP_DEFAULTS.keys())
+async def test_a_default_for_an_app_setting_is_refused(
+    database_url: str, app_database_url: str, statement: str
+) -> None:
+    settings = Settings(database_url=app_database_url, environment="test")  # pyright: ignore[reportArgumentType]
+    admin = create_sync_engine(database_url)
+    with admin.connect() as connection:
+        db = connection.execute(text("SELECT current_database()")).scalar_one()
+    admin.dispose()
+    plant = statement.format(db=db, op="SET") + " = '00000000-0000-4000-8000-000000000001'"
+    try:
+        admin_run(database_url, plant)
+        await assert_refused(settings, "has a default for an app.* setting")
+    finally:
+        admin_run(database_url, statement.format(db=db, op="RESET"))
+    await assert_accepted(settings)  # and the undo restores a clean role
 
 
 async def test_a_role_that_is_fine_passes(database_url: str, probe_roles: None) -> None:
@@ -201,18 +314,18 @@ async def test_the_web_app_starts_with_the_app_role(app_database_url: str) -> No
 
 def test_every_problem_has_a_flag_and_the_messages_are_distinct() -> None:
     good = [f"0:{k}={v}" for k, v in EXPECTED_ROLE_SETTINGS.items()]
-    assert len(set(PROBLEMS)) == len(PROBLEMS) == 7
-    assert problems_for((*(False,) * 7, good)) == []
-    assert problems_for((True, False, False, False, True, False, True, good)) == [
+    assert len(set(PROBLEMS)) == len(PROBLEMS) == FLAG_COUNT == 8
+    assert problems_for((*(False,) * 8, good)) == []
+    assert problems_for((True, False, False, True, False, False, True, False, good)) == [
         PROBLEMS[0],
-        PROBLEMS[4],
+        PROBLEMS[3],
         PROBLEMS[6],
     ]
 
 
-@pytest.mark.parametrize("row", [None, (), (False,) * 7, (False,) * 9, ([],)])
+@pytest.mark.parametrize("row", [None, (), (False,) * 8, (False,) * 10, ([],)])
 def test_a_malformed_role_row_raises(row: object) -> None:
-    with pytest.raises(ValueError, match="seven flags"):
+    with pytest.raises(ValueError, match="8 flags and the settings"):
         problems_for(row)
 
 
@@ -319,7 +432,7 @@ async def test_a_role_that_changed_its_own_settings_is_refused(
 
 def test_settings_drift_is_a_problem_of_its_own() -> None:
     good = [f"0:{k}={v}" for k, v in EXPECTED_ROLE_SETTINGS.items()]
-    flags = (False,) * 7
+    flags = (False,) * 8
     assert problems_for((*flags, good)) == []
     assert problems_for((*flags, good[:2])) == [SETTINGS_PROBLEM]
     assert problems_for((*flags, [*good, "0:search_path=x"])) == [SETTINGS_PROBLEM]

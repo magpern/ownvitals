@@ -196,6 +196,38 @@ async def test_a_pooled_connection_carries_no_user_id_afterwards(app_database_ur
         await engine.dispose()
 
 
+async def test_the_user_id_is_transaction_local(app_database_url: str) -> None:
+    """ADR 0002 section 6 itself: after ``user_session``'s transaction commits or rolls back, the
+    same connection has no ``app.user_id``, with no pool reset or checkout in between."""
+    engine = create_engine(settings_for(app_database_url))
+    read = text("SELECT pg_backend_pid(), current_setting('app.user_id', true)")
+    seen: list[Any] = []
+
+    async def read_as(sessions: Sessions, ctx: UserContext, fail: bool) -> None:
+        async with user_session(sessions, ctx) as session:
+            seen.append((await session.execute(read)).one())
+            if fail:
+                raise LookupError
+
+    try:
+        async with engine.connect() as connection:  # held throughout: never back in the pool
+            sessions = async_sessionmaker(connection)  # the session's transaction is the real one
+            await read_as(sessions, A, fail=False)
+            seen.append((await connection.execute(read)).one())  # after the commit
+            await connection.rollback()  # end the read's own transaction before the next session
+            with pytest.raises(LookupError):
+                await read_as(sessions, B, fail=True)
+            seen.append((await connection.execute(read)).one())  # after the rollback
+            await connection.rollback()
+    finally:
+        await engine.dispose()
+    in_a, after_commit, in_b, after_rollback = seen
+    assert len({in_a[0], after_commit[0], in_b[0], after_rollback[0]}) == 1  # one connection
+    assert (in_a[1], in_b[1]) == (str(A.user_id), str(B.user_id))
+    assert after_commit[1] in (None, "")
+    assert after_rollback[1] in (None, "")
+
+
 async def test_commit_and_rollback_inside_a_session_raise(sessions: Sessions) -> None:
     for manager in (user_session(sessions, A), system_session(sessions)):
         async with manager as session:

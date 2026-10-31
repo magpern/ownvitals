@@ -114,6 +114,15 @@ def check_roles(conn: Connection) -> list[str]:
         found == EXPECTED_TIMEOUTS,
         f"ownvitals_app role settings must be exactly {EXPECTED_TIMEOUTS}, are {found}",
     )
+    # No default for an app.* setting anywhere (``app.user_id`` is the RLS user): not on a role,
+    # a database or every role (``ALTER ROLE ALL``). Postgres keeps the name as written.
+    app_defaults = conn.execute(
+        text(
+            "SELECT count(*) FROM pg_db_role_setting s, unnest(s.setconfig) c "
+            "WHERE starts_with(lower(split_part(c, '=', 1)), 'app.')"
+        )
+    ).scalar_one()
+    need(app_defaults == 0, "no role or database may have a default for an app.* setting")
 
     # The app role can connect to its own database and no other.
     other_databases = (

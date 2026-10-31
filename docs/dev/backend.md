@@ -92,7 +92,7 @@ All settings of the platform milestone exist already, so the issues that use the
 
 | Setting | Default | Notes |
 |---|---|---|
-| `environment` | `dev` | `dev`, `test`, `prod`; the **image** sets `prod`, compose sets `dev`. `prod` needs an `https://` `public_base_url`, hides `/api/docs` and refuses a password inside `database_url`, `migrations_database_url` or `maint_database_url`, also as a `password` or `passfile` query parameter (passwords come from their secret files) |
+| `environment` | `dev` | `dev`, `test`, `prod`; the **image** sets `prod`, compose sets `dev`. `prod` needs an `https://` `public_base_url`, hides `/api/docs` and refuses a password inside `database_url`, `migrations_database_url` or `maint_database_url` (passwords come from their secret files) and any query parameter outside the allowlist below |
 | `log_level` | `INFO` | |
 | `database_url` | `postgresql+psycopg://ownvitals_app@127.0.0.1:5432/ownvitals` | app role (web, worker) |
 | `migrations_database_url` | `...//ownvitals_owner@127.0.0.1:5432/ownvitals` | owner role, Alembic only |
@@ -119,6 +119,15 @@ Secret files (`SECRET_FILE_FIELDS`): `database_password`, `database_owner_passwo
 
 `Settings.sqlalchemy_url()` and `migrations_sqlalchemy_url()` return the URL with the password from
 the file substituted when one exists.
+
+**Database URL query parameters in `prod`** (`config.PROD_QUERY_PARAMETERS`, compared exactly):
+`application_name`, `channel_binding`, `require_auth`, `ssl_min_protocol_version`, `sslcrl`,
+`sslcrldir`, `sslmode`, `sslrootcert`, `sslsni`: verifying the server and labelling the connection.
+Anything else is refused, among them `password`, `passfile`, `sslpassword`, `conninfo` and `dsn`
+(a password or a whole connection string from somewhere other than the secret file), `service` (a
+service file picks host, user and password), `options` (`-c` sets session settings, `app.user_id`
+among them), `host` and `hostaddr`. The error names the field, never the URL or the parameter.
+`dev` and `test` accept any parameter.
 
 ## Migrations
 

@@ -36,13 +36,28 @@ an older volume needs `docker compose down -v`. `migrate` connects as `ownvitals
 `database_owner_password` secret, `web` as `ownvitals_app` with `database_password`. CI runs it
 twice on the empty database (the `backend` job's roles step).
 
-**Web and the worker refuse to start** when their role is a superuser, has or reaches `BYPASSRLS`,
-belongs to `pg_execute_server_program`, `pg_read_server_files` or `pg_write_server_files`, owns a
-table, a schema or the database, or has role settings other than the three timeouts
-(`DatabaseRoleError`). The engine repeats the check on every new connection, and on every pool
-checkout checks that the connection carries no `app.user_id` and has exactly the role's timeouts
-(otherwise the pool replaces it). A refused login is fatal too; an unreachable database is not
-(the per-connection check still applies). There is no override, not even in `dev`.
+**Web and the worker refuse to start** (`DatabaseRoleError`) when their role:
+
+- is a **member of any role**, directly or indirectly, with or without `INHERIT` or `SET`
+  (`pg_has_role(..., 'MEMBER')`). A member can use the role's rights, through `INHERIT` or by
+  `SET ROLE`: a member of `ownvitals_owner` can disable the tables' row security, a member of
+  `pg_read_all_data` ignores every grant, and the same goes for a superuser or `BYPASSRLS` role
+  and `pg_execute_server_program`, `pg_read_server_files` and `pg_write_server_files`. No
+  membership is allowed (the roles script grants none);
+- is a superuser, or has `BYPASSRLS` or `REPLICATION`;
+- owns a table, a schema or the database;
+- has role settings other than the three timeouts;
+- meets a default for any `app.*` setting (`app.user_id` is the RLS user): on the role itself,
+  on the database (`ALTER DATABASE ... SET`) or on every role (`ALTER ROLE ALL [IN DATABASE ...]
+  SET`).
+
+The attribute and ownership checks also cover every role the role is a member of, so a report
+names what a membership would give. The engine repeats the check on every new connection, and on
+every pool checkout checks that the connection carries no `app.user_id` and has exactly the
+role's timeouts (otherwise the pool replaces it). A refused login is fatal too; an unreachable
+database is not (the per-connection check still applies). There is no override, not even in
+`dev`. Guard 2 (`role_guard.py`) checks the same on the test database, and refuses an `app.*`
+default for any role or database.
 
 ## The test database
 
@@ -107,23 +122,41 @@ re-grant), so a re-run of the script keeps the narrower grants (`test_roles_reru
 | `system_session` | `ownvitals.db`, `ownvitals.auth` |
 
 Everything else, worker and job-kind code included, fails `test_session_guard.py`: any reference
-to the names, an import of `ownvitals.db.session`, or a string that sets `app.user_id`. Worker
-writes go through the fenced helper of #9. A package joins a list in its own PR, with the reason
+to the names (and to `_owned_session` and `SET_USER`, which only `ownvitals.db` may name), an
+import of `ownvitals.db.session` or anything in it, a name or attribute chain that reaches that
+module (`ownvitals.db.session.X`, `db.session.X` after `from ownvitals import db`, `m.X` after
+`import ownvitals.db.session as m`), or a string that sets `app.user_id`. Relative imports are
+resolved to absolute names first (`from ..db import session` in `ownvitals.jobs.sync` is caught),
+and one above the top-level package is refused. Worker writes go through the fenced helper of #9. A package joins a list in its own PR, with the reason
 in `session_scan.py`'s docstring and the pinning test updated (#8 KEK check, #9 jobs, #12 flags
 and admin are expected).
 
 Only `ownvitals/context.py`, `ownvitals/auth/deps.py` (#10) and `ownvitals/jobs/issuer.py` (#9)
 may build a `UserContext` (`user_context_scan.py`); handlers get it through the auth dependency,
-never from a path, query, body or header. The same scan refuses, in every module,
-`dataclasses.replace`, `object.__setattr__`, `object.__new__`, `object.__delattr__`,
-`x.__class__(...)` and `type(x)(...)` (ADR 0002 §1: "anywhere"). The guard reads "anywhere" with
-one exception (Architect, 2026-10-31): the frozen-dataclass idiom `object.__setattr__(self, ...)`
-written directly in a class's undecorated `__post_init__(self, ...)`, with the bare `self` as the
-first argument and `self` never rebound there. It can only reach an instance of that class, never
-a `UserContext`, which only `context.py` builds and nothing may subclass or name outside
-annotations; calling `__post_init__` explicitly (other than through `super()`) is refused, and
-so is `object.__setattr__` taken as a value. Another target, another method, a nested function
-or lambda, or an alias stays refused.
+never from a path, query, body or header. The same scan refuses, in every module:
+
+- `dataclasses.replace`, `object.__setattr__`, `object.__new__`, `object.__delattr__` (also taken
+  as a value), `x.__class__(...)` and `type(x)(...)` (ADR 0002 §1: "anywhere");
+- assigning `__class__` (`x.__class__ = K`, `del x.__class__`) and the strings `"__class__"`,
+  `"__init__"` and `"__post_init__"`, so `setattr(x, "__class__", K)`,
+  `getattr(K, "__post_init__")` and `vars(K)["__init__"]` fail;
+- naming `__init__` or `__post_init__` at all (a call, `hook = K.__post_init__`, a class body
+  naming it), except a zero-argument `super().__init__(...)` or `super().__post_init__(...)`
+  written directly in a method of the same name. Called on another class, either runs that
+  class's code with a real context as `self`, and a frozen dataclass's generated `__init__` with
+  the same field names rewrites the context in place.
+
+The guard reads "anywhere" with one exception (Architect, 2026-10-31): the frozen-dataclass idiom
+`object.__setattr__(self, "field", value)` written directly in a class's undecorated
+`__post_init__(self, ...)`, with the bare `self` first, a string literal that does not start with
+`__` second, and `self` never rebound there. With the rules above only the dataclass's own
+`__init__` calls that method, so `self` is an instance of that class. Another target, another
+method, a computed or dunder field name, a nested function or lambda, or an alias stays refused.
+
+What the scan catches is accidental misuse and the obvious forgeries, as listed. It does not
+stop deliberate obfuscation (a name built at run time such as `getattr(K, "__post_" + "init__")`,
+`inspect`, `importlib`): ADR 0002 §1 leaves deliberately malicious code inside the process to the
+review gate.
 
 ## Guards (ADR 0002 §7)
 

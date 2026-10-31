@@ -333,6 +333,53 @@ REFUSED_OUTSIDE_POST_INIT = {
         "        object.__setattr__(this, 'user_id', 1)",
     ),
 }
+# The #5 review's two constructions (N1) and their relatives. The exempt idiom names a literal,
+# non-dunder field; nothing may assign ``__class__``; and no code but the dataclass's own
+# ``__init__`` may run ``__post_init__`` (or ``__init__``) with another object as ``self``.
+FORGE_CLASS = post_init("object.__setattr__(self, '__class__', K)")
+REWRITE = "def forge(ctx, Reading):\n    {}"
+REFUSED_HOOKS = {
+    "forging: __class__ set in the exempt idiom": "K = type(some_ctx)\n" + FORGE_CLASS,
+    "a computed field name": post_init("name = 'at'", "object.__setattr__(self, name, 'x')"),
+    "a dunder field name": post_init("object.__setattr__(self, '__dict__', {})"),
+    "a starred field": post_init("object.__setattr__(self, *pair)"),
+    "assigning __class__": "def f(ctx, K):\n    ctx.__class__ = K",
+    "deleting __class__": "def f(ctx):\n    del ctx.__class__",
+    "setattr of __class__": "def f(ctx, K):\n    setattr(ctx, '__class__', K)",
+    "setattr of __class__ through an alias": "s = setattr\ndef f(c, K):\n    s(c, '__class__', K)",
+    "rewriting: the hook taken as a value": REWRITE.format(
+        "hook = Reading.__post_init__; hook(ctx)"
+    ),
+    "rewriting: getattr": REWRITE.format("getattr(Reading, '__post_init__')(ctx)"),
+    "rewriting: vars": REWRITE.format("vars(Reading)['__post_init__'](ctx)"),
+    "rewriting: the class body names it": lines(
+        "class R:", "    def __post_init__(self): ...", "    hook = __post_init__"
+    ),
+    "rewriting: another class's __init__": REWRITE.format("Reading.__init__(ctx, 1, 'admin')"),
+    "rewriting: __init__ taken as a value": REWRITE.format("i = Reading.__init__; i(ctx, 1)"),
+    "super with arguments": post_init("super(Reading, other).__post_init__()"),
+    "super().__post_init__ in another method": post_init(
+        "super().__post_init__()", method="normalise"
+    ),
+    "super().__init__ in __post_init__": post_init("super().__init__()"),
+}
+ALLOWED_HOOKS = {
+    "super().__init__ in __init__": lines(
+        "class S(Base):", "    def __init__(self, x):", "        super().__init__(x)"
+    ),
+    "super().__post_init__ in __post_init__": post_init("super().__post_init__()"),
+    "the idiom on a literal field": post_init("object.__setattr__(self, 'at', 'x')"),
+}
+
+
+@pytest.mark.parametrize("source", REFUSED_HOOKS.values(), ids=REFUSED_HOOKS.keys())
+def test_no_hook_runs_on_another_object_and_nothing_assigns_class(source: str) -> None:
+    assert scan_source(source) != []
+
+
+@pytest.mark.parametrize("source", ALLOWED_HOOKS.values(), ids=ALLOWED_HOOKS.keys())
+def test_super_calls_of_the_hooks_stay_allowed(source: str) -> None:
+    assert scan_source(source) == []
 
 
 @pytest.mark.parametrize("body", ALLOWED_POST_INIT.values(), ids=ALLOWED_POST_INIT.keys())
