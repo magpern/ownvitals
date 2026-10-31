@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in and sign out · ownvitals mock-up</title>
+<link rel="stylesheet" href="ov.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</head>
+<body>
+<div class="ov" data-theme="light" style="width: 1440px; height: 1500px; padding: 48px 56px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto auto; gap: 40px 32px; align-content: start">
+
+  <div class="stack" style="gap: 12px">
+    <p class="small"><strong>Sign in.</strong> <span class="muted">Email and password or Google. Either way the second factor follows.</span></p>
+    <div class="card" style="display: flex; flex-direction: column; gap: 18px; padding: 32px; min-height: 600px">
+      <span class="row" style="gap: 8px; font-weight: 600; font-size: 18px"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>ownvitals</span>
+      <h1>Sign in</h1>
+      <div class="field"><label for="si-email">Email</label><input id="si-email" class="input" type="email" autocomplete="username" value="alex@example.org"></div>
+      <div class="field"><div class="between"><label for="si-pw">Password</label><a class="small" href="Auth.html">Forgot it?</a></div><input id="si-pw" class="input" type="password" autocomplete="current-password" value="correct-horse"></div>
+      <button class="btn primary wide" type="button">Sign in</button>
+      <div class="row small muted" style="flex-wrap: nowrap"><hr class="divider" style="flex: 1 1 auto"><span>or</span><hr class="divider" style="flex: 1 1 auto"></div>
+      <button class="btn wide" type="button">Continue with Google</button>
+      <p class="small muted" style="margin-top: auto">ownvitals is invite-only while it's a household service. <a href="Auth.html">I have an invite</a></p>
+    </div>
+  </div>
+
+  <div class="stack" style="gap: 12px">
+    <p class="small"><strong>Second factor.</strong> <span class="muted">Every sign-in. A password alone never reaches health data.</span></p>
+    <div class="card" style="display: flex; flex-direction: column; gap: 18px; padding: 32px; min-height: 600px">
+      <span class="eyebrow">Step 2 of 2</span>
+      <h1>Enter your code</h1>
+      <p class="muted">Open your authenticator app and enter the 6-digit code for ownvitals.</p>
+      <div class="otp" role="group" aria-label="6-digit code"><input aria-label="Digit 1" inputmode="numeric" maxlength="1" value="4"><input aria-label="Digit 2" inputmode="numeric" maxlength="1" value="8"><input aria-label="Digit 3" inputmode="numeric" maxlength="1" value="1"><input aria-label="Digit 4" inputmode="numeric" maxlength="1"><input aria-label="Digit 5" inputmode="numeric" maxlength="1"><input aria-label="Digit 6" inputmode="numeric" maxlength="1"></div>
+      <button class="btn primary wide" type="button">Verify</button>
+      <a href="Auth.html">Use a recovery code instead</a>
+      <div class="stack small muted" style="gap: 6px; margin-top: auto">
+        <span>Signed in as alex@example.org. This step expires in 10 minutes.</span>
+        <a href="Auth.html">Not you? Sign out</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack" style="gap: 12px">
+    <p class="small"><strong>Set up the authenticator.</strong> <span class="muted">Mandatory for every account, before anything else.</span></p>
+    <div class="card" style="display: flex; flex-direction: column; gap: 16px; padding: 32px; min-height: 600px">
+      <span class="eyebrow">Step 1 of 3 · Account</span>
+      <h1 style="font-size: 24px">Set up your authenticator app</h1>
+      <p class="small muted">Scan the code with an authenticator app, then enter the 6 digits it shows.</p>
+      <div class="row" style="gap: 16px; flex-wrap: nowrap; align-items: flex-start">
+        <svg viewBox="0 0 150 150" width="150" height="150" role="img" aria-label="QR code for the authenticator app (illustration)" class="qr-paper" style="flex: none; padding: 8px; border: 1px solid var(--line); border-radius: 8px"><path d="M42.88 0.00h5.36v5.36h-5.36ZM53.60 0.00h5.36v5.36h-5.36ZM69.68 0.00h5.36v5.36h-5.36ZM80.40 0.00h5.36v5.36h-5.36ZM85.76 0.00h5.36v5.36h-5.36ZM48.24 5.36h5.36v5.36h-5.36ZM53.60 5.36h5.36v5.36h-5.36ZM69.68 5.36h5.36v5.36h-5.36ZM80.40 5.36h5.36v5.36h-5.36ZM85.76 5.36h5.36v5.36h-5.36ZM48.24 10.72h5.36v5.36h-5.36ZM58.96 10.72h5.36v5.36h-5.36ZM80.40 10.72h5.36v5.36h-5.36ZM42.88 16.08h5.36v5.36h-5.36ZM53.60 16.08h5.36v5.36h-5.36ZM58.96 16.08h5.36v5.36h-5.36ZM69.68 16.08h5.36v5.36h-5.36ZM75.04 16.08h5.36v5.36h-5.36ZM85.76 16.08h5.36v5.36h-5.36ZM48.24 21.44h5.36v5.36h-5.36ZM53.60 21.44h5.36v5.36h-5.36ZM58.96 21.44h5.36v5.36h-5.36ZM75.04 21.44h5.36v5.36h-5.36ZM85.76 21.44h5.36v5.36h-5.36ZM42.88 26.80h5.36v5.36h-5.36ZM48.24 26.80h5.36v5.36h-5.36ZM53.60 26.80h5.36v5.36h-5.36ZM64.32 26.80h5.36v5.36h-5.36ZM69.68 26.80h5.36v5.36h-5.36ZM75.04 26.80h5.36v5.36h-5.36ZM80.40 26.80h5.36v5.36h-5.36ZM85.76 26.80h5.36v5.36h-5.36ZM42.88 32.16h5.36v5.36h-5.36ZM53.60 32.16h5.36v5.36h-5.36ZM58.96 32.16h5.36v5.36h-5.36ZM75.04 32.16h5.36v5.36h-5.36ZM85.76 32.16h5.36v5.36h-5.36ZM42.88 37.52h5.36v5.36h-5.36ZM48.24 37.52h5.36v5.36h-5.36ZM69.68 37.52h5.36v5.36h-5.36ZM80.40 37.52h5.36v5.36h-5.36ZM85.76 37.52h5.36v5.36h-5.36ZM0.00 42.88h5.36v5.36h-5.36ZM21.44 42.88h5.36v5.36h-5.36ZM37.52 42.88h5.36v5.36h-5.36ZM53.60 42.88h5.36v5.36h-5.36ZM69.68 42.88h5.36v5.36h-5.36ZM80.40 42.88h5.36v5.36h-5.36ZM85.76 42.88h5.36v5.36h-5.36ZM96.48 42.88h5.36v5.36h-5.36ZM101.84 42.88h5.36v5.36h-5.36ZM128.64 42.88h5.36v5.36h-5.36ZM0.00 48.24h5.36v5.36h-5.36ZM10.72 48.24h5.36v5.36h-5.36ZM16.08 48.24h5.36v5.36h-5.36ZM21.44 48.24h5.36v5.36h-5.36ZM32.16 48.24h5.36v5.36h-5.36ZM37.52 48.24h5.36v5.36h-5.36ZM53.60 48.24h5.36v5.36h-5.36ZM58.96 48.24h5.36v5.36h-5.36ZM64.32 48.24h5.36v5.36h-5.36ZM75.04 48.24h5.36v5.36h-5.36ZM85.76 48.24h5.36v5.36h-5.36ZM91.12 48.24h5.36v5.36h-5.36ZM96.48 48.24h5.36v5.36h-5.36ZM101.84 48.24h5.36v5.36h-5.36ZM112.56 48.24h5.36v5.36h-5.36ZM123.28 48.24h5.36v5.36h-5.36ZM128.64 48.24h5.36v5.36h-5.36ZM0.00 53.60h5.36v5.36h-5.36ZM16.08 53.60h5.36v5.36h-5.36ZM21.44 53.60h5.36v5.36h-5.36ZM26.80 53.60h5.36v5.36h-5.36ZM42.88 53.60h5.36v5.36h-5.36ZM48.24 53.60h5.36v5.36h-5.36ZM58.96 53.60h5.36v5.36h-5.36ZM64.32 53.60h5.36v5.36h-5.36ZM69.68 53.60h5.36v5.36h-5.36ZM91.12 53.60h5.36v5.36h-5.36ZM96.48 53.60h5.36v5.36h-5.36ZM101.84 53.60h5.36v5.36h-5.36ZM112.56 53.60h5.36v5.36h-5.36ZM123.28 53.60h5.36v5.36h-5.36ZM128.64 53.60h5.36v5.36h-5.36ZM16.08 58.96h5.36v5.36h-5.36ZM21.44 58.96h5.36v5.36h-5.36ZM26.80 58.96h5.36v5.36h-5.36ZM32.16 58.96h5.36v5.36h-5.36ZM37.52 58.96h5.36v5.36h-5.36ZM42.88 58.96h5.36v5.36h-5.36ZM58.96 58.96h5.36v5.36h-5.36ZM64.32 58.96h5.36v5.36h-5.36ZM80.40 58.96h5.36v5.36h-5.36ZM85.76 58.96h5.36v5.36h-5.36ZM101.84 58.96h5.36v5.36h-5.36ZM112.56 58.96h5.36v5.36h-5.36ZM0.00 64.32h5.36v5.36h-5.36ZM5.36 64.32h5.36v5.36h-5.36ZM10.72 64.32h5.36v5.36h-5.36ZM16.08 64.32h5.36v5.36h-5.36ZM26.80 64.32h5.36v5.36h-5.36ZM42.88 64.32h5.36v5.36h-5.36ZM58.96 64.32h5.36v5.36h-5.36ZM69.68 64.32h5.36v5.36h-5.36ZM80.40 64.32h5.36v5.36h-5.36ZM96.48 64.32h5.36v5.36h-5.36ZM107.20 64.32h5.36v5.36h-5.36ZM112.56 64.32h5.36v5.36h-5.36ZM117.92 64.32h5.36v5.36h-5.36ZM123.28 64.32h5.36v5.36h-5.36ZM10.72 69.68h5.36v5.36h-5.36ZM16.08 69.68h5.36v5.36h-5.36ZM21.44 69.68h5.36v5.36h-5.36ZM26.80 69.68h5.36v5.36h-5.36ZM32.16 69.68h5.36v5.36h-5.36ZM48.24 69.68h5.36v5.36h-5.36ZM58.96 69.68h5.36v5.36h-5.36ZM64.32 69.68h5.36v5.36h-5.36ZM69.68 69.68h5.36v5.36h-5.36ZM75.04 69.68h5.36v5.36h-5.36ZM80.40 69.68h5.36v5.36h-5.36ZM91.12 69.68h5.36v5.36h-5.36ZM96.48 69.68h5.36v5.36h-5.36ZM101.84 69.68h5.36v5.36h-5.36ZM123.28 69.68h5.36v5.36h-5.36ZM26.80 75.04h5.36v5.36h-5.36ZM32.16 75.04h5.36v5.36h-5.36ZM53.60 75.04h5.36v5.36h-5.36ZM69.68 75.04h5.36v5.36h-5.36ZM75.04 75.04h5.36v5.36h-5.36ZM101.84 75.04h5.36v5.36h-5.36ZM107.20 75.04h5.36v5.36h-5.36ZM5.36 80.40h5.36v5.36h-5.36ZM16.08 80.40h5.36v5.36h-5.36ZM32.16 80.40h5.36v5.36h-5.36ZM37.52 80.40h5.36v5.36h-5.36ZM42.88 80.40h5.36v5.36h-5.36ZM48.24 80.40h5.36v5.36h-5.36ZM53.60 80.40h5.36v5.36h-5.36ZM64.32 80.40h5.36v5.36h-5.36ZM69.68 80.40h5.36v5.36h-5.36ZM101.84 80.40h5.36v5.36h-5.36ZM107.20 80.40h5.36v5.36h-5.36ZM112.56 80.40h5.36v5.36h-5.36ZM0.00 85.76h5.36v5.36h-5.36ZM5.36 85.76h5.36v5.36h-5.36ZM10.72 85.76h5.36v5.36h-5.36ZM21.44 85.76h5.36v5.36h-5.36ZM26.80 85.76h5.36v5.36h-5.36ZM32.16 85.76h5.36v5.36h-5.36ZM53.60 85.76h5.36v5.36h-5.36ZM69.68 85.76h5.36v5.36h-5.36ZM75.04 85.76h5.36v5.36h-5.36ZM80.40 85.76h5.36v5.36h-5.36ZM91.12 85.76h5.36v5.36h-5.36ZM112.56 85.76h5.36v5.36h-5.36ZM117.92 85.76h5.36v5.36h-5.36ZM48.24 91.12h5.36v5.36h-5.36ZM53.60 91.12h5.36v5.36h-5.36ZM58.96 91.12h5.36v5.36h-5.36ZM69.68 91.12h5.36v5.36h-5.36ZM85.76 91.12h5.36v5.36h-5.36ZM91.12 91.12h5.36v5.36h-5.36ZM101.84 91.12h5.36v5.36h-5.36ZM112.56 91.12h5.36v5.36h-5.36ZM128.64 91.12h5.36v5.36h-5.36ZM64.32 96.48h5.36v5.36h-5.36ZM85.76 96.48h5.36v5.36h-5.36ZM112.56 96.48h5.36v5.36h-5.36ZM42.88 101.84h5.36v5.36h-5.36ZM53.60 101.84h5.36v5.36h-5.36ZM64.32 101.84h5.36v5.36h-5.36ZM69.68 101.84h5.36v5.36h-5.36ZM91.12 101.84h5.36v5.36h-5.36ZM96.48 101.84h5.36v5.36h-5.36ZM112.56 101.84h5.36v5.36h-5.36ZM53.60 107.20h5.36v5.36h-5.36ZM58.96 107.20h5.36v5.36h-5.36ZM64.32 107.20h5.36v5.36h-5.36ZM69.68 107.20h5.36v5.36h-5.36ZM85.76 107.20h5.36v5.36h-5.36ZM91.12 107.20h5.36v5.36h-5.36ZM96.48 107.20h5.36v5.36h-5.36ZM107.20 107.20h5.36v5.36h-5.36ZM128.64 107.20h5.36v5.36h-5.36ZM48.24 112.56h5.36v5.36h-5.36ZM58.96 112.56h5.36v5.36h-5.36ZM80.40 112.56h5.36v5.36h-5.36ZM96.48 112.56h5.36v5.36h-5.36ZM112.56 112.56h5.36v5.36h-5.36ZM117.92 112.56h5.36v5.36h-5.36ZM123.28 112.56h5.36v5.36h-5.36ZM128.64 112.56h5.36v5.36h-5.36ZM42.88 117.92h5.36v5.36h-5.36ZM64.32 117.92h5.36v5.36h-5.36ZM75.04 117.92h5.36v5.36h-5.36ZM96.48 117.92h5.36v5.36h-5.36ZM101.84 117.92h5.36v5.36h-5.36ZM107.20 117.92h5.36v5.36h-5.36ZM112.56 117.92h5.36v5.36h-5.36ZM117.92 117.92h5.36v5.36h-5.36ZM123.28 117.92h5.36v5.36h-5.36ZM42.88 123.28h5.36v5.36h-5.36ZM48.24 123.28h5.36v5.36h-5.36ZM58.96 123.28h5.36v5.36h-5.36ZM85.76 123.28h5.36v5.36h-5.36ZM101.84 123.28h5.36v5.36h-5.36ZM117.92 123.28h5.36v5.36h-5.36ZM128.64 123.28h5.36v5.36h-5.36ZM42.88 128.64h5.36v5.36h-5.36ZM48.24 128.64h5.36v5.36h-5.36ZM64.32 128.64h5.36v5.36h-5.36ZM69.68 128.64h5.36v5.36h-5.36ZM80.40 128.64h5.36v5.36h-5.36ZM85.76 128.64h5.36v5.36h-5.36ZM101.84 128.64h5.36v5.36h-5.36ZM107.20 128.64h5.36v5.36h-5.36ZM112.56 128.64h5.36v5.36h-5.36ZM117.92 128.64h5.36v5.36h-5.36ZM123.28 128.64h5.36v5.36h-5.36ZM0.00 0.00h5.36v5.36h-5.36ZM5.36 0.00h5.36v5.36h-5.36ZM10.72 0.00h5.36v5.36h-5.36ZM16.08 0.00h5.36v5.36h-5.36ZM21.44 0.00h5.36v5.36h-5.36ZM26.80 0.00h5.36v5.36h-5.36ZM32.16 0.00h5.36v5.36h-5.36ZM0.00 5.36h5.36v5.36h-5.36ZM32.16 5.36h5.36v5.36h-5.36ZM0.00 10.72h5.36v5.36h-5.36ZM10.72 10.72h5.36v5.36h-5.36ZM16.08 10.72h5.36v5.36h-5.36ZM21.44 10.72h5.36v5.36h-5.36ZM32.16 10.72h5.36v5.36h-5.36ZM0.00 16.08h5.36v5.36h-5.36ZM10.72 16.08h5.36v5.36h-5.36ZM16.08 16.08h5.36v5.36h-5.36ZM21.44 16.08h5.36v5.36h-5.36ZM32.16 16.08h5.36v5.36h-5.36ZM0.00 21.44h5.36v5.36h-5.36ZM10.72 21.44h5.36v5.36h-5.36ZM16.08 21.44h5.36v5.36h-5.36ZM21.44 21.44h5.36v5.36h-5.36ZM32.16 21.44h5.36v5.36h-5.36ZM0.00 26.80h5.36v5.36h-5.36ZM32.16 26.80h5.36v5.36h-5.36ZM0.00 32.16h5.36v5.36h-5.36ZM5.36 32.16h5.36v5.36h-5.36ZM10.72 32.16h5.36v5.36h-5.36ZM16.08 32.16h5.36v5.36h-5.36ZM21.44 32.16h5.36v5.36h-5.36ZM26.80 32.16h5.36v5.36h-5.36ZM32.16 32.16h5.36v5.36h-5.36ZM96.48 0.00h5.36v5.36h-5.36ZM101.84 0.00h5.36v5.36h-5.36ZM107.20 0.00h5.36v5.36h-5.36ZM112.56 0.00h5.36v5.36h-5.36ZM117.92 0.00h5.36v5.36h-5.36ZM123.28 0.00h5.36v5.36h-5.36ZM128.64 0.00h5.36v5.36h-5.36ZM96.48 5.36h5.36v5.36h-5.36ZM128.64 5.36h5.36v5.36h-5.36ZM96.48 10.72h5.36v5.36h-5.36ZM107.20 10.72h5.36v5.36h-5.36ZM112.56 10.72h5.36v5.36h-5.36ZM117.92 10.72h5.36v5.36h-5.36ZM128.64 10.72h5.36v5.36h-5.36ZM96.48 16.08h5.36v5.36h-5.36ZM107.20 16.08h5.36v5.36h-5.36ZM112.56 16.08h5.36v5.36h-5.36ZM117.92 16.08h5.36v5.36h-5.36ZM128.64 16.08h5.36v5.36h-5.36ZM96.48 21.44h5.36v5.36h-5.36ZM107.20 21.44h5.36v5.36h-5.36ZM112.56 21.44h5.36v5.36h-5.36ZM117.92 21.44h5.36v5.36h-5.36ZM128.64 21.44h5.36v5.36h-5.36ZM96.48 26.80h5.36v5.36h-5.36ZM128.64 26.80h5.36v5.36h-5.36ZM96.48 32.16h5.36v5.36h-5.36ZM101.84 32.16h5.36v5.36h-5.36ZM107.20 32.16h5.36v5.36h-5.36ZM112.56 32.16h5.36v5.36h-5.36ZM117.92 32.16h5.36v5.36h-5.36ZM123.28 32.16h5.36v5.36h-5.36ZM128.64 32.16h5.36v5.36h-5.36ZM0.00 96.48h5.36v5.36h-5.36ZM5.36 96.48h5.36v5.36h-5.36ZM10.72 96.48h5.36v5.36h-5.36ZM16.08 96.48h5.36v5.36h-5.36ZM21.44 96.48h5.36v5.36h-5.36ZM26.80 96.48h5.36v5.36h-5.36ZM32.16 96.48h5.36v5.36h-5.36ZM0.00 101.84h5.36v5.36h-5.36ZM32.16 101.84h5.36v5.36h-5.36ZM0.00 107.20h5.36v5.36h-5.36ZM10.72 107.20h5.36v5.36h-5.36ZM16.08 107.20h5.36v5.36h-5.36ZM21.44 107.20h5.36v5.36h-5.36ZM32.16 107.20h5.36v5.36h-5.36ZM0.00 112.56h5.36v5.36h-5.36ZM10.72 112.56h5.36v5.36h-5.36ZM16.08 112.56h5.36v5.36h-5.36ZM21.44 112.56h5.36v5.36h-5.36ZM32.16 112.56h5.36v5.36h-5.36ZM0.00 117.92h5.36v5.36h-5.36ZM10.72 117.92h5.36v5.36h-5.36ZM16.08 117.92h5.36v5.36h-5.36ZM21.44 117.92h5.36v5.36h-5.36ZM32.16 117.92h5.36v5.36h-5.36ZM0.00 123.28h5.36v5.36h-5.36ZM32.16 123.28h5.36v5.36h-5.36ZM0.00 128.64h5.36v5.36h-5.36ZM5.36 128.64h5.36v5.36h-5.36ZM10.72 128.64h5.36v5.36h-5.36ZM16.08 128.64h5.36v5.36h-5.36ZM21.44 128.64h5.36v5.36h-5.36ZM26.80 128.64h5.36v5.36h-5.36ZM32.16 128.64h5.36v5.36h-5.36Z" class="qr"></path></svg>
+        <div class="stack small" style="gap: 6px; min-width: 0"><span class="muted">Can't scan it? Enter this key:</span><span class="mono" style="word-break: break-all">JBSW Y3DP EHPK 3PXP K4XQ</span><span class="muted">Time-based, 6 digits</span></div>
+      </div>
+      <div class="field"><label for="en-otp">Code from the app</label><div class="otp" id="en-otp"><input aria-label="Digit 1" inputmode="numeric" maxlength="1"><input aria-label="Digit 2" inputmode="numeric" maxlength="1"><input aria-label="Digit 3" inputmode="numeric" maxlength="1"><input aria-label="Digit 4" inputmode="numeric" maxlength="1"><input aria-label="Digit 5" inputmode="numeric" maxlength="1"><input aria-label="Digit 6" inputmode="numeric" maxlength="1"></div></div>
+      <button class="btn primary wide" type="button" style="margin-top: auto">Confirm</button>
+    </div>
+  </div>
+
+  <div class="stack" style="gap: 12px">
+    <p class="small"><strong>Recovery codes.</strong> <span class="muted">Shown once. The page stays until they're saved.</span></p>
+    <div class="card" style="display: flex; flex-direction: column; gap: 16px; padding: 32px; min-height: 600px">
+      <h1 style="font-size: 24px">Save your recovery codes</h1>
+      <p class="small muted">If you lose your phone, each code signs you in once. Keep them somewhere other than your phone.</p>
+      <ol class="mono" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; padding: 16px; border-radius: 10px; background: var(--bg); font-size: 15px">
+        <li>k7qm2-xd9ab</li><li>p4wz8-tn3ce</li><li>r2hv6-qa7lm</li><li>c9ty4-mb2xk</li><li>f3nd7-wr8jq</li><li>u6sx2-lk4vt</li><li>h8bq5-yc2nd</li><li>m4ja9-ze6wp</li><li>t2lk7-vh5rb</li><li>w9cr3-pd4ms</li>
+      </ol>
+      <div class="row"><button class="btn" type="button">Download</button><button class="btn" type="button">Copy</button><button class="btn" type="button">Print</button></div>
+      <label class="check"><input type="checkbox">I've saved them somewhere safe</label>
+      <button class="btn primary wide" type="button" disabled="disabled" style="margin-top: auto">Continue to Connect Withings</button>
+    </div>
+  </div>
+
+  <div class="stack" style="gap: 12px">
+    <p class="small"><strong>Account menu and sign out.</strong> <span class="muted">Top right on every page. Sign out is one click; everywhere needs a code.</span></p>
+    <div class="card" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; min-height: 600px; background: var(--bg)">
+      <div class="row" style="justify-content: flex-end"><button class="acct" type="button" aria-haspopup="menu" aria-expanded="true"><span class="avatar">A</span>alex@example.org<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 12l5-5 5 5" class="ic"></path></svg></button></div>
+      <div class="menu" role="menu" style="align-self: flex-end; width: 300px">
+        <div class="stack" style="gap: 2px; padding: 10px 12px 12px"><span style="font-weight: 600">alex@example.org</span><span class="small muted">This device since today 07:30</span></div>
+        <hr class="divider">
+        <a role="menuitem" href="Settings.html"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 7h10 M18 7h2 M4 17h4 M12 17h8 M16 5v4 M10 15v4" class="ic"></path></svg>Settings</a>
+        <a role="menuitem" href="Security.html"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 10.5h12v9.5H6z M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5 M12 14v2.5" class="ic"></path></svg>Security and devices</a>
+        <a role="menuitem" href="Admin.html"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z M9 12l2 2 4-4" class="ic"></path></svg>Admin</a>
+        <hr class="divider">
+        <button role="menuitem" type="button"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15 4h4v16h-4 M10 8l-4 4 4 4 M6 12h10" class="ic"></path></svg>Sign out</button>
+      </div>
+      <p class="small muted" style="margin-top: auto">Admin appears only for the admin role. "Sign out everywhere" lives under Security, behind a fresh authenticator code.</p>
+    </div>
+  </div>
+
+  <div class="stack" style="gap: 12px">
+    <p class="small"><strong>Signed out.</strong> <span class="muted">Says why, and reminds people on a shared computer.</span></p>
+    <div class="card" style="display: flex; flex-direction: column; gap: 18px; padding: 32px; min-height: 600px">
+      <svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true" style="color: var(--ok)"><circle cx="24" cy="24" r="20" class="ic"></circle><path d="M15 24.5l6 6 12-13" class="ic"></path></svg>
+      <h1>You're signed out</h1>
+      <p class="muted">This browser no longer has access to your data. On a shared computer, also close this window.</p>
+      <a class="btn primary wide" href="Auth.html">Sign in again</a>
+      <div class="stack" style="gap: 8px; margin-top: auto">
+        <span class="eyebrow">Other reasons, same page</span>
+        <div class="notice" style="padding: 10px 12px"><p class="small">Your session ended after 72 hours without activity.</p></div>
+        <div class="notice" style="padding: 10px 12px"><p class="small">Your session reached its 30-day limit.</p></div>
+        <div class="notice attn" style="padding: 10px 12px"><p class="small">You were signed out everywhere from another device. If that wasn't you, change your password.</p></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+  // ?theme=dark switches every .ov root, the imported rail included.
+  var t = new URLSearchParams(location.search).get('theme') || 'light';
+  document.querySelectorAll('.ov').forEach(function (e) { e.setAttribute('data-theme', t); });
+</script>
+</body>
+</html>

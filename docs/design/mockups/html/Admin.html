@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin · ownvitals mock-up</title>
+<link rel="stylesheet" href="ov.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</head>
+<body>
+<div class="ov app" data-theme="light">
+  <div class="rail-wrap"><div class="ov" data-theme="light" style="width: 100%; background: var(--surface); font-family: 'IBM Plex Sans', system-ui, sans-serif; color: var(--ink)">
+  <nav class="rail" aria-label="Main">
+    <a class="brand" href="Dashboard.html">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>
+      ownvitals
+    </a>
+    <div class="navgroup">
+      <span class="eyebrow">Analyse</span>
+      <div class="navlist">
+        
+          <a href="Dashboard.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z" class="ic"></path></svg>
+            <span>Overview</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="Metric.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0z M6 10.5h12 M12 10.5v5 M8.5 21l3.5-5.5 3.5 5.5" class="ic"></path></svg>
+            <span>Body</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="ECG.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h4l2-5 4 10 3-7 2 2h5" class="ic"></path></svg>
+            <span>Heart &amp; ECG</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="Dashboard.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v6 M12 9l-5 5 M12 9l5 5 M7 14v6 M17 14v6 M12 9v11" class="ic"></path></svg>
+            <span>Nerve health</span>
+            <span class="end small muted">3 of 4</span>
+          </a>
+        
+          <a href="Dashboard.html" class="dim" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" class="ic"></path></svg>
+            <span>Sleep</span>
+            <span class="end small">n/a</span>
+          </a>
+        
+          <a href="Dashboard.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z" class="ic"></path></svg>
+            <span>Activity</span>
+            <span class="end dot attn"></span>
+          </a>
+        
+          <a href="Findings.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-8h11L20 13 M4 13v6h16v-6 M4 13h5l1 2h4l1-2h5" class="ic"></path></svg>
+            <span>Findings</span>
+            <span class="end count attn">3</span>
+          </a>
+        
+      </div>
+    </div>
+    <div class="navgroup">
+      <span class="eyebrow">Your data</span>
+      <div class="navlist">
+        
+          <a href="Connections.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15l6-6 M10.5 6.5l1.8-1.8a4 4 0 0 1 5.7 5.7l-1.8 1.8 M13.5 17.5l-1.8 1.8a4 4 0 0 1-5.7-5.7l1.8-1.8" class="ic"></path></svg>
+            <span>Connections</span>
+            <span class="end dot ok"></span>
+          </a>
+        
+      </div>
+    </div>
+    <div class="navgroup">
+      <span class="eyebrow">Account</span>
+      <div class="navlist">
+        
+          <a href="Settings.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10 M18 7h2 M4 17h4 M12 17h8 M16 5v4 M10 15v4" class="ic"></path></svg>
+            <span>Settings</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="Security.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10.5h12v9.5H6z M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5 M12 14v2.5" class="ic"></path></svg>
+            <span>Security</span>
+            <span class="end"></span>
+          </a>
+        
+        
+          <a href="Admin.html" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z M9 12l2 2 4-4" class="ic"></path></svg>
+            <span>Admin</span>
+          </a>
+        
+      </div>
+    </div>
+  </nav>
+</div></div>
+  <div class="main">
+    <div class="admin-band" role="note">
+      <span class="row" style="gap: 10px; flex-wrap: nowrap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z" class="ic"></path></svg><strong>Admin area.</strong> Accounts and system state only. Health data isn't visible here, by design.</span>
+      <span class="small">Authenticator 3 h ago, valid 12 h · changes need a code from the last 5 min</span>
+    </div>
+    <header class="topbar">
+      <h1 style="font-size: 22px">Admin</h1>
+      <span class="grow"></span>
+      <button class="acct" type="button" aria-haspopup="menu"><span class="avatar">A</span>alex@example.org<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 8l5 5 5-5" class="ic"></path></svg></button>
+    </header>
+
+    <div class="content" style="max-width: none">
+      <nav class="tabs" aria-label="Admin">
+        <a href="Admin.html" aria-current="page">Overview</a>
+        <a href="Admin.html">Accounts</a>
+        <a href="Admin.html">Jobs</a>
+        <a href="Admin.html">Withings app</a>
+        <a href="Admin.html">Flags</a>
+        <a href="Admin.html">Audit log</a>
+      </nav>
+
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr))">
+        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Accounts</span><span class="num" style="font-size: 28px; font-weight: 600">4</span><span class="small muted">Household · invite only</span></div>
+        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Connections</span><span class="num" style="font-size: 28px; font-weight: 600">2 <span class="muted" style="font-size: 15px; font-weight: 500">healthy</span></span><span class="small row" style="gap: 6px"><span class="dot urgent"></span>1 needs reconnect</span></div>
+        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Job queue</span><span class="num" style="font-size: 28px; font-weight: 600">12 <span class="muted" style="font-size: 15px; font-weight: 500">queued</span></span><span class="small row" style="gap: 6px">2 running · <span class="dot attn"></span>1 dead-letter</span></div>
+        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Webhooks</span><span class="num" style="font-size: 28px; font-weight: 600">2 <span class="muted" style="font-size: 15px; font-weight: 500">min ago</span></span><span class="small muted">Delivery age p95 48 s</span></div>
+        <div class="card stack" style="gap: 6px; padding: 16px"><span class="eyebrow">Withings API budget</span><span class="num" style="font-size: 28px; font-weight: 600">23 <span class="muted" style="font-size: 15px; font-weight: 500">of 100 / min</span></span><div class="bar"><span style="width: 23%"></span></div><span class="small muted">Rate-limit refusals today: 0</span></div>
+      </div>
+
+      <section class="stack" style="gap: 12px" aria-labelledby="ad-accounts">
+        <div class="between"><h2 id="ad-accounts">Accounts</h2><button class="btn primary" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Invite someone…</button></div>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th>Account</th><th>Role</th><th>Second factor</th><th>Withings</th><th>Last sign-in</th><th class="r">Sessions</th><th><span class="sr">Actions</span></th></tr></thead>
+            <tbody>
+              <tr><td>alex@example.org</td><td>Admin</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Healthy</span></td><td class="num">Today 07:30</td><td class="r">3</td><td><button class="btn" type="button">Sign out all…</button></td></tr>
+              <tr><td>sam@example.org</td><td>User</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state urgent" style="min-height: 22px; font-size: 12px">Needs reconnect</span></td><td class="num">29 Oct</td><td class="r">1</td><td><button class="btn" type="button">Sign out all…</button></td></tr>
+              <tr><td>kim@example.org</td><td>User</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state off" style="min-height: 22px; font-size: 12px">Not connected</span></td><td class="num">14 Oct</td><td class="r">0</td><td></td></tr>
+              <tr><td>robin@example.org</td><td>User</td><td><span class="state attn" style="min-height: 22px; font-size: 12px">Setup pending</span></td><td><span class="state off" style="min-height: 22px; font-size: 12px">Not connected</span></td><td class="muted">Never</td><td class="r">0</td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small muted">Role changes and second-factor resets run from the operator command line on the server, never from this page.</p>
+      </section>
+
+      <div class="grid g2" style="align-items: start">
+        <section class="stack" style="gap: 12px" aria-labelledby="ad-jobs">
+          <h2 id="ad-jobs">Jobs</h2>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Kind</th><th class="r">Queued</th><th class="r">Running</th><th class="r">Retrying</th><th class="r">Dead-letter</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">withings_sync</td><td class="r">4</td><td class="r">1</td><td class="r">0</td><td class="r">0</td></tr>
+                <tr><td class="mono">withings_backfill</td><td class="r">6</td><td class="r">1</td><td class="r">0</td><td class="r">0</td></tr>
+                <tr><td class="mono">ecg_fetch</td><td class="r">2</td><td class="r">0</td><td class="r">1</td><td class="r" style="color: var(--attn); font-weight: 600">1</td></tr>
+                <tr><td class="mono">withings_reconcile</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td></tr>
+                <tr><td class="mono">analysis</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">0</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="small muted">Counts only, no ids or owners. A dead-lettered job is replayed on the server with <span class="mono">ownvitals jobs replay</span>, and the replay is audited.</p>
+        </section>
+
+        <section class="stack" style="gap: 12px" aria-labelledby="ad-app">
+          <h2 id="ad-app">Withings app</h2>
+          <div class="card">
+            <dl class="kv">
+              <dt>App</dt><dd>ownvitals · client <span class="mono">…a91f</span></dd>
+              <dt>API</dt><dd class="mono">wbsapi.withings.net</dd>
+              <dt>Mode</dt><dd>Standard, not restricted (HTTPS on 443)</dd>
+              <dt>Webhook secrets</dt><dd><span class="mono">ws-07</span> since 1 Sep, retires 14 Nov · <span class="mono">ws-08</span> since 31 Oct</dd>
+              <dt>Re-pointing</dt><dd>9 of 12 subscriptions on <span class="mono">ws-08</span></dd>
+            </dl>
+          </div>
+          <p class="small muted">Read-only here. The app's configuration and secrets change only from the operator command line.</p>
+        </section>
+      </div>
+
+      <div class="grid g2" style="align-items: start">
+        <section class="card" aria-labelledby="ad-flags">
+          <div class="head"><h2 id="ad-flags">Flags</h2></div>
+          <div class="setting"><div class="what"><span class="label">Experimental findings</span><p>Owner-only, household accounts only. On for alex@example.org.</p></div><button class="btn" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Change…</button></div>
+          <div class="setting"><div class="what"><span class="label">AI insights</span><p>Off until consent and the provider review are in place.</p></div><input class="toggle" type="checkbox" disabled="disabled" aria-label="AI insights, off"></div>
+          <div class="setting"><div class="what"><span class="label">Sign-up</span><p>Open sign-up can't be chosen before the beyond-household gate.</p></div><div class="seg" role="group" aria-label="Sign-up"><button type="button">Closed</button><button type="button" aria-pressed="true">Invite only</button></div></div>
+          <p class="small muted" style="margin-top: 12px">A stored flag can only tighten what the server's settings allow. Every change needs a fresh code and is audited.</p>
+        </section>
+
+        <section class="stack" style="gap: 12px" aria-labelledby="ad-audit">
+          <h2 id="ad-audit">Audit log</h2>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>When</th><th>Action</th><th>Target</th><th>Result</th></tr></thead>
+              <tbody>
+                <tr><td class="num">31 Oct 07:41</td><td class="mono">flag.experimental on</td><td>alex@example.org</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Done</span></td></tr>
+                <tr><td class="num">30 Oct 22:10</td><td class="mono">sessions.revoke_all</td><td>sam@example.org</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Done</span></td></tr>
+                <tr><td class="num">29 Oct 18:02</td><td class="mono">invite.create</td><td>robin@example.org</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Done</span></td></tr>
+                <tr><td class="num">29 Oct 18:01</td><td class="mono">flag.signup open</td><td>—</td><td><span class="state urgent" style="min-height: 22px; font-size: 12px">Refused</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="small muted">Append-only. All actions by alex@example.org. Rows say what and who, never values, tokens or secrets.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  // ?theme=dark switches every .ov root, the imported rail included.
+  var t = new URLSearchParams(location.search).get('theme') || 'light';
+  document.querySelectorAll('.ov').forEach(function (e) { e.setAttribute('data-theme', t); });
+</script>
+</body>
+</html>

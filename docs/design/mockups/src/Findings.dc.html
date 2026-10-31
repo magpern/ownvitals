@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Findings</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./ov.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</helmet>
+<div class="ov app" data-theme="{{theme}}">
+  <div class="rail-wrap"><dc-import name="Rail" active="findings" admin="{{ true }}" theme="{{theme}}" hint-size="100%,900px"></dc-import></div>
+  <div class="main">
+    <header class="topbar">
+      <h1 style="font-size: 22px">Findings</h1>
+      <span class="grow"></span>
+      <button class="acct" type="button" aria-haspopup="menu"><span class="avatar">A</span>alex@example.org<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 8l5 5 5-5" class="ic"></path></svg></button>
+    </header>
+    <div class="fresh" role="status">
+      <span class="item"><span class="dot ok"></span>Analysis ran at 07:08 on today's data</span>
+      <span class="item">Rules: analysis 1.2.0</span>
+      <span class="item"><span class="dot attn"></span>Activity history incomplete: activity rules wait for the import</span>
+    </div>
+
+    <div class="content" style="max-width: none">
+      <nav class="tabs" aria-label="Findings">
+        <a href="#live" onClick="{{showLive}}" aria-current="{{liveCur}}">Live<span class="count attn">4</span></a>
+        <a href="#history" onClick="{{showHistory}}" aria-current="{{histCur}}">History<span class="count">12</span></a>
+      </nav>
+      <div class="row" style="gap: 6px">
+        <button class="chip" type="button" aria-pressed="true">All tiers</button>
+        <button class="chip" type="button">Device</button>
+        <button class="chip" type="button">Trend</button>
+        <button class="chip" type="button">Experimental</button>
+        <button class="chip" type="button">System</button>
+        <span class="grow" style="flex: 1 1 auto"></span>
+        <select class="input" style="width: 180px" aria-label="Area"><option>All areas</option><option>Body</option><option>Heart and ECG</option><option>Nerve health</option><option>Activity</option></select>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+        <section class="stack" style="flex: 1 1 380px; min-width: 0; gap: 10px" aria-label="Finding list">
+          <sc-if value="{{isLive}}" hint-placeholder-val="{{ true }}">
+            <p class="small muted">Live findings are about the last 7 days. These are the only ones that notify.</p>
+            <a class="finding sel" href="#c1">
+              <div class="between"><span class="tier trend"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend · Heart</span><span class="state attn" style="min-height: 22px; font-size: 12px">New</span></div>
+              <h3>Resting heart rate above your typical range for 3 days</h3>
+              <div class="meta"><span>29–31 Oct</span><span>Confidence: medium</span><span>27 of 30 days with data</span></div>
+            </a>
+            <a class="finding" href="ECG.dc.html">
+              <div class="between"><span class="tier device"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Device · ECG</span><span class="state attn" style="min-height: 22px; font-size: 12px">New</span></div>
+              <h3>Withings marked 3 of your last 10 ECGs inconclusive or noisy</h3>
+              <div class="meta"><span>19 Sep–14 Oct</span><span>Withings' own results</span></div>
+            </a>
+            <div class="finding">
+              <div class="between"><span class="tier system"><svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4" class="ic"></circle></svg>System</span><span class="small muted">Seen</span></div>
+              <h3>Body Scan battery at 12%</h3>
+              <div class="meta"><span>Today 07:04</span></div>
+            </div>
+            <div class="finding exp">
+              <div class="between"><span class="tier exp"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 L10.8 6 L6 10.8 L1.2 6 Z" class="gl-line"></path></svg>Experimental · only you see this</span><span class="small muted">Seen</span></div>
+              <h3>Withings-reported QTc of 452 ms on 27 Sep is above the 450 ms band</h3>
+              <div class="meta"><span>Clinical band on a reported interval</span><span>Not a diagnosis</span><span>Signal quality passed</span></div>
+            </div>
+          </sc-if>
+          <sc-if value="{{isHistory}}" hint-placeholder-val="{{ false }}">
+            <div class="notice info"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" class="ic"></circle><path d="M10 9v5 M10 6.2v.1" class="ic"></path></svg><p class="small">Found while importing your history. They never notify; they're here so you can look back.</p></div>
+            <div class="finding">
+              <div class="between"><span class="tier trend"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend · Body</span><span class="small muted">From history</span></div>
+              <h3>Weight 5.2 % lower over 6 months</h3>
+              <div class="meta"><span>Jan–Jun 2024</span><span>Confidence: high</span></div>
+            </div>
+            <div class="finding">
+              <div class="between"><span class="tier trend"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend · Heart</span><span class="small muted">From history</span></div>
+              <h3>Resting heart rate above your typical range for 5 days</h3>
+              <div class="meta"><span>12–16 Mar 2023</span><span>Confidence: medium</span></div>
+            </div>
+            <div class="finding">
+              <div class="between"><span class="tier device"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Device · ECG</span><span class="small muted">From history</span></div>
+              <h3>Withings marked 3 of 10 ECGs inconclusive or noisy</h3>
+              <div class="meta"><span>Nov 2023</span><span>Withings' own results</span></div>
+            </div>
+          </sc-if>
+        </section>
+
+        <article id="c1" class="dialog" style="flex: 999 1 560px; min-width: 0; gap: 18px" aria-labelledby="detail-title">
+          <div class="stack" style="gap: 8px">
+            <div class="row"><span class="tier trend"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend</span><span class="small muted">Rule C1 · version 1 · live</span></div>
+            <h2 id="detail-title" style="font-size: 24px">Your resting heart rate has been above your typical range for 3 days</h2>
+            <p class="muted">It was <span class="num" style="color: var(--ink); font-weight: 600">{{c.rhr.lastI}} bpm</span> on 31 Oct. Over the 90 days before, your typical range was <span class="num" style="color: var(--ink); font-weight: 600">{{c.rhr.loI}}–{{c.rhr.hiI}} bpm</span>.</p>
+          </div>
+          <figure class="card" style="padding: 12px 12px 4px">
+            <svg viewBox="0 0 560 180" style="width: 100%; height: auto; display: block" role="img" aria-label="Resting heart rate over October with the typical range; the last three days are above it">
+              <rect x="503.9" y="12" width="44.1" height="144" style="fill: var(--attn-soft)"></rect>
+              <line x1="36" y1="18" x2="548" y2="18" class="c-grid"></line>
+              <line x1="36" y1="48" x2="548" y2="48" class="c-grid"></line>
+              <line x1="36" y1="78" x2="548" y2="78" class="c-grid"></line>
+              <line x1="36" y1="108" x2="548" y2="108" class="c-grid"></line>
+              <line x1="36" y1="138" x2="548" y2="138" class="c-grid"></line>
+              <text x="28" y="22" class="c-axis ta-end">75</text>
+              <text x="28" y="52" class="c-axis ta-end">70</text>
+              <text x="28" y="82" class="c-axis ta-end">65</text>
+              <text x="28" y="112" class="c-axis ta-end">60</text>
+              <text x="28" y="142" class="c-axis ta-end">55</text>
+              <text x="89" y="172" class="c-axis ta-mid">5 Oct</text>
+              <text x="212.6" y="172" class="c-axis ta-mid">12 Oct</text>
+              <text x="336.1" y="172" class="c-axis ta-mid">19 Oct</text>
+              <text x="459.7" y="172" class="c-axis ta-mid">26 Oct</text>
+              <path d="{{c.rhr.band}}" class="c-band"></path>
+              <path d="{{c.rhr.dots}}" class="c-dots"></path>
+              <path d="{{c.rhr.line}}" class="c-line"></path>
+              <path d="{{c.rhr.out}}" class="c-out"></path>
+            </svg>
+          </figure>
+          <div class="grid g2" style="gap: 16px">
+            <section class="stack" style="gap: 6px">
+              <h3>Why you're seeing this</h3>
+              <p class="small muted">Your resting heart rate was 10 bpm or more above your usual level, the middle of your typical range, on 3 days in a row. The range comes from your previous 90 days, not from population norms.</p>
+            </section>
+            <section class="stack" style="gap: 6px">
+              <h3>What it isn't</h3>
+              <p class="small muted">It's not a diagnosis. Many everyday things raise resting heart rate for a few days. If it worries you or keeps going, talk to a doctor.</p>
+            </section>
+          </div>
+          <dl class="kv">
+            <dt>Data quality</dt><dd class="num">27 of 30 days · coverage 90 % · longest gap 2 days · 1 reading a day</dd>
+            <dt>Confidence</dt><dd>Medium: 3 days is the shortest run the rule accepts</dd>
+            <dt>Sources</dt><dd>Body Scan heart pulse (type 11), ScanWatch 2</dd>
+            <dt>Provenance</dt><dd class="mono">C1 v1 · analysis 1.2.0 · rev 4812 · sha256 51be…09cd</dd>
+          </dl>
+          <div class="row"><button class="btn primary" type="button">Mark as seen</button><a class="btn" href="Metric.dc.html">Open resting heart rate</a></div>
+        </article>
+      </div>
+      <p class="synthetic">Example data is synthetic.</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1300}}'>
+class Component extends DCLogic {
+  data() {
+    if (this._d) return this._d;
+    function mkRng(seed) { var s = seed >>> 0; return function () { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
+    function gauss(r) { var u = r() || 1e-9, v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+    function median(a) { var s = a.slice().sort(function (x, y) { return x - y; }); var m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+    function chart(c) {
+      var r = mkRng(c.seed), pts = [], d, vf = c.vf || 0;
+      for (d = 0; d < c.n; d++) {
+        if (d < c.n - 1 && r() < (c.missing || 0)) continue;
+        pts.push({ d: d, v: c.base(d) + gauss(r) * c.noise });
+      }
+      var L = c.pad[3], T = c.pad[0], W = c.w - c.pad[1] - c.pad[3], H = c.h - c.pad[0] - c.pad[2];
+      function X(x) { return L + (x - vf) / (c.n - 1 - vf) * W; }
+      function Y(v) { return T + (c.max - v) / (c.max - c.min) * H; }
+      function f(x) { return Math.round(x * 10) / 10; }
+      var e = null, prev = 0;
+      pts.forEach(function (p) { if (e === null) { e = p.v; } else { var a = 1 - Math.pow(1 - c.alpha, p.d - prev); e = e + a * (p.v - e); } p.e = e; prev = p.d; });
+      pts.forEach(function (p) {
+        var w = pts.filter(function (q) { return q.d <= p.d && q.d > p.d - c.bandWin; }).map(function (q) { return q.v; });
+        var m = median(w); var mad = median(w.map(function (x) { return Math.abs(x - m); }));
+        var hw = Math.max(c.bandMin, 1.4826 * mad * c.k); p.lo = m - hw; p.hi = m + hw;
+      });
+      var vis = pts.filter(function (p) { return p.d >= vf; });
+      var line = vis.map(function (p, k) { return (k ? 'L' : 'M') + f(X(p.d)) + ' ' + f(Y(p.e)); }).join(' ');
+      var band = vis.map(function (p, k) { return (k ? 'L' : 'M') + f(X(p.d)) + ' ' + f(Y(p.hi)); }).join(' ') + ' ' + vis.slice().reverse().map(function (p) { return 'L' + f(X(p.d)) + ' ' + f(Y(p.lo)); }).join(' ') + ' Z';
+      function dot(x, y, q) { return 'M' + f(x - q) + ' ' + f(y) + ' a' + q + ' ' + q + ' 0 1 0 ' + (2 * q) + ' 0 a' + q + ' ' + q + ' 0 1 0 ' + (-2 * q) + ' 0 '; }
+      var dots = '', out = '';
+      vis.forEach(function (p) { var s = dot(X(p.d), Y(p.v), c.r); if (p.d >= c.flagFrom) out += s; else dots += s; });
+      var last = pts[pts.length - 1];
+      var ref = pts.filter(function (p) { return p.d < c.flagFrom; }).pop();
+      return { line: line, band: band, dots: dots, out: out, lastI: Math.round(last.v), loI: Math.round(ref.lo), hiI: Math.round(ref.hi) };
+    }
+    this._d = {
+      rhr: chart({ seed: 11, n: 90, vf: 60, w: 560, h: 180, pad: [12, 12, 24, 36], min: 52, max: 76, noise: 1.4, missing: 0.1, alpha: 0.3, bandWin: 90, bandMin: 2, k: 1.5, r: 3.2, flagFrom: 87, base: function (d) { return d < 87 ? 61 : 71; } })
+    };
+    return this._d;
+  }
+  renderVals() {
+    var tab = (this.state && this.state.tab) || 'live';
+    var self = this;
+    return {
+      theme: this.props.theme ?? 'light',
+      c: this.data(),
+      isLive: tab === 'live',
+      isHistory: tab === 'history',
+      liveCur: tab === 'live' ? 'page' : 'false',
+      histCur: tab === 'history' ? 'page' : 'false',
+      showLive: function (e) { if (e && e.preventDefault) e.preventDefault(); self.setState({ tab: 'live' }); },
+      showHistory: function (e) { if (e && e.preventDefault) e.preventDefault(); self.setState({ tab: 'history' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

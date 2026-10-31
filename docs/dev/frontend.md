@@ -82,6 +82,10 @@ says they saved them, even though the session already counts as signed in.
 default and dark with `prefers-color-scheme`. Everything else uses `var(--ov-...)`. System fonts
 only.
 
+The UI design is chosen ([docs/design/](../design/README.md), owner, 2026-10-31): every screen
+is built from its mock-ups, and nothing is invented beside them. The first M6 issue brings its
+tokens into `tokens.css`, the theme setting and self-hosted IBM Plex.
+
 ## Rules the tests enforce
 
 ### What the repository ships
