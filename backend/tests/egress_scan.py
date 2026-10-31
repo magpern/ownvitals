@@ -170,6 +170,9 @@ _BASES = frozenset(
         "http.client.HTTPConnection",
         "http.client.HTTPSConnection",
         "socket.socket",
+        "smtplib.SMTP",
+        "smtplib.SMTP_SSL",
+        "smtplib.LMTP",
         "authlib.integrations.httpx_client.AsyncOAuth2Client",
         f"{EGRESS}.Allowlist",
         f"{EGRESS}.AllowlistTransport",
@@ -202,7 +205,7 @@ _MODULES = frozenset(
     }
 )
 
-# module -> calls it may make, with the reason.
+# module -> clients it may build (by a call or a subclass), with the reason.
 EXEMPT: dict[str, dict[str, str]] = {
     "ownvitals.mail": {
         "smtplib.SMTP": "web only: account mail; the SMTP host is a setting (Amendment 1)",
@@ -321,7 +324,10 @@ def scan_source(source: str, module: str) -> list[tuple[int, str]]:
         if isinstance(node, ast.ClassDef):
             for base in node.bases:
                 name = _dotted(base, aliases)
-                if name is not None and _canonical(name) in _BASES:
+                if name is None:
+                    continue
+                name = _canonical(name)
+                if name in _BASES and name not in exempt:
                     found.append((node.lineno, f"subclasses {name}: clients live in {EGRESS}"))
             continue
         if not isinstance(node, ast.Call):
@@ -410,13 +416,19 @@ def scan_tree(src: Path) -> list[tuple[str, int, str]]:
 
 
 def exempt_calls_used(source: str, module: str) -> set[str]:
-    """The exempt calls ``module`` still makes (so a stale exemption is noticed)."""
+    """The exempt clients ``module`` still builds, by a call or a subclass (so a stale exemption
+    is noticed)."""
     tree = ast.parse(source)
     aliases = _aliases(tree, module)
     used: set[str] = set()
     for node in ast.walk(tree):
+        exprs: list[ast.expr] = []
         if isinstance(node, ast.Call):
-            name = _dotted(node.func, aliases)
+            exprs = [node.func]
+        elif isinstance(node, ast.ClassDef):
+            exprs = list(node.bases)
+        for expr in exprs:
+            name = _dotted(expr, aliases)
             if name is not None:
                 used.add(_canonical(name))
     return used & set(EXEMPT.get(module, {}))

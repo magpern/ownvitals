@@ -2,9 +2,11 @@
 
 Against the in-process SMTP fake on loopback; synthetic addresses and text only."""
 
+import asyncio
 import logging
 import smtplib
 import ssl
+import time
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -12,10 +14,11 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from ownvitals import mail
 from ownvitals.config import Settings
-from ownvitals.egress import OutboundBlocked, core, install_worker_allowlist
-from ownvitals.mail import Mailer, MailError, MailMessage, send_logged
-from smtpfake import SmtpFake
+from ownvitals.egress import OutboundBlocked, core, install_worker_allowlist, tls_client_context
+from ownvitals.mail import SMTP_TOTAL_SECONDS, Mailer, MailError, MailMessage, send_logged
+from smtpfake import SmtpFake, loopback_certificate
 
 
 @pytest.fixture(autouse=True)
@@ -170,8 +173,8 @@ class RecordingSmtp:
 @pytest.fixture
 def recording_smtp(monkeypatch: pytest.MonkeyPatch) -> type[RecordingSmtp]:
     RecordingSmtp.contexts, RecordingSmtp.logins = [], []
-    monkeypatch.setattr(smtplib, "SMTP", RecordingSmtp)
-    monkeypatch.setattr(smtplib, "SMTP_SSL", RecordingSmtp)
+    monkeypatch.setattr(mail, "_DeadlineSMTP", RecordingSmtp)
+    monkeypatch.setattr(mail, "_DeadlineSMTPSSL", RecordingSmtp)
     return RecordingSmtp
 
 
@@ -211,3 +214,159 @@ async def test_a_login_needs_both_the_username_and_the_secret_file(
     (secrets_dir / "smtp_password").write_text("synthetic-pass\n", encoding="utf-8")
     await Mailer(Settings(smtp_host="smtp.example.test", smtp_username="sender")).send(message)
     assert recording_smtp.logins == [("sender", "synthetic-pass")]
+
+
+# --- the total deadline of a delivery ----------------------------------------------------------
+
+
+def _local(port: int, **values: object) -> Settings:
+    return settings(smtp_host="127.0.0.1", smtp_port=port, smtp_tls="none", **values)
+
+
+async def _fails_within(mailer: Mailer, low: float, high: float) -> MailError:
+    started = time.monotonic()
+    with pytest.raises(MailError) as raised:
+        await mailer.send(MailMessage("secret.person@example.com", "Hello", "Body\n"))
+    elapsed = time.monotonic() - started
+    assert low <= elapsed < high, elapsed
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+    assert "secret.person" not in str(raised.value)
+    return raised.value
+
+
+# Sent a byte every 50 ms, the greeting alone takes over 3 s.
+LONG_GREETING = "fake ESMTP, a synthetic banner long enough to trickle for seconds"
+
+
+async def test_a_trickling_server_is_cut_at_the_total_deadline() -> None:
+    """Every byte of every reply comes 50 ms apart, far inside any per-operation timeout; a
+    timeout recomputed only per reply line would still wait out the whole 3 s greeting. Only a
+    deadline checked before every ``recv`` ends the delivery in time."""
+    async with SmtpFake(reply_delay=0.05, greeting=LONG_GREETING) as smtp:
+        error = await _fails_within(Mailer(_local(smtp.port), total_seconds=0.5), 0.45, 1.5)
+    assert str(error) == "delivery failed (deadline passed)"
+    assert smtp.messages == []
+
+
+async def test_a_server_that_stalls_after_the_greeting_is_cut_at_the_total_deadline() -> None:
+    async with SmtpFake(stall_after_greeting=True) as smtp:
+        error = await _fails_within(Mailer(_local(smtp.port), total_seconds=0.5), 0.45, 1.5)
+    assert str(error) == "delivery failed (deadline passed)"
+    assert (smtp.connections, smtp.messages) == (1, [])
+
+
+async def test_mutation_a_socket_timeout_alone_never_ends_a_trickle() -> None:
+    """Plain ``smtplib`` with a 0.3 s timeout per operation: the 0.8 s greeting still arrives,
+    because each byte comes within the timeout. The deadline above is what bounds it."""
+    async with SmtpFake(reply_delay=0.05) as smtp:
+
+        def connect() -> float:
+            started = time.monotonic()
+            client = smtplib.SMTP("127.0.0.1", smtp.port, timeout=0.3)
+            client.close()
+            return time.monotonic() - started
+
+        assert await asyncio.to_thread(connect) > 0.7
+
+
+async def test_a_slow_but_timely_server_is_untouched() -> None:
+    async with SmtpFake(reply_delay=0.002) as smtp:
+        await Mailer(_local(smtp.port), total_seconds=5).send(
+            MailMessage("to@example.com", "Hello", "Body\n")
+        )
+    assert [m.subject for m in smtp.messages] == ["Hello"]
+
+
+async def test_nothing_connects_after_the_deadline() -> None:
+    """The deadline is taken before the thread is scheduled: a send whose time is already used
+    up opens no connection."""
+    async with SmtpFake() as smtp:
+        mailer = Mailer(_local(smtp.port))
+        with pytest.raises(smtplib.SMTPServerDisconnected):
+            await asyncio.to_thread(
+                mailer._send_blocking,  # pyright: ignore[reportPrivateUsage]
+                MailMessage("to@example.com", "s", "b"),
+                time.monotonic() - 1,
+            )
+    assert smtp.connections == 0
+
+
+def test_the_total_deadline_defaults_to_20_seconds() -> None:
+    assert SMTP_TOTAL_SECONDS == 20.0
+    assert Mailer(settings())._total_seconds == 20.0  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize("seconds", [0, -1.0, float("nan"), float("inf"), True, "20"])
+def test_the_total_deadline_is_positive_and_finite(seconds: Any) -> None:
+    with pytest.raises(ValueError, match="positive, finite"):
+        Mailer(settings(), total_seconds=seconds)
+
+
+# --- TLS: STARTTLS (the default) and implicit TLS, with the deadline ------------------------
+
+
+@pytest.fixture
+def loopback_tls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ssl.SSLContext:
+    """The fake's server context; the mailer trusts its throwaway certificate (and still
+    verifies it: hostname ``127.0.0.1``, ``CERT_REQUIRED``)."""
+    cert, key = loopback_certificate(tmp_path)
+    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server.load_cert_chain(cert, key)
+    monkeypatch.setattr(mail, "tls_client_context", lambda: tls_client_context(cafile=cert))
+    return server
+
+
+async def test_starttls_delivers_over_tls(loopback_tls: ssl.SSLContext) -> None:
+    async with SmtpFake(tls=loopback_tls) as smtp:
+        mailer = Mailer(settings(smtp_host="127.0.0.1", smtp_port=smtp.port))
+        await mailer.send(MailMessage("to@example.com", "Hello", "Body\n"))
+    assert smtp.tls_upgrades == 1
+    assert [m.subject for m in smtp.messages] == ["Hello"]
+
+
+async def test_implicit_tls_delivers(loopback_tls: ssl.SSLContext) -> None:
+    async with SmtpFake(tls=loopback_tls, implicit_tls=True) as smtp:
+        mailer = Mailer(settings(smtp_host="127.0.0.1", smtp_port=smtp.port, smtp_tls="tls"))
+        await mailer.send(MailMessage("to@example.com", "Hello", "Body\n"))
+    assert [m.subject for m in smtp.messages] == ["Hello"]
+
+
+@pytest.mark.parametrize("implicit", [False, True])
+async def test_a_trickling_tls_server_is_cut_at_the_total_deadline(
+    loopback_tls: ssl.SSLContext, implicit: bool
+) -> None:
+    tls = "tls" if implicit else "starttls"
+    async with SmtpFake(
+        tls=loopback_tls, implicit_tls=implicit, reply_delay=0.05, greeting=LONG_GREETING
+    ) as smtp:
+        mailer = Mailer(
+            settings(smtp_host="127.0.0.1", smtp_port=smtp.port, smtp_tls=tls), total_seconds=0.5
+        )
+        error = await _fails_within(mailer, 0.45, 1.5)
+    assert str(error) == "delivery failed (deadline passed)"
+    assert smtp.messages == []
+
+
+async def test_a_tls_handshake_that_never_ends_is_cut_at_the_total_deadline(
+    loopback_tls: ssl.SSLContext,
+) -> None:
+    """A server that accepts the connection and never answers the ClientHello."""
+
+    async def silent(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            while await reader.read(4096):
+                pass
+        except ConnectionError:
+            pass
+        finally:
+            writer.close()
+
+    server = await asyncio.start_server(silent, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        mailer = Mailer(
+            settings(smtp_host="127.0.0.1", smtp_port=port, smtp_tls="tls"), total_seconds=0.5
+        )
+        error = await _fails_within(mailer, 0.45, 1.5)
+    assert str(error) == "delivery failed (deadline passed)"

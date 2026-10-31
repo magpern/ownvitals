@@ -68,11 +68,20 @@ async with egress.google_async_client(inner=t) as client:  # the JWKS fetch
 
 `Mailer(settings).send(MailMessage(to, subject, body))` over `smtplib` in a thread;
 `send_logged` is the background task that sends after the response. Settings
-([backend.md](backend.md)): `smtp_host` (unset: nothing is sent), `smtp_port` 587, `smtp_sender`, `smtp_tls`
-`starttls` (default), `tls` or `none` (`none` only for loopback or `mailpit`), `smtp_username`,
-and the secret file `smtp_password`. Locally the host is mailpit. A failure is a `MailError`
-with the exception class only (no recipient, no cause, no context). Tests use the in-process
-fake `tests/smtpfake.py` on loopback.
+([backend.md](backend.md)): `smtp_host` (unset: nothing is sent), `smtp_port` 587,
+`smtp_sender`, `smtp_tls` `starttls` (default), `tls` or `none` (`none` only for loopback or
+`mailpit`), `smtp_username`, and the secret file `smtp_password`. Locally the host is mailpit.
+A failure is a `MailError` with the exception class only (no recipient, no cause, no context).
+Tests use the in-process fake `tests/smtpfake.py` on loopback (trickling, stalling, STARTTLS and
+implicit-TLS modes).
+
+**Total deadline.** Mail runs inside web requests, so one delivery ends within
+`SMTP_TOTAL_SECONDS` (20 s; `Mailer(settings, total_seconds=...)`, positive and finite). The
+deadline is taken before the thread is scheduled, and every socket operation gets the time left
+as its timeout: the connection, each `recv` of a reply, each send and the TLS handshake. A server
+that trickles its replies a byte at a time, or stalls after the greeting, ends at the deadline
+with `MailError("delivery failed (deadline passed)")`. It is a module constant in `mail.py` until
+`config.py` can take a setting (the Architect moves it once the shared-file lock allows).
 
 ## The guard
 
@@ -81,7 +90,7 @@ the `ownvitals.egress` package it refuses building a client, transport, opener, 
 connection, importing a client library that bypasses it (`requests`, `aiohttp`, `urllib3`,
 `httpcore`, `http.client` ...), building an `Allowlist` or `AllowlistTransport`, handing a
 client builder a list, and using any private name of the package. `EXEMPT` holds only
-`ownvitals.mail` (`smtplib.SMTP`, `SMTP_SSL`).
+`ownvitals.mail` (`smtplib.SMTP`, `SMTP_SSL`, built by a call or subclassed for the deadline).
 
 - `WORKER_PACKAGES`: packages that run in the worker never import `ownvitals.mail`.
 - `WORKER_ENTRYPOINTS`: imported in a fresh interpreter, they must not load `ownvitals.mail`,
@@ -102,11 +111,33 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
 
 - The checks run inside the process: code in it could still open a socket around them (the guard
   makes that visible in review); a network-level egress rule is the deployment's.
-- The web process installs no process-wide urllib opener: a third-party library calling
-  `urlopen` in web is not stopped at run time (our own code is kept out by the guard).
+- The web process installs no process-wide urllib opener yet: a third-party library calling
+  `urlopen` in web is not stopped at run time (our own code is kept out by the guard). A
+  deny-all opener at web start goes to #10, the next issue to take `web.py`.
 - A DNS lookup in progress is not cut by a urllib deadline (the resolver's timeout ends it).
-- SMTP has a 15 s timeout per socket operation, no total deadline (it runs after the response).
-- `account.withings.com` is on the worker list because PLAN §2 lists it; the server has no known
-  call to it (it hosts the authorize page the browser opens).
+- SMTP: a DNS lookup in progress is not cut either, and a host name with several addresses
+  gets the time left for each connection attempt.
+- `account.withings.com` stays on the worker list because PLAN §2 lists it; the server has no
+  known call to it (it hosts the authorize page the browser opens).
 - The code exchange counts against the app's Withings rate budget once the rate limiter exists
   (#23).
+
+## Decisions (accepted by the Architect, 2026-10-31, #6)
+
+1. **Worker-only clients refuse outside the worker.** `withings_async_client` and
+   `model_async_client` check the installed worker list when built and on every request, so the
+   web process can make no Withings call but the code exchange. Every process that calls
+   Withings (the worker, later the probe CLI) and the tests of such code install the worker list
+   first (`install_worker_allowlist`), the tests with a reset fixture.
+2. **The model host is gated through the installed list.** `model_async_client` builds only in a
+   worker installed with `ai_enabled=True` (`ai_insights`); `ai_enabled` must be a real `bool`.
+3. **Google sign-in has a host list in web**: the token endpoint and JWKS hosts, not
+   `accounts.google.com` (the browser's authorize page). Authlib's `AsyncOAuth2Client` is allowed
+   only with `transport=google_signin_transport(...)` and `trust_env=False`, without `proxy`,
+   `mounts` or `**`, so sign-in needs no guard exemption.
+4. **The code-exchange form is strict**: unknown or repeated fields are refused, not ignored
+   (a PHP-style server folds `grant.type` and `grant_type[]` into `grant_type`). Allowed:
+   `action`, `grant_type`, `client_id`, `client_secret`, `code`, `redirect_uri`. Withings'
+   signature/nonce variant would widen it here, under review.
+5. **Mail errors carry no exception context**: `MailError` is raised after the `except` block,
+   with the exception class only.

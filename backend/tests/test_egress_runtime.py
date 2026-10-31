@@ -128,7 +128,7 @@ async def test_each_request_checks_the_role_again() -> None:
 
 
 class NoSmtp:
-    """Stands in for ``smtplib.SMTP``: records a connection attempt, never connects."""
+    """Stands in for the mailer's SMTP client: records a connection attempt, never connects."""
 
     calls: ClassVar[list[str]] = []
 
@@ -140,7 +140,7 @@ class NoSmtp:
 @pytest.fixture
 def no_smtp(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     NoSmtp.calls = []
-    monkeypatch.setattr("ownvitals.mail.smtplib.SMTP", NoSmtp)
+    monkeypatch.setattr("ownvitals.mail._DeadlineSMTP", NoSmtp)
     return NoSmtp.calls
 
 

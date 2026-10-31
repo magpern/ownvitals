@@ -1,15 +1,59 @@
 """An in-process SMTP server for tests on loopback: accepts every message and keeps it.
 
-Just enough SMTP for ``smtplib`` without TLS: EHLO, MAIL, RCPT, DATA, RSET, NOOP, QUIT. The
-messages tests send it are synthetic (``example.com`` addresses, made-up text).
+Just enough SMTP for ``smtplib``: EHLO, MAIL, RCPT, DATA, RSET, NOOP, QUIT, and with ``tls`` (a
+server context, see ``loopback_certificate``) either STARTTLS or, with ``implicit_tls``, TLS from
+the first byte. The messages tests send it are synthetic (``example.com`` addresses, made-up
+text).
 """
 
 import asyncio
+import datetime
+import ipaddress
 import re
+import ssl
 from dataclasses import dataclass, field
 from email import message_from_bytes
 from email.message import Message
+from pathlib import Path
 from typing import Self
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+
+
+def loopback_certificate(directory: Path) -> tuple[str, str]:
+    """A throwaway self-signed certificate for ``127.0.0.1``: ``(cert_path, key_path)``. The
+    certificate is its own CA (``cafile=cert_path`` on the client)."""
+    now = datetime.datetime.now(datetime.UTC)
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "ownvitals test loopback")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=5))
+        .not_valid_after(now + datetime.timedelta(hours=1))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
+            critical=False,
+        )
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    cert_path, key_path = directory / "cert.pem", directory / "key.pem"
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return str(cert_path), str(key_path)
 
 
 @dataclass
@@ -41,12 +85,25 @@ class Received:
 
 @dataclass
 class SmtpFake:
+    """``reply_delay``: send every reply one byte at a time, this many seconds apart (a
+    trickling server). ``greeting``: the banner after ``220``. ``stall_after_greeting``:
+    greet, then never answer again. ``tls``:
+    offer STARTTLS with this server context, or speak TLS at once with ``implicit_tls``."""
+
     port: int = 0
     messages: list[Received] = field(default_factory=lambda: list[Received]())
+    reply_delay: float = 0.0
+    greeting: str = "fake ESMTP"
+    stall_after_greeting: bool = False
+    tls: ssl.SSLContext | None = None
+    implicit_tls: bool = False
+    connections: int = 0
+    tls_upgrades: int = 0
     _server: asyncio.Server | None = None
 
     async def __aenter__(self) -> Self:
-        self._server = await asyncio.start_server(self._serve, "127.0.0.1", 0)
+        context = self.tls if self.implicit_tls else None
+        self._server = await asyncio.start_server(self._serve, "127.0.0.1", 0, ssl=context)
         self.port = self._server.sockets[0].getsockname()[1]
         return self
 
@@ -60,16 +117,38 @@ class SmtpFake:
 
     async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         async def say(line: str) -> None:
-            writer.write(f"{line}\r\n".encode())
-            await writer.drain()
+            data = f"{line}\r\n".encode()
+            if not self.reply_delay:
+                writer.write(data)
+                await writer.drain()
+                return
+            for i in range(len(data)):
+                writer.write(data[i : i + 1])
+                await writer.drain()
+                await asyncio.sleep(self.reply_delay)
 
+        self.connections += 1
+        offer_starttls = self.tls is not None and not self.implicit_tls
         sender, recipients = "", []
         try:
-            await say("220 fake ESMTP")
+            await say(f"220 {self.greeting}")
+            if self.stall_after_greeting:
+                while await reader.read(4096):  # read what comes, answer nothing, until EOF
+                    pass
+                return
             while line := (await reader.readline()).decode().strip():
                 verb = line.split(" ", 1)[0].upper()
                 if verb in ("EHLO", "HELO"):
-                    await say("250 fake")
+                    if offer_starttls:
+                        await say("250-fake")
+                        await say("250 STARTTLS")
+                    else:
+                        await say("250 fake")
+                elif verb == "STARTTLS" and offer_starttls and self.tls is not None:
+                    await say("220 go ahead")
+                    await writer.start_tls(self.tls)
+                    self.tls_upgrades += 1
+                    offer_starttls = False
                 elif verb == "MAIL":
                     sender, recipients = line.split(":", 1)[1].strip(), []
                     await say("250 ok")
@@ -87,7 +166,7 @@ class SmtpFake:
                     break
                 else:
                     await say("250 ok")
-        except (ConnectionError, asyncio.IncompleteReadError):
+        except (ConnectionError, asyncio.IncompleteReadError, ssl.SSLError):
             pass
         finally:
             writer.close()

@@ -151,6 +151,8 @@ REFUSED = [
     "from httpx import Client\nclass C(Client): pass",
     "import httpx\nclass T(httpx.AsyncBaseTransport): pass",
     "import urllib.request\nclass H(urllib.request.BaseHandler): pass",
+    "import smtplib\nclass M(smtplib.SMTP): pass",
+    "from smtplib import SMTP_SSL as S\nclass M(S): pass",
     "from authlib.integrations.httpx_client import AsyncOAuth2Client\n"
     "class C(AsyncOAuth2Client): ...",
     # The lists are built and chosen in ownvitals.egress only.
@@ -259,6 +261,11 @@ def test_an_exemption_is_per_module_and_per_call() -> None:
     assert scan_source(call, "ownvitals.auth.routes") != []
     other = "import smtplib\nsmtplib.LMTP('x')"
     assert scan_source(other, "ownvitals.mail") != []
+    subclass = "import smtplib\nclass Deadline(smtplib.SMTP_SSL): ..."
+    assert scan_source(subclass, "ownvitals.mail") == []
+    assert scan_source(subclass, "ownvitals.auth.routes") != []
+    lmtp = "from smtplib import LMTP\nclass L(LMTP): ..."
+    assert scan_source(lmtp, "ownvitals.mail") != []
     client = "import httpx\nhttpx.AsyncClient()"
     assert scan_source(client, "ownvitals.mail") != []
 
