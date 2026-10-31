@@ -26,7 +26,18 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
-None yet.
+### Amendment 1 (2026-10-31, Architect): the authorization-code exchange runs in the web process
+
+- **Changes:** PLAN §2 ("The worker owns every outbound call") gains one exception: the web
+  process may make the single `oauth2 requesttoken` call that exchanges an authorization code
+  inside the OAuth callback request, through a narrow, web-only egress entry limited to that
+  call and host. Token refresh, revoke and every other Withings call stay in the worker.
+- **Evidence:** a conflict inside the frozen spec. §4.3 requires the code to be exchanged "in
+  the request (it's valid for 30 s)", and the callback request runs in web; withings-findings §2
+  records the 30 s validity. Handing the code to a worker job and waiting would race that window.
+  Raised in ADR 0004 (PR #41, issue #4).
+- **ADR:** ADR 0004 records the decision; the egress guard (#6) and the connect issue (#22)
+  implement and test that web can reach nothing else.
 
 ## Pinned sources
 
