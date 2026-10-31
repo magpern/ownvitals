@@ -1,0 +1,33 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/heart:get",
+  "response": {
+    "status": 0,
+    "body": {
+      "signal": [
+        0,
+        12,
+        -8,
+        25,
+        310,
+        980,
+        140,
+        -95,
+        -12,
+        3,
+        0,
+        -2
+      ],
+      "sampling_frequency": 300,
+      "wearposition": 1,
+      "model": 91,
+      "heart_rate": {
+        "grpid": 100003,
+        "value": 72,
+        "date": 1793300040,
+        "is_deleted": false
+      }
+    }
+  }
+}
