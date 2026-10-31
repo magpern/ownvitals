@@ -284,6 +284,18 @@ if command -v yq > /dev/null; then
   uv_tree 0.13.6 0.13.6 0.13.6
   echo 'FROM ghcr.io/astral-sh/uv:0.13.5 AS uv2' >> "$uvdir/Dockerfile"
   uv_case "Dockerfile has two uv tags" 1 "more than one uv tag"
+  # Pinned by digest (uv:X.Y.Z@sha256:<64 hex>): the tag is still what is compared.
+  d64=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  uv_tree "0.13.6@sha256:$d64" 0.13.6 0.13.6
+  uv_case "Dockerfile pinned by digest, all agree" 0 "uv 0.13.6 everywhere"
+  uv_tree "0.13.7@sha256:$d64" 0.13.6 0.13.6
+  uv_case "Dockerfile pinned by digest, tag differs" 1 "is not the Dockerfile uv tag 0.13.7"
+  uv_tree "0.13.6@sha256:${d64%a}" 0.13.6 0.13.6
+  uv_case "Dockerfile digest too short" 1 "no uv tag found in the Dockerfile"
+  uv_tree "0.13.6@sha256:${d64^^}" 0.13.6 0.13.6
+  uv_case "Dockerfile digest in upper case" 1 "no uv tag found in the Dockerfile"
+  uv_tree "0.13.6@sha512:$d64" 0.13.6 0.13.6
+  uv_case "Dockerfile digest not sha256" 1 "no uv tag found in the Dockerfile"
 
   uv_tree 0.13.6 0.13.6 0.13.7
   uv_case "docs differ in both references" 1 "is not the Dockerfile uv tag 0.13.6"
