@@ -1,0 +1,139 @@
+# Backend: commands, settings and layout
+
+The backend is a uv project in `backend/` (Python 3.12, package `ownvitals` in `src/ownvitals`).
+Run everything from `backend/`. CI (`backend` job) runs exactly the commands below, with uv 0.13.6.
+
+## Commands
+
+The globally installed uv may be older; use the version CI uses and never let another one write
+`uv.lock`:
+
+```bash
+cd backend
+uvx uv@0.13.6 sync --locked          # install from uv.lock; fails if the lock is stale
+uvx uv@0.13.6 lock                   # after changing pyproject.toml (the only command that writes uv.lock)
+uvx uv@0.13.6 run ruff check
+uvx uv@0.13.6 run ruff format --check
+uvx uv@0.13.6 run pyright
+uvx uv@0.13.6 run pytest -q                       # needs the test database, see below
+uvx uv@0.13.6 run pytest -q tests/test_config.py  # one file
+uvx uv@0.13.6 run python -m ownvitals --help      # serve the API (--host, --port)
+```
+
+Ruff (`line-length = 100`, rules `E F W I UP B SIM ASYNC RUF S PT`), pyright (`standard`) and
+pytest (`asyncio_mode = auto`, `filterwarnings = ["error"]`) are configured in `pyproject.toml`.
+Keep files under 500 lines.
+
+### Dependencies
+
+All runtime dependencies of the platform milestone (M0) are declared up front: alembic,
+argon2-cffi, authlib, certifi, cryptography, fastapi, httpx, joserfc, psycopg[binary], pydantic,
+pydantic-settings, pyotp, segno, sqlalchemy[asyncio], uvicorn[standard]. Dev: pyright, pytest,
+pytest-asyncio, ruff. Group `audit`: pip-audit (CI only). Packages whose modules arrive later
+(argon2-cffi, authlib, joserfc, pyotp, segno, cryptography) are installed already, so the
+lockfile does not change under parallel issues.
+
+## The test database
+
+Database tests need a real Postgres 17. Start a throwaway one per worktree (name and port are
+yours; the stack script uses `30000 + issue` for the compose database, so pick another port or
+stop the stack):
+
+```bash
+MSYS_NO_PATHCONV=1 docker run -d --rm --name ownvitals-2-pg -e POSTGRES_PASSWORD=test \
+  -p 127.0.0.1:30002:5432 postgres:17.11
+MSYS_NO_PATHCONV=1 docker exec ownvitals-2-pg psql -U postgres -c 'CREATE DATABASE ownvitals'
+export OWNVITALS_TEST_DATABASE_URL=postgresql+psycopg://postgres:test@127.0.0.1:30002/ownvitals
+# when done
+docker stop ownvitals-2-pg
+```
+
+`OWNVITALS_TEST_DATABASE_URL` is a superuser URL of the throwaway database. Until the database
+roles exist (tenant isolation issue) the code under test connects with it too. Without the
+variable the database tests skip with a reason; with `CI=true` a missing variable **fails** the
+run (`tests/dbtools.py: unavailable`), so they can never be skipped silently in CI.
+
+## No network in tests
+
+`tests/netguard.py` is installed by an autouse fixture: `socket.connect`, `connect_ex` and
+`getaddrinfo` raise `NetworkBlocked` before anything is sent unless the target is loopback
+(`127.0.0.0/8`, `::1`, `localhost`) or a Unix socket. The throwaway Postgres, in-process fakes and
+local servers stay on loopback. A test that needs more must carry `@pytest.mark.allow_network`;
+none does, and none should. Fixtures are synthetic; there is no real health data anywhere.
+
+`conftest.py` also removes every `OWNVITALS_*` variable (except the test database URL) from the
+environment and points `OWNVITALS_SECRETS_DIR` at an empty directory, so a developer's shell or
+`/run/secrets` never changes a test.
+
+## Settings
+
+`ownvitals.config.Settings` (pydantic-settings) reads `OWNVITALS_<NAME>` environment variables.
+**Secrets are read only from files** in `OWNVITALS_SECRETS_DIR` (default `/run/secrets`), named
+after the field without the prefix (`/run/secrets/database_password`); an environment variable of
+a secret field is ignored. Only a trailing newline is stripped. Anything that can carry a
+credential is a `SecretStr`, masked in `repr`, dumps and validation errors. Empty environment
+values count as unset.
+
+All settings of the platform milestone exist already, so the issues that use them add no field:
+
+| Setting | Default | Notes |
+|---|---|---|
+| `environment` | `dev` | `dev`, `test`, `prod`; `prod` needs an `https://` `public_base_url` and hides `/api/docs` |
+| `log_level` | `INFO` | |
+| `database_url` | `postgresql+psycopg://ownvitals_app@127.0.0.1:5432/ownvitals` | app role (web, worker) |
+| `migrations_database_url` | `...//ownvitals_owner@127.0.0.1:5432/ownvitals` | owner role, Alembic only |
+| `maint_database_url` | unset | admin role; needs `database_maint_password` too |
+| `static_dir` | unset | built SPA; unset: API only |
+| `public_base_url` | `http://127.0.0.1:8000` | the one public origin, normalised |
+| `admin_emails`, `trusted_proxies` | empty | comma-separated; proxies are IPs or CIDR ranges |
+| `session_idle_days`, `session_absolute_days` | 7, 30 | |
+| `password_hash_workers` | 4 | |
+| `signup_mode` | `invite` | `invite`, `closed`, `open` |
+| `stepup_window_minutes` | 10 | how long a fresh TOTP check authorises a sensitive action (1 to 60) |
+| `purge_interval_seconds` | 3600 | |
+| `connection_kek_id` | `kek-1` | `kek-[a-z0-9-]{1,28}`; the key is the secret file `connection_kek` |
+| `smtp_host`, `smtp_port`, `smtp_sender`, `smtp_tls`, `smtp_username` | unset, 587, `ownvitals@localhost`, `starttls` | `smtp_tls=none` only for loopback or `mailpit` |
+| `oauth_google_client_id` | unset | Google is the only OAuth provider |
+| `worker_poll_seconds`, `worker_maintenance_seconds`, `worker_shutdown_wait_seconds` | 2, 30, 25 | wait at most 25 s |
+| `job_lease_seconds`, `worker_concurrency`, `jobs_per_user`, `job_busy_requeue_limit` | 120, 2, 2, 5 | bounded: 30..600, 1..16, 1..100, 0..100 |
+| `experimental_findings`, `ai_insights` | `false` | environment side of the stored flags; the stricter wins |
+
+Secret files (`SECRET_FILE_FIELDS`): `database_password`, `database_owner_password`,
+`database_maint_password`, `app_secret_key` (at least 32 bytes), `smtp_password`,
+`oauth_google_client_secret`. The key-encryption keys (`connection_kek`, retired
+`connection_kek_<id>`) are read by the crypto package, not by `Settings`.
+
+`Settings.sqlalchemy_url()` and `migrations_sqlalchemy_url()` return the URL with the password from
+the file substituted when one exists.
+
+## Migrations
+
+Alembic lives in `backend/migrations` (`alembic.ini`). It connects as the owner role with
+`OWNVITALS_MIGRATIONS_DATABASE_URL` (password from the `database_owner_password` file), never
+through the app role. Migrations are numbered `NNNN_name`; take the next free number when the PR
+opens and renumber on a rebase if another one merged first.
+
+```bash
+OWNVITALS_MIGRATIONS_DATABASE_URL=$OWNVITALS_TEST_DATABASE_URL uvx uv@0.13.6 run alembic upgrade head
+uvx uv@0.13.6 run alembic upgrade head --sql      # offline: print the SQL
+uvx uv@0.13.6 run alembic downgrade base
+```
+
+`0001_baseline` creates no tables. Every migration needs a working `downgrade` (the
+`test_migrations.py` test upgrades to head and downgrades to base).
+
+## Layout
+
+| Path | What |
+|---|---|
+| `__main__.py` | `python -m ownvitals`: uvicorn with JSON logs, access log and proxy headers off, 5 s graceful shutdown; or a subcommand |
+| `cli.py` | subcommand registry (`add_subcommands`, `COMMANDS`, `run_command`); later issues add theirs here |
+| `config.py` | settings (above) |
+| `log.py` | JSON logs and the redaction filter: cookies, credential headers, OAuth query strings and `code`/`state`, mail-link tokens, the secret part of `/api/webhooks/<provider>/<secret>`, secret keys in `extra`; DB errors reduce to class and SQLSTATE |
+| `headers.py` | `Content-Security-Policy` (`'self'` only) and `Referrer-Policy: no-referrer` on every response |
+| `web.py` | app factory; `/api/health` (no database), `/api/ready` (`SELECT 1`, 503 without detail); serves the built SPA from `static_dir`; includes `FEATURE_ROUTERS` |
+| `emailnorm.py` | email normalisation (trim, ASCII lower case) |
+| `db/engine.py` | async engine (`DISCARD ALL` on pool return), the migrations engine, session factory, readiness query |
+| `auth/`, `connections/`, `flags/`, `jobs/`, `admin/` | packages with an empty `routes.py` router that `web.py` already includes; the issues that own them fill them |
+
+Sessions with a row-level-security user, the roles and the role checks are not here yet.
