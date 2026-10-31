@@ -133,9 +133,13 @@ CREATE POLICY owner_isolation ON <t>
      `ownvitals_owner`**, `ensure_month_partitions(table, from_month, to_month)` (amended
      2026-10-31, #49: a backfill writes into past months, which PLAN §5's "3 months ahead"
      doesn't cover). It accepts only an allowlisted table and bounds the range itself: from no
-     earlier than the oldest month any backfill window reaches (#25) to no later than now + 3
-     months. It creates the missing monthly partitions and applies 4 and 5 to each in the same
-     transaction. It is installed and pinned like the other definer functions (ADR 0005 §3).
+     earlier than **13 months before now** (the longest backfill window of a partitioned table,
+     plus one month; a constant in the function, so changing it is a reviewed change of the
+     function and its pinned digest) to no later than now + 3 months. It takes
+     `pg_advisory_xact_lock` on the parent table's oid before it checks and creates, so
+     concurrent callers can't race; then it creates the missing monthly partitions and applies 4
+     and 5 to each in the same transaction. It is installed and pinned like the other definer
+     functions (ADR 0005 §3).
      Web and worker share the `ownvitals_app` role, so "the worker only" is enforced in code:
      only the scheduler module (the months ahead, §4) and the backfill module (the months of a
      window, before inserting it; #25) call it, and #21's guard fails on any other module that
@@ -175,11 +179,12 @@ CREATE POLICY owner_isolation ON <t>
     DSN is mounted only in one-off operator containers (as for migrations), never in web or
     worker. It writes the row and its admin-audit entry in one transaction. The same tool, in
     the same kind of container, rewraps the enveloped client secret after a KEK rotation (ADR
-    0004 §3), and its `rotate` command only sets `rotation_requested_at`, which asks the worker
-    to rotate (ADR 0004 §4);
+    0004 §3), and its `rotate` command only sets `rotation_requested_at` and `rotation_reason`
+    (`routine` or `compromise`), which ask the worker to rotate in that order (ADR 0004 §4);
+    the worker reads both through the app role's column grant;
   - **`webhook_secrets` entries:** only the worker's rotation, through the webhook-secret
     function of ADR 0004 §4 (append, retire, re-hash or delete retired entries of one row, clear
-    `rotation_requested_at`, plus the audit row; no other column).
+    the rotation request, plus the audit row; no other column).
 - `webhook_events` holds a Withings user id, an `appli` and a measurement time window: health
   metadata. `ownvitals_app` gets **no privilege on it at all** (the default grants are revoked in
   its migration); only the ingest function's role reads and writes it (§4). Its `job_id` is a
@@ -212,15 +217,22 @@ CREATE POLICY owner_isolation ON <t>
 - **The webhook-secret function** of ADR 0004 §4 has its own narrow owner (amended 2026-10-31,
   #49; it was `ownvitals_owner`, whose rights a bug in it would have carried: DDL, and turning
   off forced RLS on every health table). Its owner `ownvitals_webhook_secrets` is a dedicated
-  `NOLOGIN` role, as the rule above, but without `BYPASSRLS`, since it touches only system
-  tables. It holds `UPDATE` only on `withings_apps (webhook_secrets, rotation_requested_at)` and
-  `INSERT` on the admin audit table, plus the column-level `SELECT` that PostgreSQL requires for
-  what those statements read: `withings_apps (id, webhook_secrets)` and `connection_keks
-  (key_id)` (ADR 0004 §4's known-id rule); never a secret column. It is pinned and installed
-  like the others. **#21 builds** the role and the function with the data model, in its
-  superuser `db-functions` script (`docker/postgres/withings/`; never a migration, ADR 0005 §3);
-  **#24 calls** it from the worker's rotation module, its only caller, and owns that
-  single-caller guard (Architect decision, 2026-10-31).
+  role, as the rule above, but without `BYPASSRLS`, since it touches only system tables:
+  `NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT`, member of
+  no role, nobody a member of it. Its privileges are exactly:
+  - `USAGE` on schema `public` (not `CREATE`);
+  - `UPDATE` on `withings_apps (webhook_secrets, rotation_requested_at, rotation_reason)`;
+  - `INSERT` on the admin audit table, and `USAGE` on the sequence of its `bigserial` id;
+  - the column-level `SELECT` that PostgreSQL requires for what those statements read:
+    `withings_apps (id, webhook_secrets)` and `connection_keks (key_id)` (ADR 0004 §4's
+    known-id rule).
+
+  So it never reads or writes the client-secret column or any token column: `webhook_secrets`
+  holds only HMACs. It is pinned and installed like the others. **#21 builds** the role and the
+  function with the data model, in its superuser `db-functions` script
+  (`docker/postgres/withings/`; never a migration, ADR 0005 §3); **#24 calls** it from the
+  worker's rotation module, its only caller, and owns that single-caller guard (Architect
+  decision, 2026-10-31).
 
 ### 4. Execution contexts
 
@@ -269,16 +281,16 @@ CREATE POLICY owner_isolation ON <t>
 | Role | Login | Used by | Rights |
 |---|---|---|---|
 | `postgres` (superuser) | yes | the db init script and `db-functions` (ADR 0005 §3) only | creates roles, database and the definer functions |
-| `ownvitals_owner` | yes | `migrate` (Alembic), `keys wipe` (ADR 0004 §3) and #22's `withings_apps` configuration and client-secret rewrap, all in one-off operator containers | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`; owns the database, schema `public`, every table and (from #21) the partition function of §3; member of no `BYPASSRLS` role; **its login is never given to web or worker** |
+| `ownvitals_owner` | yes | `migrate` (Alembic), `keys wipe` (ADR 0004 §3) and #22's `withings_apps` configuration and client-secret rewrap (amended 2026-10-31, #49), all in one-off operator containers | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`; owns the database, schema `public`, every table and (from #21) the partition function of §3; member of no `BYPASSRLS` role; **its login is never given to web or worker** |
 | `ownvitals_app` | yes | web and worker | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT`, member of no role, owns nothing; the allowlist below |
 | `ownvitals_queue` (M0), M1's ingest, scheduler and rate roles | no | `SECURITY DEFINER` functions | `BYPASSRLS`; only the privileges their functions need (§3) |
-| `ownvitals_webhook_secrets` (M1) | no | the webhook-secret function (§3) | `NOBYPASSRLS`; exactly the column privileges and audit `INSERT` of §3 |
-| `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; of `withings_apps` the non-secret columns only, and no write; default read-only; every use audited |
+| `ownvitals_webhook_secrets` (M1; amended 2026-10-31, #49) | no | the webhook-secret function (§3) | the attributes of §3 (`NOBYPASSRLS`, member of no role) and exactly its privileges |
+| `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; of `withings_apps` the non-secret columns only, and no write (amended 2026-10-31, #49); default read-only; every use audited |
 
 - `ownvitals_app`'s grants are an **allowlist**: `CONNECT` on its database, `USAGE` on `public`,
   `SELECT, INSERT, UPDATE, DELETE` on tables and `USAGE, SELECT` on sequences through default
   privileges of `ownvitals_owner`, minus explicit revokes (`webhook_events`; `withings_apps`,
-  whose table privileges give way to §3's column-level `SELECT`), and
+  whose table privileges give way to §3's column-level `SELECT`, amended 2026-10-31, #49), and
   `EXECUTE` on the definer functions meant for it. Never `TRUNCATE` (it ignores RLS),
   `REFERENCES`, `TRIGGER`, `MAINTAIN`, `CREATE` or `TEMP`.
 - `statement_timeout` 30 s, `lock_timeout` 5 s and `idle_in_transaction_session_timeout` 60 s are
@@ -332,7 +344,7 @@ CREATE POLICY owner_isolation ON <t>
 | 7 | Another user's id gives 404 on every owned endpoint (from #10 on, per route) | #10 onward |
 | 8 | Only `ownvitals.auth` touches the account tables (ADR 0003 §1) | #10 |
 | 9 | The queue role and functions (ADR 0005 §3) | #9 |
-| 11 | `ownvitals_maint` holds exactly its allowlist; no secret column and no health table readable. From #21: no runtime role (`ownvitals_app`, `ownvitals_maint`) holds a write privilege (`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`) on `withings_apps`, and maint reads only its non-secret columns (§3) | #12; `withings_apps` #21 |
+| 11 | `ownvitals_maint` holds exactly its allowlist; no secret column and no health table readable. From #21 (amended 2026-10-31, #49): no runtime role (`ownvitals_app`, `ownvitals_maint`) holds a write privilege (`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`) on `withings_apps`, and maint reads only its non-secret columns (§3); checked with `has_any_column_privilege` and, for table-level grants, `has_table_privilege`, so a column-level grant can't slip past | #12; `withings_apps` #21 |
 | ctx | Every owned table has a test in every execution context of §4 (enumerates tables with `owner_id`) | #15 |
 
 classbeat's guard 10 (retention registry) is not ported in M0, and guard 1 does not check the
@@ -363,7 +375,8 @@ these tests instead of skipping.
   `PRIMARY KEY (owner_id, id, <partition key>)`), owner-inclusive keys and `enable_owner_rls`, or
   guard 1 fails the PR; its `users` cascade is checked by #27's deletion test (§7).
 - #21 adds the first partitioned tables, `ensure_month_partitions`, the scheduler call, the
-  caller guard and the guard 1 extension for partitions, together; #25 adds the backfill call.
+  caller guard and the guard 1 extension for partitions, together; #25 adds the backfill call
+  (amended 2026-10-31, #49).
   Nothing may reference `observations`,
   `sleep_series` or `intraday`; a design that needs to point at one of their rows needs a new
   ADR.
@@ -381,11 +394,14 @@ these tests instead of skipping.
 Architect decisions, made in place above and marked "amended 2026-10-31, #49":
 
 - §2 rule 6: `ensure_month_partitions(table, from_month, to_month)`, bounded inside the function
-  (oldest backfill month to now + 3 months), called by the scheduler and the backfill module.
+  (13 months back to now + 3 months), serialized per table by an advisory lock, and called by
+  the scheduler and the backfill module, each in a short transaction of its own.
 - §3, §5: the webhook-secret function is owned by the `NOLOGIN` role `ownvitals_webhook_secrets`
-  instead of `ownvitals_owner`, with column-level privileges only; it may also clear
-  `rotation_requested_at`, which #22's `rotate` sets. #21 builds the role and the function;
-  #24 calls it and owns the single-caller guard.
+  instead of `ownvitals_owner`, with exactly the attributes and privileges listed there; it may
+  also clear the rotation request (`rotation_requested_at`, `rotation_reason`), which #22's
+  `rotate` sets. #21 builds the role and the function; #24 calls it and owns the single-caller
+  guard.
 - §3, §4, §5, §7: `ownvitals_maint` can't write `withings_apps` and reads only its non-secret
-  columns (guard 11, from #21); PLAN §5's "admin-only" means admins view, the operator changes;
-  the client-secret rewrap is an operator step under the owner role.
+  columns (guard 11, from #21, checked per column); PLAN §5's "admin-only" means admins view,
+  the operator changes; the client-secret rewrap is an operator step under the owner role.
+- Consequences: the callers and the issues that add them.

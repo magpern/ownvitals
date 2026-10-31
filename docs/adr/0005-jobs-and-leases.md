@@ -139,7 +139,8 @@ queued ──claim──> running ──> completed | failed | cancelled
     `ownvitals_webhook_secrets` with ADR 0002 §3's column privileges (amended 2026-10-31, #49;
     it was `ownvitals_owner`): it appends, retires, re-hashes or deletes retired entries in the
     `webhook_secrets` column of one `withings_apps` row under ADR 0004 §4's input rules, may
-    clear `rotation_requested_at`, and writes the admin-audit row, nothing else;
+    clear the rotation request (`rotation_requested_at`, `rotation_reason`), and writes the
+    admin-audit row, nothing else;
     `ownvitals_app` may execute it. #21 builds the role and the function; #24's guard keeps
     every caller but the worker's rotation module out.
 
@@ -291,7 +292,8 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
   poll catches up).
 - **Owner-less upkeep** (retention purges such as the 30-day `webhook_events` purge, creating
   partitions ahead through `ensure_month_partitions` (ADR 0002 §2), secret rotation scheduling
-  and picking up a `rotation_requested_at` request (ADR 0004 §4)) runs as maintenance tasks in
+  and picking up a rotation request in the order its `rotation_reason` names (ADR 0004 §4;
+  amended 2026-10-31, #49)) runs as maintenance tasks in
   the worker loop, like reap and purge, never as queue rows without an owner: `jobs` stays an
   owned table.
 - **Past months for a backfill** (amended 2026-10-31, #49): a `withings_backfill` run calls
@@ -331,8 +333,8 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
 Architect decisions, made in place above and marked "amended 2026-10-31, #49":
 
 - §3: the webhook-secret function is owned by `ownvitals_webhook_secrets` instead of
-  `ownvitals_owner`, may also delete retired entries and clear `rotation_requested_at`, and
+  `ownvitals_owner`, may also delete retired entries and clear the rotation request, and
   enforces ADR 0004 §4's input rules; `ensure_month_partitions` takes a month range and has two
   callers, the scheduler and backfill modules.
 - §8: a backfill creates the past months its window needs, in a short transaction before the
-  window's write.
+  window's write; the upkeep picks up a rotation request in the order its reason names.
