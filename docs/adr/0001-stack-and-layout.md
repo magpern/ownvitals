@@ -82,6 +82,9 @@ and health data (D7, §9.3) instead of workout plans.
   are `SecretStr`, never logged and never in a `repr` (#2 `test_config.py`).
 - A database password replaces the password part of its URL at connect time, so no URL in the
   settings carries a secret.
+- **ADRs name a new setting by its purpose and default** (for example "the step-up window,
+  default 10 minutes"); the issue that implements it chooses the variable name, under the
+  `config.py` lock of `docs/status.md`.
 - **The KEK files and the webhook-secret pepper** (ADR 0004) are secret files like the others,
   mounted read-only; on the home server they live outside the database volume (§9.2 Hardening)
   and are backed up separately from the database dumps (§9.2 Backups).
@@ -137,7 +140,7 @@ and health data (D7, §9.3) instead of workout plans.
 - **Tracking classbeat `main`**: same problem; the pin plus deliberate ports keeps every change
   reviewed against ownvitals' threat model.
 - **TimescaleDB for the time series**: continuous aggregates don't support RLS (D6). Monthly
-  native partitions are used instead (PLAN §5; see ADR 0002, open question 1).
+  native partitions are used instead, under the RLS rules of ADR 0002 §2 (PLAN §5).
 - **Separate web and worker images**: two builds to keep in step for no isolation gain; they run
   the same code (classbeat ADR 0001).
 - **Django, sync SQLAlchemy, Redis/Celery, Poetry**: rejected for classbeat's reasons (classbeat

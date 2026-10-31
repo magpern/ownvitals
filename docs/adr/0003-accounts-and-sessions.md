@@ -1,6 +1,7 @@
 # ADR 0003: Accounts, sessions, mandatory TOTP and step-up
 
-Status: Accepted (2026-10-31, #4). Open questions: see the end.
+Status: Accepted (2026-10-31, #4). Its two open questions were decided by the Architect on
+2026-10-31 (§3 session lifetimes, §4 step-up readings).
 
 ## Context
 
@@ -99,9 +100,10 @@ else changes.
   on sign-in, on completing the second factor, on re-authentication, on step-up, and on any
   privilege change. A request in flight with the old token gets 401; the SPA repeats only safe
   requests, once (classbeat §3).
-- **Idle and absolute limits** are settings with classbeat's defaults, idle 7 days and absolute
-  30 days (open question 2). Every request refuses an expired session, deletes it and clears the
-  cookie.
+- **Idle and absolute limits** are settings: the idle limit defaults to **72 hours** (classbeat:
+  7 days) and the absolute limit to **30 days** (Architect decision, 2026-10-31). The shorter
+  idle limit suits a household computer shared by several people. Every request refuses an
+  expired session, deletes it and clears the cookie.
 - **Revocation:**
   - a password or email change revokes every other session of the user;
   - a reset, a role change, `admin mfa-reset` and removing or resetting TOTP revoke all of them
@@ -113,8 +115,10 @@ else changes.
 ### 4. Step-up (#11)
 
 - **Definition:** `stepup_at` within the **step-up window, 10 minutes** (a setting; PLAN §6).
-  It is set by any TOTP or recovery code verified in the session: at sign-in, at enrolment, or
-  through `POST /api/auth/mfa/stepup` (classbeat's route). Each sets `stepup_at`, rotates the
+  **A recovery code counts as a fresh second factor**, as in classbeat (Architect decision,
+  2026-10-31): otherwise a user who lost the authenticator could not reset 2FA without the
+  owner. It is set by any TOTP or recovery code verified in the session: at sign-in, at
+  enrolment, or through `POST /api/auth/mfa/stepup` (classbeat's route). Each sets `stepup_at`, rotates the
   session and writes an `auth_events` row (a failure too); failures count in the MFA buckets of
   §2.
 - **Refusal:** 403 `step_up_required`; the SPA shows one reusable step-up dialog and retries the
@@ -130,14 +134,17 @@ else changes.
 | Link or unlink Google | yes | yes | classbeat §6 |
 | Replace the TOTP (a new authenticator), remove or reset 2FA, regenerate recovery codes | — | yes | PLAN §6; classbeat §6 |
 | Log out everywhere | — | yes | PLAN §6 |
-| First TOTP enrolment (no confirmed factor) | the sign-in itself (§2) | — (no factor yet) | open question 1 |
+| First TOTP enrolment (no confirmed factor) | the sign-in itself (§2) | — (no factor yet) | Architect decision |
 | Admin writes (#12) | — | yes, within **5 minutes** | classbeat ADR 0011 §6 |
 | M3: add or remove a passkey, approve a QR login | M3 ADR | yes | PLAN §6 |
 | M7: export | M7 ADR | yes | PLAN §6 |
 
-- **"Disable 2FA" under mandatory TOTP** means removing the factor: the user's other sessions
-  are revoked and the current one drops back to enrolment (`mfa_at` cleared), so there is never a
-  full session without TOTP (open question 1).
+- **Reading PLAN §6 under mandatory TOTP** (Architect decision, 2026-10-31):
+  - **"disable 2FA"** means removing the factor: the user's other sessions are revoked and the
+    current one drops back to enrolment (`mfa_at` cleared), so there is never a full session
+    without TOTP;
+  - **"enable 2FA"** needs step-up only when it replaces a confirmed authenticator; a first
+    enrolment, with no factor to step up with, is protected by the fresh sign-in instead.
 - #11 tests each action twice: refused without a fresh code, accepted within the window
   (`test_auth_stepup.py`, one test per action, the list matching PLAN §6).
 
@@ -229,17 +236,3 @@ accepted risk.
   sign-in with TOTP, Google with TOTP, a step-up action and a password reset end to end.
 - #13's connect and disconnect routes depend on #11's `require_stepup`.
 - Threat model T1 to T18 cite this ADR.
-
-## Open questions
-
-1. **Reading PLAN §6's step-up list under mandatory TOTP (Architect; before #11).** This ADR
-   reads it as: (a) a recovery code counts as a "fresh TOTP" (classbeat's behaviour; otherwise a
-   user who lost the authenticator could not reset 2FA without the owner); (b) "disable 2FA"
-   removes the factor and returns the account to enrolment, since no full session may exist
-   without TOTP; (c) "enable 2FA" requires step-up only when a confirmed factor already exists
-   (replacing it); a first enrolment, with no factor to step up with, is protected by the fresh
-   sign-in instead. If any reading is wrong, #11's tests follow the corrected one.
-2. **Session lifetimes for health data (owner, non-blocking).** The defaults stay classbeat's
-   (idle 7 days, absolute 30 days) because every sensitive action needs step-up anyway. A
-   household computer shared by several people argues for shorter ones; both are settings, so
-   changing them needs no code.

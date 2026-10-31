@@ -1,6 +1,8 @@
 # ADR 0004: Provider connections, envelope encryption and the KEK ring
 
-Status: Accepted (2026-10-31, #4). Open questions: see the end.
+Status: Accepted (2026-10-31, #4). Its three open questions were decided by the Architect on
+2026-10-31 (§7 the code exchange, recorded as roadmap Amendment 1; §7 reconnect and disconnect;
+§3 revocation after a KEK compromise).
 
 ## Context
 
@@ -31,21 +33,23 @@ with the generation column, rewrap and the keys CLI, and M1 the Withings provide
 
 ### 1. The `connections` table (#13; Withings columns in M1)
 
-An owned table (ADR 0002 §2), one row per user and provider. Every column is `NOT NULL` unless
-marked otherwise.
+An owned table (ADR 0002 §2): at most one live connection per user and provider, and rows of
+earlier, disconnected Withings accounts kept with their imported data (§7). Every column is
+`NOT NULL` unless marked otherwise.
 
 | Column | Notes |
 |---|---|
 | `id uuid` | primary key with the `gen_random_uuid()` default, but **the application always supplies it** on insert, before encrypting, because the AAD names it (§2) |
 | `owner_id uuid` | `REFERENCES users (id) ON DELETE CASCADE` |
-| `provider text` | checked against the provider list (`withings` from M1; #13 admits its test-only provider without making it reachable in production); `UNIQUE (owner_id, provider)` |
-| `status text` | `connected`, `needs_reconnect` (#13); M1 adds `blocked_by_provider_plan` (PLAN §4.2) and the state open question 2 decides for a disconnected row |
+| `provider text` | checked against the provider list (`withings` from M1; #13 admits its test-only provider without making it reachable in production). #13 creates `UNIQUE (owner_id, provider)`; #27, which adds `disconnected`, narrows it to a unique index on `(owner_id, provider) WHERE status <> 'disconnected'` (one live connection; §7) |
+| `status text` | `connected`, `needs_reconnect` (#13); M1 adds `blocked_by_provider_plan` (PLAN §4.2) and `disconnected` (§7, #27) |
 | `last_error text NULL` | a category from §8, checked against the list; never provider text |
 | `public jsonb` | non-secret fields needed without decrypting: for Withings `{app_id, withings_userid, scopes}` (PLAN §5); nothing else personal |
 | `app_id`, `withings_userid` | generated from `public` (M1), with `UNIQUE (app_id, withings_userid)`: the one owner-less unique index ADR 0002 §2 allows |
-| `secret bytea`, `secret_nonce bytea` | the encrypted payload (§2); nonce 12 bytes |
-| `wrapped_dek bytea`, `dek_nonce bytea` | the wrapped data key; 48 and 12 bytes |
-| `key_id text` | `^kek-[a-z0-9-]{1,28}$` |
+| `secret bytea NULL`, `secret_nonce bytea NULL` | the encrypted payload (§2); nonce 12 bytes |
+| `wrapped_dek bytea NULL`, `dek_nonce bytea NULL` | the wrapped data key; 48 and 12 bytes |
+| `key_id text NULL` | `^kek-[a-z0-9-]{1,28}$` |
+| (check) | the five credential columns are all set or all `NULL`; set when `connected`, `NULL` when `disconnected`, either when `needs_reconnect` (a 401 keeps them, `keys wipe` removes them, §3) |
 | `token_generation bigint` | default 0; **raised by every write of new tokens** (connect, reconnect, refresh), never by a rewrap or a status change (§6) |
 | `refresh_in_flight bigint NULL`, `refresh_intent_at timestamptz NULL` | the durable refresh intent of PLAN §4.3 (M1) |
 | `expires_at timestamptz NULL` | the refresh token's expiry when known |
@@ -119,23 +123,25 @@ marked otherwise.
   3. `docker compose --profile maint run --rm maint python -m ownvitals keys wipe --confirm`, as
      the owner role (never given to web or worker), with no KEK. It refuses while any app-role
      session is connected or while the configured KEK id already has a check row. Per user, in one
-     transaction: an `auth_events` row `connections_wiped`, the user's connection rows deleted,
-     and TOTP reset the way `admin mfa-reset` does; after the commit, a mail saying what was
-     removed and what to do, with no token or account detail. Then every check row is deleted,
-     the affected tables vacuumed (`VACUUM (FULL)`) and a checkpoint taken (#13
+     transaction: an `auth_events` row `connections_wiped`; **each connection row set to
+     `needs_reconnect` with its credential columns removed** (classbeat deletes the rows;
+     ownvitals keeps them, so the imported health data that references them stays, Architect
+     decision 2026-10-31); and TOTP reset the way `admin mfa-reset` does. After the commit, a mail
+     says what was removed and what to do, with no token or account detail. Then every check row
+     is deleted, the affected tables vacuumed (`VACUUM (FULL)`) and a checkpoint taken (#13
      `test_keys_wipe.py`);
-  4. backups taken before the wipe, WAL archives included, count as compromised: destroy them,
+  4. **rotate the Withings app's client secret** in the Withings developer dashboard and enter
+     the new one (M1 runbook step, owner): a stolen refresh token can't be used without it;
+  5. backups taken before the wipe, WAL archives included, count as compromised: destroy them,
      or wipe again after restoring one;
-  5. start web and worker; users reconnect and re-enrol.
-- **What is different for Withings** (M1; open question 3): the leaked tokens stay valid at
-  Withings until revoked, and Withings, unlike MOWL, can revoke; the leaked KEK also exposed the
-  app's client secret, which the owner rotates at Withings and re-enters; and the pepper, which
-  usually sits in the same secrets directory, is rotated with every webhook secret (§4). The
-  ported wipe deletes connection rows; once health rows reference `connections` (M1), deleting a
-  row would cascade to, or be blocked by, the user's synced health data, so M1 makes the wipe
-  clear the secret columns instead, consistent with whatever open question 2 decides for
-  disconnect. Health data itself is not under the KEK: a KEK leak alone doesn't expose it, though
-  the host compromise that leaks a KEK usually does (threat model T60).
+  6. start web and worker; users reconnect and re-enrol.
+- **Revocation after a compromise is not attempted** (Architect decision, 2026-10-31). The wipe
+  has no KEK and no outbound access, so it can't revoke at Withings. Step 4 makes every stolen
+  refresh token useless; a stolen access token stays valid for up to its 3-hour lifetime
+  (withings-findings §2). That window is an accepted risk (threat model, accepted risk 19). The
+  pepper, which usually sits in the same secrets directory, is rotated with every webhook secret
+  (§4). Health data itself is not under the KEK: a KEK leak alone doesn't expose it, though the
+  host compromise that leaks a KEK usually does (threat model T60).
 
 ### 4. The webhook-secret pepper (#8 slot; used from M1)
 
@@ -201,21 +207,47 @@ marked otherwise.
   refused without step-up).
 - **Withings connect (M1, PLAN §4.3):** `start` stores the OAuth `state` hashed, bound to the
   session, 10-minute TTL, single use; the callback takes it atomically before anything else, then
-  **exchanges the code within its 30-second validity in the request itself** (open question 1),
-  upserts by `(app_id, withings_userid)` and refuses a Withings account linked to another
-  ownvitals account. The write follows classbeat's path: the provider call first, outside any
-  transaction; then one transaction that locks `(owner_id, provider)` `FOR UPDATE`, keeps or
-  supplies the row id, encrypts under a new DEK, and updates or inserts with
-  `token_generation + 1`. Never `INSERT … ON CONFLICT DO UPDATE`, which would keep an old id with a
-  payload encrypted for a new one.
+  **exchanges the code within its 30-second validity in the request itself**.
+- **The code exchange is the web process's only Withings call** (roadmap Amendment 1, Architect
+  decision 2026-10-31, resolving PLAN §2 "the worker owns every outbound call" against §4.3). The
+  web process gets one narrow web-only egress entry, used solely for the `oauth2 requesttoken`
+  authorization-code exchange on `wbsapi.withings.net` inside the callback; it counts against the
+  app's rate budget like any other call. Every other Withings call, refresh and revoke included,
+  stays in the worker.
+- **Which row the tokens go to** (Architect decision, 2026-10-31), by `(app_id, withings_userid)`:
+  - a row of **another ownvitals account** holds that Withings account: refused (PLAN §4.3);
+  - the user has a **live connection to a different Withings account**: refused until the user
+    disconnects it;
+  - the user's own row for this Withings account, live or `disconnected`: that row is reused
+    (`connected` again, the new tokens, `token_generation + 1`), and its imported data with it;
+  - otherwise a new row.
+
+  The write follows classbeat's path: the provider call first, outside any transaction; then one
+  transaction that locks the user's rows for the provider `FOR UPDATE`, keeps or supplies the row
+  id, encrypts under a new DEK, and updates or inserts. Never `INSERT … ON CONFLICT DO UPDATE`,
+  which would keep an old id with a payload encrypted for a new one.
+- The `UNIQUE (app_id, withings_userid)` index covers `disconnected` rows too, so a Withings
+  account stays tied to the ownvitals account that holds its imported data; another account can
+  link it only once that row is gone (account deletion, or what #27 decides for "also delete
+  imported data").
 - **Rate limits:** connect start per IP (classbeat's OAuth start limit, 30 per 15 minutes) and per
   user. No Withings password ever passes through ownvitals, so classbeat's per-MOWL-email limit has
   no counterpart.
-- **Disconnect (PLAN §4.3):** `notify revoke` for each `appli`, then `oauth2 revoke`, then the
-  secrets are deleted. Account deletion does the same before the purge. What happens to the
-  connection row, to the health data already synced, and when a revoke fails is open
-  question 2. Once a revoke has succeeded, the wrapped tokens left in older backups are useless at
-  Withings (unlike classbeat's MOWL tokens).
+- **Disconnect** (PLAN §4.3; Architect decision, 2026-10-31; #27):
+  1. upstream revoke in the worker: `notify revoke` for each `appli`, then `oauth2 revoke`;
+  2. the secrets are deleted: the credential columns become `NULL`;
+  3. the row is kept with status `disconnected`, without credentials. Webhooks for it are
+     answered like an unknown user's and start no job.
+  - **Imported data is kept by default**, with an explicit "also delete imported data" option.
+    Deleting is irreversible and keeping is reversible, so keeping is the default; the option is
+    part of the disconnect request and so covered by its step-up.
+  - **If an upstream revoke fails, the secrets are deleted anyway**; the failure is recorded on
+    the row (a category, §8) and the revoke retried within a budget. `notify revoke` takes the
+    user's access token, so a retry that would need a deleted token can't run: #27 records that
+    case as not revoked and tells the user how to remove the app's access at Withings.
+  - Account deletion runs steps 1 and 2 before the purge, which then deletes every row.
+  - Once a revoke has succeeded, the wrapped tokens left in older backups are useless at
+    Withings (unlike classbeat's MOWL tokens).
 
 ### 8. Errors and status
 
@@ -228,6 +260,7 @@ marked otherwise.
 | `blocked_by_provider_plan` | the post-13-Oct-2026 Withings+ case, once M1/M2 learn its signal (PLAN §4.2) |
 | `key_unavailable`, `decrypt_failed` | §3 |
 | `not_connected` | §5 |
+| `revoke_failed` | an upstream revoke at disconnect that failed (§7); recorded on the `disconnected` row |
 | `unknown` | anything else |
 
 - Withings answers errors as HTTP 200 with a non-zero `status` (withings-findings §2); the client
@@ -267,37 +300,14 @@ marked otherwise.
 ## Consequences
 
 - #8: the envelope module, the KEK ring with its check table and the pepper slot, the crypto
-  guard. #13: the `connections` table with `token_generation` and its CAS helper, step-up on
-  connect and disconnect, `keys rewrap` and `keys wipe`. M1: the Withings provider, the refresh
-  protocol, the pepper in use, the app secret.
+  guard. #13: the `connections` table with `token_generation` and its CAS helper, nullable
+  credential columns with their check, step-up on connect and disconnect, `keys rewrap` and
+  `keys wipe` (rows to `needs_reconnect`, credentials removed). M1: the Withings provider, the
+  web egress entry of roadmap Amendment 1, the refresh protocol, the pepper in use, the app
+  secret; #27: disconnect, the `disconnected` status and the narrowed unique index, the "also
+  delete imported data" option, revoke retries.
 - Losing the current KEK means every user reconnects Withings and re-enrols TOTP; there is no
   recovery path by design.
 - Backups hold tokens and seeds as ciphertext only; restoring one needs the KEK files of its time,
   backed up separately (§9.2).
 - Threat model T29 to T43 cite this ADR.
-
-## Open questions
-
-1. **Who calls the Withings token endpoint during the callback (Architect; M1).** PLAN §2 says the
-   worker owns every outbound call; PLAN §4.3 and withings-findings §2 say the code must be
-   exchanged in the callback request, within 30 seconds, not through a queued job. The callback
-   runs in the web process. Proposed: the web process gets one narrow egress entry, used only for
-   the authorization-code exchange (`requesttoken` with `grant_type=authorization_code`) on
-   `wbsapi.withings.net`, like its Google sign-in hosts (#6), and that call claims a rate-limit
-   token like any other. Every other Withings call stays in the worker. If that reading of PLAN §2
-   is not acceptable, this needs a roadmap amendment.
-2. **Reconnect to another Withings account, and disconnect semantics (owner for data retention;
-   Architect for the rest; M1).** `UNIQUE (owner_id, provider)` allows one Withings connection per
-   user, while PLAN §4.3 upserts by `(app_id, withings_userid)`. A connected user completing OAuth
-   as a different Withings user can be refused ("disconnect first", the safest default) or have the
-   connection replaced, and then the health data from the first account must not be mixed with the
-   second's. PLAN §4.3's disconnect "deletes secrets": it doesn't say whether the row stays (a
-   `disconnected` status) or whether the synced health data is kept, deleted, or kept until the
-   user deletes it, which is a product and data-protection choice. Nor does it say what happens
-   when a revoke fails: keeping the secrets keeps upstream access alive; deleting them may make a
-   later revoke impossible (`notify revoke` needs the user's access token). The same choice
-   decides what `keys wipe` does to a connection row (§3).
-3. **Upstream revoke after a KEK compromise (Architect; M1).** The ported `keys wipe` runs without
-   a KEK or outbound access, so it can't revoke at Withings. Either the wipe gains a revoke step
-   (the worker, with the old KEK, revokes every connection before the wipe deletes it), or the
-   runbook relies on users and the owner revoking at Withings. M1 decides and tests it.

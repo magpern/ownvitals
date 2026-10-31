@@ -118,15 +118,23 @@ queued ──claim──> running ──> completed | failed | cancelled
   `ownvitals_app` has `EXECUTE`; `PUBLIC` nothing.
 - Heartbeat and finish are **not** definer functions: they touch only the job the worker already
   holds, so they are fenced writes in the owner's `user_session` (§4), as in classbeat. No
-  cross-user privilege is needed for them.
+  cross-user privilege is needed for them (Architect decision, 2026-10-31; #9's wording follows).
 - **No user code runs as the queue role.** A trigger or rule on any table would run inside a
   queue function with its privileges, so the database holds no user-defined function, procedure,
   aggregate, operator, trigger or rule besides the reviewed ones, and no expression (default,
   check, index) calls a built-in that runs SQL text or changes settings (classbeat ADR 0005 §3 as
-  amended). The reviewed set is the queue functions, plus the admin audit log's append-only guard
-  trigger if #12 ports it (classbeat ADR 0011 §1), pinned the same way. M1 adds its function
-  families (webhook ingest, scheduler enqueue, rate bucket; ADR 0002 §3) by amending this section
-  with each family's role, grants and digests.
+  amended). **The allowed database code** (Architect decision, 2026-10-31):
+  - the three queue functions above (#9);
+  - the admin audit log's append-only guard: its trigger function (`SECURITY INVOKER`, owned by
+    `ownvitals_owner`, built-ins only, no SQL text) and its row-level `BEFORE UPDATE OR DELETE`
+    trigger on the audit table (#12; classbeat ADR 0011 §1). No queue function touches that
+    table, and `ownvitals_queue` has no privilege on it;
+  - from #21, `ensure_month_partitions` (ADR 0002 §2), owned by `ownvitals_owner`.
+
+  Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
+  its table, timing and events. M1 adds its function families (webhook ingest, scheduler enqueue,
+  rate bucket; ADR 0002 §3) by amending this list with each family's role, grants and digests;
+  anything else is refused.
 - **The privileged step.** Handing a function to `ownvitals_queue` needs the superuser, so the
   role, its grants and the functions live in one idempotent script,
   `docker/postgres/queue/20-queue.sql`, run **as the superuser** by the one-shot `db-functions`
@@ -269,9 +277,10 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
 - **Webhook quotas** per connection and per app (PLAN §4.4) are enforced inside the ingest
   function; over quota, the event is recorded and no job is added (Withings still gets 200; the
   poll catches up).
-- **Owner-less upkeep** (retention purges, partition upkeep if ADR 0002 open question 1 puts it
-  here, secret rotation scheduling) runs as maintenance tasks in the worker loop, like reap and
-  purge, never as queue rows without an owner: `jobs` stays an owned table.
+- **Owner-less upkeep** (retention purges such as the 30-day `webhook_events` purge, creating
+  partitions ahead through `ensure_month_partitions` (ADR 0002 §2), secret rotation scheduling)
+  runs as maintenance tasks in the worker loop, like reap and purge, never as queue rows without
+  an owner: `jobs` stays an owned table.
 
 ## Alternatives
 
