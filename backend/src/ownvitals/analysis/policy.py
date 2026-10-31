@@ -44,15 +44,22 @@ class Shortfall(StrEnum):
 class Requirement:
     min_days_with_data: int
     min_span_days: int | None = None
-    min_span_fraction: Fraction | None = None  # of the window, in (0, 1]
+    min_span_fraction: Fraction | None = None  # of the window, in (0, 1)
 
     def __post_init__(self) -> None:
         if self.min_days_with_data < 1:
             raise ValueError("min_days_with_data must be at least 1")
         if self.min_span_days is not None and self.min_span_days < 1:
             raise ValueError("min_span_days must be at least 1")
-        if self.min_span_fraction is not None and not 0 < self.min_span_fraction <= 1:
-            raise ValueError("min_span_fraction must be in (0, 1]")
+        # A span is days elapsed, at most ``window_days - 1``, so ``span_fraction`` is at most
+        # (w - 1) / w whatever the window: 1 or more can never be met. A fraction below 1 that a
+        # short window cannot reach (3/5 of a 2-day window) stays valid: that window is
+        # ``InsufficientData``, as with ``min_span_days`` larger than the window.
+        if self.min_span_fraction is not None and not 0 < self.min_span_fraction < 1:
+            raise ValueError(
+                "min_span_fraction must be in (0, 1): a span is at most window_days - 1 days, "
+                "so a fraction of 1 or more is never met"
+            )
 
     def shortfalls(self, quality: DataQuality) -> tuple[Shortfall, ...]:
         found: list[Shortfall] = []

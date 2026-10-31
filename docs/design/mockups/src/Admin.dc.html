@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./ov.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</helmet>
+<div class="ov app" data-theme="{{theme}}">
+  <div class="rail-wrap"><dc-import name="Rail" active="admin" admin="{{ true }}" theme="{{theme}}" hint-size="100%,900px"></dc-import></div>
+  <div class="main">
+    <div class="admin-band" role="note">
+      <span class="row" style="gap: 10px; flex-wrap: nowrap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z" class="ic"></path></svg><strong>Admin area.</strong> Accounts and system state only. Health data isn't visible here, by design.</span>
+      <span class="small">Authenticator 3 h ago, valid 12 h · changes need a code from the last 5 min</span>
+    </div>
+    <header class="topbar">
+      <h1 style="font-size: 22px">Admin</h1>
+      <span class="grow"></span>
+      <button class="acct" type="button" aria-haspopup="menu"><span class="avatar">A</span>alex@example.org<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 8l5 5 5-5" class="ic"></path></svg></button>
+    </header>
+
+    <div class="content" style="max-width: none">
+      <nav class="tabs" aria-label="Admin">
+        <a href="Admin.dc.html" aria-current="page">Overview</a>
+        <a href="Admin.dc.html">Accounts</a>
+        <a href="Admin.dc.html">Jobs</a>
+        <a href="Admin.dc.html">Withings app</a>
+        <a href="Admin.dc.html">Flags</a>
+        <a href="Admin.dc.html">Audit log</a>
+      </nav>
+
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr))">
+        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Accounts</span><span class="num" style="font-size: 28px; font-weight: 600">4</span><span class="small muted">Household · invite only</span></div>
+        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Connections</span><span class="num" style="font-size: 28px; font-weight: 600">2 <span class="muted" style="font-size: 15px; font-weight: 500">healthy</span></span><span class="small row" style="gap: 6px"><span class="dot urgent"></span>1 needs reconnect</span></div>
+        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Job queue</span><span class="num" style="font-size: 28px; font-weight: 600">12 <span class="muted" style="font-size: 15px; font-weight: 500">queued</span></span><span class="small row" style="gap: 6px">2 running · <span class="dot attn"></span>1 dead-letter</span></div>
+        <div class="card stack" style="gap: 4px; padding: 16px"><span class="eyebrow">Second factor</span><span class="num" style="font-size: 28px; font-weight: 600">3 <span class="muted" style="font-size: 15px; font-weight: 500">of 4 set up</span></span><span class="small row" style="gap: 6px"><span class="dot attn"></span>1 setup pending</span></div>
+      </div>
+      <p class="small muted">Webhook delivery, sync freshness and the Withings API budget are server metrics in Prometheus, not part of the admin area.</p>
+
+      <section class="stack" style="gap: 12px" aria-labelledby="ad-accounts">
+        <div class="between"><h2 id="ad-accounts">Accounts</h2><button class="btn primary" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Invite someone…</button></div>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th>Account</th><th>Role</th><th>Second factor</th><th>Withings</th><th>Last sign-in</th><th class="r">Sessions</th><th><span class="sr">Actions</span></th></tr></thead>
+            <tbody>
+              <tr><td>alex@example.org</td><td>Admin</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Healthy</span></td><td class="num">Today 07:30</td><td class="r">3</td><td><button class="btn" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Sign out all…</button></td></tr>
+              <tr><td>sam@example.org</td><td>User</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state urgent" style="min-height: 22px; font-size: 12px">Needs reconnect</span></td><td class="num">29 Oct</td><td class="r">1</td><td><button class="btn" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Sign out all…</button></td></tr>
+              <tr><td>kim@example.org</td><td>User</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">On</span></td><td><span class="state off" style="min-height: 22px; font-size: 12px">Not connected</span></td><td class="num">14 Oct</td><td class="r">0</td><td></td></tr>
+              <tr><td>robin@example.org</td><td>User</td><td><span class="state attn" style="min-height: 22px; font-size: 12px">Setup pending</span></td><td><span class="state off" style="min-height: 22px; font-size: 12px">Not connected</span></td><td class="muted">Never</td><td class="r">0</td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small muted">Role changes and second-factor resets run from the operator command line on the server, never from this page.</p>
+      </section>
+
+      <div class="grid g2" style="align-items: start">
+        <section class="stack" style="gap: 12px" aria-labelledby="ad-jobs">
+          <h2 id="ad-jobs">Jobs</h2>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>State</th><th class="r">Jobs</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">queued</td><td class="r">12</td></tr>
+                <tr><td class="mono">running</td><td class="r">2</td></tr>
+                <tr><td class="mono">failed</td><td class="r">0</td></tr>
+                <tr><td class="mono">cancelled</td><td class="r">0</td></tr>
+                <tr><td class="mono">dead_letter</td><td class="r" style="color: var(--attn); font-weight: 600">1</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="small muted">Counts per state only: no ids, kinds, owners or job input. A dead-lettered job is replayed on the server with <span class="mono">ownvitals jobs replay</span>, and the replay is audited.</p>
+        </section>
+
+        <section class="stack" style="gap: 12px" aria-labelledby="ad-app">
+          <h2 id="ad-app">Withings app</h2>
+          <div class="card">
+            <dl class="kv">
+              <dt>App</dt><dd>ownvitals · client <span class="mono">…a91f</span></dd>
+              <dt>API</dt><dd class="mono">wbsapi.withings.net</dd>
+            </dl>
+          </div>
+          <p class="small muted">Read-only, and only the non-secret columns: the client secret and the webhook secrets are never shown here. The configuration changes only from the operator command line.</p>
+        </section>
+      </div>
+
+      <div class="grid g2" style="align-items: start">
+        <section class="card" aria-labelledby="ad-flags">
+          <div class="head"><h2 id="ad-flags">Flags</h2></div>
+          <div class="setting"><div class="what"><span class="label">Experimental findings</span><p>Owner-only, household accounts only. On for alex@example.org.</p></div><button class="btn" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Change…</button></div>
+          <div class="setting"><div class="what"><span class="label">AI insights</span><p>Off until consent and the provider review are in place.</p></div><input class="toggle" type="checkbox" disabled="disabled" aria-label="AI insights, off"></div>
+          <div class="setting"><div class="what"><span class="label">Sign-up</span><p>Open sign-up can't be chosen before the beyond-household gate.</p></div><div class="seg" role="group" aria-label="Sign-up"><button type="button">Closed</button><button type="button" aria-pressed="true">Invite only</button></div></div>
+          <p class="small muted" style="margin-top: 12px">A stored flag can only tighten what the server's settings allow. Every change needs a fresh code and is audited.</p>
+        </section>
+
+        <section class="stack" style="gap: 12px" aria-labelledby="ad-audit">
+          <h2 id="ad-audit">Audit log</h2>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>When</th><th>Action</th><th>Target</th><th>Result</th></tr></thead>
+              <tbody>
+                <tr><td class="num">31 Oct 07:41</td><td class="mono">flag.experimental on</td><td>alex@example.org</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Done</span></td></tr>
+                <tr><td class="num">30 Oct 22:10</td><td class="mono">sessions.revoke_all</td><td>sam@example.org</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Done</span></td></tr>
+                <tr><td class="num">29 Oct 18:02</td><td class="mono">invite.create</td><td>robin@example.org</td><td><span class="state ok" style="min-height: 22px; font-size: 12px">Done</span></td></tr>
+                <tr><td class="num">29 Oct 18:01</td><td class="mono">flag.signup open</td><td>—</td><td><span class="state urgent" style="min-height: 22px; font-size: 12px">Refused</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="small muted">Append-only. All actions by alex@example.org. Rows say what and who, never values, tokens or secrets.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1750}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>

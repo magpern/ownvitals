@@ -1,6 +1,6 @@
 # ADR 0002: Tenant isolation: UserContext, forced RLS, roles and execution contexts
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #78 (see "Amendments").
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88 (see "Amendments").
 Its two open questions were decided by the Architect on 2026-10-31 (§2 partitions, whose keys
 [roadmap Amendment 2](../roadmap.md) sets; §3 `webhook_events` retention).
 
@@ -312,16 +312,18 @@ CREATE POLICY owner_isolation ON <t>
   could change them; this detects it).
 - **`transaction_timeout`** (PostgreSQL 17) is a role default too, of both runtime roles,
   `ownvitals_app` and `ownvitals_maint` (Architect decision; amended 2026-10-31, #78). The
-  idle-in-transaction timeout ends only an idle transaction: one that keeps sending
-  statements, each under `statement_timeout`, would otherwise hold its locks without bound
-  (threat model risk 21). Its bound is a setting with a default of 5 minutes. The roles script
-  sets the role's value, and the check above requires it next to the other three: set (not 0)
-  and at most the setting, or web and worker refuse. **#77 builds it** for `ownvitals_app`,
-  and until #77 merges that role has only the three timeouts above; #12 gives
-  `ownvitals_maint` the same four timeouts when it creates that role. Like the other three, it
-  is a default that a session can change for itself (`SET`): it bounds a transaction that runs
-  at the role's settings (a bug, a stuck step), not code that runs its own SQL with the app
-  role, which can lift it for its own session (threat model risk 21).
+  idle-in-transaction timeout ends only an idle transaction: one that keeps sending statements, each
+  under `statement_timeout`, would otherwise hold its locks without bound (threat model risk 21).
+  When it fires, Postgres ends the whole connection (`FATAL: terminating connection due to
+  transaction timeout`), not just the transaction, as the idle-in-transaction timeout does (amended
+  2026-10-31, #88). Its bound is a setting with a default of 5 minutes. The roles script sets the
+  role's value, and the check above requires it next to the other three: set (not 0) and at most the
+  setting, or web and worker refuse. **#77 builds it** for `ownvitals_app`, and until #77 merges
+  that role has only the three timeouts above; #12 gives `ownvitals_maint` the same four timeouts
+  when it creates that role. Like the other three, it is a default that a session can change for
+  itself (`SET`): it bounds a transaction that runs at the role's settings (a bug, a stuck step),
+  not code that runs its own SQL with the app role, which can lift it for its own session (threat
+  model risk 21).
 - `PUBLIC` loses `CONNECT` on every database, `TEMP`, `USAGE`/`CREATE` on `public` and default
   `EXECUTE` on functions; roles get what they need explicitly.
 - **Web and worker refuse to start** if their role is a superuser, has or inherits `BYPASSRLS`,
@@ -454,3 +456,11 @@ Architect decision on the non-blocking finding 2 of the #73 review (its Opus PAS
   (default 5 minutes) that the role check enforces next to the other timeouts: #77 for
   `ownvitals_app`, #12 for `ownvitals_maint`. It bounds a busy transaction at the role's
   settings, not code that lifts them for its own session.
+
+### 2026-10-31 (#88): follow-ups of the #83 review
+
+Architect decision on the non-blocking finding 6 of the #83 review (its Opus PASS at
+`6095563`), made in place above and marked "amended 2026-10-31, #88":
+
+- §5: `transaction_timeout` ends the whole connection (`FATAL`), not just the transaction, as the
+  idle-in-transaction timeout does.

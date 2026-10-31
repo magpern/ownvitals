@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Day and reading</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./ov.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</helmet>
+<div class="ov app" data-theme="{{theme}}">
+  <div class="rail-wrap"><dc-import name="Rail" active="body" admin="{{ true }}" theme="{{theme}}" hint-size="100%,900px"></dc-import></div>
+  <div class="main">
+    <header class="topbar">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="Dashboard.dc.html">Overview</a><span aria-hidden="true">/</span><a href="Dashboard.dc.html">Body</a><span aria-hidden="true">/</span><a href="Metric.dc.html">Weight</a><span aria-hidden="true">/</span><span aria-current="page" style="color: var(--ink)">Tue 14 Oct</span></nav>
+      <span class="grow"></span>
+      <button class="acct" type="button" aria-haspopup="menu"><span class="avatar">A</span>alex@example.org<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 8l5 5 5-5" class="ic"></path></svg></button>
+    </header>
+
+    <div class="content">
+      <div class="between" style="align-items: flex-end">
+        <div class="stack" style="gap: 4px">
+          <h1>Tuesday 14 October 2026</h1>
+          <span class="small muted">Times in Europe/Stockholm, the zone Withings recorded with each reading</span>
+        </div>
+        <div class="row">
+          <a class="btn" href="Reading.dc.html"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12 5l-5 5 5 5" class="ic"></path></svg>13 Oct</a>
+          <a class="btn" href="Reading.dc.html">15 Oct<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5l5 5-5 5" class="ic"></path></svg></a>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+        <section class="stack" style="flex: 1 1 340px; min-width: 0; gap: 10px" aria-labelledby="day-list">
+          <h2 id="day-list" class="eyebrow">Everything recorded this day</h2>
+          <a class="finding sel" href="Reading.dc.html">
+            <div class="between"><span class="num" style="font-weight: 600">07:04</span><span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Body Scan</span></div>
+            <p>Body composition, 8 measures and 15 segmental values</p>
+            <div class="meta num"><span>Weight 78.5 kg</span><span>Fat 21.7 %</span><span>Muscle 58.0 kg</span><span>Pulse 62 bpm</span></div>
+          </a>
+          <a class="finding" href="ECG.dc.html">
+            <div class="between"><span class="num" style="font-weight: 600">07:05</span><span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Body Scan</span></div>
+            <p>ECG, 30 seconds</p>
+            <div class="meta"><span>Withings: no sign of atrial fibrillation</span><span class="num">QTc 401 ms</span></div>
+          </a>
+          <div class="finding">
+            <div class="between"><span class="num" style="font-weight: 600">07:06</span><span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Body Scan</span></div>
+            <p>Nerve Health Score, routine measure</p>
+            <div class="meta num"><span>76 of 100</span><span>Measure 3 of the 4 a trend needs</span></div>
+          </div>
+          <div class="finding" style="border-style: dashed">
+            <div class="between"><span class="num" style="font-weight: 600">21:40</span><span class="state off" style="min-height: 24px; font-size: 12px">Unconfirmed, not used</span></div>
+            <p class="muted">Weight 80.4 kg</p>
+            <div class="meta"><span>The scale couldn't tell who it was (attrib 1)</span></div>
+          </div>
+          <div class="finding">
+            <div class="between"><span style="font-weight: 600">All day</span><span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>ScanWatch 2</span></div>
+            <p>Activity summary</p>
+            <div class="meta num"><span>8,214 steps</span><span>42 active minutes</span><span>Minute data kept for 30 days</span></div>
+          </div>
+        </section>
+
+        <aside class="dialog" style="flex: 999 1 560px; min-width: 0; gap: 22px" aria-labelledby="reading-title">
+          <div class="between">
+            <div class="stack" style="gap: 6px">
+              <h2 id="reading-title">Reading at 07:04</h2>
+              <span class="tier device" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Reported by Withings</span>
+            </div>
+            <a class="iconbtn" href="Metric.dc.html" aria-label="Close"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10 M15 5L5 15" class="ic"></path></svg></a>
+          </div>
+
+          <section class="stack" style="gap: 10px">
+            <h3>As Withings sent it</h3>
+            <dl class="kv">
+              <dt>Measured</dt><dd class="num">07:04:12 Europe/Stockholm · <span class="mono">2026-10-14T05:04:12Z</span></dd>
+              <dt>Device</dt><dd>Body Scan, model 10 · device <span class="mono">…3f9a</span></dd>
+              <dt>Who</dt><dd>attrib 0: measured by the device, known user</dd>
+              <dt>Category</dt><dd>1: real measurement (not a goal)</dd>
+              <dt>Group</dt><dd class="mono">grpid 6482113907 · modified 07:04:40</dd>
+              <dt>Arrived</dt><dd>07:06, webhook (appli 1), then fetched with getmeas</dd>
+            </dl>
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead><tr><th>Type</th><th>Meaning</th><th class="r">Raw value</th><th class="r">Unit</th><th class="r">Value</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">1</td><td>Weight</td><td class="r mono">78470</td><td class="r mono">−3</td><td class="r">78.470 kg</td></tr>
+                  <tr><td class="mono">6</td><td>Fat ratio</td><td class="r mono">21710</td><td class="r mono">−3</td><td class="r">21.710 %</td></tr>
+                  <tr><td class="mono">76</td><td>Muscle mass</td><td class="r mono">5801</td><td class="r mono">−2</td><td class="r">58.01 kg</td></tr>
+                  <tr><td class="mono">77</td><td>Hydration</td><td class="r mono">4230</td><td class="r mono">−2</td><td class="r">42.30 kg</td></tr>
+                  <tr><td class="mono">88</td><td>Bone mass</td><td class="r mono">312</td><td class="r mono">−2</td><td class="r">3.12 kg</td></tr>
+                  <tr><td class="mono">170</td><td>Visceral fat</td><td class="r mono">70</td><td class="r mono">−1</td><td class="r">7.0</td></tr>
+                  <tr><td class="mono">11</td><td>Heart pulse</td><td class="r mono">62</td><td class="r mono">0</td><td class="r">62 bpm</td></tr>
+                  <tr><td class="mono">155</td><td>Vascular age</td><td class="r mono">41</td><td class="r mono">0</td><td class="r">41 years</td></tr>
+                  <tr><td class="mono">173–175</td><td colspan="4"><a href="Reading.dc.html">15 segmental values by body position</a></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="small muted">Value = raw × 10<sup>unit</sup>, exactly as stored. Measure types we don't know yet are kept and listed here too.</p>
+          </section>
+
+          <hr class="divider">
+
+          <section class="stack" style="gap: 10px">
+            <div class="between"><h3>How 14 Oct became one daily weight</h3><span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Calculated by ownvitals</span></div>
+            <ol class="stack" style="gap: 8px">
+              <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" style="flex: none; margin-top: 2px; color: var(--ok)"><path d="M4 10.5l4 4 8-9" class="ic"></path></svg><span>Attributed to you. The 21:40 reading is unconfirmed and left out.</span></li>
+              <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" style="flex: none; margin-top: 2px; color: var(--ok)"><path d="M4 10.5l4 4 8-9" class="ic"></path></svg><span>Inside the plausible range for weight (an engineering bound, not a health range).</span></li>
+              <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" style="flex: none; margin-top: 2px; color: var(--ok)"><path d="M4 10.5l4 4 8-9" class="ic"></path></svg><span class="num">Jump check: −0.45 kg in 24 h, under the limit of max(2 kg, 3 %).</span></li>
+              <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" style="flex: none; margin-top: 2px; color: var(--ok)"><path d="M4 10.5l4 4 8-9" class="ic"></path></svg><span>Not a duplicate: no other group with this grpid.</span></li>
+              <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" style="flex: none; margin-top: 2px; color: var(--brand)"><path d="M4 10h11 M11 6l4 4-4 4" class="ic"></path></svg><span><strong>Daily value 78.5 kg:</strong> the first morning weigh-in between 04:00 and 11:00.</span></li>
+            </ol>
+          </section>
+
+          <hr class="divider">
+
+          <section class="stack" style="gap: 10px">
+            <div class="between"><h3>Provenance</h3><span class="state ok" style="min-height: 24px; font-size: 12px">Current</span></div>
+            <dl class="kv mono" style="font-size: 13px">
+              <dt>row</dt><dd>metric_daily · weight · 2026-10-14</dd>
+              <dt>algo_version</dt><dd>daily 1.0.0</dd>
+              <dt>input_revision</dt><dd>measures · 4812</dd>
+              <dt>input_fingerprint</dt><dd>sha256 9f3c41d0…7be2a71e</dd>
+              <dt>computed</dt><dd>2026-10-14 07:06 · origin live</dd>
+            </dl>
+            <p class="small muted">Current means the revision and fingerprint still match the data. Recomputing from the same inputs and version gives the same value.</p>
+            <div class="row"><button class="btn" type="button">Copy provenance</button><button class="btn ghost" type="button">Raw payload (JSON)</button></div>
+          </section>
+        </aside>
+      </div>
+      <p class="synthetic">Example data is synthetic.</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1350}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>
