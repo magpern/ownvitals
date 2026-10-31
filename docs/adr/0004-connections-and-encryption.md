@@ -1,20 +1,19 @@
 # ADR 0004: Provider connections, envelope encryption and the KEK ring
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #78 (see "Amendments").
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88 (see "Amendments").
 Its three open questions were decided by the Architect on 2026-10-31 (§7 the code exchange,
 recorded as [roadmap Amendment 1](../roadmap.md); §7 reconnect and disconnect; §3 revocation
 after a KEK compromise), and so was the source of the webhook secrets (§4), raised in review.
 
 ## Context
 
-ownvitals stores three kinds of secret that belong to a user or to the platform: Withings access
-and refresh tokens (M1), TOTP seeds (M0, ADR 0003 §5) and the Withings app's client secret
-(M1). PLAN §3 ports classbeat's token vault: envelope encryption with AES-256-GCM, AAD
-`user_id|provider`, KEK rotation and rewrap, with provider `withings` and the **webhook-secret
-pepper in the KEK ring**. PLAN §4.3 adds **token generations** with compare-and-swap updates and a
-crash-safe refresh protocol, because Withings rotates the refresh token on every renewal and keeps
-the old one valid only for up to 8 hours or until the new access token is first used
-(withings-findings §2).
+ownvitals stores three kinds of secret that belong to a user or to the platform: Withings access and
+refresh tokens (M1), TOTP seeds (M0, ADR 0003 §5) and the Withings app's client secret (M1). PLAN §3
+ports classbeat's token vault: envelope encryption with AES-256-GCM, AAD `user_id|provider`, KEK
+rotation and rewrap, with provider `withings` and the **webhook-secret pepper in the KEK ring**.
+PLAN §4.3 adds **token generations** with compare-and-swap updates and a crash-safe refresh
+protocol, because Withings rotates the refresh token on every renewal and keeps the old one valid
+only for up to 8 hours or until the new access token is first used (withings-findings §2).
 
 classbeat ADR 0004 is the base. It was written for a MOWL token (no expiry, no revoke) and later
 Spotify tokens. What changes here:
@@ -85,19 +84,17 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 | TOTP seed (ADR 0003 §5) | `ownvitals-totp-v1\|<user_id>` | `ownvitals-totp-dek-v1\|<key_id>\|<user_id>` |
 | Withings app client secret (M1, `withings_apps`) | `ownvitals-app-v1\|<app_id>` | `ownvitals-app-dek-v1\|<key_id>\|<app_id>` |
 
-  The connection AAD contains PLAN §3's `user_id|provider` binding; the version prefix separates
-  the kinds, and the row id stops ciphertext moving between rows of the same user and provider.
-  Ciphertext copied into another user's row, provider or row fails to decrypt (#8 wrong-AAD
-  tests).
+  The connection AAD contains PLAN §3's `user_id|provider` binding; the version prefix separates the
+  kinds, and the row id stops ciphertext moving between rows of the same user and provider.
+  Ciphertext copied into another user's row, provider or row fails to decrypt (#8 wrong-AAD tests).
 
 ### 3. The KEK ring, rotation and compromise (#8, #13)
 
-- **KEK files:** `connection_kek` (current; its id from a setting, default `kek-1`, checked
-  against the `key_id` pattern) and `connection_kek_<key_id>` (retired, decrypt only). A file
-  holds exactly 64 lowercase hex characters (32 bytes), optionally one newline. A row's validated
-  `key_id` names the file to open; no other input builds a file name. Every KEK file is a
-  read-only secret on web and worker. **Web and worker refuse to start** without a valid current
-  KEK (#8).
+- **KEK files:** `connection_kek` (current; its id from a setting, default `kek-1`, checked against
+  the `key_id` pattern) and `connection_kek_<key_id>` (retired, decrypt only). A file holds exactly
+  64 lowercase hex characters (32 bytes), optionally one newline. A row's validated `key_id` names
+  the file to open; no other input builds a file name. Every KEK file is a read-only secret on web
+  and worker. **Web and worker refuse to start** without a valid current KEK (#8).
 - **Check value:** a system table `connection_keks (key_id primary key, check_value, created_at)`
   stores the first 16 bytes of `HMAC-SHA256(KEK, "ownvitals-kek-check-v1")`. On start, web and
   worker insert the current KEK's row if absent, read it back and compare, and refuse on a
@@ -127,12 +124,11 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 - **After a suspected KEK compromise, everything goes** (classbeat ADR 0004 §2): rewrap does not
   re-encrypt payloads, so an old KEK plus an old dump still reads a rewrapped row. The response:
   1. stop web and worker;
-  2. install a new KEK under a new id and remove every old KEK file. A compromise of the KEK
-     ring counts as a seed compromise too, so install a new webhook seed and pepper as current;
-     the old seed and pepper files go only at the end of ADR 0008's compromise rotation
-     (amended 2026-10-31, #49 and #72), and since they are already known, keeping them until
-     then adds no exposure. If the secrets directory leaked, also rotate `app_secret_key` and
-     the database passwords;
+  2. install a new KEK under a new id and remove every old KEK file. A compromise of the KEK ring
+     counts as a seed compromise too, so install a new webhook seed and pepper as current; the old
+     seed and pepper files go only at the end of ADR 0008's compromise rotation (amended 2026-10-31,
+     #49 and #72), and since they are already known, keeping them until then adds no exposure. If
+     the secrets directory leaked, also rotate `app_secret_key` and the database passwords;
   3. `docker compose --profile maint run --rm maint python -m ownvitals keys wipe --confirm`, as
      the owner role (never given to web or worker), with no KEK. It refuses while any app-role
      session is connected or while the configured KEK id already has a check row. Per user, in one
@@ -157,11 +153,10 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   from the operator CLI (ADR 0003 §6; amended 2026-10-31, #49). Step 4 makes every stolen
   refresh token useless; a stolen access token stays valid for up to its 3-hour lifetime
   (withings-findings §2). That window is an accepted risk (threat model, accepted risk 19).
-- **Webhook subscriptions after a seed compromise (or a compromise of the KEK ring that holds
-  the seed)** follow ADR 0008's compromise rotation (Architect decisions, 2026-10-31; order
-  amended by #49, moved by #72): verification of the old secret stops first, and subscriptions
-  without a token are revoked on reconnect. Payloads are only hints (D3). Accepted risk 20 of
-  the threat model.
+- **Webhook subscriptions after a seed compromise (or a compromise of the KEK ring that holds the
+  seed)** follow ADR 0008's compromise rotation (Architect decisions, 2026-10-31; order amended by
+  #49, moved by #72): verification of the old secret stops first, and subscriptions without a token
+  are revoked on reconnect. Payloads are only hints (D3). Accepted risk 20 of the threat model.
 - Health data itself is not under the KEK: a KEK leak alone doesn't expose it, though the host
   compromise that leaks a KEK usually does (threat model T60).
 
@@ -204,19 +199,17 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   the TTL (a refresh failed), or before the process has read one at all (at startup; amended
   2026-10-31, #72), every notification (`POST`) gets **503**, whatever the secret: it reveals
   nothing, no retired entry keeps verifying, and Withings retries (`HEAD` keeps PLAN §4.4's 200).
-- **No oracle** (amended 2026-10-31, #49): the request checks (method, content type, size,
-  fields) run before the secret lookup, so their answer doesn't depend on the secret. An
-  unknown or retired secret then gets the answer a valid one gets, the generic 200; the
-  notification is ignored (no event, no job) and counted in a metric, with an alert on its rate
-  (#24; threat model accepted risk 21). A valid secret still costs database work, a timing
-  difference that helps only someone who already holds a secret. A retired entry stops
-  verifying at once, with no grace period: web treats it like an unknown secret. The cache TTL
-  is the only lag, for a retirement as for a new entry.
+- **No oracle** (amended 2026-10-31, #49): the request checks (method, content type, size, fields)
+  run before the secret lookup, so their answer doesn't depend on the secret. An unknown or retired
+  secret then gets the answer a valid one gets, the generic 200; the notification is ignored (no
+  event, no job) and counted in a metric, with an alert on its rate (#24; threat model accepted risk
+  21). A valid secret still costs database work, a timing difference that helps only someone who
+  already holds a secret. A retired entry stops verifying at once, with no grace period: web treats
+  it like an unknown secret. The cache TTL is the only lag, for a retirement as for a new entry.
 - **Derivation check (worker):** derive with the entry's `seed_id`, then check that
-  `HMAC(pepper[pepper_id], derived)` equals the entry's `hmac`; a missing key or a mismatch
-  refuses and builds no URL (fail closed). The plaintext lives only in memory for the call; it
-  is never logged, stored or put in a job row, and the callback URL is redacted like the webhook
-  path (§9).
+  `HMAC(pepper[pepper_id], derived)` equals the entry's `hmac`; a missing key or a mismatch refuses
+  and builds no URL (fail closed). The plaintext lives only in memory for the call; it is never
+  logged, stored or put in a job row, and the callback URL is redacted like the webhook path (§9).
 - **Who writes the entries** (Architect decisions, 2026-10-31; owner, request and input rules
   amended by #49 and #72). Rotation needs the seed and `notify update`, both worker-only, so the
   `webhook_secrets` entries are not written by the operator tool that writes the rest of
@@ -254,8 +247,9 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
     two calls, the ones made for a request, are checked. That is safe because lock 4 serialises
     the workers' steps (ADR 0008 §2) and a call made on a stale read of the request is refused;
     retire, delete-retired and rehash act on no request: the first two can only stop a secret
-    verifying, and a rehash keeps each entry's own secret, so none revives or adds one (amended
-    2026-10-31, #78);
+    verifying, and an honest rehash keeps each entry's own secret, so none revives or adds one
+    (amended 2026-10-31, #78 and #88). The function never sees a secret and web holds the pepper,
+    so code running in web could rehash an active entry to an HMAC it chose (accepted risk 21);
   - **the compromise order, against an honest worker's mistakes** (amended 2026-10-31, #72):
     an append that would clear a `compromise` request is refused with `unretired_entries` while
     any other entry is not retired, and with `seed_reused` if its `seed_id` is one that a
@@ -496,3 +490,9 @@ Architect decisions, made in place above and marked "amended 2026-10-31, #72":
 Made in place above and marked "amended 2026-10-31, #78": §4's input rules list ADR 0008 §2's
 READ COMMITTED check, name rehash among the unchecked calls and say "a worker acting on a stale
 read"; Consequences: #21 builds the check.
+
+### 2026-10-31 (#88): follow-ups of the #83 review
+
+Made in place above and marked "amended 2026-10-31, #88": §4's rehash clause holds only for an
+honest caller, since web holds the pepper and could rehash an active entry to an HMAC it chose
+(accepted risk 21, which now says so).

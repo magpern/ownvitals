@@ -1,6 +1,6 @@
 # ADR 0005: Jobs, leases, fencing and the worker
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 and #72 (see "Amendments")
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88 (see "Amendments")
 
 ## Context
 
@@ -141,8 +141,9 @@ queued ──claim──> running ──> completed | failed | cancelled
     it was `ownvitals_owner`): it appends, retires (one entry, or all at once), re-hashes or
     deletes retired entries in the `webhook_secrets` column of one `withings_apps` row under ADR
     0004 §4's input rules, compare-and-clears the rotation request (`rotation_requested_at`,
-    `rotation_reason`), and writes the admin-audit row, nothing else; it takes the rotation
-    lock of §9 first (amended 2026-10-31, #72);
+    `rotation_reason`), and writes the admin-audit row, nothing else; it refuses any isolation
+    level but READ COMMITTED, then takes the rotation lock of §9, then locks the row (ADR 0004
+    §4; amended 2026-10-31, #72 and #88);
     `ownvitals_app` may execute it. #21 builds the role and the function; #24's guard keeps
     every caller but the worker's rotation module out.
 
@@ -375,3 +376,12 @@ Architect decisions, made in place above and marked "amended 2026-10-31, #72":
   (the earlier text said "its window's months"); the upkeep acts on a rotation request one step
   at a time under the rotation lock; the rotation orders are cited from ADR 0008.
 - §9: namespace 4, webhook-secret rotation, keyed by the app.
+
+### 2026-10-31 (#88): follow-ups of the #83 review
+
+Architect decision on the non-blocking finding 5 of the #83 review (its Opus PASS at
+`6095563`), made in place above and marked "amended 2026-10-31, #88":
+
+- §3: the webhook-secret function's order is ADR 0004 §4's. It refuses any isolation level but
+  READ COMMITTED first, then takes the rotation lock of §9, then locks the row (the earlier text
+  said it takes the rotation lock first). Both orders fail closed; the two ADRs now agree.
