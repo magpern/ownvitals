@@ -1,12 +1,12 @@
 # ADR 0006 §13: the synthetic test specification
 
-Part of [ADR 0006](0006-ecg-subsystem.md), with the same status and amendments (see its
-"Amendments"), split out to keep the ADR under 500 lines. "§n" means a section of ADR 0006, whose
-conventions apply here: bounds are inclusive (Context). The sources both files cite are listed under
-References at the end of this file. **Synthetic signals only**: no real or public recordings. Strips
-are 30 s long. Every threshold and tolerance here is our choice, and every seeded CI case must
-satisfy every assertion; #40 implements them, except those of the last section, which names its
-issues.
+Part of [ADR 0006](0006-ecg-subsystem.md), with the same status, split out to keep the ADR under 500
+lines. Its amendments are listed in the ADR's "Amendments" (amended 2026-10-31, #88). "§n" means a
+section of ADR 0006, whose conventions apply here: bounds are inclusive (Context). The sources both
+files cite are listed under References at the end of this file (amended 2026-10-31, #88).
+**Synthetic signals only**: no real or public recordings. Strips are 30 s long. Every threshold and
+tolerance here is our choice, and every seeded CI case must satisfy every assertion; #40 implements
+them, except those of the last section, which names its issues.
 
 ## Generator
 
@@ -246,16 +246,17 @@ hold, with synthetic findings and recordings:
   evaluated", well before the bound: for each `ecg` capability state `unsupported`, `not_authorized`
   and `not_available`, and once an `ecg` sync that started after the trigger was stored completes
   successfully without a match. A sync that started before, failed, or completed only partly doesn't
-  end the hold. A linked recording kept with `signal` NULL has an `estimated` with `signal_missing`
-  from storage (§1): it gives no gate result, so the hold ends at once and the notification is sent
-  marked "not evaluated" (amended 2026-10-31, #88). The hold records how it ended (gate result, no
-  link possible, bound) as a reason code, and a link that appears after a "no link possible" end is
-  counted, for A9 (count only).
+  end the hold. A linked recording kept with `signal` NULL has, once the recompute that #25 enqueues
+  at storage has run (§1), an `estimated` with `signal_missing`, which gives no gate result. When
+  that recording is the trigger's only linked one, the hold then ends at once and the notification
+  is sent marked "not evaluated"; otherwise §11 governs (amended 2026-10-31, #88). The hold records
+  how it ended (gate result, no link possible, bound) as a reason code, and a link that appears
+  after a "no link possible" end is counted, for A9 (count only).
 
 ## References
 
-The sources cited in ADR 0006 and in this file, moved here verbatim from the end of the ADR by #88
-to keep the ADR within 500 lines.
+The sources cited in ADR 0006 and in this file, moved here verbatim from the end of the ADR to keep
+the ADR within 500 lines (amended 2026-10-31, #88).
 
 - ANSI/AAMI EC57:2012. Testing and reporting performance results of cardiac rhythm and ST segment
   measurement algorithms.

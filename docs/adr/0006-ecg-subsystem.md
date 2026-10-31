@@ -48,8 +48,9 @@ library (`backend/src/ownvitals/ecg/`); interpretation (§12) is deferred.
   (PLAN §4.2): the list row is kept with `signal` NULL, and nothing is coerced, rounded or rescaled.
   Every listed recording gets an `estimated`, a row kept with `signal` NULL included (amended
   2026-10-31, #88): #25 enqueues its recompute (§15) when it stores the row, and #40's `input` step
-  (§4) gives it the reason `signal_missing`, which is no gate result (§11). A hold on it (§11) then
-  ends at once, with "not evaluated by ownvitals", instead of waiting out the 24-hour bound.
+  (§4) gives it the reason `signal_missing`, which is no gate result (§11). When that recording is
+  the trigger's only linked one, a hold on it (§11) then ends at once, with "not evaluated by
+  ownvitals", instead of waiting out the 24-hour bound; otherwise §11 governs.
 - **Encoding, version 1** (#25). The uncompressed payload is `b"OVE1"`, `n_leads` (uint16 LE), a
   reserved uint16 (0), `n_samples` per lead (uint32 LE each), then the samples as int32 LE, lead
   after lead, in the order the API returned them. It is stored as one zstd frame (level 19,
@@ -364,10 +365,10 @@ Agents never mark the gate passed.
 **The test specification** is [0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md), part of
 this ADR: the generator (`backend/tests/ecgsynth.py`, after McSharry et al. 2003), noise, beat
 matching (ANSI/AAMI EC57; Se and +P pooled per condition and rate, a 95 % floor on every accepted
-strip), gate conditions, §5's filter responses, HR, HRV and SQI tolerances, seeds, a simulation
-note, and §11's overlay, read-function and hold tests. Its thresholds are our choices; every seeded
-case must meet them. An unreachable threshold is reported to the Architect; tests never loosen
-silently.
+strip) (amended 2026-10-31, #88), gate conditions, §5's filter responses, HR, HRV and SQI
+tolerances, seeds, a simulation note, and §11's overlay, read-function and hold tests. Its
+thresholds are our choices; every seeded case must meet them. An unreachable threshold is reported
+to the Architect; tests never loosen silently.
 
 ### 14. Owner-run validation (M5 done-when)
 
@@ -466,8 +467,8 @@ interpretation, and the E5 index is deferred (§12).
 ## References
 
 The sources cited here and in the test specification are listed at the end of
-[0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md#references) (moved there by #88; amended
-2026-10-31).
+[0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md#references) (amended 2026-10-31, #88):
+they were moved there verbatim.
 
 ## Amendments
 
@@ -477,20 +478,21 @@ Architect decisions on the non-blocking findings N41 to N45 of the #46 review (i
 `01d0fa3`), made in place above and in the test specification, marked "amended 2026-10-31, #88". The
 test specification is part of this ADR, so its amendments are listed here too:
 
-- §1, §15 (N44): every listed recording gets an `estimated`. A row kept with `signal` NULL gets one
-  with `signal_missing`, which is no gate result, when it is stored, so a hold on it ends at once,
-  with "not evaluated by ownvitals", instead of waiting out the 24-hour bound. #25 enqueues its
-  recompute; #40's `input` step gives it the reason. §15 lists a new row among the recompute's
-  triggers; the test specification's hold section gains the case.
-- §2 (N43, N45): A9 stays open until the M6/M7 notification hold exists, and until then OC5 reports
-  its late-link count as "not applicable". A9 moved after A8.
+- §1, §15 (N44): every listed recording gets an `estimated`; a row kept with `signal` NULL gets one
+  with `signal_missing`, which is no gate result. When that recording is the trigger's only linked
+  one, a hold on it ends at once, with "not evaluated by ownvitals", instead of waiting out the
+  24-hour bound; otherwise §11 governs. #25 enqueues the recompute and #40's `input` step gives the
+  reason. §15 lists a new row among the recompute's triggers, and the test specification's hold
+  section gains the case.
+- §2, §13 (N43, N45): A9 stays open until the M6/M7 notification hold exists, and until then OC5
+  reports its late-link count as "not applicable"; A9 moved after A8. §13 says "a 95 % floor on
+  every accepted strip", the test specification's wording, which governs.
 - §11 and Consequences (N41): a daily value's trigger is the groups its value came from (the morning
   reading's group, or the readings the median used), not the day's fingerprint inputs.
-- §13 (N45): "a 95 % floor on every accepted strip", the test specification's wording, which
-  governs.
 - Test specification, "HR and HRV" (N42, the Architect's decision): the noisy RMSSD tolerance at 60
   to under 100 bpm is ± 7.0 ms, not ± 6.5 ms. That applies the 20 % margin rule as clean 60 to 99
   bpm already does; the evidence is in its simulation note. #40 follows whichever value is on `main`
   when it updates.
-- References: moved verbatim to the end of the test specification, so that this file stays within
-  500 lines. No decision changed.
+- References: moved verbatim to the end of the test specification, to keep this file within 500
+  lines; the pointer and the test specification's introduction carry the marker. No decision
+  changed.

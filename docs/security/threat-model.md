@@ -328,13 +328,13 @@ specification before the M2 real-data gate (O15).
     names, and the app role can insert `connection_keks` rows itself, so they guard against an
     honest worker's mistakes, not against this code (ADR 0004 §4; amended 2026-10-31, #72). It
     could call the function:
-    - to add an entry whose HMAC it chose, or to re-hash an active entry to one (web holds the
+    - to add an entry whose HMAC it chose, under a seed id it inserted itself if it likes, or to
+      re-hash an active entry to one (a rehash changes only `pepper_id` and `hmac`; web holds the
       pepper and the function never sees a secret, so the rehash clause of ADR 0004 §4 binds only an
-      honest caller; amended 2026-10-31, #88), under a seed id it inserted itself if it likes,
-      giving it a webhook URL it can call. Code in web sees the paths it serves, so that can be a
-      URL a compromise rotation retired, which then verifies again (#72). Payloads are only a
-      trigger to fetch with the user's own token (PLAN §4.4), so the worst case is extra syncs
-      within the rate budget;
+      honest caller; amended 2026-10-31, #88), giving it a webhook URL it can call. Code in web sees
+      the paths it serves, so that can be a URL a compromise rotation retired, which then verifies
+      again (#72). Payloads are only a trigger to fetch with the user's own token (PLAN §4.4), so
+      the worst case is extra syncs within the rate budget;
     - to retire entries, delete retired ones or re-hash entries to any value, including one it chose
       (denial of service, extended by #49 and #88): webhooks are then ignored, and the worker's
       derivation check refuses to build callback URLs from a garbled entry, until a rotation
@@ -365,14 +365,14 @@ specification before the M2 real-data gate (O15).
     rotation from calling it (T38, ADR 0004 §4).
 
     It could also queue owner notices, once the notifications issue (M6/M7) builds the outbox
-    (amended 2026-10-31, #78). Any code with the app role can call the owner-notice write, not
-    only the worker's, but it takes only an owner-notice `kind` and a route key from fixed
-    lists, and the notice goes only to the admins with its kind's fixed template. The worst
-    case is unwanted mail to the admins and, in volume, a backlog that delays other outbox
-    mail, since the write has no dedupe and no rate limit: denial of service, never a
-    disclosure and never mail to anyone else (T48, T59, ADR 0007 §3). The notifications issue
-    keeps at most one pending row per owner-notice kind, which bounds the backlog (amended
-    2026-10-31, #88).
+    (amended 2026-10-31, #78). Any code with the app role can call the owner-notice write, not only
+    the worker's, but it takes only an owner-notice `kind` and a route key from fixed lists, and the
+    notice goes only to the admins with its kind's fixed template. The worst case is unwanted mail
+    to the admins and, in volume, a backlog that delays other outbox mail, since the write has no
+    dedupe and no rate limit: denial of service, never a disclosure and never mail to anyone else
+    (T48, T59, ADR 0007 §3). The notifications issue keeps at most one pending row per owner-notice
+    kind, deduping on `kind` alone (an owner notice's route is fixed per kind). That bounds the
+    backlog, not the send rate (amended 2026-10-31, #88).
 
 ## Open items
 

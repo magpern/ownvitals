@@ -134,14 +134,15 @@ but never marked, how long sent rows are kept, and how fast the sender sends.
   and read every owned row (threat model T24), so the family shows it nothing new (amended
   2026-10-31, #78). A caller other than the sender could claim rows and so suppress their
   mail: denial of service only.
-- **Any app-role code can queue owner notices** (amended 2026-10-31, #78 and #88), not only
-  the worker's: the write is the family's, and the app role holds `EXECUTE` on it. It takes
-  only an owner-notice `kind` and a route key, and the notice goes only to the admins, with
-  its kind's fixed template. The worst case is unwanted mail to the admins and, in volume, a
-  backlog that delays other outbox mail, since the write has no dedupe and no rate limit:
-  denial of service, never a disclosure and never mail to anyone else. It is accepted under
-  threat model risk 21. The notifications issue keeps at most one pending row per owner-notice
-  kind, which bounds the backlog.
+- **Any app-role code can queue owner notices** (amended 2026-10-31, #78 and #88), not only the
+  worker's: the write is the family's, and the app role holds `EXECUTE` on it. It takes only an
+  owner-notice `kind` and a route key, and the notice goes only to the admins, with its kind's fixed
+  template. The worst case is unwanted mail to the admins and, in volume, a backlog that delays
+  other outbox mail, since the write has no dedupe and no rate limit: denial of service, never a
+  disclosure and never mail to anyone else. It is accepted under threat model risk 21. The
+  notifications issue keeps at most one pending row per owner-notice kind, deduping on `kind` alone
+  (an owner notice's route is fixed per kind). That bounds the backlog, not the send rate, which
+  stays an open question (how fast the sender sends).
 - Threat model T48, T59 and accepted risk 21 cite this ADR (amended 2026-10-31, #78).
 
 ## Amendments
@@ -161,10 +162,13 @@ Architect decisions on the non-blocking finding 1 of the #73 review (its Opus PA
 ### 2026-10-31 (#88): follow-ups of the #83 review
 
 Architect decisions on the non-blocking findings 1 and 4 of the #83 review (its Opus PASS at
-`6095563`), made in place above and marked "amended 2026-10-31, #88" (finding 4: "#78"):
+`6095563`), made in place above and marked "amended 2026-10-31, #88" (finding 4: "#78"). The
+dedupe key in the first bullet is the Architect's decision on N4 of the review of the PR that made
+these edits (#97):
 
-- Consequences: the owner-notice nuisance includes volume (no dedupe, no rate limit, so a flood
-  can delay other outbox mail: denial of service, which risk 21 already accepts), and the
-  notifications issue keeps at most one pending row per owner-notice kind.
+- Consequences: the owner-notice nuisance includes volume (no dedupe, no rate limit, so a flood can
+  delay other outbox mail: denial of service, which risk 21 already accepts), and the notifications
+  issue keeps at most one pending row per owner-notice kind, deduping on `kind` alone (an owner
+  notice's route is fixed per kind). That bounds the backlog, not the send rate.
 - Consequences: the bullet on the family carries #78's marker, which it lacked ("pair" became
   "family" there in #78); no text changed.
