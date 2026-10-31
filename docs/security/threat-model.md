@@ -1,10 +1,10 @@
 # Threat model: health data
 
 Status: initial M0 version (#4, 2026-10-31), written before the port, with the follow-ups of its
-review applied by #49, those of the #58 review by #72 and those of the #73 review by #78
-(2026-10-31). #16 updates it against the merged code; the human security review of the M8 gate
-re-checks it end to end. Nothing here claims a status beyond what D10 allows: no control is
-INTEGRATION_VERIFIED or PRODUCTION_READY.
+review applied by #49, those of the #58 review by #72, those of the #73 review by #78 and those of
+the #83 review by #88 (2026-10-31). #16 updates it against the merged code; the human security
+review of the M8 gate re-checks it end to end. Nothing here claims a status beyond what D10 allows:
+no control is INTEGRATION_VERIFIED or PRODUCTION_READY.
 
 ## How to read it
 
@@ -253,13 +253,14 @@ development machine: agents, fakes and the demo account only; no real health dat
 
 ## Accepted risks (household phase)
 
-Each holds only while every user is a household member; the M8 gate re-decides all of them.
-Items 1, 3, 4, 5, 14 and 17 follow from the specification (§9.2, §4.4, §7.1, §10.2). Items 19
-to 21 follow from Architect decisions (2026-10-31; #49 extended 20 and 21; #72 scoped 21's
-input rules and added three ways to stall a rotation to it; #78 said which holders the role's
-timeouts end and added owner notices to it); the others are proposed by this model, most of
-them carried over from classbeat's accepted risks. The owner confirms or rejects every item
-that doesn't come from the specification before the M2 real-data gate (O15).
+Each holds only while every user is a household member; the M8 gate re-decides all of them. Items 1,
+3, 4, 5, 14 and 17 follow from the specification (§9.2, §4.4, §7.1, §10.2). Items 19 to 21 follow
+from Architect decisions (2026-10-31; #49 extended 20 and 21; #72 scoped 21's input rules and added
+three ways to stall a rotation to it; #78 said which holders the role's timeouts end and added owner
+notices to it; #88 added that a rehash can set a value the caller chose, that owner notices can also
+build a backlog and that the owner-notice write takes only a kind); the others are proposed by this
+model, most of them carried over from classbeat's accepted risks. The owner confirms or rejects
+every item that doesn't come from the specification before the M2 real-data gate (O15).
 
 1. **Shared home host.** A co-tenant with the Docker socket is root on the host and can read the
    database, the KEK files and every secret (T60). Revisited with the VPS move before M8 (§9.2).
@@ -320,22 +321,25 @@ that doesn't come from the specification before the M2 real-data gate (O15).
     and after reconnect the backfill, poll and reconciliation bring the data up to date (D3)
     (T32, T38, ADR 0004 §3, ADR 0008; amended 2026-10-31, #72).
 21. **Code running in web could plant, retire or garble webhook-secret entries, stall a
-    rotation or queue owner notices** (amended 2026-10-31, #49, #72 and #78). Web shares
+    rotation or queue owner notices** (amended 2026-10-31, #49, #72, #78 and #88). Web shares
     `ownvitals_app` with the worker, so code execution in web could call the webhook-secret
     function, within its input rules, which bound shape, not intent. The known-id rule and the
     compromise-order rules (`unretired_entries`, `seed_reused`) check only the ids the caller
     names, and the app role can insert `connection_keks` rows itself, so they guard against an
     honest worker's mistakes, not against this code (ADR 0004 §4; amended 2026-10-31, #72). It
     could call the function:
-    - to add an entry whose HMAC it chose, under a seed id it inserted itself if it likes,
-      giving it a webhook URL it can call. Code in web sees the paths it serves, so that can be
-      a URL a compromise rotation retired, which then verifies again (#72). Payloads are only a
-      trigger to fetch with the user's own token (PLAN §4.4), so the worst case is extra syncs
-      within the rate budget;
-    - to retire entries, delete retired ones or re-hash entries to garbage (denial of service,
-      extended by #49): webhooks are then ignored, and the worker's derivation check refuses to
-      build callback URLs from a garbled entry, until a rotation replaces it. Scheduled sync and
-      drift reconciliation (#26) cover the gap, and an alert fires on the ignored-webhook rate.
+    - to add an entry whose HMAC it chose, under a seed id it inserted itself if it likes, or to
+      re-hash an active entry to one (a rehash changes only `pepper_id` and `hmac`; web holds the
+      pepper and the function never sees a secret, so the rehash clause of ADR 0004 §4 binds only an
+      honest caller; amended 2026-10-31, #88), giving it a webhook URL it can call. Code in web sees
+      the paths it serves, so that can be a URL a compromise rotation retired, which then verifies
+      again (#72). Payloads are only a trigger to fetch with the user's own token (PLAN §4.4), so
+      the worst case is extra syncs within the rate budget;
+    - to retire entries, delete retired ones or re-hash entries to any value, including one it chose
+      (denial of service, extended by #49 and #88): webhooks are then ignored, and the worker's
+      derivation check refuses to build callback URLs from a garbled entry, until a rotation
+      replaces it. Scheduled sync and drift reconciliation (#26) cover the gap, and an alert fires
+      on the ignored-webhook rate.
 
     It could also stall a rotation (amended 2026-10-31, #72):
     - by holding the rotation lock (namespace 4, ADR 0008 §2): the worker's steps then fail on
@@ -361,11 +365,15 @@ that doesn't come from the specification before the M2 real-data gate (O15).
     rotation from calling it (T38, ADR 0004 §4).
 
     It could also queue owner notices, once the notifications issue (M6/M7) builds the outbox
-    (amended 2026-10-31, #78). Any code with the app role can call the owner-notice write, not
-    only the worker's, but it takes only an owner-notice `kind` and a route key from fixed
-    lists, and the notice goes only to the admins with its kind's fixed template. The worst
-    case is unwanted mail to the admins, a nuisance: never a disclosure and never mail to
-    anyone else (T48, T59, ADR 0007 §3).
+    (amended 2026-10-31, #78). Any code with the app role can call the owner-notice write, not only
+    the worker's, but it takes only an owner-notice `kind` from a fixed list, its route comes from
+    the kind through a fixed mapping inside the function, so a caller can't choose one (amended
+    2026-10-31, #88), and the notice goes only to the admins with its kind's fixed template. The
+    worst case is unwanted mail to the admins and, in volume, a backlog that delays other outbox
+    mail, since the write has no dedupe and no rate limit: denial of service, never a disclosure and
+    never mail to anyone else (T48, T59, ADR 0007 §3). The notifications issue keeps at most one
+    pending row per owner-notice kind, deduping on `kind` alone (an owner notice's route is fixed
+    per kind). That bounds the backlog, not the send rate (amended 2026-10-31, #88).
 
 ## Open items
 
@@ -378,7 +386,7 @@ that doesn't come from the specification before the M2 real-data gate (O15).
 | O12 | Disk encryption on the home server; Cloudflare proxied or DNS-only (T60, T64) | owner, M2 gate |
 | O13 | After the port: confirm each M0 mitigation against the merged code, replace every planned test name, close or re-home every open item | #16 |
 | O14 | Answer an unknown or retired webhook secret with the generic 200 before any database work, ignore it and count it; run the request checks before the lookup; answer a `POST` with 503 while the entry cache is stale or not yet read, and `HEAD` with 200 (T38; amended 2026-10-31, #49 and #72) | #24 |
-| O15 | Confirm or reject the accepted risks that don't come from the specification (2, 6 to 13, 15, 16, 18 to 21; #49 extended 20 and 21, 21 now covering denial of service; #72 added to 21 the three ways to stall a rotation (the rotation lock, an open transaction holding the `withings_apps` row lock, the cross-user cancel) and said its input rules guard against an honest worker's mistakes only; #78 said that the role's idle-in-transaction and transaction timeouts (from #77) end the open-transaction stall only for a holder at the role's settings, not for code that lifts them for its session or holds lock 4 at session level, and added owner notices to 21; amended 2026-10-31, #72 and #78) | owner, before the M2 real-data gate |
+| O15 | Confirm or reject the accepted risks that don't come from the specification (2, 6 to 13, 15, 16, 18 to 21; #49 extended 20 and 21, 21 now covering denial of service; #72 added to 21 the three ways to stall a rotation (the rotation lock, an open transaction holding the `withings_apps` row lock, the cross-user cancel) and said its input rules guard against an honest worker's mistakes only; #78 said that the role's idle-in-transaction and transaction timeouts (from #77) end the open-transaction stall only for a holder at the role's settings, not for code that lifts them for its session; that a lock 4 held at session level, the other stall (the rotation lock), is ended by no timeout; and added owner notices to 21; #88 said that a rehash can set a value the caller chose, that owner notices can build a backlog, that the owner-notice write takes only a kind, and set the two stall routes apart here; amended 2026-10-31, #72, #78 and #88) | owner, before the M2 real-data gate |
 
 Decided by the Architect on 2026-10-31 (numbers kept so earlier references stay valid):
 

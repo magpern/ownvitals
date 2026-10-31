@@ -7,6 +7,7 @@ from analysis_builders import daily_on, spread_days
 
 from ownvitals.analysis import policy
 from ownvitals.analysis.daily import DailyValue
+from ownvitals.analysis.dataquality import summarise
 from ownvitals.analysis.policy import (
     BASELINE_DEFAULT,
     DEFAULT_POLICY,
@@ -281,11 +282,43 @@ def test_evaluate_metric_picks_the_requirement_of_the_purpose() -> None:
         {"min_days_with_data": 1, "min_span_days": 0},
         {"min_days_with_data": 1, "min_span_fraction": Fraction(0)},
         {"min_days_with_data": 1, "min_span_fraction": Fraction(6, 5)},
+        {"min_days_with_data": 1, "min_span_fraction": Fraction(1)},
     ],
 )
 def test_a_nonsensical_requirement_is_refused(kwargs: dict[str, object]) -> None:
     with pytest.raises(ValueError, match="must be"):
         Requirement(**kwargs)  # type: ignore[arg-type]
+
+
+# --- a span fraction no window can reach is refused (#76) -------------------------------------
+# A span is days elapsed, so a window of w days gives at most (w - 1) / w: 1 is never met.
+
+
+@pytest.mark.parametrize("window_days", range(1, 61))
+def test_no_window_is_ever_spanned_completely(window_days: int) -> None:
+    first = END - timedelta(days=window_days - 1)
+    quality = summarise(daily_on(*sorted({first, END})), window_end=END, window_days=window_days)
+    assert quality.span_fraction == Fraction(window_days - 1, window_days)
+    assert quality.span_fraction < 1
+
+
+def test_a_span_fraction_of_one_is_refused_because_no_window_meets_it() -> None:
+    with pytest.raises(ValueError, match=r"in \(0, 1\).*never met"):
+        Requirement(2, min_span_fraction=Fraction(1))
+
+
+def test_a_span_fraction_just_below_one_is_valid_and_met_by_a_long_enough_window() -> None:
+    requirement = Requirement(2, min_span_fraction=Fraction(99, 100))
+    assert ok(run(requirement, window_days=100, span=99, days=2))  # all a 100-day window gives
+    assert short(run(requirement, window_days=100, span=98, days=2)) == (Shortfall.SPAN_FRACTION,)
+
+
+def test_a_valid_fraction_that_a_short_window_cannot_reach_is_insufficient_data() -> None:
+    # 3/5 of a 2-day window is 1.2 days elapsed and the window gives 1 at most: not a refusal,
+    # since the same requirement is met by a longer window
+    requirement = Requirement(2, min_span_fraction=Fraction(3, 5))
+    assert short(run(requirement, window_days=2, span=1, days=2)) == (Shortfall.SPAN_FRACTION,)
+    assert ok(run(requirement, window_days=3, span=2, days=2))
 
 
 # --- the typed result -------------------------------------------------------------------------

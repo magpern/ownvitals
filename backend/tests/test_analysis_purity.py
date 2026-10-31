@@ -1,8 +1,10 @@
 """Purity guard: ``ownvitals.analysis`` and ``ownvitals.ecg`` are pure libraries.
 
-They import nothing from ``ownvitals.db``, ``web``, ``withings``, ``jobs`` or ``egress`` and
-nothing from ``httpx``, so they can be tested, reasoned about and run without a database, a
-web app or a network. Two checks:
+They import nothing that does I/O or knows who is acting (``FORBIDDEN``: the database, web,
+Withings, jobs, egress, accounts, connections, context, configuration and logging modules of
+``ownvitals``, its entry point ``ownvitals.__main__``, and ``sqlalchemy``, ``psycopg``, ``httpx``
+and ``requests``), so they can be
+tested, reasoned about and run without a database, a web app or a network. Two checks:
 
 * static: every import in the package's source (absolute, relative, ``from ownvitals import db``,
   ``importlib.import_module`` and ``__import__`` with a literal) is read from the syntax tree.
@@ -10,14 +12,23 @@ web app or a network. Two checks:
   not a literal string, that starts with ``.``, that passes a second positional argument,
   ``package=``, ``level=`` or ``**kwargs``, or whose ``fromlist`` names a forbidden module or is
   not a literal; a reference to ``import_module``/``__import__`` that is not a direct call (an
-  alias such as ``from importlib import import_module as load``); and any use of ``exec``,
-  ``eval`` or ``compile``, which can run an import that no syntax tree shows;
+  alias such as ``from importlib import import_module as load``); any use of ``exec``, ``eval``
+  or ``compile``, which can run an import that no syntax tree shows; any use of ``run_module``,
+  ``run_path``, ``resolve_name`` or ``patch``, which import or run what a string names; and a
+  string that is exactly the name of one of these (``getattr(importlib, 'import_module')``). An
+  attribute call counts whatever its base: ``__import__('importlib').import_module(...)`` and
+  ``sys.modules['importlib'].import_module(...)`` are import calls. Import aliases are collected
+  from the whole file before anything is checked, so the order of the code does not matter. Names
+  built at run time (``getattr(m, 'import_' + 'module')``) are beyond a syntax tree; the dynamic
+  check below is the backstop;
 * dynamic: importing every module of the package in a clean interpreter must not load any of
   the forbidden modules, so an indirect import through a helper is caught as well.
 
 The static scanner is itself tested by planting forbidden imports into a copy of the package,
 in a module of the package and in one of its ``methods/`` subpackage. A guarded name must be a
-package: ``ownvitals/ecg.py`` fails the guard instead of being skipped.
+package: ``ownvitals/ecg.py`` fails the guard instead of being skipped. The rules added in #76 are
+tested in ``tests/analysis/test_analysis_purity_rules.py`` and the skip checks in
+``tests/analysis/test_analysis_purity_guarded.py`` (split out to keep this file under 500 lines).
 """
 
 import ast
@@ -36,10 +47,27 @@ FORBIDDEN = (
     "ownvitals.withings",
     "ownvitals.jobs",
     "ownvitals.egress",
+    "ownvitals.context",  # who is acting: the pure core takes plain values
+    "ownvitals.auth",
+    "ownvitals.connections",
+    "ownvitals.admin",
+    "ownvitals.flags",
+    "ownvitals.cli",
+    "ownvitals.config",  # reads the environment and secret files
+    "ownvitals.log",
+    "ownvitals.headers",
+    "ownvitals.__main__",  # the entry point: uvicorn, the web app, configuration and logging
     "httpx",
+    "requests",
+    "sqlalchemy",
+    "psycopg",
 )
 IMPORT_FUNCTIONS = frozenset({"import_module", "__import__"})
 DYNAMIC_CODE = frozenset({"exec", "eval", "compile"})  # run text as code: an import nobody sees
+# Import or run whatever module a string names (``patch`` imports its target, also in
+# ``patch.dict`` and ``patch.multiple``). A pure library has no use for them.
+STRING_IMPORTERS = frozenset({"run_module", "run_path", "resolve_name", "patch"})
+CODE_LOADERS = IMPORT_FUNCTIONS | DYNAMIC_CODE | STRING_IMPORTERS
 
 
 def is_forbidden(module: str) -> bool:
@@ -73,6 +101,16 @@ def dotted(node: ast.expr) -> str | None:
     if not isinstance(node, ast.Name):
         return None
     return ".".join([node.id, *reversed(parts)])
+
+
+def callee_name(func: ast.expr) -> str | None:
+    """The name a call is made under: ``f`` for ``f()`` and for ``x.f()``, whatever ``x`` is (a
+    name, a call, a subscript)."""
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
 
 
 def literal(node: ast.expr | None) -> str | None:
@@ -122,12 +160,17 @@ def import_call_problems(node: ast.Call) -> list[str]:
     return problems
 
 
-def import_aliases(node: ast.Import) -> dict[str, str]:
-    """Local name -> module, for ``import ownvitals[.x] [as y]``."""
-    aliases: dict[str, str] = {}
-    for alias in node.names:
-        head = alias.name.split(".")[0]
-        aliases[alias.asname or head] = alias.name if alias.asname else head
+def import_aliases(tree: ast.AST) -> dict[str, set[str]]:
+    """Local name -> every module bound to it by ``import ownvitals[.x] [as y]`` anywhere in the
+    file. Taken before anything is checked (``ast.walk`` goes by depth, not by source order, and
+    a use can precede an import nested deeper), and a name bound twice keeps both modules."""
+    aliases: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                head = alias.name.split(".")[0]
+                bound = alias.name if alias.asname else head
+                aliases.setdefault(alias.asname or head, set()).add(bound)
     return aliases
 
 
@@ -144,29 +187,35 @@ def import_problems(node: ast.Import | ast.ImportFrom, path: Path, root: Path) -
     problems.extend(
         f"renamed import of {alias.name}"
         for alias in node.names
-        if alias.name in IMPORT_FUNCTIONS | DYNAMIC_CODE and alias.asname not in (None, alias.name)
+        if alias.name in CODE_LOADERS and alias.asname not in (None, alias.name)
     )
     return problems
 
 
 def reference_problems(
-    node: ast.Name | ast.Attribute, aliases: dict[str, str], called: set[int]
+    node: ast.Name | ast.Attribute, aliases: dict[str, set[str]], called: set[int]
 ) -> list[str]:
-    """Names that reach imports: ``exec``/``eval``/``compile``, and ``import_module`` or
-    ``__import__`` used as a value (``load = importlib.import_module``), not called directly."""
+    """Names that reach imports: ``exec``/``eval``/``compile``, ``run_module``, ``run_path``,
+    ``resolve_name`` and ``patch``, and ``import_module`` or ``__import__`` used as a value
+    (``load = importlib.import_module``), not called directly."""
     name = node.id if isinstance(node, ast.Name) else node.attr
     problems: list[str] = []
     if name in IMPORT_FUNCTIONS and id(node) not in called:
         problems.append(f"reference to {name} that is not a direct call")
+    if name in STRING_IMPORTERS:
+        problems.append(f"use of {name}, which imports or runs a module by name")
     if isinstance(node, ast.Name):
         if name in DYNAMIC_CODE:
             problems.append(f"use of {name}")
         return problems
     chain = dotted(node)
     head, _, rest = (chain or "").partition(".")
-    if rest and head in aliases and is_forbidden(f"{aliases[head]}.{rest}"):
+    modules = aliases.get(head, set())
+    if rest and any(is_forbidden(f"{module}.{rest}") for module in modules):
         problems.append(f"attribute access {chain}")
-    if name in DYNAMIC_CODE and aliases.get(head) == "builtins":
+    # `re.compile` is fine; `builtins.exec` and `__import__('builtins').exec` (a base that is
+    # not a plain name) are not
+    if name in DYNAMIC_CODE and ("builtins" in modules or chain is None):
         problems.append(f"use of builtins.{name}")
     return problems
 
@@ -175,19 +224,20 @@ def violations_in(path: Path, root: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     where = path.relative_to(root).as_posix()
     called = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
-    aliases: dict[str, str] = {}
+    aliases = import_aliases(tree)
     found: list[str] = []
     for node in ast.walk(tree):
         problems: list[str] = []
         if isinstance(node, ast.Import | ast.ImportFrom):
             problems = import_problems(node, path, root)
-            if isinstance(node, ast.Import):
-                aliases.update(import_aliases(node))
         elif isinstance(node, ast.Call):
-            if (dotted(node.func) or "").split(".")[-1] in IMPORT_FUNCTIONS:
+            if callee_name(node.func) in IMPORT_FUNCTIONS:
                 problems = import_call_problems(node)
         elif isinstance(node, ast.Name | ast.Attribute):
             problems = reference_problems(node, aliases, called)
+        elif isinstance(node, ast.Constant) and node.value in CODE_LOADERS:
+            # getattr(importlib, 'import_module'), vars(importlib)['import_module'], ...
+            problems = [f"lookup by name of {node.value}"]
         found.extend(f"{where}:{getattr(node, 'lineno', 0)}: {p}" for p in problems)
     return found
 
@@ -324,7 +374,7 @@ def test_a_planted_import_in_a_subpackage_fails_the_guard(tmp_path: Path) -> Non
         "from ownvitals.analysis import quality",
         "from . import quality",
         "from .quality import Reading",
-        "from ownvitals.config import Settings",  # not on the list
+        "from ownvitals.emailnorm import normalize_email",  # not on the list
         "from ownvitals import emailnorm",
         "import httpx_not_really",
         "from ownvitals.dbtools import x",
@@ -418,63 +468,3 @@ def test_the_scan_covers_the_methods_subpackage() -> None:
     scanned = {p.relative_to(SRC).as_posix() for p in source_files(present("analysis"))}
     methods = {"baseline", "changepoint", "ewma", "series", "trend"}
     assert {f"ownvitals/analysis/methods/{name}.py" for name in methods} <= scanned
-
-
-# --- the ecg checks cannot be skipped by a module ---------------------------------------------
-
-
-def ownvitals_dir(tmp_path: Path) -> Path:
-    directory = tmp_path / "ownvitals"
-    directory.mkdir()
-    return directory
-
-
-def never_skipped(name: str, src: Path) -> Path:
-    """``present`` for a package that exists: a skip here is a failure, not a silent pass."""
-    try:
-        return present(name, src)
-    except pytest.skip.Exception:
-        pytest.fail(f"ownvitals.{name} exists but the purity guard skipped it")
-
-
-def test_the_real_analysis_package_is_never_skipped() -> None:
-    assert never_skipped("analysis", SRC) == SRC / "ownvitals" / "analysis"
-
-
-def test_a_guarded_name_that_does_not_exist_yet_is_skipped(tmp_path: Path) -> None:
-    ownvitals_dir(tmp_path)
-    with pytest.raises(pytest.skip.Exception, match=r"ownvitals\.ecg does not exist yet"):
-        present("ecg", tmp_path)
-
-
-@pytest.mark.parametrize("with_init", [True, False])
-def test_an_ecg_package_is_scanned_not_skipped(tmp_path: Path, with_init: bool) -> None:
-    package = ownvitals_dir(tmp_path) / "ecg"
-    package.mkdir()
-    if with_init:
-        (package / "__init__.py").write_text("", encoding="utf-8")
-    (package / "core.py").write_text("from ownvitals.db import engine\n", encoding="utf-8")
-    assert never_skipped("ecg", tmp_path) == package
-    assert violations(package, tmp_path) == [
-        "ownvitals/ecg/core.py:1: from ownvitals.db import engine"
-    ]
-
-
-def test_an_ecg_module_fails_the_guard_instead_of_being_skipped(tmp_path: Path) -> None:
-    (ownvitals_dir(tmp_path) / "ecg.py").write_text("x = 1\n", encoding="utf-8")
-    with pytest.raises(pytest.fail.Exception, match=r"ecg\.py exists.*must be a package"):
-        present("ecg", tmp_path)
-
-
-def test_an_ecg_module_next_to_an_ecg_package_still_fails(tmp_path: Path) -> None:
-    directory = ownvitals_dir(tmp_path)
-    (directory / "ecg").mkdir()
-    (directory / "ecg.py").write_text("x = 1\n", encoding="utf-8")
-    with pytest.raises(pytest.fail.Exception, match="must be a package"):
-        present("ecg", tmp_path)
-
-
-def test_an_analysis_module_cannot_replace_the_analysis_package_either(tmp_path: Path) -> None:
-    (ownvitals_dir(tmp_path) / "analysis.py").write_text("x = 1\n", encoding="utf-8")
-    with pytest.raises(pytest.fail.Exception, match="must be a package"):
-        present("analysis", tmp_path)
