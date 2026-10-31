@@ -23,12 +23,20 @@ library (none is needed yet).
   own (its host is a setting, so it is not a list entry). Each refuses in the worker
   (``refuse_in_worker``).
 
+**At run time** (ADR 0009) every process installs the egress hook first thing
+(``install_egress_hook``): a PEP 578 audit hook that refuses lookups of hosts outside the
+process's set, every reverse lookup, and any connection outside a scope that only this package's
+transports (after their allowlist check) and ``ownvitals.mail`` (``smtp_session``) open. It is
+the control for what the static guard cannot see, such as a library's lazy URL fetcher; the
+event loop must be the standard library's selector loop (``require_standard_event_loop``).
+
 Modules: ``core`` (lists, refusal, process roles, request budget, TLS context), ``opener`` (the
 worker's urllib opener and the total deadline of a urllib request), ``clients`` (the httpx
-transport and clients), ``code_exchange`` (the web process's one Withings call).
+transport and clients), ``code_exchange`` (the web process's one Withings call), ``hook`` (the
+audit hook).
 
-The checks run inside the process; code in it could still open a socket around them (the guard
-makes that visible in review; a network-level egress rule is the deployment's).
+The hook sees only Python's ``socket`` module (not C extensions such as libpq, nor ``ctypes``);
+a network-level egress rule stays the deployment's.
 """
 
 from ownvitals.egress.clients import (
@@ -82,6 +90,13 @@ from ownvitals.egress.core import (
     worker_allowlist_installed,
     worker_hosts,
 )
+from ownvitals.egress.hook import (
+    EgressRefused,
+    install_egress_hook,
+    installed_kind,
+    require_standard_event_loop,
+    smtp_session,
+)
 from ownvitals.egress.opener import (
     REQUEST_FALLBACK_SECONDS,
     DeadlineHTTPSConnection,
@@ -122,6 +137,7 @@ __all__ = [
     "AllowlistTransport",
     "DeadlineHTTPSConnection",
     "DeadlineHTTPSHandler",
+    "EgressRefused",
     "OutboundBlocked",
     "RequestBudget",
     "RequestBudgetExhausted",
@@ -135,13 +151,17 @@ __all__ = [
     "exchange_withings_code",
     "google_async_client",
     "google_oauth_client",
+    "install_egress_hook",
     "install_worker_allowlist",
+    "installed_kind",
     "installed_worker_hosts",
     "is_code_exchange_form",
     "model_async_client",
     "refuse_in_worker",
     "request_budget",
     "request_deadline",
+    "require_standard_event_loop",
+    "smtp_session",
     "tls_client_context",
     "withings_async_client",
     "worker_allowlist",

@@ -14,8 +14,10 @@ from ownvitals.config import Settings
 from ownvitals.log import configure_logging
 from ownvitals.web import create_app
 
-# psycopg's async mode cannot run on the proactor loop uvicorn picks on Windows.
-UVICORN_LOOP = "asyncio:SelectorEventLoop" if sys.platform == "win32" else "auto"
+# The standard library's selector loop, never uvloop ("auto" would pick it when installed): only
+# its sockets raise the audit events the egress hook checks (ADR 0009). On Windows uvicorn's
+# "asyncio" means the proactor loop, which neither psycopg's async mode nor the hook can use.
+UVICORN_LOOP = "asyncio:SelectorEventLoop" if sys.platform == "win32" else "asyncio"
 # After SIGTERM, requests get this long to finish before uvicorn cancels them and runs the
 # lifespan shutdown; inside Docker's default 10 s stop timeout for web.
 GRACEFUL_SHUTDOWN_SECONDS = 5

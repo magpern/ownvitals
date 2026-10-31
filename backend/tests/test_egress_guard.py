@@ -159,7 +159,7 @@ REFUSED = [
     "import anyio\nanyio.to_thread.run_sync(f)",  # anyio is not classified at all
     "import multiprocessing\nmultiprocessing.cpu_count()",  # capable: classify it first
     "import subprocess\nsubprocess.run(['curl', 'x'])",  # select makes it capable
-    "import uuid\nuuid.uuid4()",  # its getnode imports socket in a function
+    "import uuid\nuuid.uuid1()",  # its getnode imports socket in a function
     # Star imports would hide what they bring in.
     "from ownvitals.egress.clients import *",
     "from os import *",
@@ -340,10 +340,49 @@ def test_the_guard_fails_when_a_planted_web_module_installs_the_worker_list(
     assert scan_tree(tmp_path) == []
 
 
+# ADR 0009: only the process entry points install the egress hook (web's in #77), and only the
+# mail module opens an SMTP session's connection scope.
+HOOK_INSTALLS = [
+    "from ownvitals.egress import install_egress_hook\ninstall_egress_hook('web', s)",
+    "from ownvitals import egress\negress.install_egress_hook('cli', s)",
+    "from ownvitals.egress.hook import install_egress_hook as i\ni('worker', s)",
+    "import ownvitals.egress\nownvitals.egress.install_egress_hook('worker', s)",
+]
+SMTP_SESSIONS = [
+    "from ownvitals.egress import smtp_session\nwith smtp_session(): pass",
+    "from ownvitals import egress\nwith egress.smtp_session(): pass",
+    "from ownvitals.egress.hook import smtp_session as s\nwith s(): pass",
+]
+
+
+@pytest.mark.parametrize("source", HOOK_INSTALLS)
+def test_only_the_process_entry_points_install_the_egress_hook(source: str) -> None:
+    for module in ("ownvitals.worker.loop", "ownvitals.mail", WEB, "ownvitals.jobs.run", M):
+        assert scan_source(source, module) != [], module
+    for module in ("ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web"):
+        assert scan_source(source, module) == [], module
+
+
+@pytest.mark.parametrize("source", SMTP_SESSIONS)
+def test_only_mail_opens_an_smtp_session(source: str) -> None:
+    for module in ("ownvitals.cli", WEB, "ownvitals.worker.__main__", M):
+        assert scan_source(source, module) != [], module
+    assert scan_source(source, "ownvitals.mail") == []
+
+
+def test_the_connection_scope_is_private_to_the_egress_package() -> None:
+    source = "from ownvitals.egress.hook import _connection_scope\nwith c('x'): pass"
+    assert scan_source(source, "ownvitals.mail") != []
+    assert scan_source(source, "ownvitals.egress.clients") == []
+
+
 # The one exemption: account mail over smtplib (roadmap Amendment 1).
 def test_mail_is_the_only_module_allowed_a_connection_of_its_own() -> None:
     limited = {key: entry.only_in for key, entry in TABLE.items() if entry.only_in}
-    assert limited == {"smtplib": ("ownvitals.mail",)}
+    # The other limited entry is no connection: the worker's lease owner name (a local call).
+    assert limited == {"smtplib": ("ownvitals.mail",), "socket": ("ownvitals.worker.loop",)}
+    assert TABLE["socket"].names == {"gethostname"}
+    assert not TABLE["socket"].exceptions
     assert TABLE["smtplib"].names == {"SMTP", "SMTP_SSL"}
     assert TABLE["smtplib"].exceptions
 

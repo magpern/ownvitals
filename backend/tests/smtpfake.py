@@ -103,6 +103,7 @@ class SmtpFake:
     implicit_tls: bool = False
     connections: int = 0
     tls_upgrades: int = 0
+    ehlo_names: list[str] = field(default_factory=lambda: list[str]())  # what EHLO/HELO named
     _server: asyncio.Server | None = None
     _release: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -151,6 +152,7 @@ class SmtpFake:
             while line := (await reader.readline()).decode().strip():
                 verb = line.split(" ", 1)[0].upper()
                 if verb in ("EHLO", "HELO"):
+                    self.ehlo_names.append(line.split(" ", 1)[1] if " " in line else "")
                     if offer_starttls:
                         await say("250-fake")
                         await say("250 STARTTLS")

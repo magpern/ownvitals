@@ -49,6 +49,7 @@ from ownvitals.egress.core import (
     tls_client_context,
     worker_only,
 )
+from ownvitals.egress.hook import _connection_scope  # the package's own
 
 if TYPE_CHECKING:
     from authlib.integrations.httpx_client import AsyncOAuth2Client
@@ -165,7 +166,8 @@ class AllowlistTransport(httpx.AsyncBaseTransport):
         self._allowlist.check(url.scheme, host, url.port, bool(url.userinfo))
         await self._admit(request)
         spend(host)  # before sending
-        response = await self._inner.handle_async_request(request)
+        with _connection_scope("httpx"):  # the audit hook lets this request connect (ADR 0009)
+            response = await self._inner.handle_async_request(request)
         location = response.headers.get("location")
         if response.is_redirect and location is not None:
             target: httpx.URL | None

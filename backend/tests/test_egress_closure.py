@@ -34,6 +34,13 @@ LIBRARY = {
     "fakelazyhttp.py": "def f():\n    import http.client\n",
     "faketyped.py": "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import ssl\n",
     "fakemain.py": "if __name__ == '__main__':\n    import socket\n",
+    "fakemainrev.py": "if '__main__' == __name__:\n    import socket\n",
+    "fakenotmain.py": "if __name__ != '__main__':\n    import socket\n",
+    "fakeothername.py": "if __name__ == 'fakeothername':\n    import socket\n",
+    "fakewith.py": "import contextlib\nwith contextlib.nullcontext():\n    import socket\n",
+    "fakeloop.py": "for _ in ():\n    pass\nelse:\n    while False:\n        import socket\n",
+    "fakematch.py": "match 1:\n    case 1:\n        import socket\n",
+    "fakelazyfrom.py": "def f():\n    from socket import create_connection\n",
     "faketry.py": "try:\n    import _ssl\nexcept ImportError:\n    pass\n",
     "fakeclass.py": "class A:\n    import select\n",
     "fakedyn.py": "import importlib\nimportlib.import_module('socket')\n",
@@ -50,6 +57,13 @@ EXPECTED = {
     "fakelazyhttp": False,  # a function-level import of a non-seed is not followed
     "faketyped": False,
     "fakemain": False,
+    "fakemainrev": False,  # the same guard, written the other way round
+    "fakenotmain": True,  # N17: only ``__name__ == "__main__"`` is skipped
+    "fakeothername": True,
+    "fakewith": True,  # N16: a ``with`` body runs
+    "fakeloop": True,  # N16: loop bodies and their ``else`` run
+    "fakematch": True,  # N16: ``case`` bodies run
+    "fakelazyfrom": True,  # N16: a function-level ``from <seed> import x``
     "faketry": True,
     "fakeclass": True,
     "fakedyn": True,

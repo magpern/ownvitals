@@ -80,6 +80,11 @@ WORKER_ROLE_MODULES: dict[str, str] = {
     "ownvitals.worker.__main__": "the worker process's entry point (#9, not written yet)",
     "ownvitals.withings.probe": "the probe CLI, a worker-side one-off (#29, not written yet)",
 }
+# The runtime egress hook (ADR 0009): installed only by the process entry points (web's: #77), and
+# the SMTP session's connection scope opened only by the mail module.
+INSTALL_HOOK = f"{EGRESS}.install_egress_hook"
+HOOK_INSTALLERS = frozenset({"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web"})
+SMTP_SESSION = f"{EGRESS}.smtp_session"
 _DOTTED = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+")
 _EXCEPTIONS = frozenset(
     n for n, v in vars(builtins).items() if isinstance(v, type) and issubclass(v, BaseException)
@@ -308,6 +313,10 @@ def _internal(name: str, module: str, verb: str) -> list[str]:
         found.append(f"{verb} {name}: private to its module")
     if name == INSTALL_WORKER and module not in WORKER_ROLE_MODULES:
         found.append(f"{verb} {name}: only the worker's entry point makes a process the worker")
+    if name == INSTALL_HOOK and module not in HOOK_INSTALLERS:
+        found.append(f"{verb} {name}: only a process entry point installs the egress hook")
+    if name == SMTP_SESSION and module != MAIL:
+        found.append(f"{verb} {name}: only the mail module opens an SMTP session")
     if name == "pkgutil.resolve_name":
         found.append(f"{verb} {name}: resolves a module by name at run time")
     return found

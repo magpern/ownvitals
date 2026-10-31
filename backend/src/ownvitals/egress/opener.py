@@ -42,6 +42,7 @@ from ownvitals.egress.core import (
     tls_client_context,
     worker_allowlist,
 )
+from ownvitals.egress.hook import _connection_scope  # the package's own
 
 # A request whose caller gave no timeout (urllib's default) still ends within this.
 REQUEST_FALLBACK_SECONDS: Final = 60.0
@@ -324,7 +325,8 @@ class _AllowlistHTTPSHandler(DeadlineHTTPSHandler):
 
     def https_open(self, req: urllib.request.Request) -> Any:
         _check_urllib_request(self._allowlist, req)
-        return super().https_open(req)
+        with _connection_scope("urllib"):  # the audit hook lets this request connect (ADR 0009)
+            return super().https_open(req)
 
 
 def build_allowlist_opener(

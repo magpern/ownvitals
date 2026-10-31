@@ -104,10 +104,62 @@ that trickles its replies a byte at a time, stalls after the greeting, or stops 
 `MailError("delivery failed (deadline passed)")`. It is a module constant in `mail.py` until
 `config.py` can take a setting (the Architect moves it once the shared-file lock allows).
 
+**EHLO name.** smtplib's default is `socket.getfqdn()`: a reverse lookup outside the deadline,
+and the container's host name sent to the server. `Mailer` passes a fixed `local_hostname`
+instead: the host of `public_base_url`, or `localhost` when that is an IP address or has no dot
+(`mail.ehlo_name`).
+
+**Egress hook.** The SMTP client is built and used inside `egress.smtp_session()`, in
+`_send_blocking`, in the thread that connects: the connection scope the hook requires (below).
+Only `ownvitals.mail` may open it (the guard).
+
+## The runtime hook (ADR 0009)
+
+The authoritative control. `install_egress_hook(kind, settings)` (`kind`: `web`, `worker`,
+`cli`) adds a PEP 578 audit hook, once per process; it cannot be removed. Installed by
+`ownvitals/worker/__main__.py` (`main`) and the CLI (`run_command`); web's install and its
+startup loop check are acceptance criteria of #77. The guard allows the call only in those three
+modules.
+
+| Audit event | Rule |
+|---|---|
+| `socket.getaddrinfo`, `socket.gethostbyname` (and `_ex`) | only a host in the process's set: web: Google sign-in's hosts and `wbsapi.withings.net`; worker (and the CLI once its probe installs it): the installed worker list; every kind: the database URLs' hosts; web and CLI: `smtp_host`. No context needed: asyncio resolves in an executor thread |
+| `socket.gethostbyaddr`, `socket.getnameinfo` | always refused |
+| `socket.connect` (and `connect_ex`), `sendto`, `sendmsg` | `AF_INET`/`AF_INET6`: only inside a connection scope, set by `AllowlistTransport` and the urllib opener around a send (after their allowlist check) and by `mail` around one SMTP session. `AF_UNIX`: only a configured database socket (`<host dir>/.s.PGSQL.<port>`). Any other family: refused. A send without an address is allowed |
+
+A refusal raises `EgressRefused` (a `PermissionError`) and logs `outbound connection refused`
+with `event`, `target` (host, address family or `reverse lookup`) and `process_kind`: never a
+URL, a path, a query or a payload. `bind`, `listen` and `accept` are not checked.
+
+**The event loop.** Only the standard library's selector loop raises these events for asyncio
+sockets (the probe: `tests/egress_loop_probe.py`, pinned on Linux by
+`tests/test_egress_loop_probe.py`). So:
+
+- web runs uvicorn with `loop="asyncio"` (`asyncio:SelectorEventLoop` on Windows), pinned in
+  `test_main.py`; `uvicorn` is a dependency **without extras** (no uvloop, httptools,
+  websockets, watchfiles or pyyaml), and `test_egress_hook.py` asserts uvloop is neither locked
+  nor importable;
+- `install_egress_hook` raises if `uvloop` is importable;
+- `require_standard_event_loop()` refuses any other running loop (uvloop, the proactor loop); the
+  worker's `_run` and the CLI's command call it first.
+
+**Re-run the probe before any change of event loop**, of uvicorn's loop setting or of the Python
+minor version: `python tests/egress_loop_probe.py` on Linux (loopback only).
+
+Windows only: the selector loop's self-pipe is the standard library's Python `socketpair`
+emulation, which connects to its own loopback listener. The hook recognises it by its code
+object.
+
+**Tests.** The hook never goes into the pytest process: `tests/conftest.py` makes
+`sys.addaudithook` a no-op there. `tests/test_egress_hook.py` runs `tests/egress_hook_child.py`
+once per kind in a fresh interpreter, with fake resolvers (they raise the same audit events and
+answer `127.0.0.1`) and a loopback listener, so even a mutated hook reaches no network.
+
 ## The guard
 
 `tests/egress_scan.py`, run by `tests/test_egress_guard.py` and `tests/test_egress_closure.py`
-over the whole source tree. It is **closed-world**: which modules can reach the network is
+over the whole source tree: the early warning in review, behind the runtime hook (ADR 0009). It
+is **closed-world** for direct imports and references: which modules can reach the network is
 computed from the locked environment, and every one that `src/` uses is classified in one
 reviewed table. Outside `ownvitals.egress`, `ownvitals.mail` included, a capable module that is
 not classified is refused.
@@ -117,11 +169,13 @@ found on `sys.path` and read with `ast`, parses are cached for the run):
 
 - a seed: `socket`, `_socket`, `ssl`, `_ssl`, `select`;
 - a module whose **module-level** imports include a capable module (`try`/`except`, `if`/`else`,
-  `with`, loops and class bodies are followed; `if TYPE_CHECKING:` and `if __name__ ==
-  "__main__":` are not; importing `a.b` imports `a`);
-- a module in which a **function body** imports a seed. Other function-level imports are not
-  followed (`os.popen` imports `subprocess` lazily; following that makes nearly everything
-  capable).
+  `with`, loops, `match` cases and class bodies are followed; `if TYPE_CHECKING:` and exactly
+  `if __name__ == "__main__":` are not; importing `a.b` imports `a`);
+- a module in which a **function body** imports a seed (`import socket` or
+  `from socket import x`). Other function-level imports are not followed (`os.popen` imports
+  `subprocess` lazily; following that makes nearly everything capable). This is a recorded
+  static limit: libraries that fetch lazily (numpy's `numpy.lib._datasource` behind `loadtxt`,
+  minidom's `parseURI`) are not capable here, and the runtime hook refuses their connections.
 
 **Edge cuts** (`EDGE_CUTS` in `tests/egress_classified.py`) stop propagation, each with a reason
 and a test that proves it:
@@ -129,7 +183,9 @@ and a test that proves it:
 - `typing_extensions` imports `_socket` only to read the type of its CAPI capsule and binds no
   socket API. A chain through it (`typing_extensions._socket`) is still refused.
 - `platform` imports `socket` only inside `_node()`, for `socket.gethostname()` (a local system
-  call). Without this cut `numpy` and everything that imports `platform` would be capable.
+  call). Without this cut everything that imports `platform` would be capable through it. That
+  does not make `numpy` network-free: it has lazy URL fetchers (`numpy.lib._datasource`), which
+  the guard does not follow and the hook refuses at run time.
 
 **The table** (`TABLE` in `tests/egress_classified.py`; a key `x.*` covers a package, the most
 specific key wins, `only_in` scopes an entry):
@@ -138,7 +194,7 @@ specific key wins, `only_in` scopes an entry):
 |---|---|
 | denied | `starlette.testclient` |
 | by design (inbound or driver code) | `fastapi`, `fastapi.responses`, `starlette.*`, `uvicorn`, `sqlalchemy.*` |
-| allowed names | `asyncio`: `AbstractEventLoop`, `SelectorEventLoop`, `run`, `timeout`, `to_thread`; `email.message`: `EmailMessage`; `importlib.metadata`: `PackageNotFoundError`, `version`; `pydantic.fields`: `FieldInfo`; `pydantic_settings`: `BaseSettings`, `PydanticBaseSettingsSource`, `SettingsConfigDict`; `smtplib`, only in `ownvitals.mail`: `SMTP`, `SMTP_SSL` and its exception classes; `uuid`: `UUID`; `scipy.stats`: `rankdata`; `alembic`: none (imported for `alembic.op`); `alembic.op`: `execute` |
+| allowed names | `asyncio`: `AbstractEventLoop`, `CancelledError`, `Event`, `FIRST_COMPLETED`, `SelectorEventLoop`, `Task`, `ensure_future`, `gather`, `get_running_loop`, `run`, `sleep`, `timeout`, `to_thread`, `wait`, `wait_for`; `socket`, only in `ownvitals.worker.loop`: `gethostname` (a local call); `email.message`: `EmailMessage`; `importlib.metadata`: `PackageNotFoundError`, `version`; `pydantic.fields`: `FieldInfo`; `pydantic_settings`: `BaseSettings`, `PydanticBaseSettingsSource`, `SettingsConfigDict`; `smtplib`, only in `ownvitals.mail`: `SMTP`, `SMTP_SSL` and its exception classes; `uuid`: `UUID`, `uuid4`; `scipy.stats`: `rankdata` (capable only through scipy's docstring tooling and `pydoc`); `alembic`: none (imported for `alembic.op`); `alembic.op`: `execute` |
 
 Any other name of an allowed module is refused wherever it is referenced: an import, a call, a
 bare reference, an attribute value, a `partial` argument, an alias or a chain. A submodule is a
@@ -166,6 +222,8 @@ What else the guard refuses outside the package:
 - building an `Allowlist`, `AllowlistTransport`, opener or deadline handler, or handing an entry
   point a list;
 - calling `install_worker_allowlist` (only `WORKER_ROLE_MODULES`, above);
+- calling `install_egress_hook` outside the entry points (`ownvitals.worker.__main__`,
+  `ownvitals.cli`, `ownvitals.web`), or `smtp_session` outside `ownvitals.mail`;
 - star-importing anything.
 
 An import inside `if TYPE_CHECKING:` is allowed when its names appear only in annotations.
@@ -201,17 +259,25 @@ its own PR, with the reason in the guard test; it never imports the library. Non
 cd backend
 uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_closure.py tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
-  tests/test_egress_budget.py tests/test_mail.py
+  tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py
 ```
 
 ## Known limits
 
-- The checks run inside the process: code in it could still open a socket around them (the guard
-  makes that visible in review); a network-level egress rule is the deployment's.
-- The guard is static, and the review gate covers what it cannot see:
+- The hook sees only Python's `socket` module. It cannot see C extensions that open sockets
+  themselves (libpq, the database driver, by design: it connects only to the configured
+  database; a new dependency with native networking is caught by dependency review), `ctypes`,
+  or code that already runs in the process: it is a control on our code and our libraries, not
+  a sandbox. A network-level egress rule stays the deployment's (M2).
+- Until #77 installs it in web, web relies on the guard, the clients' allowlists and the
+  deployment's rule.
+- The guard is static; the hook covers at run time what it cannot see, and the review gate the
+  rest:
   - deliberate indirection (N9): `sys.modules`, a computed `getattr`, `exec`/`eval`,
     `importlib.util` loaders, `ctypes`. The cheap partial closes are in: dynamic imports,
-    `pkgutil.resolve_name`, constant `getattr`, and `_socket`/`_ssl` as seeds;
+    `pkgutil.resolve_name`, constant `getattr`, and `_socket`/`_ssl` as seeds. The `module:attr`
+    string form (pydantic's `ImportString`, `"socket:create_connection"`) is not read by the
+    string rule (N18): indirection of this kind, refused by the hook when it connects;
   - process execution (N10): `subprocess` is capable (it imports `select`) and so refused, as
     are `asyncio.create_subprocess_*` and `anyio`; `os.system`, `os.popen`, `os.exec*` and
     `os.spawn*` pass. The runtime image has no curl or wget;
@@ -220,9 +286,10 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
     `socketserver`, `http.server` and `logging.config` are refused as unclassified);
     `xml.sax.parse(url)` goes through `urlopen`, which the worker's opener covers (and `xml.sax`
     is refused as unclassified).
-- The web process installs no process-wide urllib opener yet: a third-party library calling
-  `urlopen` in web is not stopped at run time (our own code is kept out by the guard). A
-  deny-all opener at web start goes to #10, the next issue to take `web.py`.
+- The web process installs no process-wide urllib opener yet: until #77 installs the hook, a
+  third-party library calling `urlopen` in web is not stopped at run time (our own code is kept
+  out by the guard); after it, its connect is refused (no scope). A deny-all opener at web start
+  goes to #10, the next issue to take `web.py`.
 - A DNS lookup in progress is not cut by a urllib deadline (the resolver's timeout ends it).
 - SMTP: a DNS lookup in progress is not cut either, and a host name with several addresses
   gets the time left for each connection attempt.

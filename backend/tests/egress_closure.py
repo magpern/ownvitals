@@ -76,11 +76,16 @@ def type_checking(test: ast.expr) -> bool:
 
 
 def _is_main(test: ast.expr) -> bool:
-    return (
-        isinstance(test, ast.Compare)
-        and isinstance(test.left, ast.Name)
-        and test.left.id == "__name__"
-    )
+    """Exactly ``__name__ == "__main__"`` (either order): the block a library import never
+    runs. Any other comparison of ``__name__`` (``!=``, another string, a chain) is followed."""
+    if not (
+        isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq)
+    ):
+        return False
+    sides = (test.left, test.comparators[0])
+    names = [s for s in sides if isinstance(s, ast.Name) and s.id == "__name__"]
+    mains = [s for s in sides if isinstance(s, ast.Constant) and s.value == "__main__"]
+    return len(names) == 1 and len(mains) == 1
 
 
 def statements(

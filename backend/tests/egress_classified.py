@@ -62,10 +62,20 @@ TABLE: dict[str, Entry] = {
     "asyncio": _allowed(
         "the event loop and threads; connections, servers and loop network methods are refused",
         "AbstractEventLoop",  # a type, for the Windows selector loop policy (db.engine)
+        "CancelledError",  # an exception class (jobs, worker)
+        "Event",  # an in-process flag (jobs, worker)
+        "FIRST_COMPLETED",  # a constant of asyncio.wait (worker.loop)
         "SelectorEventLoop",  # psycopg on Windows (db.engine); its methods: LOOP_METHODS
+        "Task",  # a type (jobs, worker)
+        "ensure_future",  # schedules a coroutine on the running loop; no I/O of its own
+        "gather",  # awaits tasks together; no I/O of its own
+        "get_running_loop",  # the running loop; its network methods stay refused (LOOP_METHODS)
         "run",
+        "sleep",  # a timer
         "timeout",
         "to_thread",
+        "wait",  # awaits tasks; no I/O of its own
+        "wait_for",  # a timeout around an awaitable; no I/O of its own
     ),
     "email.message": _allowed(
         "building a message; email.utils' make_msgid (a DNS lookup) is not used",
@@ -90,12 +100,21 @@ TABLE: dict[str, Entry] = {
         exceptions=True,
         only_in=("ownvitals.mail",),
     ),
+    "socket": _allowed(
+        "the worker's lease owner name: gethostname() is a local system call, no lookup and no "
+        "connection; every other socket name stays refused (the egress hook checks at run time)",
+        "gethostname",
+        only_in=("ownvitals.worker.loop",),
+    ),
     "uuid": _allowed(
-        "the UUID type; uuid1() and getnode() (which can look the host name up) are not used",
+        "the UUID type and uuid4() (random bytes from os.urandom); uuid1() and getnode() (which "
+        "can look the host name up) are not used",
         "UUID",
+        "uuid4",
     ),
     "scipy.stats": _allowed(
-        "statistics on in-memory arrays; scipy's test helpers (subprocess) are not used",
+        "statistics on in-memory arrays; capable only through scipy's docstring tooling, which "
+        "imports pydoc, whose documentation server (http.server, select) is never started",
         "rankdata",
     ),
     # The migrations' RLS helpers (ownvitals.db.rls): SQL on the migration's own connection to
@@ -119,6 +138,7 @@ EDGE_CUTS: dict[str, str] = {
 
 LOOP_METHODS: frozenset[str] = frozenset(
     {
+        "add_signal_handler",  # the worker's SIGTERM/SIGINT stop (worker.__main__); no network
         "call_at",
         "call_exception_handler",
         "call_later",

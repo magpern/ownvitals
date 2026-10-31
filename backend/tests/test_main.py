@@ -1,4 +1,7 @@
+import asyncio
+import asyncio.selector_events
 import signal
+import sys
 from typing import Any
 
 import pytest
@@ -46,6 +49,22 @@ def test_main_runs_uvicorn_with_the_json_logging(monkeypatch: pytest.MonkeyPatch
         # Open requests get a bounded time after SIGTERM.
         "timeout_graceful_shutdown": GRACEFUL_SHUTDOWN_SECONDS,
     }
+
+
+def test_uvicorn_runs_the_standard_selector_loop() -> None:
+    """ADR 0009: the egress hook sees only the standard library's selector loop; uvicorn's
+    "auto" picks uvloop when it is installed, and its "asyncio" is the proactor loop on Windows."""
+    expected = "asyncio:SelectorEventLoop" if sys.platform == "win32" else "asyncio"
+    assert expected == UVICORN_LOOP
+    config = entry.server_config(FastAPI(), "127.0.0.1", 8000)
+    factory = config.get_loop_factory()
+    assert factory is not None
+    loop = factory()
+    try:
+        assert type(loop).__module__.startswith("asyncio.")
+        assert isinstance(loop, asyncio.selector_events.BaseSelectorEventLoop)
+    finally:
+        loop.close()
 
 
 @pytest.mark.usefixtures("restore_logging")

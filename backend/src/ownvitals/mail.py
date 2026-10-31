@@ -18,7 +18,13 @@ timeout: the connection, each ``recv`` of a reply (``_DeadlineReader``), each se
 handshake (CPython bounds a TLS handshake, read or write and a ``sendall`` as a whole by the
 socket timeout). Once the deadline has passed nothing more is sent or awaited. The one wait it
 cannot cut is a DNS lookup in progress; and a host name with several addresses gets the time
-left for each connection attempt.
+left for each connection attempt. ``EHLO`` names the public site's host (``ehlo_name``), never
+the machine's: smtplib would otherwise call ``socket.getfqdn()``, a reverse lookup outside the
+deadline that the egress hook refuses anyway.
+
+**The egress hook** (ADR 0009) lets a socket connect only inside a connection scope: the blocking
+send opens ``smtp_session()`` itself, in the thread that connects. Its lookup of ``smtp_host`` is
+allowed in web and the CLI, never in the worker.
 
 ``smtplib`` is blocking, so a send runs in a worker thread; the deadline is taken before the
 thread is scheduled. Mail is sent after the response (``send_logged`` is a background task). A
@@ -30,15 +36,22 @@ address back).
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import smtplib
 import time
 from dataclasses import dataclass
 from email.message import EmailMessage
 from typing import TYPE_CHECKING, Any, Final
+from urllib.parse import urlsplit
 
 from ownvitals.config import Settings
-from ownvitals.egress import check_total_seconds, refuse_in_worker, tls_client_context
+from ownvitals.egress import (
+    check_total_seconds,
+    refuse_in_worker,
+    smtp_session,
+    tls_client_context,
+)
 
 if TYPE_CHECKING:  # annotations only: the guard lets mail import smtplib alone at run time
     import socket
@@ -50,6 +63,19 @@ logger = logging.getLogger(__name__)
 # (the Architect moves it; the shared-file lock is held elsewhere).
 SMTP_TOTAL_SECONDS: Final = 20.0
 _RECV_BYTES: Final = 4096
+# ``EHLO``'s name when the public site has no DNS name of its own (an address or ``localhost``).
+FALLBACK_EHLO_NAME: Final = "localhost"
+
+
+def ehlo_name(public_base_url: str) -> str:
+    """The fixed name mail gives in ``EHLO``: the public site's host name, or
+    ``FALLBACK_EHLO_NAME`` for an address or a name without a dot. Never a lookup."""
+    host = (urlsplit(public_base_url).hostname or "").rstrip(".")
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return host if "." in host else FALLBACK_EHLO_NAME
+    return FALLBACK_EHLO_NAME
 
 
 class MailError(Exception):
@@ -149,9 +175,17 @@ class _DeadlineSMTPSSL(_DeadlineSMTP, smtplib.SMTP_SSL):
     """``smtplib.SMTP_SSL`` with the same deadline; the handshake gets only the time left."""
 
     def __init__(
-        self, host: str, port: int, *, deadline: _Deadline, context: ssl.SSLContext
+        self,
+        host: str,
+        port: int,
+        *,
+        deadline: _Deadline,
+        context: ssl.SSLContext,
+        local_hostname: str | None = None,
     ) -> None:
-        super().__init__(host, port, deadline=deadline, context=context)
+        super().__init__(
+            host, port, deadline=deadline, context=context, local_hostname=local_hostname
+        )
 
     def _get_socket(self, host: str, port: int, timeout: float) -> socket.socket:
         # Plain ``SMTP._get_socket`` (the TCP connection), then the handshake with the time left.
@@ -173,6 +207,7 @@ class Mailer:
             settings.smtp_password.get_secret_value() if settings.smtp_password else None
         )
         self._total_seconds = check_total_seconds(total_seconds)
+        self._ehlo_name = ehlo_name(settings.public_base_url)
 
     def __repr__(self) -> str:
         return "Mailer(...)"
@@ -199,16 +234,20 @@ class Mailer:
         built = self._build(message)
         context = tls_client_context()  # verifying, and never a TLS key log (SSLKEYLOGFILE)
         client: smtplib.SMTP
-        if self._tls == "tls":
-            client = _DeadlineSMTPSSL(self._host, self._port, deadline=deadline, context=context)
-        else:
-            client = _DeadlineSMTP(self._host, self._port, deadline=deadline)
-        with client:
-            if self._tls == "starttls":
-                client.starttls(context=context)
-            if self._username and self._password:
-                client.login(self._username, self._password)
-            client.send_message(built)
+        names = {"local_hostname": self._ehlo_name}  # smtplib's default calls socket.getfqdn()
+        with smtp_session():  # set here, in the thread that connects (ADR 0009)
+            if self._tls == "tls":
+                client = _DeadlineSMTPSSL(
+                    self._host, self._port, deadline=deadline, context=context, **names
+                )
+            else:
+                client = _DeadlineSMTP(self._host, self._port, deadline=deadline, **names)
+            with client:
+                if self._tls == "starttls":
+                    client.starttls(context=context)
+                if self._username and self._password:
+                    client.login(self._username, self._password)
+                client.send_message(built)
 
     async def send(self, message: MailMessage) -> None:
         """Deliver one message within ``total_seconds``; raises ``MailError`` (without details,
