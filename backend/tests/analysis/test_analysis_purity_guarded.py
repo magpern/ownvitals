@@ -1,7 +1,8 @@
 """A guarded name is scanned, never skipped: ``ownvitals.ecg`` has to be a package.
 
 Split out of ``test_analysis_purity.py`` (which holds the scanner and ``present``) to keep both
-files under 500 lines. The tests are unchanged.
+files under 500 lines. A test that expects ``present`` to fail goes through ``must_fail``, which
+turns a skip into a failure, so a ``present`` that skips instead of failing is caught (#99).
 """
 
 from pathlib import Path
@@ -25,6 +26,17 @@ def never_skipped(name: str, src: Path) -> Path:
         return present(name, src)
     except pytest.skip.Exception:
         pytest.fail(f"ownvitals.{name} exists but the purity guard skipped it")
+
+
+def must_fail(name: str, src: Path, message: str) -> None:
+    """``present`` has to *fail* the guard. ``pytest.raises(pytest.fail.Exception)`` alone passes
+    the test as skipped when ``present`` skips instead (a skip is not a ``Failed``), so a skip is
+    turned into a failure here."""
+    try:
+        with pytest.raises(pytest.fail.Exception, match=message):
+            present(name, src)
+    except pytest.skip.Exception:
+        pytest.fail(f"ownvitals.{name} must fail the purity guard, but the guard skipped it")
 
 
 def test_the_real_analysis_package_is_never_skipped() -> None:
@@ -52,19 +64,16 @@ def test_an_ecg_package_is_scanned_not_skipped(tmp_path: Path, with_init: bool) 
 
 def test_an_ecg_module_fails_the_guard_instead_of_being_skipped(tmp_path: Path) -> None:
     (ownvitals_dir(tmp_path) / "ecg.py").write_text("x = 1\n", encoding="utf-8")
-    with pytest.raises(pytest.fail.Exception, match=r"ecg\.py exists.*must be a package"):
-        present("ecg", tmp_path)
+    must_fail("ecg", tmp_path, r"ecg\.py exists.*must be a package")
 
 
 def test_an_ecg_module_next_to_an_ecg_package_still_fails(tmp_path: Path) -> None:
     directory = ownvitals_dir(tmp_path)
     (directory / "ecg").mkdir()
     (directory / "ecg.py").write_text("x = 1\n", encoding="utf-8")
-    with pytest.raises(pytest.fail.Exception, match="must be a package"):
-        present("ecg", tmp_path)
+    must_fail("ecg", tmp_path, "must be a package")
 
 
 def test_an_analysis_module_cannot_replace_the_analysis_package_either(tmp_path: Path) -> None:
     (ownvitals_dir(tmp_path) / "analysis.py").write_text("x = 1\n", encoding="utf-8")
-    with pytest.raises(pytest.fail.Exception, match="must be a package"):
-        present("analysis", tmp_path)
+    must_fail("analysis", tmp_path, "must be a package")
