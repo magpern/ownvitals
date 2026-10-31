@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · ownvitals mock-up</title>
+<link rel="stylesheet" href="ov.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</head>
+<body>
+<div class="ov app" data-theme="light">
+  <div class="rail-wrap"><div class="ov" data-theme="light" style="width: 100%; background: var(--surface); font-family: 'IBM Plex Sans', system-ui, sans-serif; color: var(--ink)">
+  <nav class="rail" aria-label="Main">
+    <a class="brand" href="Dashboard.html">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>
+      ownvitals
+    </a>
+    <div class="navgroup">
+      <span class="eyebrow">Analyse</span>
+      <div class="navlist">
+        
+          <a href="Dashboard.html" class="" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z" class="ic"></path></svg>
+            <span>Overview</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="Metric.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0z M6 10.5h12 M12 10.5v5 M8.5 21l3.5-5.5 3.5 5.5" class="ic"></path></svg>
+            <span>Body</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="ECG.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h4l2-5 4 10 3-7 2 2h5" class="ic"></path></svg>
+            <span>Heart &amp; ECG</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="Dashboard.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v6 M12 9l-5 5 M12 9l5 5 M7 14v6 M17 14v6 M12 9v11" class="ic"></path></svg>
+            <span>Nerve health</span>
+            <span class="end small muted">3 of 4</span>
+          </a>
+        
+          <a href="Dashboard.html" class="dim" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" class="ic"></path></svg>
+            <span>Sleep</span>
+            <span class="end small">n/a</span>
+          </a>
+        
+          <a href="Dashboard.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z" class="ic"></path></svg>
+            <span>Activity</span>
+            <span class="end dot attn"></span>
+          </a>
+        
+          <a href="Findings.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-8h11L20 13 M4 13v6h16v-6 M4 13h5l1 2h4l1-2h5" class="ic"></path></svg>
+            <span>Findings</span>
+            <span class="end count attn">2</span>
+          </a>
+        
+      </div>
+    </div>
+    <div class="navgroup">
+      <span class="eyebrow">Your data</span>
+      <div class="navlist">
+        
+          <a href="Connections.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15l6-6 M10.5 6.5l1.8-1.8a4 4 0 0 1 5.7 5.7l-1.8 1.8 M13.5 17.5l-1.8 1.8a4 4 0 0 1-5.7-5.7l1.8-1.8" class="ic"></path></svg>
+            <span>Connections</span>
+            <span class="end dot ok"></span>
+          </a>
+        
+      </div>
+    </div>
+    <div class="navgroup">
+      <span class="eyebrow">Account</span>
+      <div class="navlist">
+        
+          <a href="Settings.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10 M18 7h2 M4 17h4 M12 17h8 M16 5v4 M10 15v4" class="ic"></path></svg>
+            <span>Settings</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="Security.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10.5h12v9.5H6z M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5 M12 14v2.5" class="ic"></path></svg>
+            <span>Security</span>
+            <span class="end"></span>
+          </a>
+        
+        
+          <a href="Admin.html" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z M9 12l2 2 4-4" class="ic"></path></svg>
+            <span>Admin</span>
+          </a>
+        
+      </div>
+    </div>
+  </nav>
+</div></div>
+  <div class="main">
+    <header class="topbar">
+      <h1 style="font-size: 22px">Overview</h1>
+      <span class="grow"></span>
+      <div class="seg" role="group" aria-label="Range"><button type="button">30 d</button><button type="button" aria-pressed="true">90 d</button><button type="button">1 y</button><button type="button">All</button></div>
+      <button class="acct" type="button" aria-haspopup="menu"><span class="avatar">A</span>alex@example.org<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 8l5 5 5-5" class="ic"></path></svg></button>
+    </header>
+    <div class="fresh" role="status">
+      <span class="item"><span class="dot ok"></span>Withings synced 4 min ago</span>
+      <span class="item">Last weigh-in today 07:12 · Body Scan</span>
+      <span class="item"><span class="dot attn"></span>Activity: history before 2021 still importing</span>
+      <span class="item"><span class="dot off"></span>Sleep: no data from Withings yet</span>
+      <a href="Connections.html">Details</a>
+    </div>
+
+    <div class="content">
+      <section class="stack" style="gap: 14px" aria-labelledby="look">
+        <div class="between"><h2 id="look">Needs a look</h2><a href="Findings.html">All live findings (4)</a></div>
+        <div class="grid g3">
+          <a class="finding" href="Findings.html">
+            <div class="row"><span class="tier trend"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend</span><span class="small muted">Heart · new</span></div>
+            <h3>Resting heart rate above your typical range for 3 days</h3>
+            <div class="meta"><span class="num">71 bpm vs 59–63</span><span>29–31 Oct</span><span>Confidence: medium</span></div>
+          </a>
+          <a class="finding" href="ECG.html">
+            <div class="row"><span class="tier device"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Device</span><span class="small muted">ECG</span></div>
+            <h3>Withings marked 3 of your last 10 ECGs inconclusive or noisy</h3>
+            <div class="meta"><span>Withings' own results</span><span>Latest 14 Oct</span></div>
+          </a>
+          <div class="finding">
+            <div class="row"><span class="tier system"><svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4" class="ic"></circle></svg>System</span><span class="small muted">Device</span></div>
+            <h3>Body Scan battery at 12%</h3>
+            <div class="meta"><span>Last session today 07:04</span><span>Charge it to keep readings coming</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="stack" style="gap: 14px" aria-labelledby="body">
+        <div class="between"><div class="row"><h2 id="body">Body</h2><span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Body Scan</span></div><a href="Metric.html">Body composition</a></div>
+        <div class="grid g4">
+          <a class="tile" href="Metric.html">
+            <span class="label">Weight<span class="small">morning</span></span>
+            <span class="value">78.7<span class="unit">kg</span></span>
+            <span class="delta">Within your typical range 78.3–79.5</span>
+            <svg class="spark" viewBox="0 0 240 56" aria-hidden="true"><path d="M4 8.3 L9.1 8.7 L11.7 8.5 L14.2 8.3 L19.4 8.1 L21.9 8.1 L27.1 8.2 L29.6 8.3 L32.2 8.4 L34.7 9 L37.3 10 L39.9 9.8 L42.4 10.1 L47.6 10.9 L50.1 10.9 L52.7 11.1 L55.2 11 L57.8 11.2 L60.4 11.2 L62.9 11.5 L68 11.2 L70.6 11.1 L73.2 11 L78.3 10.7 L80.9 11.2 L83.4 11.3 L86 11 L88.5 11.5 L91.1 11.6 L93.7 11.3 L96.2 11.4 L101.3 11.4 L106.5 11.8 L111.6 12.2 L114.2 13.2 L116.7 13.3 L119.3 13.6 L121.8 14 L124.4 14.1 L127 14.1 L129.5 14 L132.1 14.3 L134.7 13.9 L137.2 14 L139.8 14 L142.3 13.9 L147.5 13.7 L150 13.7 L152.6 13.6 L155.1 13.5 L157.7 13.3 L160.3 13.3 L162.8 14 L165.4 14.3 L168 14.3 L170.5 14.5 L173.1 14.4 L175.6 14.1 L180.8 14.3 L185.9 14.9 L188.4 15 L191 15.1 L193.6 15.7 L198.7 16 L201.3 16 L208.9 16.4 L211.5 16.4 L214.1 16.4 L219.2 16.6 L221.8 17 L224.3 16.5 L226.9 16.7 L229.4 16.8 L232 17.9 L232 34.7 L229.4 35.3 L226.9 34.8 L224.3 34.1 L221.8 33.5 L219.2 33.9 L214.1 33.6 L211.5 33.6 L208.9 33.6 L201.3 33.7 L198.7 33.7 L193.6 33.9 L191 34.1 L188.4 33.5 L185.9 33.1 L180.8 33.5 L175.6 33.4 L173.1 33.1 L170.5 32.9 L168 33.1 L165.4 32.9 L162.8 32.7 L160.3 32.9 L157.7 32.5 L155.1 31.8 L152.6 31.7 L150 31.6 L147.5 31.6 L142.3 30.6 L139.8 29.8 L137.2 29.8 L134.7 29.7 L132.1 29.3 L129.5 29.6 L127 29.5 L124.4 29.1 L121.8 29.1 L119.3 29.4 L116.7 29.7 L114.2 29.5 L111.6 30.2 L106.5 30.1 L101.3 30.2 L96.2 29.6 L93.7 29.4 L91.1 28.7 L88.5 28.7 L86 28.5 L83.4 27.6 L80.9 27.4 L78.3 27.2 L73.2 26.4 L70.6 26.1 L68 25.9 L62.9 25.8 L60.4 25.9 L57.8 25.9 L55.2 25.9 L52.7 26 L50.1 26.2 L47.6 26.2 L42.4 25.9 L39.9 25.6 L37.3 24.6 L34.7 24.9 L32.2 24.5 L29.6 24.5 L27.1 24.6 L21.9 24.6 L19.4 24.6 L14.2 23.7 L11.7 23.5 L9.1 23.3 L4 23.5 Z " class="c-band"></path><path d="M4 19.8 L9.1 16.9 L11.7 18.6 L14.2 19.8 L19.4 19.2 L21.9 17.9 L27.1 22.5 L29.6 23.1 L32.2 23.2 L34.7 24.1 L37.3 22.9 L39.9 22.9 L42.4 22.2 L47.6 23.4 L50.1 21.7 L52.7 21.5 L55.2 20.3 L57.8 19.9 L60.4 20.2 L62.9 21.7 L68 19.5 L70.6 21.8 L73.2 22.6 L78.3 24.9 L80.9 26.3 L83.4 25.9 L86 25.4 L88.5 24.7 L91.1 24.4 L93.7 25.1 L96.2 24.2 L101.3 27.3 L106.5 23.3 L111.6 25.7 L114.2 25.5 L116.7 25.8 L119.3 23.9 L121.8 24 L124.4 23.6 L127 24.6 L129.5 25.2 L132.1 24.2 L134.7 26 L137.2 25.9 L139.8 24.4 L142.3 25.7 L147.5 26.8 L150 27.7 L152.6 29.1 L155.1 28.7 L157.7 28.6 L160.3 27.7 L162.8 28.4 L165.4 28.9 L168 30.6 L170.5 29.2 L173.1 30.9 L175.6 31.4 L180.8 31.6 L185.9 29.3 L188.4 30.1 L191 31.3 L193.6 31.7 L198.7 29.2 L201.3 27.3 L208.9 30.3 L211.5 30.7 L214.1 30.4 L219.2 29.7 L221.8 29.3 L224.3 31.1 L226.9 31.2 L229.4 31.8 L232 31.2 " class="c-line"></path><circle cx="232" cy="29.4" r="3.5" class="c-last"></circle></svg>
+            <span class="foot">Today 07:12 · 74 days with data in 90</span>
+          </a>
+          <a class="tile" href="Metric.html">
+            <span class="label">Fat ratio</span>
+            <span class="value">21.8<span class="unit">%</span></span>
+            <span class="delta">Within your typical range 21.7–22.6</span>
+            <svg class="spark" viewBox="0 0 240 56" aria-hidden="true"><path d="M4 14.7 L6.6 12.6 L9.1 11.2 L11.7 15.9 L16.8 18.4 L21.9 18.5 L24.5 18.6 L27.1 18.5 L32.2 18.6 L34.7 18.7 L37.3 18.6 L39.9 18.7 L42.4 18.8 L45 18.9 L50.1 18.8 L52.7 18.7 L57.8 18.7 L60.4 18.9 L62.9 18.8 L68 18.9 L70.6 19 L73.2 19.3 L78.3 19.6 L78.3 30.6 L73.2 30.3 L70.6 30 L68 29.9 L62.9 29.8 L60.4 29.9 L57.8 29.8 L52.7 29.7 L50.1 29.8 L45 29.9 L42.4 29.8 L39.9 29.7 L37.3 29.6 L34.7 29.7 L32.2 29.6 L27.1 29.5 L24.5 29.6 L21.9 29.5 L16.8 29.4 L11.7 28.4 L9.1 29.1 L6.6 23.6 L4 25.7 Z M91.1 19.3 L93.7 19.6 L96.2 20 L98.8 20.3 L101.3 20 L103.9 19.6 L106.5 20 L111.6 19.6 L119.3 19.9 L121.8 20 L129.5 20 L132.1 20 L137.2 20 L144.9 20 L147.5 20 L150 20 L152.6 20 L155.1 20 L157.7 20 L160.3 20 L162.8 20 L165.4 20.1 L168 20.3 L170.5 20 L173.1 20 L175.6 20 L180.8 20 L185.9 20 L188.4 20 L193.6 20 L201.3 20.2 L203.8 20 L211.5 20 L214.1 20 L219.2 19.7 L221.8 19.3 L224.3 19.1 L226.9 18.9 L229.4 18.9 L232 18.9 L232 33 L229.4 32.9 L226.9 32.8 L224.3 32.6 L221.8 32.3 L219.2 31.9 L214.1 31.6 L211.5 31.6 L203.8 31.6 L201.3 31.3 L193.6 31.6 L188.4 31.6 L185.9 31.6 L180.8 31.6 L175.6 31.6 L173.1 31.6 L170.5 31.6 L168 31.3 L165.4 31.5 L162.8 31.6 L160.3 31.6 L157.7 31.6 L155.1 31.6 L152.6 31.6 L150 31.6 L147.5 31.6 L144.9 31.6 L137.2 31.6 L132.1 31.6 L129.5 31.6 L121.8 31.6 L119.3 31 L111.6 30.6 L106.5 31 L103.9 30.6 L101.3 31 L98.8 31.3 L96.2 31 L93.7 30.6 L91.1 30.3 Z " class="c-band"></path><path d="M4 20.2 L6.6 19 L9.1 21 L11.7 21.9 L16.8 22.9 L21.9 23.7 L24.5 23.9 L27.1 23.1 L32.2 25 L34.7 26.5 L37.3 25.4 L39.9 25.5 L42.4 26.5 L45 28.1 L50.1 26 L52.7 24.5 L57.8 26.5 L60.4 26.3 L62.9 25.1 L68 25.5 L70.6 25.6 L73.2 25.5 L78.3 28.1 M91.1 24.4 L93.7 25.6 L96.2 26.7 L98.8 26.4 L101.3 24.1 L103.9 23.4 L106.5 24.4 L111.6 23.5 L119.3 26.3 L121.8 28.2 L129.5 30 L132.1 30.4 L137.2 27.8 L144.9 29.2 L147.5 28.4 L150 27.5 L152.6 24.7 L155.1 27.2 L157.7 26.5 L160.3 27.8 L162.8 27.8 L165.4 27.9 L168 27 L170.5 24.8 L173.1 26.1 L175.6 26 L180.8 23.9 L185.9 27.7 L188.4 27.7 L193.6 25.9 L201.3 25.1 L203.8 27.4 L211.5 29.2 L214.1 29.8 L219.2 31.1 L221.8 30.5 L224.3 32.3 L226.9 33.3 L229.4 32.3 L232 31.9 " class="c-line"></path><circle cx="232" cy="30.8" r="3.5" class="c-last"></circle></svg>
+            <span class="foot">Today 07:12 · 63 days with data in 90</span>
+          </a>
+          <a class="tile" href="Metric.html">
+            <span class="label">Muscle mass</span>
+            <span class="value">58.1<span class="unit">kg</span></span>
+            <span class="delta">Within your typical range 57.7–58.4</span>
+            <svg class="spark" viewBox="0 0 240 56" aria-hidden="true"><path d="M4 27.2 L6.6 22.6 L9.1 21.1 L11.7 22.9 L16.8 21.4 L19.4 21.7 L24.5 21.4 L27.1 21.7 L29.6 21.4 L32.2 21.7 L34.7 21.4 L37.3 20.6 L39.9 21.1 L42.4 20.6 L45 21.1 L47.6 20.6 L50.1 21.1 L52.7 20.4 L55.2 20 L57.8 19.7 L65.5 19.4 L73.2 19.7 L75.7 19 L78.3 19.7 L83.4 20 L86 20 L88.5 20 L96.2 20 L98.8 20 L101.3 20.1 L103.9 20 L109 20 L111.6 20 L114.2 19.7 L116.7 19.6 L119.3 20.1 L124.4 20 L127 20 L129.5 20 L132.1 20 L134.7 20 L137.2 20 L139.8 20.4 L142.3 20.1 L144.9 20.4 L147.5 20 L150 20.1 L152.6 20.5 L155.1 20.4 L162.8 20.5 L165.4 20.1 L170.5 20.5 L175.6 20.8 L178.2 20.8 L180.8 20.8 L188.4 20.7 L191 20.7 L196.1 20.8 L198.7 21 L201.3 21.2 L203.8 20.9 L206.4 21 L214.1 20.8 L221.8 20.7 L224.3 20.8 L229.4 20.9 L232 20.8 L232 33.7 L229.4 33.8 L224.3 33.8 L221.8 33.8 L214.1 33.7 L206.4 33.7 L203.8 33.6 L201.3 33.3 L198.7 33.5 L196.1 33.6 L191 33.8 L188.4 33.8 L180.8 33.8 L178.2 33.9 L175.6 33.8 L170.5 34 L165.4 34.1 L162.8 34 L155.1 33.9 L152.6 34 L150 34.1 L147.5 34 L144.9 33.9 L142.3 33.8 L139.8 33.9 L137.2 33.9 L134.7 33.6 L132.1 33.9 L129.5 33.6 L127 33.9 L124.4 33.6 L119.3 33.4 L116.7 33.8 L114.2 33.8 L111.6 33.6 L109 33.9 L103.9 33.6 L101.3 33.4 L98.8 33.6 L96.2 33.9 L88.5 34.3 L86 33.9 L83.4 34.3 L78.3 34.3 L75.7 35.3 L73.2 34.3 L65.5 34.2 L57.8 34.3 L55.2 33.6 L52.7 33.6 L50.1 33.2 L47.6 33.9 L45 33.2 L42.4 33.9 L39.9 33.2 L37.3 33.9 L34.7 33.4 L32.2 33.7 L29.6 33.4 L27.1 33.7 L24.5 33.4 L19.4 33.7 L16.8 33.4 L11.7 37.5 L9.1 33.1 L6.6 37.2 L4 39.2 Z " class="c-band"></path><path d="M4 33.2 L6.6 31.2 L9.1 30 L11.7 31.4 L16.8 29.4 L19.4 29 L24.5 27.5 L27.1 28.5 L29.6 26.6 L32.2 27.6 L34.7 26.5 L37.3 25.3 L39.9 25.7 L42.4 27.5 L45 27.3 L47.6 28.8 L50.1 28.1 L52.7 26.3 L55.2 25.5 L57.8 27.2 L65.5 24.2 L73.2 27.4 L75.7 28.7 L78.3 27.4 L83.4 28.8 L86 28 L88.5 29 L96.2 27.2 L98.8 26.7 L101.3 26.1 L103.9 28 L109 29.2 L111.6 28.2 L114.2 26.5 L116.7 26.3 L119.3 27 L124.4 30.1 L127 31 L129.5 28.8 L132.1 28.4 L134.7 27.3 L137.2 28.9 L139.8 28.6 L142.3 27.2 L144.9 28.1 L147.5 26.5 L150 27.9 L152.6 28.5 L155.1 28 L162.8 31.8 L165.4 28.9 L170.5 28.7 L175.6 28.2 L178.2 29.1 L180.8 28.6 L188.4 27.5 L191 27.2 L196.1 26.1 L198.7 26.9 L201.3 27.5 L203.8 29.5 L206.4 29.9 L214.1 23 L221.8 22.8 L224.3 25.2 L229.4 27.1 L232 26.6 " class="c-line"></path><circle cx="232" cy="25.4" r="3.5" class="c-last"></circle></svg>
+            <span class="foot">Today 07:12 · 67 days with data in 90</span>
+          </a>
+          <a class="tile" href="Metric.html">
+            <span class="label">Visceral fat<span class="small">index</span></span>
+            <span class="value">7</span>
+            <span class="delta">Within your typical range 7–8</span>
+            <svg class="spark" viewBox="0 0 240 56" aria-hidden="true"><path d="M4 24.8 L6.6 27.2 L9.1 25.5 L11.7 25.1 L16.8 25.5 L19.4 25.8 L21.9 25.5 L24.5 25.1 L27.1 24.8 L29.6 25.1 L32.2 24.8 L34.7 24.5 L37.3 24.2 L39.9 23.6 L45 22.5 L47.6 22.6 L50.1 22.6 L52.7 22.6 L55.2 21.5 L57.8 22.3 L65.5 23.2 L68 24.3 L70.6 24.4 L73.2 24.6 L78.3 24.4 L83.4 24.6 L86 24.8 L88.5 24.6 L93.7 24.8 L98.8 24.6 L101.3 24.8 L106.5 24.8 L109 24.8 L111.6 24.6 L114.2 24.8 L116.7 24.6 L119.3 24.5 L121.8 24.6 L124.4 24.5 L127 24.4 L129.5 24.4 L137.2 24.3 L142.3 24.2 L144.9 24 L147.5 23.8 L152.6 23.8 L155.1 23.8 L157.7 24 L162.8 23.8 L165.4 23.8 L168 23.8 L170.5 23.8 L175.6 23.8 L183.3 24 L185.9 23.8 L188.4 24 L191 23.8 L193.6 23.5 L196.1 23.8 L198.7 23.6 L201.3 24.2 L203.8 23.6 L206.4 24.2 L208.9 24 L211.5 24.2 L214.1 24.3 L216.6 24.3 L219.2 24.4 L221.8 24.3 L224.3 24.4 L229.4 24.3 L232 24.4 L232 35.4 L229.4 35.3 L224.3 35.4 L221.8 35.3 L219.2 35.4 L216.6 35.3 L214.1 35.3 L211.5 35.2 L208.9 35 L206.4 35.2 L203.8 35.4 L201.3 35.2 L198.7 35.4 L196.1 34.8 L193.6 35.1 L191 34.8 L188.4 35 L185.9 34.8 L183.3 35 L175.6 34.8 L170.5 34.8 L168 34.8 L165.4 34.8 L162.8 34.8 L157.7 35 L155.1 34.8 L152.6 34.8 L147.5 34.8 L144.9 35 L142.3 35.2 L137.2 35.3 L129.5 35.4 L127 35.5 L124.4 35.5 L121.8 35.6 L119.3 35.5 L116.7 35.6 L114.2 35.8 L111.6 35.6 L109 35.8 L106.5 35.8 L101.3 35.8 L98.8 35.6 L93.7 35.8 L88.5 35.6 L86 35.8 L83.4 35.6 L78.3 35.4 L73.2 35.6 L70.6 35.4 L68 35.9 L65.5 37.3 L57.8 37.8 L55.2 37.9 L52.7 36 L50.1 35 L47.6 36 L45 37 L39.9 35 L37.3 35.2 L34.7 35.5 L32.2 35.8 L29.6 36.1 L27.1 35.8 L24.5 36.1 L21.9 36.5 L19.4 36.8 L16.8 36.5 L11.7 36.1 L9.1 36.5 L6.6 38.2 L4 35.8 Z " class="c-band"></path><path d="M4 30.3 L6.6 31.7 L9.1 31.5 L11.7 30.6 L16.8 31.1 L19.4 31.8 L21.9 29 L24.5 29.2 L27.1 27.9 L29.6 28.9 L32.2 28.1 L34.7 28.3 L37.3 27.7 L39.9 27 L45 31.4 L47.6 29.6 L50.1 29.2 L52.7 32.2 L55.2 33.7 L57.8 32.7 L65.5 32 L68 31.3 L70.6 30.7 L73.2 31.2 L78.3 29.6 L83.4 32.4 L86 33.6 L88.5 32.2 L93.7 31.8 L98.8 30.9 L101.3 31.3 L106.5 32 L109 30.9 L111.6 28.5 L114.2 29.8 L116.7 29.5 L119.3 28.7 L121.8 29.8 L124.4 27.7 L127 26.8 L129.5 27.4 L137.2 28.5 L142.3 28.9 L144.9 29 L147.5 28.6 L152.6 28.3 L155.1 29.1 L157.7 29.5 L162.8 25.1 L165.4 24.7 L168 25.9 L170.5 28.5 L175.6 29.2 L183.3 33.4 L185.9 30.2 L188.4 31.6 L191 30 L193.6 28.1 L196.1 28.9 L198.7 30.1 L201.3 30.5 L203.8 28.7 L206.4 29.1 L208.9 28.8 L211.5 29.2 L214.1 30.7 L216.6 30.6 L219.2 31.4 L221.8 30.6 L224.3 32.7 L229.4 30.3 L232 32.3 " class="c-line"></path><circle cx="232" cy="36.9" r="3.5" class="c-last"></circle></svg>
+            <span class="foot">Today 07:12 · 72 days with data in 90</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="stack" style="gap: 14px" aria-labelledby="heart">
+        <div class="between"><h2 id="heart">Heart</h2><a href="ECG.html">ECG recordings</a></div>
+        <div class="grid g4">
+          <a class="tile" href="Findings.html">
+            <span class="label">Resting heart rate<span class="tier trend" style="height: 20px; font-size: 11px">Trend</span></span>
+            <span class="value" style="color: var(--attn)">71<span class="unit">bpm</span></span>
+            <span class="delta attn">Above your typical range 59–63 for 3 days</span>
+            <svg class="spark" viewBox="0 0 240 56" aria-hidden="true"><path d="M4 32.3 L9.1 29.9 L11.7 28.6 L14.2 30 L16.8 31.7 L19.4 31.5 L21.9 31.4 L24.5 31.5 L27.1 31.4 L29.6 30.9 L32.2 30.4 L34.7 29.9 L37.3 29.5 L39.9 29.7 L42.4 29.5 L45 29.7 L47.6 29.8 L50.1 29.7 L52.7 29.8 L55.2 30.1 L57.8 29.8 L62.9 30.1 L65.5 29.8 L68 30.1 L70.6 29.5 L73.2 29.6 L75.7 29.5 L78.3 29.5 L80.9 29.5 L86 29.4 L88.5 29.5 L91.1 29.4 L93.7 29.5 L96.2 29.5 L98.8 29.5 L101.3 29.5 L103.9 29.3 L106.5 29.5 L109 29.3 L109 37 L106.5 36.8 L103.9 37 L101.3 36.8 L98.8 36.8 L96.2 36.8 L93.7 36.8 L91.1 36.7 L88.5 36.8 L86 36.7 L80.9 36.8 L78.3 36.8 L75.7 36.8 L73.2 37 L70.6 37.5 L68 37.4 L65.5 37.2 L62.9 37.4 L57.8 37.2 L55.2 37.4 L52.7 37.2 L50.1 37 L47.6 37.2 L45 37 L42.4 36.8 L39.9 37 L37.3 36.8 L34.7 37.3 L32.2 37.7 L29.6 38.2 L27.1 38.7 L24.5 38.9 L21.9 38.7 L19.4 38.9 L16.8 39 L14.2 38.2 L11.7 35.9 L9.1 38.2 L4 39.6 Z M121.8 29.6 L124.4 29.8 L127 29.9 L129.5 30 L132.1 30.2 L134.7 30.2 L137.2 30.2 L139.8 30.3 L142.3 30.2 L144.9 30 L147.5 30.2 L150 30 L152.6 30.2 L155.1 30 L157.7 30 L160.3 30 L162.8 29.7 L165.4 30 L170.5 29.7 L173.1 29.5 L175.6 29.6 L178.2 29.5 L180.8 29.4 L183.3 29.4 L185.9 29.6 L188.4 29.5 L191 29.6 L198.7 29.5 L201.3 29.6 L203.8 29.5 L206.4 29.6 L208.9 29.6 L211.5 29.5 L214.1 29.5 L216.6 29.5 L219.2 29.6 L221.8 29.6 L224.3 29.6 L226.9 29.6 L229.4 29.5 L232 29.4 L232 37.1 L229.4 37 L226.9 37 L224.3 36.9 L221.8 36.9 L219.2 36.9 L216.6 36.9 L214.1 36.8 L211.5 36.9 L208.9 36.9 L206.4 37 L203.8 37 L201.3 37 L198.7 37 L191 37 L188.4 37 L185.9 37.1 L183.3 37.2 L180.8 37.1 L178.2 37 L175.6 37.1 L173.1 37.5 L170.5 37.5 L165.4 37.4 L162.8 37.5 L160.3 37.4 L157.7 37.4 L155.1 37.4 L152.6 37.5 L150 37.4 L147.5 37.5 L144.9 37.4 L142.3 37.5 L139.8 37.7 L137.2 37.5 L134.7 37.8 L132.1 37.5 L129.5 37.4 L127 37.3 L124.4 37.2 L121.8 37 Z " class="c-band"></path><path d="M4 35.9 L9.1 34 L11.7 33.5 L14.2 34.3 L16.8 34.6 L19.4 34.7 L21.9 34.5 L24.5 34.9 L27.1 33.7 L29.6 33.5 L32.2 33.3 L34.7 32.8 L37.3 32.9 L39.9 33 L42.4 32.8 L45 33.7 L47.6 34.6 L50.1 34.2 L52.7 34.7 L55.2 34.5 L57.8 33.4 L62.9 34.4 L65.5 33.9 L68 34.8 L70.6 33 L73.2 33 L75.7 32.8 L78.3 31.9 L80.9 32 L86 31.8 L88.5 32.7 L91.1 32.3 L93.7 33.4 L96.2 33.7 L98.8 34.1 L101.3 33.3 L103.9 32.7 L106.5 33 L109 33.8 M121.8 34.3 L124.4 34.3 L127 34.6 L129.5 34.9 L132.1 35.2 L134.7 35.5 L137.2 34.9 L139.8 35.1 L142.3 34.5 L144.9 33.1 L147.5 33.9 L150 33.2 L152.6 33.5 L155.1 33.1 L157.7 33.2 L160.3 32 L162.8 32 L165.4 32.7 L170.5 30 L173.1 30.5 L175.6 30.2 L178.2 30.7 L180.8 30.8 L183.3 32.3 L185.9 33.1 L188.4 33.1 L191 33 L198.7 35.1 L201.3 34.1 L203.8 34.4 L206.4 33.6 L208.9 33.4 L211.5 32.9 L214.1 32 L216.6 32.4 L219.2 32.7 L221.8 33.4 L224.3 34.4 L226.9 28.8 L229.4 24.8 L232 21.8 " class="c-line"></path><path d="M225.3 15.7 a1.6 1.6 0 1 0 3.2 0 a1.6 1.6 0 1 0 -3.2 0 M227.8 15.5 a1.6 1.6 0 1 0 3.2 0 a1.6 1.6 0 1 0 -3.2 0 M230.4 14.8 a1.6 1.6 0 1 0 3.2 0 a1.6 1.6 0 1 0 -3.2 0 " class="c-out"></path><circle cx="232" cy="14.8" r="3.5" class="c-last attn"></circle></svg>
+            <span class="foot">Today 07:04 · Body Scan and ScanWatch 2</span>
+          </a>
+          <a class="tile" href="ECG.html">
+            <span class="label">Last ECG<span class="tier device" style="height: 20px; font-size: 11px">Device</span></span>
+            <span style="font-size: 18px; font-weight: 600; line-height: 1.3">No sign of atrial fibrillation</span>
+            <span class="delta">Withings' result, 64 bpm, QTc 401 ms</span>
+            <span class="foot">14 Oct 07:05 · Body Scan · 30 s</span>
+          </a>
+          <div class="tile">
+            <span class="label">Vascular age<span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Withings</span></span>
+            <span class="value">41<span class="unit">years</span></span>
+            <span class="delta">3 years below your age</span>
+            <span class="foot">Today 07:04 · from your birth year in Settings</span>
+          </div>
+          <div class="tile empty">
+            <span class="label">Blood pressure<span class="state off" style="min-height: 24px; font-size: 12px">Not supported</span></span>
+            <p class="small muted" style="margin-top: 6px">No blood-pressure monitor on this Withings account. If you add one, it shows up here after the next sync.</p>
+            <span class="foot">Checked today 07:04</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="stack" style="gap: 14px" aria-labelledby="more">
+        <h2 id="more">Nerve, activity, sleep and score</h2>
+        <div class="grid g4">
+          <div class="tile empty">
+            <span class="label">Nerve Health Score<span class="state" style="min-height: 24px; font-size: 12px">Insufficient data</span></span>
+            <p class="small" style="margin-top: 6px">3 of 4 measures over 4 weeks so far. We need one more before saying anything.</p>
+            <div class="bar"><span style="width: 75%"></span></div>
+            <span class="foot">Next: stand barefoot on the Body Scan</span>
+          </div>
+          <div class="tile">
+            <span class="label">Steps<span class="state attn" style="min-height: 24px; font-size: 12px">Incomplete import</span></span>
+            <span class="value">7,840<span class="unit">a day</span></span>
+            <span class="delta">Average over 30 days · ScanWatch 2</span>
+            <span class="foot">History before 2021 is still importing</span>
+          </div>
+          <div class="tile empty">
+            <span class="label">Sleep<span class="state off" style="min-height: 24px; font-size: 12px">Not available</span></span>
+            <p class="small muted" style="margin-top: 6px">Withings has no sleep data for this account yet. Readiness needs sleep data, so it isn't computed.</p>
+            <span class="foot">Checked today 07:04</span>
+          </div>
+          <div class="tile">
+            <span class="label">Health score<span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>ownvitals 1.0</span></span>
+            <span class="value">71<span class="unit">/ 100</span></span>
+            <span class="delta num">Body 78 · Heart 70 · Activity 64 · Sleep n/a</span>
+            <span class="foot"><a href="Reading.html">How it's computed</a></span>
+          </div>
+        </div>
+      </section>
+      <p class="synthetic">Example data is synthetic.</p>
+    </div>
+  </div>
+</div>
+<script>
+  // ?theme=dark switches every .ov root, the imported rail included.
+  var t = new URLSearchParams(location.search).get('theme') || 'light';
+  document.querySelectorAll('.ov').forEach(function (e) { e.setAttribute('data-theme', t); });
+</script>
+</body>
+</html>

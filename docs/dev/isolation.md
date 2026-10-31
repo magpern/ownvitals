@@ -36,8 +36,14 @@ an older volume needs `docker compose down -v`. `migrate` connects as `ownvitals
 `database_owner_password` secret, `web` as `ownvitals_app` with `database_password`. CI runs it
 twice on the empty database (the `backend` job's roles step).
 
-**Web and the worker refuse to start** (`DatabaseRoleError`) when their role:
+**Web and the worker refuse to start** (`DatabaseRoleError`) when the role they log in as (the
+user of the URL, `session_user`):
 
+- runs as another role (`current_user` is not `session_user`), through a default `role` setting
+  (`ALTER ROLE ... SET role`) or a connection option (`options=-c role=...`). A login role can
+  always go back to itself (`SET ROLE NONE`) or on to any role it may `SET`, so a superuser, or a
+  member of `ownvitals_owner`, that starts as `ownvitals_app` could bypass RLS at any time. Every
+  check below runs on the login role, never only on the role in effect;
 - is a **member of any role**, directly or indirectly, with or without `INHERIT` or `SET`
   (`pg_has_role(..., 'MEMBER')`). A member can use the role's rights, through `INHERIT` or by
   `SET ROLE`: a member of `ownvitals_owner` can disable the tables' row security, a member of
@@ -49,7 +55,11 @@ twice on the empty database (the `backend` job's roles step).
 - has role settings other than the three timeouts;
 - meets a default for any `app.*` setting (`app.user_id` is the RLS user): on the role itself,
   on the database (`ALTER DATABASE ... SET`) or on every role (`ALTER ROLE ALL [IN DATABASE ...]
-  SET`).
+  SET`);
+- starts its sessions with `app.user_id` set where the catalog doesn't show it: server-wide
+  (`ALTER SYSTEM`, `postgresql.conf`) or in the connection options (`PGOPTIONS`,
+  `options=-c app.user_id=...`). The check reads the session's live value, so this is a
+  `DatabaseRoleError` at startup, not a connection the checkout check keeps replacing.
 
 The attribute and ownership checks also cover every role the role is a member of, so a report
 names what a membership would give. The engine repeats the check on every new connection, and on
@@ -138,13 +148,20 @@ never from a path, query, body or header. The same scan refuses, in every module
 - `dataclasses.replace`, `object.__setattr__`, `object.__new__`, `object.__delattr__` (also taken
   as a value), `x.__class__(...)` and `type(x)(...)` (ADR 0002 §1: "anywhere");
 - assigning `__class__` (`x.__class__ = K`, `del x.__class__`) and the strings `"__class__"`,
-  `"__init__"` and `"__post_init__"`, so `setattr(x, "__class__", K)`,
-  `getattr(K, "__post_init__")` and `vars(K)["__init__"]` fail;
-- naming `__init__` or `__post_init__` at all (a call, `hook = K.__post_init__`, a class body
-  naming it), except a zero-argument `super().__init__(...)` or `super().__post_init__(...)`
-  written directly in a method of the same name. Called on another class, either runs that
-  class's code with a real context as `self`, and a frozen dataclass's generated `__init__` with
-  the same field names rewrites the context in place.
+  `"__init__"`, `"__post_init__"`, `"__new__"`, `"__setattr__"`, `"__delattr__"`, `"__set__"`
+  and `"__delete__"`, so `setattr(x, "__class__", K)`, `getattr(K, "__post_init__")`,
+  `vars(K)["__init__"]` and `getattr(d, "__set__")` fail;
+- naming `__init__`, `__post_init__` or `__new__` at all (a call, `hook = K.__post_init__`, a
+  class body naming it), except a zero-argument `super().__init__(...)`,
+  `super().__post_init__(...)` or `super().__new__(...)` written directly in a method of the
+  same name. Called on another class, a hook runs that class's code with a real context as
+  `self`, and a frozen dataclass's generated `__init__` with the same field names rewrites the
+  context in place; `type(ctx).__new__(type(ctx))` makes a blank context without the token;
+- naming `__setattr__`, `__delattr__`, `__set__` or `__delete__` at all, with no exception:
+  `super(type(ctx), ctx).__setattr__` (`super` with or without arguments) and
+  `type(ctx).__mro__[-1].__setattr__` reach `object.__setattr__` past the frozen class's own, and
+  a slot descriptor (`type(ctx).role.__set__(ctx, "admin")`, also after `d = K.role`) writes a
+  field directly. Defining these methods in a class stays allowed.
 
 The guard reads "anywhere" with one exception (Architect, 2026-10-31): the frozen-dataclass idiom
 `object.__setattr__(self, "field", value)` written directly in a class's undecorated
@@ -166,8 +183,8 @@ review gate.
 | 2 | roles and every privilege as an allowlist | `test_role_guard.py` (`role_guard.check_roles`), `test_roles_rerun.py` |
 | 3 | two users on test-only owned tables: no cross-user read, write, move, child reference or unique-value probe; no rows without a context; the app role can't change the schema | `test_isolation.py` |
 | 4 | no `app.user_id` or held cursor left on a pooled connection; `commit()` inside a session raises | `test_isolation.py` |
-| 5 | `UserContext` only from its issuers | `test_user_context_guard.py`, `test_context.py` |
-| 6 | startup refusal of a privileged role | `test_role_check.py` |
+| 5 | `UserContext` only from its issuers | `test_user_context_guard.py`, `test_user_context_writers.py`, `test_context.py` |
+| 6 | startup refusal of a privileged role | `test_role_check.py`, `test_role_check_login.py` |
 | — | only allowlisted modules open a session | `test_session_guard.py` |
 
 Each guard has tests that plant a violation and show the guard catches it.

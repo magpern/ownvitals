@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quiet instrument: design language</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./ov.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</helmet>
+<div class="ov" data-theme="{{theme}}" style="width: 1440px; min-height: 3000px; padding: 72px 80px 96px; display: flex; flex-direction: column; gap: 72px">
+
+  <header style="display: flex; flex-direction: column; gap: 18px; max-width: 940px">
+    <div class="row" style="gap: 12px">
+      <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>
+      <span style="font-size: 20px; font-weight: 600; letter-spacing: -0.01em">ownvitals</span>
+      <span class="eyebrow" style="margin-left: 8px">UI design for M6 · chosen by the owner, 31 Oct 2026</span>
+    </div>
+    <h1 style="font-size: 64px; line-height: 1.02; letter-spacing: -0.025em">Quiet instrument</h1>
+    <p style="font-size: 21px; line-height: 1.5; color: var(--muted)">A calm, precise instrument for reading your own body data. Every number sits on your own history, says who measured or computed it, and admits what is missing.</p>
+    <p class="small muted">The logo is the idea in miniature: a reading (the dot) on your personal typical range (the band).</p>
+  </header>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Six principles</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">01</span>
+        <h3>Your history is the reference</h3>
+        <p class="muted">Every series is drawn against your own typical range. Comparisons are with your past, never with population charts.</p>
+        <p class="small muted">Trend tier, PLAN §7.2</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">02</span>
+        <h3>Gaps stay gaps</h3>
+        <p class="muted">Missing days are hatched and lines break. A stream we can't read is never a zero and never "normal".</p>
+        <p class="small muted">Capabilities, §4.2</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">03</span>
+        <h3>Say who said it</h3>
+        <p class="muted">Withings-reported values, ownvitals calculations and experimental estimates each carry their own mark. An estimate never looks certified.</p>
+        <p class="small muted">D9, §7.3</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">04</span>
+        <h3>Freshness on every screen</h3>
+        <p class="muted">Each page opens with when you last measured, when we last synced, and which imports are running, incomplete or broken.</p>
+        <p class="small muted">MVP UI rule, §8</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">05</span>
+        <h3>Every number is traceable</h3>
+        <p class="muted">Overview → metric → day → reading → how it was computed: method, algorithm version, inputs and data revision.</p>
+        <p class="small muted">Provenance, §5</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">06</span>
+        <h3>Quiet by default</h3>
+        <p class="muted">No streaks, rings, confetti or nudges. Colour appears only when something deserves a look. An analysis tool, not a copy of the Withings app.</p>
+        <p class="small muted">Withings terms, §9.4</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">The signature chart</div>
+    <h2 style="font-size: 28px; max-width: 900px">One chart grammar for every metric: your readings on your typical range</h2>
+    <div style="display: flex; gap: 40px; align-items: flex-start">
+      <div class="card" style="padding: 16px 12px 8px; flex: none">
+        <svg viewBox="0 0 860 300" width="860" height="300" role="img" aria-label="Example weight chart over 180 days: daily values on the personal typical range, a nine-day gap, two unconfirmed readings and a change point">
+          <defs><pattern id="hatchMain" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="c-hatch"></line></pattern></defs>
+          <line x1="44" y1="39.3" x2="844" y2="39.3" class="c-grid"></line>
+          <line x1="44" y1="85.8" x2="844" y2="85.8" class="c-grid"></line>
+          <line x1="44" y1="132.4" x2="844" y2="132.4" class="c-grid"></line>
+          <line x1="44" y1="178.9" x2="844" y2="178.9" class="c-grid"></line>
+          <line x1="44" y1="225.5" x2="844" y2="225.5" class="c-grid"></line>
+          <line x1="44" y1="272" x2="844" y2="272" class="c-grid"></line>
+          <text x="36" y="12" class="c-axis ta-end">kg</text>
+          <text x="36" y="43.3" class="c-axis ta-end">81</text>
+          <text x="36" y="89.8" class="c-axis ta-end">80</text>
+          <text x="36" y="136.4" class="c-axis ta-end">79</text>
+          <text x="36" y="182.9" class="c-axis ta-end">78</text>
+          <text x="36" y="229.5" class="c-axis ta-end">77</text>
+          <text x="36" y="276" class="c-axis ta-end">76</text>
+          <text x="164.7" y="292" class="c-axis ta-mid">Jun</text>
+          <text x="298.7" y="292" class="c-axis ta-mid">Jul</text>
+          <text x="437.3" y="292" class="c-axis ta-mid">Aug</text>
+          <text x="575.8" y="292" class="c-axis ta-mid">Sep</text>
+          <text x="709.9" y="292" class="c-axis ta-mid">Oct</text>
+          <path d="{{c.w.gaps}}" class="c-gapbg"></path>
+          <path d="{{c.w.gaps}}" fill="url(#hatchMain)"></path>
+          <path d="{{c.w.band}}" class="c-band"></path>
+          <path d="{{c.w.dots}}" class="c-dots"></path>
+          <path d="{{c.w.hollow}}" class="c-hollow"></path>
+          <path d="{{c.w.line}}" class="c-line"></path>
+          <line x1="535.6" y1="16" x2="535.6" y2="272" class="c-cp"></line>
+          <circle cx="{{c.w.lastX}}" cy="{{c.w.lastY}}" r="5.5" class="c-last"></circle>
+          <text x="{{c.w.labX}}" y="{{c.w.labY}}" class="c-label ta-end">{{c.w.lastV}} kg</text>
+          <text x="339" y="36" class="c-note ta-mid">no data</text>
+          <text x="339" y="50" class="c-note ta-mid">9 days</text>
+          <text x="543" y="264" class="c-note">change point · 23 Aug</text>
+          <text x="730" y="44" class="c-note">unconfirmed</text>
+        </svg>
+      </div>
+      <ul style="display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto; min-width: 0; padding-top: 8px">
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><rect x="0" y="2" width="28" height="10" rx="3" class="c-band"></rect></svg><span><strong>Typical range.</strong> <span class="muted">Your rolling median ± 1.5 MAD over 90 days, by time, not by point count.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><path d="M1 10 C 8 2, 18 12, 27 4" class="c-line"></path></svg><span><strong>Smoothed line.</strong> <span class="muted">Gap-weighted EWMA. It stops where the data stops.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><circle cx="14" cy="7" r="3.5" class="c-dots"></circle></svg><span><strong>Daily value.</strong> <span class="muted">First morning weigh-in (04:00–11:00), otherwise the median of the day.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><circle cx="14" cy="7" r="4" class="c-hollow"></circle></svg><span><strong>Unconfirmed.</strong> <span class="muted">The scale couldn't tell who stepped on it. Shown, never used.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><defs><pattern id="hatchLegend" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" class="c-hatch"></line></pattern></defs><rect x="0" y="0" width="28" height="14" rx="3" fill="url(#hatchLegend)"></rect></svg><span><strong>No data.</strong> <span class="muted">Nothing is drawn across a gap, and it is labelled with its length.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><line x1="14" y1="0" x2="14" y2="14" class="c-cp"></line></svg><span><strong>Change point.</strong> <span class="muted">Shown only on series that pass the minimum-data policy.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><circle cx="14" cy="7" r="5" class="c-last"></circle></svg><span><strong>Latest.</strong> <span class="muted">Bigger, labelled. Orange when outside your typical range, never red.</span></span></li>
+      </ul>
+    </div>
+    <p class="synthetic">Example data is synthetic.</p>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Who said it: three value styles</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px">
+        <span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Reported by Withings · Body Scan</span>
+        <div class="tile-like"><span style="font-size: 40px; font-weight: 600; letter-spacing: -0.01em" class="num">401</span><span class="muted" style="font-size: 18px; margin-left: 4px">ms</span></div>
+        <p><strong>QTc</strong></p>
+        <p class="small muted">Shown exactly as Withings reported it, with its original meaning and status, and attributed.</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px">
+        <span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Calculated by ownvitals · analysis 1.2</span>
+        <div><span style="font-size: 40px; font-weight: 600; letter-spacing: -0.01em" class="num">77.6–79.3</span><span class="muted" style="font-size: 18px; margin-left: 4px">kg</span></div>
+        <p><strong>Typical range, 90 days</strong></p>
+        <p class="small muted">Descriptive maths over your own readings. One tap shows the method, the inputs and the version.</p>
+      </div>
+      <div class="exp-box" style="display: flex; flex-direction: column; gap: 10px">
+        <span class="src" style="color: var(--exp)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 L10.8 6 L6 10.8 L1.2 6 Z" class="gl-line"></path></svg>Estimated by ownvitals · experimental · only you see this</span>
+        <div><span style="font-size: 18px; color: var(--muted); margin-right: 6px">est.</span><span class="num est" style="font-size: 40px; font-weight: 500">41</span><span class="muted" style="font-size: 18px; margin-left: 4px">ms</span></div>
+        <p><strong>RMSSD from the ECG signal</strong></p>
+        <p class="small muted">Our own estimate from the raw signal, behind the owner flag. Italic, dotted, prefixed "est." and boxed: never equal to a certified value.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Finding tiers</div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+      <div class="stack" style="gap: 8px">
+        <span class="tier device" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Device</span>
+        <p class="small muted">Withings' own result, attributed: "Withings classified this ECG as …". Everyone.</p>
+      </div>
+      <div class="stack" style="gap: 8px">
+        <span class="tier trend" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend</span>
+        <p class="small muted">Compared with your own history: "higher than your 90-day typical range". No diagnostic labels. Everyone.</p>
+      </div>
+      <div class="stack" style="gap: 8px">
+        <span class="tier exp" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 L10.8 6 L6 10.8 L1.2 6 Z" class="gl-line"></path></svg>Experimental</span>
+        <p class="small muted">Clinical bands and our estimates. Dashed everywhere it appears. Owner flag only, household only, until the M8 review.</p>
+      </div>
+      <div class="stack" style="gap: 8px">
+        <span class="tier system" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4" class="ic"></circle></svg>System</span>
+        <p class="small muted">About your data, not your body: no weigh-in for 14 days, low battery, reconnect needed, import incomplete.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Data states: the vocabulary every view uses</div>
+    <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px">
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state ok" style="align-self: flex-start"><span class="dot ok"></span>Up to date</span><p class="small muted">Synced 4 min ago. Last reading today 07:12.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state attn" style="align-self: flex-start"><span class="dot attn"></span>Stale</span><p class="small muted">No weigh-in for 14 days. The last value is shown with its date, greyed.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state" style="align-self: flex-start">Importing 64%</span><div class="bar"><span style="width: 64%"></span></div><p class="small muted">ECG history: 142 of 220 recordings.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state attn" style="align-self: flex-start">Incomplete import</span><p class="small muted">History before 2021 isn't imported yet. Trends start from 2021.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state" style="align-self: flex-start">Insufficient data</span><div class="bar"><span style="width: 75%"></span></div><p class="small muted">3 of 4 measures over 4 weeks needed before we say anything.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state off" style="align-self: flex-start">Not supported</span><p class="small muted">No blood-pressure monitor on this Withings account.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state off" style="align-self: flex-start">Not shared</span><p class="small muted">Sleep wasn't shared when you connected. Reconnect to share it.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state off" style="align-self: flex-start">Not available</span><p class="small muted">Withings returned nothing for this stream. We'll keep checking.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state urgent" style="align-self: flex-start"><span class="dot urgent"></span>Needs reconnect</span><p class="small muted">Withings stopped accepting our access. Your data is kept.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state info" style="align-self: flex-start">Withings+ needed</span><p class="small muted">Accounts created on or after 13 Oct 2026 need Withings+ to share data.</p></div>
+    </div>
+  </section>
+
+  <section style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px">
+    <div style="display: flex; flex-direction: column; gap: 20px">
+      <div class="eyebrow">Type: IBM Plex Sans and Plex Mono</div>
+      <div class="stack" style="gap: 14px">
+        <div class="between" style="align-items: baseline"><span style="font-size: 44px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1">Body composition</span><span class="mono muted">44 / 600</span></div>
+        <div class="between" style="align-items: baseline"><span style="font-size: 28px; font-weight: 600">Weight</span><span class="mono muted">28 / 600</span></div>
+        <div class="between" style="align-items: baseline"><span style="font-size: 20px; font-weight: 600">Readings on Tue 14 Oct</span><span class="mono muted">20 / 600</span></div>
+        <div class="between" style="align-items: baseline"><span>Higher than your 90-day typical range for 3 days.</span><span class="mono muted">15 / 400</span></div>
+        <div class="between" style="align-items: baseline"><span class="eyebrow">Typical range</span><span class="mono muted">12 / 600 caps</span></div>
+        <div class="between" style="align-items: baseline"><span class="num" style="font-size: 30px; font-weight: 600">78.4<span class="muted" style="font-size: 15px; margin-left: 3px; font-weight: 500">kg</span></span><span class="mono muted">tabular figures</span></div>
+        <div class="between" style="align-items: baseline"><span class="mono">grp 4812 · daily 1.0.0 · rev 4812 · sha256 9f3c…a71e</span><span class="mono muted">Mono 13</span></div>
+      </div>
+      <p class="small muted">Plex is OFL-1.1, on the accepted licence list, and self-hosted from the app's own origin, so the CSP stays 'self' only. Fallback: the system stack in tokens.css today.</p>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 20px">
+      <div class="eyebrow">Colour: light / dark</div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 12px">
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg)"></div><span class="small"><strong>Ground</strong></span><span class="mono muted" style="font-size: 11px">#F2F4F5 / #0D1013</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface)"></div><span class="small"><strong>Surface</strong></span><span class="mono muted" style="font-size: 11px">#FFFFFF / #161A1E</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--ink)"></div><span class="small"><strong>Ink</strong></span><span class="mono muted" style="font-size: 11px">#14181D / #EEF1F3</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--muted)"></div><span class="small"><strong>Muted</strong></span><span class="mono muted" style="font-size: 11px">#55606C / #A2ACB7</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--brand)"></div><span class="small"><strong>Brand · trend</strong></span><span class="mono muted" style="font-size: 11px">#1F6F78 / #5EC2CC</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--series)"></div><span class="small"><strong>Series</strong></span><span class="mono muted" style="font-size: 11px">#24476B / #9CC3EC</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--band); border: 1px solid var(--band-edge)"></div><span class="small"><strong>Typical range</strong></span><span class="mono muted" style="font-size: 11px">#D6E8E9 / #183236</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--device)"></div><span class="small"><strong>Device</strong></span><span class="mono muted" style="font-size: 11px">#2D5C8A / #8FB5E3</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--exp)"></div><span class="small"><strong>Experimental</strong></span><span class="mono muted" style="font-size: 11px">#6A4E9E / #BBA4F2</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--attn)"></div><span class="small"><strong>Attention</strong></span><span class="mono muted" style="font-size: 11px">#A8520C / #F0A25B</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--urgent)"></div><span class="small"><strong>Urgent</strong></span><span class="mono muted" style="font-size: 11px">#A12A2E / #FF8E86</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--ok)"></div><span class="small"><strong>OK</strong></span><span class="mono muted" style="font-size: 11px">#146C45 / #5BD49B</span></div>
+      </div>
+      <p class="small muted">Blue and orange carry meaning, not red and green. Every text colour passes 4.5:1 on its ground in both themes. Urgent is kept for two things: a Withings AFib-positive result and a broken connection.</p>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Controls</div>
+    <div class="row" style="gap: 16px">
+      <button class="btn primary" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Connect Withings</button>
+      <button class="btn" type="button">Sync now</button>
+      <button class="btn ghost" type="button">Cancel</button>
+      <button class="btn danger" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Disconnect…</button>
+      <div class="seg" role="group" aria-label="Range"><button type="button">30 d</button><button type="button" aria-pressed="true">90 d</button><button type="button">1 y</button><button type="button">All</button></div>
+      <span class="state info"><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Needs your authenticator code</span>
+      <div class="field" style="width: 280px"><label for="demo-email">Email</label><input id="demo-email" class="input" type="email" placeholder="you@example.org"></div>
+    </div>
+    <p class="small muted">Targets are at least 44 px. Destructive actions end with "…" because they open a confirmation, and every action on the step-up list, and every admin write, shows a lock and asks for a fresh authenticator code in one shared dialog.</p>
+  </section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":3000}}'>
+class Component extends DCLogic {
+  data() {
+    if (this._d) return this._d;
+    function mkRng(seed) { var s = seed >>> 0; return function () { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
+    function gauss(r) { var u = r() || 1e-9, v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+    function median(a) { var s = a.slice().sort(function (x, y) { return x - y; }); var m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+    function chart(c) {
+      var r = mkRng(c.seed), pts = [], d;
+      for (d = 0; d < c.n; d++) {
+        var gap = false;
+        (c.gaps || []).forEach(function (g) { if (d >= g[0] && d <= g[1]) gap = true; });
+        if (gap) continue;
+        if (d < c.n - 1 && r() < (c.missing || 0)) continue;
+        pts.push({ d: d, v: c.base(d) + gauss(r) * c.noise });
+      }
+      var L = c.pad[3], T = c.pad[0], W = c.w - c.pad[1] - c.pad[3], H = c.h - c.pad[0] - c.pad[2];
+      function X(x) { return L + x / (c.n - 1) * W; }
+      function Y(v) { return T + (c.max - v) / (c.max - c.min) * H; }
+      function f(x) { return Math.round(x * 10) / 10; }
+      var segs = [], cur = [];
+      pts.forEach(function (p, k) { if (k > 0 && p.d - pts[k - 1].d > c.gapDays) { segs.push(cur); cur = []; } cur.push(p); });
+      if (cur.length) segs.push(cur);
+      var e = null, prev = 0;
+      pts.forEach(function (p) { if (e === null) { e = p.v; } else { var a = 1 - Math.pow(1 - c.alpha, p.d - prev); e = e + a * (p.v - e); } p.e = e; prev = p.d; });
+      pts.forEach(function (p) {
+        var w = pts.filter(function (q) { return q.d <= p.d && q.d > p.d - c.bandWin; }).map(function (q) { return q.v; });
+        var m = median(w); var mad = median(w.map(function (x) { return Math.abs(x - m); }));
+        var hw = Math.max(c.bandMin, 1.4826 * mad * c.k); p.lo = m - hw; p.hi = m + hw;
+      });
+      var line = '', band = '';
+      segs.forEach(function (s) {
+        line += s.map(function (p, k) { return (k ? 'L' : 'M') + f(X(p.d)) + ' ' + f(Y(p.e)); }).join(' ') + ' ';
+        band += s.map(function (p, k) { return (k ? 'L' : 'M') + f(X(p.d)) + ' ' + f(Y(p.hi)); }).join(' ') + ' ' + s.slice().reverse().map(function (p) { return 'L' + f(X(p.d)) + ' ' + f(Y(p.lo)); }).join(' ') + ' Z ';
+      });
+      function dot(x, y, q) { return 'M' + f(x - q) + ' ' + f(y) + ' a' + q + ' ' + q + ' 0 1 0 ' + (2 * q) + ' 0 a' + q + ' ' + q + ' 0 1 0 ' + (-2 * q) + ' 0 '; }
+      var dots = '', out = '', hollow = '', gaps = '';
+      pts.forEach(function (p) { var o = c.flagFrom !== undefined && p.d >= c.flagFrom; var s = dot(X(p.d), Y(p.v), c.r); if (o) out += s; else dots += s; });
+      (c.hollow || []).forEach(function (h) { hollow += dot(X(h[0]), Y(h[1]), c.r + 0.8); });
+      (c.gaps || []).forEach(function (g) { var x0 = X(g[0] - 0.5), x1 = X(g[1] + 0.5); gaps += 'M' + f(x0) + ' ' + T + ' H' + f(x1) + ' V' + (T + H) + ' H' + f(x0) + ' Z '; });
+      var last = pts[pts.length - 1];
+      return { line: line, band: band, dots: dots, out: out, hollow: hollow, gaps: gaps, lastX: f(X(last.d)), lastY: f(Y(last.v)), labX: f(X(last.d) - 10), labY: f(Y(last.v) - 12), lastV: (Math.round(last.v * 10) / 10).toFixed(1) };
+    }
+    this._d = {
+      w: chart({ seed: 7, n: 180, w: 860, h: 300, pad: [16, 16, 28, 44], min: 76, max: 81.5, noise: 0.32, missing: 0.18, gaps: [[62, 70]], gapDays: 4, alpha: 0.25, bandWin: 90, bandMin: 0.45, k: 1.5, r: 2.6, hollow: [[120, 80.9], [151, 80.6]], base: function (d) { return d < 110 ? 79.9 - d * 0.006 : 79.24 - (d - 110) * 0.0125; } })
+    };
+    return this._d;
+  }
+  renderVals() {
+    return { theme: this.props.theme ?? 'light', c: this.data() };
+  }
+}
+</script>
+</body>
+</html>

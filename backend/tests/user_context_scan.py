@@ -10,14 +10,22 @@
   ``type(x)(...)``, in any module, whether or not it mentions ``UserContext``;
   ``functools.partial`` in a module that does;
 - assigning ``__class__`` (``x.__class__ = K``, ``del x.__class__``) and the strings
-  ``"__class__"``, ``"__init__"`` and ``"__post_init__"`` (so ``setattr(x, "__class__", K)``,
-  ``getattr(K, "__post_init__")`` and ``vars(K)["__init__"]`` are refused);
-- naming ``__init__`` or ``__post_init__`` at all, except ``super().__init__(...)`` and
-  ``super().__post_init__(...)`` (zero-argument ``super``) written directly in a method of the
-  same name. ``K.__post_init__(ctx)``, ``hook = K.__post_init__`` and ``K.__init__(ctx, ...)``
-  would run a class's own code with a real context as ``self``: a frozen dataclass's generated
-  ``__init__`` sets its fields with ``object.__setattr__``, so one with the same field names
-  rewrites a ``UserContext`` in place.
+  ``"__class__"``, ``"__init__"``, ``"__post_init__"``, ``"__new__"``, ``"__setattr__"``,
+  ``"__delattr__"``, ``"__set__"`` and ``"__delete__"`` (so ``setattr(x, "__class__", K)``,
+  ``getattr(K, "__post_init__")``, ``vars(K)["__init__"]`` and ``getattr(d, "__set__")`` are
+  refused);
+- naming ``__init__``, ``__post_init__`` or ``__new__`` at all, except ``super().__init__(...)``,
+  ``super().__post_init__(...)`` and ``super().__new__(...)`` (zero-argument ``super``) written
+  directly in a method of the same name. ``K.__post_init__(ctx)``, ``hook = K.__post_init__``
+  and ``K.__init__(ctx, ...)`` would run a class's own code with a real context as ``self``: a
+  frozen dataclass's generated ``__init__`` sets its fields with ``object.__setattr__``, so one
+  with the same field names rewrites a ``UserContext`` in place. ``K.__new__(K)`` with ``K =
+  type(ctx)`` makes a blank context without the issuer token;
+- naming ``__setattr__``, ``__delattr__``, ``__set__`` or ``__delete__`` at all, with no
+  exception: ``super(type(ctx), ctx).__setattr__`` (``super`` with or without arguments)
+  reaches ``object.__setattr__`` past the frozen class's own, as does
+  ``type(ctx).__mro__[-1].__setattr__``, and a slot descriptor's ``__set__`` or ``__delete__``
+  (``type(ctx).role.__set__(ctx, "admin")``, also after ``d = K.role``) writes a field directly.
 
 One exception (Architect, 2026-10-31): the frozen-dataclass idiom ``object.__setattr__(self,
 "field", value)`` written directly in the undecorated ``__post_init__(self, ...)`` method of a
@@ -57,7 +65,11 @@ REFUSED_WITH_CONTEXT = {"functools": "partial"}
 REFUSED_BUILTIN_CALLS = {"object.__setattr__", "object.__new__", "object.__delattr__"}
 # Methods that run a class's own code on whatever is passed as ``self``; see the docstring.
 HOOKS = {"__init__", "__post_init__"}
-REFUSED_STRINGS = {"__class__", *HOOKS}
+# Named only as ``super().<name>(...)`` written directly in a method of the same name.
+SUPER_ONLY = {*HOOKS, "__new__"}
+# Never named: each writes or deletes a field past the frozen class's own ``__setattr__``.
+WRITERS = {"__setattr__", "__delattr__", "__set__", "__delete__"}
+REFUSED_STRINGS = {"__class__", *SUPER_ONLY, *WRITERS}
 
 
 def _dotted(node: ast.AST) -> str | None:
@@ -309,12 +321,14 @@ def _sets_own_field(node: ast.AST) -> bool:
 
 
 def _super_hook_calls(tree: ast.AST) -> set[int]:
-    """Ids of the attribute in ``super().__init__(...)`` and ``super().__post_init__(...)``
-    written directly in a method of the same name: the only uses of either name allowed."""
+    """Ids of the attribute in ``super().__init__(...)``, ``super().__post_init__(...)`` and
+    ``super().__new__(...)`` written directly in a method of the same name: the only uses of
+    those names allowed."""
     allowed: set[int] = set()
     for function in ast.walk(tree):
         if not (
-            isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef) and function.name in HOOKS
+            isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef)
+            and function.name in SUPER_ONLY
         ):
             continue
         for node in _own_nodes(function):
@@ -400,17 +414,23 @@ def scan_source(source: str) -> list[tuple[int, str]]:
         elif isinstance(node, ast.Constant) and (node.value == NAME or node.value in TOKEN_NAMES):
             # A string such as getattr(module, "UserContext"); string annotations are skipped.
             found.append((node.lineno, f"string reference to {node.value}"))
+        elif isinstance(node, ast.Attribute) and _dotted(node) in REFUSED_BUILTIN_CALLS:
+            # A call is judged by the loop above (the frozen-dataclass idiom is exempt there).
+            # ``s = object.__setattr__`` and a call through ``s`` later: refused where it is taken.
+            if id(node) not in called:
+                found.append((node.lineno, f"reference to {_dotted(node)}"))
         elif (
             isinstance(node, ast.Attribute)
-            and _dotted(node) in REFUSED_BUILTIN_CALLS
-            and id(node) not in called
+            and node.attr in SUPER_ONLY
+            and id(node) not in super_hooks
         ):
-            # ``s = object.__setattr__`` and a call through ``s`` later: refused where it is taken.
-            found.append((node.lineno, f"reference to {_dotted(node)}"))
-        elif isinstance(node, ast.Attribute) and node.attr in HOOKS and id(node) not in super_hooks:
             found.append((node.lineno, f"explicit use of {node.attr}"))
-        elif isinstance(node, ast.Name) and node.id in HOOKS:
+        elif isinstance(node, ast.Name) and node.id in SUPER_ONLY:
             found.append((node.lineno, f"explicit use of {node.id}"))
+        elif isinstance(node, ast.Attribute) and node.attr in WRITERS:
+            found.append((node.lineno, f"use of {node.attr}"))
+        elif isinstance(node, ast.Name) and node.id in WRITERS:
+            found.append((node.lineno, f"use of {node.id}"))
         elif (
             isinstance(node, ast.Attribute)
             and node.attr == "__class__"
