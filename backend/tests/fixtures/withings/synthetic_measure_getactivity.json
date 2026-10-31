@@ -1,0 +1,41 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/measure:getactivity",
+  "response": {
+    "status": 0,
+    "body": {
+      "activities": [
+        {
+          "date": "2026-10-30",
+          "timezone": "UTC",
+          "deviceid": "ffffffffffffffffffffffffffffffffffffffff",
+          "hash_deviceid": "1111111111111111111111111111111111111111",
+          "brand": 18,
+          "is_tracker": true,
+          "modified": 1793404000,
+          "model": "ScanWatch",
+          "modelid": 93,
+          "steps": 8421,
+          "distance": 6120.5,
+          "elevation": 11.0,
+          "soft": 4100,
+          "moderate": 1500,
+          "intense": 300,
+          "active": 1800,
+          "calories": 412.5,
+          "totalcalories": 2380.2,
+          "hr_average": 71,
+          "hr_min": 48,
+          "hr_max": 132,
+          "hr_zone_0": 21000,
+          "hr_zone_1": 3200,
+          "hr_zone_2": 900,
+          "hr_zone_3": 120
+        }
+      ],
+      "more": false,
+      "offset": 0
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/user:getgoals",
+  "response": {
+    "status": 0,
+    "body": {
+      "goals": {
+        "steps": 10000,
+        "sleep": 28800,
+        "weight": {
+          "value": 70500,
+          "unit": -3
+        }
+      }
+    }
+  }
+}
