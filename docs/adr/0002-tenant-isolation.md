@@ -1,7 +1,7 @@
 # ADR 0002: Tenant isolation: UserContext, forced RLS, roles and execution contexts
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 (see "Amendments"). Its two open
-questions were decided by the Architect on 2026-10-31 (§2 partitions, whose keys
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #78 (see "Amendments").
+Its two open questions were decided by the Architect on 2026-10-31 (§2 partitions, whose keys
 [roadmap Amendment 2](../roadmap.md) sets; §3 `webhook_events` retention).
 
 ## Context
@@ -136,18 +136,25 @@ CREATE POLICY owner_isolation ON <t>
      earlier than a fixed floor, **2009-01-01**, before any Withings data, to no later than now
      + 3 months. The floor is a constant in the function, so changing it is a reviewed
      `db-functions` change of the function and its pinned digest. The scheduler creates the
-     months ahead; past months are created lazily, only for the months a backfill window
-     actually writes, so PLAN §4.4's "more on demand" history import works. It takes
-     `pg_advisory_xact_lock` in the partition namespace (ADR 0005 §9), keyed by the parent
+     months ahead; past months are created lazily, only for the months that are actually
+     written (amended 2026-10-31, #72), so PLAN §4.4's "more on demand" history import works. It
+     takes `pg_advisory_xact_lock` in the partition namespace (ADR 0005 §9), keyed by the parent
      table's oid, before it checks and creates, so concurrent callers can't race; then it
      creates the missing monthly partitions and applies 4 and 5 to each in the same transaction.
      It is installed and pinned like the other definer functions (ADR 0005 §3).
-     Web and worker share the `ownvitals_app` role, so "the worker only" is enforced in code:
-     only the scheduler module (the months ahead, §4) and the backfill module (the months of a
-     window, before inserting it; #25) call it, and #21's guard fails on any other module that
-     names it. Creating a partition locks the parent against every reader and writer until the
-     commit, so each caller runs it in a short transaction of its own, never in the transaction
-     that inserts a window.
+     **Every writer of a partitioned table** calls it for the months its rows fall in, before
+     inserting them (amended 2026-10-31, #72): in M1 the backfill, incremental sync,
+     webhook-triggered fetches and reconciliation (#25, #26); a later writer, such as M4's
+     writer of `observations`, does the same. Web and worker share the `ownvitals_app` role, so
+     "the worker only" is enforced in code: only the scheduler module (the months ahead, §4)
+     and the writers' modules call it, and #21's guard fails on any other module that names it
+     (each writer joins the guard's list in its own PR). Creating a partition locks the parent
+     against every reader and writer until the commit, so each caller runs it in a short
+     transaction of its own, never in the transaction that inserts the rows.
+     **A row dated outside [2009-01-01, now + 3 months)** has no partition the function may
+     create, so it is not written (amended 2026-10-31, #72): the writer counts it in a metric
+     (labelled by stream and reason only), records it as skipped with a reason code, and never
+     logs its values. Completeness (#25) counts it as "skipped (out of range)", not as missing.
 
   Until #21 lands, guard 1 refuses partitioned tables. #21, the first issue that creates one,
   extends guard 1 to check rules 1 to 5 for every partitioned table and its partitions instead
@@ -182,8 +189,9 @@ CREATE POLICY owner_isolation ON <t>
     worker. It writes the row and its admin-audit entry in one transaction. The same tool, in
     the same kind of container, rewraps the enveloped client secret after a KEK rotation (ADR
     0004 §3), and its `rotate` command only sets `rotation_requested_at` and `rotation_reason`
-    (`routine` or `compromise`), which ask the worker to rotate in that order (ADR 0004 §4),
-    and never replaces a pending `compromise` with `routine`;
+    (`routine` or `compromise`), which ask the worker to rotate in that order (ADR 0008;
+    amended 2026-10-31, #72), and never replaces a pending `compromise` with `routine` (one
+    conditional `UPDATE`, ADR 0004 §4);
     the worker reads both through the app role's column grant;
   - **`webhook_secrets` entries:** only the worker's rotation, through the webhook-secret
     function of ADR 0004 §4 (append, retire one or all, re-hash or delete retired entries of one
@@ -216,7 +224,8 @@ CREATE POLICY owner_isolation ON <t>
 - **One exception to the owner rule:** the partition function of §2 is owned by
   `ownvitals_owner` (which has no `BYPASSRLS`), because creating or attaching a partition
   requires owning the parent table. It runs only fixed DDL on allowlisted tables and never reads
-  or writes rows; callers: the scheduler and backfill modules (a guard checks it).
+  or writes rows; callers: the scheduler module and the writers of partitioned tables (§2; a
+  guard checks it; amended 2026-10-31, #72).
 - **The webhook-secret function** of ADR 0004 §4 has its own narrow owner (amended 2026-10-31,
   #49; it was `ownvitals_owner`, whose rights a bug in it would have carried: DDL, and turning
   off forced RLS on every health table). Its owner `ownvitals_webhook_secrets` is a dedicated
@@ -248,7 +257,7 @@ CREATE POLICY owner_isolation ON <t>
 | Scheduler | worker, `ownvitals_app` → `EXECUTE` on enqueue functions | nothing directly; the functions enqueue owned jobs | none: the job gets one when claimed | #15 (harness), M1 |
 | Maintenance (reap, purge) | worker, definer functions or `system_session` on system tables | definer functions only | none | #9, #15 |
 | Admin | web, `ownvitals_maint` in an audited transaction | column-level allowlist; **no health table** | `ownvitals.auth` (admin session with TOTP) | #12, #15 |
-| Operator CLI | `docker compose exec`/`run` on the host | per-owner `user_session`; `keys wipe`, the `withings_apps` configuration and its client-secret rewrap as the owner role, in one-off operator containers (ADR 0004 §3, §3 above) | an auth function used only by the CLI | #13, #22 |
+| Operator CLI | `docker compose exec`/`run` on the host | per-owner `user_session`; `keys wipe`, the `withings_apps` configuration and its client-secret rewrap as the owner role, in one-off operator containers (ADR 0004 §3, §3 above; amended 2026-10-31, #49) | an auth function used only by the CLI | #13, #22 |
 
 - **No context has ambient authority.** Every owned read or write happens in a `user_session` for
   one owner, or inside a reviewed definer function. A function needing two users' data is a design
@@ -274,9 +283,9 @@ CREATE POLICY owner_isolation ON <t>
   allowlist contains no column of a health-data table.** Of the owned tables of §2 it may read
   only status and metadata columns of `connections` and of the job tables, never their secret
   columns or job input; of `withings_apps` only the non-secret columns, and it writes none of
-  it (§3). Admins see accounts, connection status and job state, never measurements, ECG,
-  observations, findings, scores, raw payloads or webhook events. Guard 11 (#12) enforces it
-  with a registry of forbidden tables and secret columns.
+  it (§3; amended 2026-10-31, #49). Admins see accounts, connection status and job state, never
+  measurements, ECG, observations, findings, scores, raw payloads or webhook events. Guard 11
+  (#12) enforces it with a registry of forbidden tables and secret columns.
 - **Operator CLI**: trusted (it needs host access) but uses the same contexts; `jobs replay` (M1)
   and `probe` (M1, shapes only, §10.4) are audited.
 
@@ -301,6 +310,18 @@ CREATE POLICY owner_isolation ON <t>
   role defaults of `ownvitals_app`. Web and worker check at startup and on every new pooled
   connection that these are exactly its role-level settings, and refuse otherwise (injected SQL
   could change them; this detects it).
+- **`transaction_timeout`** (PostgreSQL 17) is a role default too, of both runtime roles,
+  `ownvitals_app` and `ownvitals_maint` (Architect decision; amended 2026-10-31, #78). The
+  idle-in-transaction timeout ends only an idle transaction: one that keeps sending
+  statements, each under `statement_timeout`, would otherwise hold its locks without bound
+  (threat model risk 21). Its bound is a setting with a default of 5 minutes. The roles script
+  sets the role's value, and the check above requires it next to the other three: set (not 0)
+  and at most the setting, or web and worker refuse. **#77 builds it** for `ownvitals_app`,
+  and until #77 merges that role has only the three timeouts above; #12 gives
+  `ownvitals_maint` the same four timeouts when it creates that role. Like the other three, it
+  is a default that a session can change for itself (`SET`): it bounds a transaction that runs
+  at the role's settings (a bug, a stuck step), not code that runs its own SQL with the app
+  role, which can lift it for its own session (threat model risk 21).
 - `PUBLIC` loses `CONNECT` on every database, `TEMP`, `USAGE`/`CREATE` on `public` and default
   `EXECUTE` on functions; roles get what they need explicitly.
 - **Web and worker refuse to start** if their role is a superuser, has or inherits `BYPASSRLS`,
@@ -379,8 +400,8 @@ these tests instead of skipping.
   `PRIMARY KEY (owner_id, id, <partition key>)`), owner-inclusive keys and `enable_owner_rls`, or
   guard 1 fails the PR; its `users` cascade is checked by #27's deletion test (§7).
 - #21 adds the first partitioned tables, `ensure_month_partitions`, the scheduler call, the
-  caller guard and the guard 1 extension for partitions, together; #25 adds the backfill call
-  (amended 2026-10-31, #49).
+  caller guard and the guard 1 extension for partitions, together; #25 and #26 add their
+  writers' calls and the out-of-range skip (amended 2026-10-31, #49 and #72).
   Nothing may reference `observations`,
   `sleep_series` or `intraday`; a design that needs to point at one of their rows needs a new
   ADR.
@@ -410,3 +431,26 @@ Architect decisions, made in place above and marked "amended 2026-10-31, #49":
   columns (guard 11, from #21, checked per column); PLAN §5's "admin-only" means admins view,
   the operator changes; the client-secret rewrap is an operator step under the owner role.
 - Consequences: the callers and the issues that add them.
+
+### 2026-10-31 (#72): follow-ups of the #58 review
+
+Architect decisions, made in place above and marked "amended 2026-10-31, #72":
+
+- §2 rule 6: every writer of a partitioned table, not only the backfill, calls
+  `ensure_month_partitions` for the months its rows fall in, in a short transaction of its own
+  before the insert, and joins the caller guard; past months are created only as written; a
+  row outside [2009-01-01, now + 3 months) is not written but counted, recorded as skipped and
+  shown in completeness as "skipped (out of range)". §3 and Consequences: the callers.
+- §3: the rotation orders are cited from ADR 0008; `rotate` is one conditional `UPDATE`.
+- §4: the Operator CLI row and the admin bullet get the "amended 2026-10-31, #49" marker that
+  #49 left out; the change itself is in #49's entry above.
+
+### 2026-10-31 (#78): follow-ups of the #73 review
+
+Architect decision on the non-blocking finding 2 of the #73 review (its Opus PASS at
+`293d818`), made in place above and marked "amended 2026-10-31, #78":
+
+- §5: the runtime roles get `transaction_timeout` as a role default, bounded by a setting
+  (default 5 minutes) that the role check enforces next to the other timeouts: #77 for
+  `ownvitals_app`, #12 for `ownvitals_maint`. It bounds a busy transaction at the role's
+  settings, not code that lifts them for its own session.

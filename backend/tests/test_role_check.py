@@ -140,7 +140,13 @@ async def test_startup_and_every_connection_refuse_a_privileged_role(
 
 # Memberships planted on the real app role (ADR 0002 section 5: "member of no role"). Each is
 # refused whatever its INHERIT and SET options; the listed problems name what it would give.
-OWNS = ("owns the database, or is a member of its owner", "owns a schema, or is a member")
+# ``owned_tables`` makes sure the owner owns tables, so the ownership flags are pinned over the
+# membership too, not only on the role itself.
+OWNS = (
+    "owns tables, views or materialized views, or is a member of a role that does",
+    "owns the database, or is a member of its owner",
+    "owns a schema, or is a member",
+)
 MEMBERSHIPS = {
     "owner, INHERIT TRUE": (
         ["GRANT ownvitals_owner TO ownvitals_app WITH INHERIT TRUE, SET TRUE"],
@@ -199,7 +205,11 @@ async def assert_accepted(settings: Settings) -> None:
 
 @pytest.mark.parametrize(("plant", "problems"), MEMBERSHIPS.values(), ids=MEMBERSHIPS.keys())
 async def test_any_membership_of_the_app_role_is_refused(
-    database_url: str, app_database_url: str, plant: list[str], problems: list[str]
+    database_url: str,
+    app_database_url: str,
+    owned_tables: None,
+    plant: list[str],
+    problems: list[str],
 ) -> None:
     settings = Settings(database_url=app_database_url, environment="test")  # pyright: ignore[reportArgumentType]
     drop_planted_memberships(database_url)
@@ -315,18 +325,16 @@ async def test_the_web_app_starts_with_the_app_role(app_database_url: str) -> No
 
 def test_every_problem_has_a_flag_and_the_messages_are_distinct() -> None:
     good = [f"0:{k}={v}" for k, v in EXPECTED_ROLE_SETTINGS.items()]
-    assert len(set(PROBLEMS)) == len(PROBLEMS) == FLAG_COUNT == 8
-    assert problems_for((*(False,) * 8, good)) == []
-    assert problems_for((True, False, False, True, False, False, True, False, good)) == [
-        PROBLEMS[0],
-        PROBLEMS[3],
-        PROBLEMS[6],
-    ]
+    assert len(set(PROBLEMS)) == len(PROBLEMS) == FLAG_COUNT == 10
+    assert problems_for((*(False,) * 10, good)) == []
+    flags = (True, False, False, True, False, False, True, False, True, False)
+    assert problems_for((*flags, good)) == [PROBLEMS[0], PROBLEMS[3], PROBLEMS[6], PROBLEMS[8]]
+    assert problems_for((*(False,) * 9, True, good)) == [PROBLEMS[9]]
 
 
-@pytest.mark.parametrize("row", [None, (), (False,) * 8, (False,) * 10, ([],)])
+@pytest.mark.parametrize("row", [None, (), (False,) * 10, (*(False,) * 10, [], []), ([],)])
 def test_a_malformed_role_row_raises(row: object) -> None:
-    with pytest.raises(ValueError, match="8 flags and the settings"):
+    with pytest.raises(ValueError, match="10 flags and the settings"):
         problems_for(row)
 
 
@@ -433,7 +441,7 @@ async def test_a_role_that_changed_its_own_settings_is_refused(
 
 def test_settings_drift_is_a_problem_of_its_own() -> None:
     good = [f"0:{k}={v}" for k, v in EXPECTED_ROLE_SETTINGS.items()]
-    flags = (False,) * 8
+    flags = (False,) * FLAG_COUNT
     assert problems_for((*flags, good)) == []
     assert problems_for((*flags, good[:2])) == [SETTINGS_PROBLEM]
     assert problems_for((*flags, [*good, "0:search_path=x"])) == [SETTINGS_PROBLEM]
