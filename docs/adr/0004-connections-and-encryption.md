@@ -248,64 +248,10 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 
   It is pinned like the other definer functions (ADR 0005 §3). Web shares the app role, so code
   running in web could still call it: accepted risk 21 of the threat model.
-- **Entry lifecycle** (amended 2026-10-31, #49). An entry verifies from `active_from` until it
-  is retired (`retire_at`), and then never again. A retired entry is kept only while the worker
-  still needs its URL to re-point: `notify update` names a subscription by its current callback
-  URL, which the worker rebuilds from the entry and its seed. Once no subscription uses it (each
-  one re-pointed, revoked, or past the deadline below), the function deletes it. A pepper
-  retires, and its file goes, when no remaining entry references its `pepper_id`; a seed file
-  goes when no remaining entry names its `seed_id`. Both are checkable with one query.
-- **Routine rotation** (PLAN §4.4; order amended 2026-10-31, #49): append, wait for
-  `active_from`, re-point, retire, delete.
-  1. the worker appends an entry for a new `secret_id` under the current seed and pepper, with
-     `active_from` at least the entry-cache TTL in the future, so every web process holds the
-     entry before any subscription points at it;
-  2. only after `active_from`, it re-points every subscription with `notify update` (per user,
-     with that user's token). A connection's re-pointing retries with backoff for up to
-     **14 days**; a connection still failing then is marked to resubscribe on its next
-     successful token use or reconnect (below), and scheduled sync covers it meanwhile;
-  3. once each subscription on the old entry is re-pointed, revoked or past that deadline, it
-     retires the old entry and then deletes it (lifecycle above).
-
-  A seed rotation is such a rotation. **The old seed** stays in the worker, used only to
-  rebuild the old URL for re-pointing, until every subscription on the old secret is
-  re-pointed, revoked or past the deadline; then it is removed. A routine request that arrives
-  while a rotation is in flight waits for it to finish.
-- **Compromise rotation** (`rotation_reason = compromise`: after a seed compromise, or a
-  compromise of the KEK ring that holds the seed; Architect decisions, 2026-10-31; order
-  amended by #49): retire, append, re-point, delete. A new seed and pepper are installed as
-  current first (as in §3 step 2).
-  1. **retire verification first**: one atomic retire-all call retires every non-retired entry
-     (each counts as compromised), so no partial retire exists; a failed call is retried, with
-     the alert. It also cancels the queued `notify update` jobs of a routine rotation in flight,
-     which this one replaces (a cross-user cancel, so a queue definer function, ADR 0005 §3);
-     each such job re-checks its target entry when it runs and stops if it is retired;
-  2. it appends an entry under the new seed and pepper, as in routine step 1;
-  3. it re-points every subscription whose connection still has a token, as in routine step 2,
-     but takes each subscription's current URL from `notify list`, not from its own records.
-     After a KEK-ring compromise the wipe left no token, so nothing is re-pointed and reconnect
-     revokes the old subscriptions (§3; lingering subscriptions below);
-  4. it deletes each old entry once no subscription uses it (at the deadline at the latest);
-     then the old pepper and seed are dropped. They are already known, so keeping them until
-     then adds no exposure.
-
-  **A refused step** (for example "at most two not retired") raises an alert and is not retried
-  silently. Retiring comes first and is atomic, so a refusal never leaves a compromised secret
-  verifying: webhooks are ignored until the new entry is active, and scheduled sync covers it.
-- **Pepper rotation** needs no new secret and no `notify update`: install the new pepper as
-  current; the worker re-hashes every entry under it through the same function (it derives each
-  secret from its seed, which every remaining entry still has) and sets its `pepper_id`, one
-  entry at a time. The old pepper then retires as the lifecycle above says.
-- **Lingering subscriptions** (amended 2026-10-31, #49). A subscription left on an old URL is
-  answered with the generic 200, so Withings never cancels it. `notify list` finds it: its
-  callback is under our callback base but isn't the current one. #22 revokes such
-  subscriptions on connect and reconnect, before it subscribes; #26 (reconciliation)
-  resubscribes a connection marked at the 14-day deadline, with the same clean-up, and finds
-  subscriptions left on old URLs; #27 (disconnect) revokes every subscription under our
-  callback base that `notify list` returns, which covers one past the deadline (§7).
-- **`notify list` responses** carry plaintext callback URLs, so webhook secrets. They are never
-  stored (not in `raw`, job rows or events) and never logged or used as a metric label; a
-  log-redaction test covers them (#22).
+- **The entry lifecycle, the routine and compromise rotations, pepper rotation, lingering
+  subscriptions and `notify list` responses** are in
+  [ADR 0008](0008-webhook-secret-lifecycle.md) §1, moved there verbatim by #72 to keep this
+  file within 500 lines.
 - **M0 (#8):** the ring defines both slots and validates the files if present; nothing uses them.
   **M1:** web requires the pepper, the worker the seed and the pepper.
 - **Why the ring and not keys derived from `app_secret_key`:** rotating `app_secret_key` (CSRF,
