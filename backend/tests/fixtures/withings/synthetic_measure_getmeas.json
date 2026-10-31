@@ -1,0 +1,81 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "measure:getmeas",
+  "response": {
+    "status": 0,
+    "body": {
+      "updatetime": 1793404800,
+      "timezone": "UTC",
+      "measuregrps": [
+        {
+          "grpid": 100001,
+          "attrib": 0,
+          "date": 1793300000,
+          "created": 1793300030,
+          "modified": 1793300030,
+          "category": 1,
+          "deviceid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "hash_deviceid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "model": "Body Scan",
+          "model_id": 10,
+          "comment": "",
+          "measures": [
+            {
+              "value": 71250,
+              "type": 1,
+              "unit": -3
+            },
+            {
+              "value": 2210,
+              "type": 6,
+              "unit": -2
+            },
+            {
+              "value": 8900,
+              "type": 173,
+              "unit": -3,
+              "position": 12
+            },
+            {
+              "value": 880,
+              "type": 173,
+              "unit": -3,
+              "position": 3
+            }
+          ]
+        },
+        {
+          "grpid": 100002,
+          "attrib": 5,
+          "date": 1793200000,
+          "created": 1793200030,
+          "modified": 1793200030,
+          "category": 1,
+          "deviceid": "cccccccccccccccccccccccccccccccccccccccc",
+          "model": "BPM Core",
+          "model_id": 44,
+          "measures": [
+            {
+              "value": 121,
+              "type": 10,
+              "unit": 0
+            },
+            {
+              "value": 77,
+              "type": 9,
+              "unit": 0
+            },
+            {
+              "value": 64,
+              "type": 11,
+              "unit": 0
+            }
+          ]
+        }
+      ],
+      "more": 1,
+      "offset": 2
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/sleep:get",
+  "response": {
+    "status": 0,
+    "body": {
+      "model": 32,
+      "series": [
+        {
+          "startdate": 1793325000,
+          "enddate": 1793326200,
+          "state": 1,
+          "model": "Aura Sensor V2",
+          "model_id": 63,
+          "hr": {
+            "1793325000": 58,
+            "1793325060": 57
+          },
+          "rr": {
+            "1793325000": 14,
+            "1793325060": 14
+          },
+          "snoring": {
+            "1793325000": 0,
+            "1793325060": 20
+          }
+        }
+      ]
+    }
+  }
+}

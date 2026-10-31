@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "notify:subscribe",
+  "response": {
+    "status": 0,
+    "body": {}
+  }
+}
