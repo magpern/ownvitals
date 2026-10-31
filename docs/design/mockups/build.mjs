@@ -78,12 +78,19 @@ function render(tpl, scope) {
   return t.replace(/\{\{([^}]*)\}\}/g, (_, p) => esc(lookup(p, scope)));
 }
 
-function renderBoard(file, passed = {}) {
+function renderBoard(file, passed = {}, state = {}) {
   const b = parse(file);
   const Component = new Function('DCLogic', `${b.code}\nreturn Component;`)(DCLogic);
   const inst = new Component({ ...b.defaults, ...passed });
+  inst.state = { ...state };
   return { ...b, html: render(b.body, inst.renderVals()) };
 }
+
+// Boards with a second state worth its own page: <Board>.<variant>.html, rendered with that
+// component state. Links on a variant page still point at the boards' default pages.
+const VARIANTS = {
+  'Findings.dc.html': [{ variant: 'history', state: { tab: 'history' } }],
+};
 
 const themeScript = `<script>
   // ?theme=dark switches every .ov root, the imported rail included.
@@ -94,8 +101,12 @@ const themeScript = `<script>
 mkdirSync(OUT, { recursive: true });
 copyFileSync(join(SRC, 'ov.css'), join(OUT, 'ov.css'));
 const boards = readdirSync(SRC).filter((f) => f.endsWith('.dc.html')).sort();
-for (const file of boards) {
-  const b = renderBoard(file);
+const pages = boards.flatMap((file) => [
+  { file, out: file.replace(/\.dc\.html$/, '.html'), state: {} },
+  ...(VARIANTS[file] || []).map((v) => ({ file, out: file.replace(/\.dc\.html$/, `.${v.variant}.html`), state: v.state })),
+]);
+for (const { file, out, state } of pages) {
+  const b = renderBoard(file, {}, state);
   const page = `<!doctype html>
 <html lang="en">
 <head>
@@ -111,6 +122,6 @@ ${themeScript}
 </body>
 </html>
 `;
-  writeFileSync(join(OUT, file.replace(/\.dc\.html$/, '.html')), page.replace(/([\w-]+)\.dc\.html/g, '$1.html'));
+  writeFileSync(join(OUT, out), page.replace(/([\w-]+)\.dc\.html/g, '$1.html'));
 }
-console.log(`rendered ${boards.length} boards into ${OUT}`);
+console.log(`rendered ${pages.length} pages from ${boards.length} boards into ${OUT}`);

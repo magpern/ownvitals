@@ -51,7 +51,7 @@ design is a calm, precise instrument: every number sits on **your own typical ra
 ## Information architecture
 
 ```
-Signed out    /signin  /signup  /reset  /signup/confirm  /signed-out
+Signed out    /signin  /signin/email  /signup  /reset  /signup/confirm  /signed-out
 Second factor /two-factor  /two-factor/setup (QR → code → recovery codes)
 App (ready)   /                    Overview: "Needs a look", then tiles by area
               /body, /heart, /nerve, /sleep, /activity   area pages
@@ -79,8 +79,8 @@ Each screen is `mockups/src/<Name>.dc.html`, `mockups/html/<Name>.html` and
 | `Dashboard` | Overview: freshness line; "Needs a look"; tiles with sparkline and typical range; not-supported, insufficient-data and incomplete-import tiles | §7.1 (7), §8 |
 | `Metric` | Weight over 6 months: band, smoothed line, 9-day gap, change point, unconfirmed readings; latest, typical range, Theil–Sen trend, data quality; the day's readings; method | §7.1 |
 | `Reading` | Day: everything recorded; reading drawer with raw value × 10^unit, attrib, device, source time zone; quality gates passed; provenance | §5, §7.1 (2–3) |
-| `ECG` | Recording list; Withings' result attributed; reported intervals; 25 mm/s × 10 mm/mV strip with calibration pulse; 30 s overview; experimental estimates boxed and dashed; doctor PDF | §7.2 E1–E3, §7.3, ADR 0006 |
-| `Findings` | Live / History; tier badges; confidence and data quality; evidence chart; "why you're seeing this" and "what it isn't" | §7.1 (6–7), §7.2 |
+| `ECG` | Recording list; Withings' result attributed; reported intervals; 25 mm/s × 10 mm/mV strip with calibration pulse; 30 s overview; experimental estimates boxed and dashed; doctor PDF. Shows the "signal quality passed" case only: the other overlay states ("not evaluated by ownvitals", hidden findings) and what the doctor PDF carries follow ADR 0006 (#46), and the Architect adds them here when it merges | §7.2 E1–E3, §7.3, ADR 0006 |
+| `Findings` | Live / History (the History tab is `Findings.history.html` and `.png`); tier badges; confidence and data quality; evidence chart; "why you're seeing this" and "what it isn't" | §7.1 (6–7), §7.2 |
 | `Onboarding` | Phone: connect (what we read, what we never do, Withings+ note), import progress per stream, phone overview with range bars | M6 done-when, §9.4 |
 | `Connections` | Status, how updates arrive, per-stream availability and completeness, devices, other states (not connected, needs reconnect, Withings+ needed, not shared), disconnect dialog with keep/delete and step-up | §4.2–4.4, §6, ADR 0004 |
 | `Auth` | Sign in (password or Google), second factor, authenticator setup, recovery codes, account menu with sign out, signed-out page and its reasons | §6, ADR 0003 |
@@ -102,9 +102,16 @@ Each screen is `mockups/src/<Name>.dc.html`, `mockups/html/<Name>.html` and
 - **Data states:** up to date, stale, importing n %, incomplete import, insufficient data (with
   progress toward the minimum), not supported, not shared, not available, needs reconnect,
   Withings+ needed. One component, one wording, everywhere.
-- **Step-up:** actions on the PLAN §6 list carry a lock icon and open one shared "Confirm it's
-  you" dialog; a code covers 10 minutes.
+- **Step-up:** every button for an action on the PLAN §6 list (ADR 0003 §4) and every admin
+  write carries a lock icon and opens one shared "Confirm it's you" dialog; a code covers 10
+  minutes (5 for admin writes). Inline admin controls (the sign-up switch) say so in their card.
 - **Admin:** an inverted band on every admin page states that health data isn't visible there.
+  The admin area shows only what `ownvitals_maint` may read (ADR 0002 §4): accounts, connection
+  status, job counts per state (`queue_stats()`, ADR 0005), flags, the audit log and the
+  non-secret columns of `withings_apps`. Webhook delivery, sync freshness and the API budget
+  are Prometheus metrics, not admin pages.
+- **Email:** every email says only that something is waiting, with a link (ADR 0007, T59); the
+  Settings copy says so.
 - **Phone:** the rail becomes bottom tabs; charts become range bars (where today sits in the
   typical range); touch targets are at least 44 px.
 
