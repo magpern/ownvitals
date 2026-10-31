@@ -202,8 +202,12 @@ Deploying is not part of a release and needs the owner's go-ahead.
 - Every owned row carries `owner_id` and is read through `UserContext` under forced RLS. Cross-user
   work (webhooks, scheduler, purge, admin) goes through reviewed `SECURITY DEFINER` functions or
   the issuer pattern of §5; RLS tests run in every execution context.
-- The worker owns every outbound call through the egress allowlist (`wbsapi.withings.net`,
-  `account.withings.com`, and `api.anthropic.com` only when AI is enabled). The list is code.
+- Every outbound call goes through `egress.py`, the only module that builds clients; the host
+  lists are code. The worker owns the calls to Withings (`wbsapi.withings.net`,
+  `account.withings.com`) and, only when AI is enabled, `api.anthropic.com`. Web makes only
+  Google sign-in calls, the one authorization-code exchange of roadmap Amendment 1, and mail
+  through the guard-listed web-only mail path (its SMTP host is a setting, not an allowlist
+  entry).
 - Webhook secrets are stored as HMACs; bodies over 2 KB are refused; the payload is only a
   trigger to fetch (§4.4).
 
