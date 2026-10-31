@@ -106,8 +106,8 @@ values (one-sided), and on about 3 % with heavy tails.
 | Term | Computable definition |
 |---|---|
 | "for ≥ 3 days" (C1) | A **run**: at least 3 consecutive calendar days, each with a daily value that meets the condition against the band at the run's first day. A day without data ends the run (gaps stay gaps). |
-| "rising" (B5, C2) | `trend(Series.from_daily(window, window_days=90))` with `Correction.AR1` and α 0.05 gives `Direction.INCREASING`, on the 90 days ending at *d*, which pass the metric's TREND policy. |
-| "significant 90/180-day decline" (N3) | `trend` (AR(1)) gives `DECREASING` on the 90 days or on the 180 days ending at *d*, each window passing the nerve TREND policy (N1), at **α 0.025 per window** (Bonferroni over the two; Dunn 1961). |
+| "rising" (B5, C2) | `trend(Series.from_daily(window, window_days=90))` with `Correction.AR1` and α 0.05 gives `Direction.INCREASING`, on the 90 days ending at *d*, which pass the metric's TREND policy. An episode needs §4's persistence (21 evaluations). |
+| "significant 90/180-day decline" (N3) | `trend` (AR(1)) gives `DECREASING` on the 90 days or on the 180 days ending at *d*, each window passing the nerve TREND policy (N1), at **α 0.025 per window** (Bonferroni over the two; Dunn 1961); an episode needs §4's persistence. |
 | Extracellular-water rise (B1) | The ECW (168) daily value on *d* is above the ECW finding threshold (§2) at the gain's start day. |
 | "resting HR" (C1) | Heart pulse, type 11 (`heart_pulse`), as #37's daily value. It is the pulse Withings reports with a measurement (on Body Scan, standing on the scale), **not a clinical resting heart rate**; the trend tier compares it only with the user's own history under the same habit. The label "resting heart rate" is the design's. Night HR from sleep summaries is not in v1 (§8). |
 | "low battery" (Q1) | `devices.battery == "low"`, from the public `user getdevice` enum `high`, `medium`, `low` (as `backend/tests/withingsshapes.py` encodes the OpenAPI file). The public API gives no percentage. |
@@ -135,6 +135,16 @@ values (one-sided), and on about 3 % with heavy tails.
   an episode once it has computed it through the latest data), and never changes. Only `live`
   episodes notify, once, at that first write (PLAN §7.1 step 7; E4 and E6 after ADR 0006 §11's
   hold). Updates never notify.
+- **Persistence of trend-test rules** (B2, B4, B5, C2, N3: every rule whose condition includes a
+  `trend` test; Architect, 2026-11-01). Their **condition** is the trend test in the rule's
+  direction at its α plus the rule's own effect threshold where it has one. An episode **opens**
+  only when the condition holds on **21 consecutive daily evaluations**, and **ends** only when
+  it fails on **7 consecutive daily evaluations**; a day without an evaluation (no daily value)
+  neither counts toward nor breaks either count, and insufficient data counts as a failure. The
+  episode's window starts at the window start of the first of the 21 evaluations, and its origin
+  is computed when it opens. Why 21: with 14 the false-episode rate at φ 0.6 was 15 % of years,
+  over the Architect's 10 % bound; 21 gives 6.3 % (Consequences). The other rules keep the
+  first-non-firing end above: their runs (C1, N2) are their persistence.
 - Storage (the `findings` columns, the active-episode uniqueness) is the wiring issue's.
 
 ### 5. Confidence
@@ -168,7 +178,8 @@ diagnosis**. The clinical band a finding met, where there is one, is in `evidenc
 
 ### 7. The rules
 
-"Window" is the finding's `window`; "ref" the reference day of §2. Every rule runs only on
+"Window" is the finding's `window`; "ref" the reference day of §2. B2, B4, B5, N3 and C2 open and end
+by §4's persistence rule (21 evaluations to open, 7 to end). Every rule runs only on
 usable readings (#37), and returns "insufficient data" (no finding) when a policy fails.
 
 **ECG (logic: ADR 0006 §11, which also decides which recordings count for E4 and E6)**
@@ -245,8 +256,10 @@ usable readings (#37), and returns "insufficient data" (no finding) when a polic
 - **B6 and N5 on the medians of each side**: pairs values from different groups; the per-group
   index compares two values measured together.
 - **Hydration (77) as TBW**: its definition isn't documented; 168 + 169 is TBW by definition.
-- **A persistence rule** (a trend significant on several consecutive evaluations): not in v1;
-  the run rules carry their own persistence, and Consequences states the rate it would lower.
+- **No persistence for trend tests** (first pass): 59 to 66 % of no-change years got a false
+  trend episode per metric and direction. **14 consecutive evaluations**: 15 % at φ 0.6. A
+  lower α instead of persistence: rejected by the Architect (same α kept); persistence also
+  removes one-day blips that a lower α would only make rarer.
 
 ## Consequences
 
@@ -256,13 +269,20 @@ usable readings (#37), and returns "insufficient data" (no finding) when a polic
 - **Repeated testing.** A rule evaluated on every day with data tests overlapping windows again
   and again, so the share of no-change **years** with at least one false finding is far above a
   test's α. Synthetic check (the merged `trend`, AR(1), α 0.05, data on every day, a 90-day
-  window evaluated daily for 365 days, no change, 200 years per row): about 2 % of evaluations
-  call a rise, but **60 to 65 % of years have at least one false "rising" episode** per metric
-  and direction (the test specification, "Repeated testing"). With several trend rules a user
-  should expect a few false trend episodes a year. A trend finding's text is therefore
-  descriptive ("rose over the last 90 days"), carries its confidence, and the ended episode
-  stays in the history. A persistence rule would lower this rate; it is not in v1 (Architect,
-  2026-11-01).
+  window evaluated daily for 365 days, no change, 300 years per row): about 2 % of evaluations
+  call a rise, and without persistence **59 to 66 % of years have at least one false "rising"
+  episode** per metric and direction. With the persistence rule of §4 (21 consecutive
+  evaluations) it is **4.3 % at φ 0 and 6.3 % at φ 0.6**; 14 would have given 11 % and 15 %.
+- **The price is delay.** A real decline of 5 % per 6 months (weight 80 kg, noise sd 0.5 kg, our
+  choice), on the 90-day decline condition, opens an episode within 60 days of its start in
+  96 % of years at φ 0 and 39 % at φ 0.6 (100 % and 94 % without persistence): persistent
+  noise needs a longer real change before 21 days of significance accumulate. **B2** finds no
+  such change within 60 days at all, with or without persistence: its effect threshold is 5 %
+  over its whole 182-day window, so it opens only once the change has run for most of six
+  months, as its definition says. The tables are in the test specification ("Repeated
+  testing").
+- A trend finding's text stays descriptive ("rose over the last 90 days") and carries its
+  confidence; an ended episode stays in the history.
 - `baseline.py`'s `DEFAULT_K` stays 2.0; it is no longer anyone's band. Changing it is a code
   change for a later issue, not needed by this ADR.
 - Every number here is a parameter with a version: a change is a dated amendment to this ADR and
@@ -278,4 +298,5 @@ usable readings (#37), and returns "insufficient data" (no finding) when a polic
 
 **Decided by the Architect (2026-11-01, #110).** Two bands (§2); C1 and its experimental part
 (§7); the "not in v1" list (§8); confidence and severity (§5, §6); tier `system` by roadmap
-Amendment 3; episodes and origin (§4).
+Amendment 3; episodes and origin (§4); the persistence of trend-test rules (§4: 21 days to open,
+7 to end, chosen from {14, 21, 28} as the smallest under 10 % false years at φ 0.6).

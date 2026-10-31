@@ -119,23 +119,51 @@ yesterday doesn't reset it; a user who never weighed in, or whose `measures` cap
 undocumented value doesn't. `needs_reconnect` fires urgent. Import: incomplete fires, importing
 doesn't. Every Q1 finding has tier `system`.
 
+## Persistence of trend-test rules (§4)
+
+With the trend test replaced by a scripted condition (true or false per evaluation day), for each
+of B2, B4, B5, N3 and C2:
+
+1. The condition true on 20 consecutive evaluations opens nothing; on the 21st it opens an episode
+   whose window starts at the first of the 21 windows' start, with the origin of that moment.
+2. 20 true, 1 false, 20 true: nothing opens; 21 more true after a false day opens.
+3. A day without a daily value is skipped: 10 true, a day with no data, 11 true opens on the 21st
+   true evaluation. A day with insufficient data counts as false and breaks the count.
+4. An open episode survives 6 consecutive false evaluations and ends on the 7th; 6 false, 1 true,
+   6 false keeps it open. After it ends, a new episode needs 21 true evaluations again.
+5. The effect threshold is part of the condition: B2 with a significant decline but a ratio of
+   −0.049 on day 21 of a run is false on that day and restarts the count.
+6. C1, C1x, N2, E6, B1, B3, B6, N5 and Q1 are not affected: they open on their first firing and
+   end on their first non-firing evaluation.
+
 ## Repeated testing (Consequences)
 
-Synthetic check, not a CI assertion: the merged `trend` (AR(1) correction, α 0.05), a series with
-no change and data on every day, the 90-day window evaluated on each of 365 days, 200 series per
-row, seed 20261031. Percent of evaluations calling an increasing trend, and percent of years with
-at least one:
+Synthetic checks, not CI assertions; the merged `trend` (AR(1) correction), data on every day,
+seed 20261031 (with a per-cell offset). The noise is AR(1) with the stated φ.
 
-| AR(1) φ of the noise | evaluations calling "increasing" | years with at least one |
-|---|---|---|
-| 0 (white) | 2.2 % | 65 % |
-| 0.3 | 1.8 % | 64 % |
-| 0.6 | 2.1 % | 60 % |
+**No change** (300 years per row): the 90-day "rising" condition (α 0.05) evaluated on each of
+365 days. Percent of evaluations where it holds, and percent of years in which an episode opens
+with an opening run of L evaluations (L 1 is no persistence):
 
-Each year-share has a standard error of about 3.4 points (200 years).
+| φ | per evaluation | L 1 | L 14 | **L 21** | L 28 |
+|---|---|---|---|---|---|
+| 0 | 2.0 % | 66.0 % | 11.0 % | **4.3 %** | 2.0 % |
+| 0.6 | 2.2 % | 58.7 % | 15.0 % | **6.3 %** | 2.7 % |
 
-The same holds for decreasing trends by symmetry. Episodes (§4) make overlapping firings one
-finding, but not fewer false episodes.
+The standard error of a year share is about 2.8 points at 60 % and 1.4 at 6 %.
+
+**Power** (300 years per row; weight level 80 kg, noise marginal sd 0.5 kg, our choice): a linear
+decline of 5 % per 182 days from day *s*; percent of years in which an episode opens on a day in
+*s* … *s* + 60 from a run lying inside that span:
+
+| Condition | φ | L 1 | L 14 | **L 21** | L 28 |
+|---|---|---|---|---|---|
+| 90-day decline (`DECREASING`) | 0 | 100 % | 100 % | **96.3 %** | 79.3 % |
+| 90-day decline | 0.6 | 94.0 % | 63.3 % | **38.7 %** | 21.3 % |
+| B2 (182 days, ratio ≤ −0.05), 200 years | 0 and 0.6 | 0 % | 0 % | 0 % | 0 % |
+
+B2's zero is its definition: the Theil–Sen change over the whole 182-day window reaches 5 % only
+once the decline has run for most of it, never within 60 days.
 
 ## References
 
