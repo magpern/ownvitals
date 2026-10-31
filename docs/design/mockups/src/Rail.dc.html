@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Navigation rail</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./ov.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="ov" data-theme="{{theme}}" style="width: 100%; background: var(--surface); font-family: 'IBM Plex Sans', system-ui, sans-serif; color: var(--ink)">
+  <nav class="rail" aria-label="Main">
+    <a class="brand" href="Dashboard.dc.html">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>
+      ownvitals
+    </a>
+    <div class="navgroup">
+      <span class="eyebrow">Analyse</span>
+      <div class="navlist">
+        <sc-for list="{{analyse}}" as="item" hint-placeholder-count="7">
+          <a href="{{item.href}}" class="{{item.cls}}" aria-current="{{item.cur}}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="{{item.icon}}" class="ic"></path></svg>
+            <span>{{item.label}}</span>
+            <span class="{{item.endClass}}">{{item.endText}}</span>
+          </a>
+        </sc-for>
+      </div>
+    </div>
+    <div class="navgroup">
+      <span class="eyebrow">Your data</span>
+      <div class="navlist">
+        <sc-for list="{{data}}" as="item" hint-placeholder-count="1">
+          <a href="{{item.href}}" class="{{item.cls}}" aria-current="{{item.cur}}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="{{item.icon}}" class="ic"></path></svg>
+            <span>{{item.label}}</span>
+            <span class="{{item.endClass}}">{{item.endText}}</span>
+          </a>
+        </sc-for>
+      </div>
+    </div>
+    <div class="navgroup">
+      <span class="eyebrow">Account</span>
+      <div class="navlist">
+        <sc-for list="{{account}}" as="item" hint-placeholder-count="2">
+          <a href="{{item.href}}" class="{{item.cls}}" aria-current="{{item.cur}}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="{{item.icon}}" class="ic"></path></svg>
+            <span>{{item.label}}</span>
+            <span class="{{item.endClass}}">{{item.endText}}</span>
+          </a>
+        </sc-for>
+        <sc-if value="{{admin}}" hint-placeholder-val="{{ true }}">
+          <a href="Admin.dc.html" aria-current="{{adminCur}}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z M9 12l2 2 4-4" class="ic"></path></svg>
+            <span>Admin</span>
+          </a>
+        </sc-if>
+      </div>
+    </div>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["overview","body","heart","nerve","findings","connections","settings","security","admin"],"default":"overview"},"admin":{"editor":"boolean","default":true},"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":248,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var a = this.props.active ?? 'overview';
+    function it(id, label, href, icon, o) {
+      o = o || {};
+      return { label: label, href: href, icon: icon, cur: id === a ? 'page' : 'false', cls: o.cls || '', endText: o.endText || '', endClass: o.endClass || 'end' };
+    }
+    var I = {
+      overview: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z',
+      body: 'M14.5 5.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0z M6 10.5h12 M12 10.5v5 M8.5 21l3.5-5.5 3.5 5.5',
+      heart: 'M2 12h4l2-5 4 10 3-7 2 2h5',
+      nerve: 'M12 3v6 M12 9l-5 5 M12 9l5 5 M7 14v6 M17 14v6 M12 9v11',
+      sleep: 'M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z',
+      activity: 'M13 2L4 14h7l-1 8 9-12h-7z',
+      findings: 'M4 13l2.5-8h11L20 13 M4 13v6h16v-6 M4 13h5l1 2h4l1-2h5',
+      connections: 'M9 15l6-6 M10.5 6.5l1.8-1.8a4 4 0 0 1 5.7 5.7l-1.8 1.8 M13.5 17.5l-1.8 1.8a4 4 0 0 1-5.7-5.7l1.8-1.8',
+      settings: 'M4 7h10 M18 7h2 M4 17h4 M12 17h8 M16 5v4 M10 15v4',
+      security: 'M6 10.5h12v9.5H6z M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5 M12 14v2.5'
+    };
+    return {
+      theme: this.props.theme ?? 'light',
+      admin: this.props.admin ?? true,
+      adminCur: a === 'admin' ? 'page' : 'false',
+      analyse: [
+        it('overview', 'Overview', 'Dashboard.dc.html', I.overview),
+        it('body', 'Body', 'Metric.dc.html', I.body),
+        it('heart', 'Heart & ECG', 'ECG.dc.html', I.heart),
+        it('nerve', 'Nerve health', 'Dashboard.dc.html', I.nerve, { endText: '3 of 4', endClass: 'end small muted' }),
+        it('sleep', 'Sleep', 'Dashboard.dc.html', I.sleep, { cls: 'dim', endText: 'n/a', endClass: 'end small' }),
+        it('activity', 'Activity', 'Dashboard.dc.html', I.activity, { endClass: 'end dot attn' }),
+        it('findings', 'Findings', 'Findings.dc.html', I.findings, { endText: '2', endClass: 'end count attn' })
+      ],
+      data: [
+        it('connections', 'Connections', 'Connections.dc.html', I.connections, { endClass: 'end dot ok' })
+      ],
+      account: [
+        it('settings', 'Settings', 'Settings.dc.html', I.settings),
+        it('security', 'Security', 'Security.dc.html', I.security)
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

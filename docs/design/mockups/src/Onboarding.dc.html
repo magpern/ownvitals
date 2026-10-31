@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Onboarding on a phone</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./ov.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</helmet>
+<div class="ov" data-theme="{{theme}}" style="width: 1400px; height: 1000px; padding: 36px 44px; display: flex; gap: 60px; align-items: flex-start; background: var(--raised)">
+
+  <div class="stack" style="gap: 16px; width: 390px">
+    <p class="small"><strong>1 · Connect.</strong> <span class="muted">Shown right after the authenticator is set up. Says what we read and what we never do.</span></p>
+    <div class="phone">
+      <div class="phone-top">
+        <span class="row" style="gap: 8px; font-weight: 600"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>ownvitals</span>
+        <span class="small muted">Step 2 of 3</span>
+      </div>
+      <div class="phone-body">
+        <ol class="steps">
+          <li><span class="stepnum done">✓</span><span class="small">Account and authenticator</span></li>
+          <li><span class="stepnum now">2</span><span class="small" style="font-weight: 600">Connect Withings</span></li>
+          <li><span class="stepnum">3</span><span class="small muted">Import your history</span></li>
+        </ol>
+        <h2 style="font-size: 24px">Connect your Withings account</h2>
+        <p class="muted">You sign in at Withings and choose what to share. We never see your Withings password.</p>
+        <div class="card stack" style="gap: 8px; padding: 14px">
+          <span class="eyebrow">What ownvitals reads</span>
+          <ul class="stack small" style="gap: 6px">
+            <li class="row" style="flex-wrap: nowrap"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" style="flex: none; color: var(--ok)"><path d="M4 10.5l4 4 8-9" class="ic"></path></svg>Body measurements and ECG recordings</li>
+            <li class="row" style="flex-wrap: nowrap"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" style="flex: none; color: var(--ok)"><path d="M4 10.5l4 4 8-9" class="ic"></path></svg>Activity and workouts</li>
+            <li class="row" style="flex-wrap: nowrap"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" style="flex: none; color: var(--ok)"><path d="M4 10.5l4 4 8-9" class="ic"></path></svg>Sleep, if you have a tracker</li>
+            <li class="row" style="flex-wrap: nowrap"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" style="flex: none; color: var(--ok)"><path d="M4 10.5l4 4 8-9" class="ic"></path></svg>Your profile and devices</li>
+          </ul>
+          <span class="small muted">It never changes anything in your Withings account.</span>
+        </div>
+        <div class="notice info"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" class="ic"></circle><path d="M10 9v5 M10 6.2v.1" class="ic"></path></svg><p class="small">Withings accounts created on or after 13 Oct 2026 need Withings+ to share data with other apps.</p></div>
+        <div class="stack" style="gap: 8px; margin-top: auto">
+          <button class="btn primary wide" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Connect Withings</button>
+          <span class="small muted" style="text-align: center">You'll confirm with your authenticator code first.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack" style="gap: 16px; width: 390px">
+    <p class="small"><strong>2 · Import.</strong> <span class="muted">Runs in the background, stream by stream, with honest states.</span></p>
+    <div class="phone">
+      <div class="phone-top">
+        <span class="row" style="gap: 8px; font-weight: 600"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>ownvitals</span>
+        <span class="small muted">Step 3 of 3</span>
+      </div>
+      <div class="phone-body">
+        <h2 style="font-size: 24px">Importing your history</h2>
+        <p class="muted">You can close this page. The import keeps going, and the overview fills in as it does.</p>
+        <ul class="stack" style="gap: 14px">
+          <li class="stack" style="gap: 6px"><div class="between"><span style="font-weight: 500">Measurements</span><span class="state ok" style="min-height: 24px; font-size: 12px">Done</span></div><span class="small muted">From April 2019 · 2,914 weigh-ins</span></li>
+          <li class="stack" style="gap: 6px"><div class="between"><span style="font-weight: 500">ECG recordings</span><span class="small num">142 of 220</span></div><div class="bar"><span style="width: 64%"></span></div></li>
+          <li class="stack" style="gap: 6px"><div class="between"><span style="font-weight: 500">Activity</span><span class="small num">2023 → 2021</span></div><div class="bar"><span style="width: 38%"></span></div></li>
+          <li class="stack" style="gap: 6px"><div class="between"><span style="font-weight: 500">Minute-by-minute</span><span class="state" style="min-height: 24px; font-size: 12px">Queued</span></div><span class="small muted">Last 30 days; older on request</span></li>
+          <li class="stack" style="gap: 6px"><div class="between"><span style="font-weight: 500" class="muted">Sleep</span><span class="state off" style="min-height: 24px; font-size: 12px">Not available</span></div><span class="small muted">Withings has no sleep data for this account yet</span></li>
+        </ul>
+        <div class="notice"><svg viewBox="0 0 20 20" aria-hidden="true" style="color: var(--muted)"><circle cx="10" cy="10" r="7.5" class="ic"></circle><path d="M10 9v5 M10 6.2v.1" class="ic"></path></svg><p class="small">Anything we find in your history goes under Findings › History. It never sends a notification.</p></div>
+        <a class="btn wide" href="Dashboard.dc.html" style="margin-top: auto">Go to the overview</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack" style="gap: 16px; width: 390px">
+    <p class="small"><strong>3 · Phone overview.</strong> <span class="muted">Range bars replace charts: where today sits in your typical range.</span></p>
+    <div class="phone">
+      <div class="phone-top">
+        <span class="row" style="gap: 8px; font-weight: 600"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>Overview</span>
+        <span class="pill"><span class="dot ok"></span>4 min ago</span>
+      </div>
+      <div class="phone-body" style="gap: 12px">
+        <a class="finding" href="Findings.dc.html" style="padding: 14px">
+          <span class="tier trend" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend · new</span>
+          <span style="font-weight: 600">Resting heart rate above your typical range for 3 days</span>
+        </a>
+        <div class="card stack" style="gap: 8px; padding: 14px">
+          <div class="between"><span class="small muted" style="font-weight: 500">Weight</span><span class="small muted">today 07:12</span></div>
+          <span class="num" style="font-size: 26px; font-weight: 600">78.7 <span class="muted" style="font-size: 14px; font-weight: 500">kg</span></span>
+          <div style="position: relative; height: 14px; border-radius: 7px; background: var(--raised)"><span style="position: absolute; top: 0; bottom: 0; left: 26.7%; width: 40%; border-radius: 7px; background: var(--band); border: 1px solid var(--band-edge)"></span><span style="position: absolute; top: 1px; left: 40%; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--series); border: 2px solid var(--surface)"></span></div>
+          <span class="small muted">Within your typical range 78.3–79.5</span>
+        </div>
+        <div class="card stack" style="gap: 8px; padding: 14px">
+          <div class="between"><span class="small muted" style="font-weight: 500">Resting heart rate</span><span class="small muted">today 07:04</span></div>
+          <span class="num" style="font-size: 26px; font-weight: 600; color: var(--attn)">71 <span class="muted" style="font-size: 14px; font-weight: 500">bpm</span></span>
+          <div style="position: relative; height: 14px; border-radius: 7px; background: var(--raised)"><span style="position: absolute; top: 0; bottom: 0; left: 30%; width: 13.3%; border-radius: 7px; background: var(--band); border: 1px solid var(--band-edge)"></span><span style="position: absolute; top: 1px; left: 70%; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--attn); border: 2px solid var(--surface)"></span></div>
+          <span class="small" style="color: var(--attn); font-weight: 500">Above your typical range 59–63</span>
+        </div>
+        <div class="card stack" style="gap: 8px; padding: 14px; background: transparent; border-style: dashed">
+          <div class="between"><span class="small muted" style="font-weight: 500">Nerve Health Score</span><span class="state" style="min-height: 22px; font-size: 12px">Insufficient data</span></div>
+          <div class="bar"><span style="width: 75%"></span></div>
+          <span class="small muted">3 of 4 measures over 4 weeks</span>
+        </div>
+      </div>
+      <nav class="phone-tabs" aria-label="Main">
+        <a href="Dashboard.dc.html" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z" class="ic"></path></svg>Overview</a>
+        <a href="Findings.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-8h11L20 13 M4 13v6h16v-6 M4 13h5l1 2h4l1-2h5" class="ic"></path></svg>Findings</a>
+        <a href="Connections.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15l6-6 M10.5 6.5l1.8-1.8a4 4 0 0 1 5.7 5.7l-1.8 1.8 M13.5 17.5l-1.8 1.8a4 4 0 0 1-5.7-5.7l1.8-1.8" class="ic"></path></svg>Data</a>
+        <a href="Settings.dc.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10 M18 7h2 M4 17h4 M12 17h8 M16 5v4 M10 15v4" class="ic"></path></svg>Settings</a>
+      </nav>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1400,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>

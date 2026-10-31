@@ -1,10 +1,10 @@
 # ADR 0008: Webhook-secret lifecycle, rotations and subscriptions
 
-Status: Accepted (2026-10-31, #72). The text of §1 was accepted in ADR 0004 §4 (#4) and amended
-there by #49; #72 moved it here verbatim, so that ADR 0004 stays within the 500-line limit.
-§2's single-flight rule moved here from ADR 0004 §4 in #72's first review round and gained
-the isolation level (amended 2026-10-31, #72). From now on both change only through an
-amendment of this ADR.
+Status: Accepted (2026-10-31, #72); amended 2026-10-31 by #78 (see "Amendments"). The text of
+§1 was accepted in ADR 0004 §4 (#4) and amended there by #49; #72 moved it here verbatim, so
+that ADR 0004 stays within the 500-line limit. §2's single-flight rule moved here from ADR 0004
+§4 in #72's first review round and gained the isolation level (amended 2026-10-31, #72). From
+now on both change only through an amendment of this ADR.
 
 ## Context
 
@@ -31,9 +31,9 @@ end of its §4 as #49 left it. Read it with these conventions:
 - a bare section reference (§3, §7, §9) points into ADR 0004; "routine step 1", "the deadline
   below" and "the lifecycle above" point into this list;
 - "the function" and "the same function" are ADR 0004 §4's webhook-secret function. Its input
-  rules and the rotation lock (§2) hold for every call below, and its compare-and-clear for
-  retire-all and the append that clears a request, as ADR 0004 §4 says (amended 2026-10-31,
-  #72);
+  rules and the rotation lock (this ADR's §2; amended 2026-10-31, #78) hold for every call
+  below, and its compare-and-clear for retire-all and the append that clears a request, as
+  ADR 0004 §4 says (amended 2026-10-31, #72);
 - the "amended 2026-10-31, #49" markers refer to ADR 0004's Amendments.
 
 - **Entry lifecycle** (amended 2026-10-31, #49). An entry verifies from `active_from` until it
@@ -143,3 +143,11 @@ and never kept) stay in ADR 0004's Alternatives.
   the stuck-rotation alert (threat model T38, accepted risk 21); #21 builds the function's own
   take of the lock and its isolation check. ADR 0005 §9's row for namespace 4 points here.
 - Threat model T32, T38, T41, T43 and accepted risks 20 and 21 cite this ADR.
+
+## Amendments
+
+### 2026-10-31 (#78): follow-ups of the #73 review
+
+Made in place above and marked "amended 2026-10-31, #78": the reading notes of §1 name the
+rotation lock as this ADR's §2, so that a bare section reference there still means ADR 0004
+(the #73 review's non-blocking finding 4). §1's list and §2 are unchanged.

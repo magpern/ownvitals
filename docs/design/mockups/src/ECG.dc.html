@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ECG viewer</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./ov.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</helmet>
+<div class="ov app" data-theme="{{theme}}">
+  <div class="rail-wrap"><dc-import name="Rail" active="heart" admin="{{ true }}" theme="{{theme}}" hint-size="100%,900px"></dc-import></div>
+  <div class="main">
+    <header class="topbar">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="Dashboard.dc.html">Overview</a><span aria-hidden="true">/</span><a href="ECG.dc.html">Heart &amp; ECG</a><span aria-hidden="true">/</span><span aria-current="page" style="color: var(--ink)">ECG 14 Oct</span></nav>
+      <span class="grow"></span>
+      <button class="acct" type="button" aria-haspopup="menu"><span class="avatar">A</span>alex@example.org<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 8l5 5 5-5" class="ic"></path></svg></button>
+    </header>
+    <div class="fresh" role="status">
+      <span class="item"><span class="dot ok"></span>ECG list synced 4 min ago</span>
+      <span class="item">History import: 142 of 220 recordings</span>
+      <span class="item">Lead: one signal per recording; which lead is still to be confirmed</span>
+    </div>
+
+    <div class="content" style="max-width: none">
+      <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+        <section class="stack" style="flex: 1 1 280px; min-width: 0; gap: 10px" aria-labelledby="ecg-list">
+          <div class="between"><h2 id="ecg-list" style="font-size: 18px">Recordings</h2><span class="count">220</span></div>
+          <div class="row" style="gap: 6px"><button class="chip" type="button" aria-pressed="true">All</button><button class="chip" type="button">AFib</button><button class="chip" type="button">Inconclusive</button></div>
+          <div class="stack" style="gap: 6px">
+            <a class="finding sel" href="ECG.dc.html" style="padding: 12px 14px; gap: 6px"><div class="between"><span class="num" style="font-weight: 600">Tue 14 Oct · 07:05</span><span class="small muted num">64 bpm</span></div><span class="small">Withings: no sign of AFib</span></a>
+            <a class="finding" href="ECG.dc.html" style="padding: 12px 14px; gap: 6px"><div class="between"><span class="num" style="font-weight: 600">Thu 9 Oct · 07:11</span><span class="small muted">no rate</span></div><span class="small" style="color: var(--attn)">Withings: inconclusive, noise</span></a>
+            <a class="finding" href="ECG.dc.html" style="padding: 12px 14px; gap: 6px"><div class="between"><span class="num" style="font-weight: 600">Thu 2 Oct · 06:58</span><span class="small muted num">61 bpm</span></div><span class="small">Withings: no sign of AFib</span></a>
+            <a class="finding" href="ECG.dc.html" style="padding: 12px 14px; gap: 6px"><div class="between"><span class="num" style="font-weight: 600">Sat 27 Sep · 07:20</span><span class="small muted num">66 bpm</span></div><span class="small" style="color: var(--attn)">Withings: inconclusive</span></a>
+            <a class="finding" href="ECG.dc.html" style="padding: 12px 14px; gap: 6px"><div class="between"><span class="num" style="font-weight: 600">Fri 19 Sep · 07:02</span><span class="small muted">no rate</span></div><span class="small" style="color: var(--attn)">Withings: inconclusive, noise</span></a>
+            <a class="finding" href="ECG.dc.html" style="padding: 12px 14px; gap: 6px"><div class="between"><span class="num" style="font-weight: 600">Thu 11 Sep · 07:15</span><span class="small muted num">59 bpm</span></div><span class="small">Withings: no sign of AFib</span></a>
+          </div>
+          <div class="stack" style="gap: 6px; padding-top: 6px"><div class="bar"><span style="width: 64%"></span></div><span class="small muted">Older recordings appear here as the import reaches them.</span></div>
+        </section>
+
+        <section class="stack" style="flex: 999 1 640px; min-width: 0; gap: 18px" aria-labelledby="ecg-title">
+          <div class="between" style="align-items: flex-end">
+            <div class="stack" style="gap: 4px">
+              <h1 id="ecg-title">ECG · Tuesday 14 October, 07:05</h1>
+              <span class="small muted">Body Scan · 30 seconds · 500 Hz · signal in µV, stored unmodified</span>
+            </div>
+            <div class="row"><button class="btn" type="button">Download PDF</button><button class="btn primary" type="button">PDF for a doctor</button></div>
+          </div>
+
+          <div class="card" style="display: flex; flex-direction: column; gap: 14px">
+            <div class="between">
+              <span class="tier device"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Device result</span>
+              <span class="mono muted">afib 0 · afib_details 9</span>
+            </div>
+            <p style="font-size: 20px; font-weight: 600">Withings classified this ECG as: no sign of atrial fibrillation, normal heart rate</p>
+            <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px">
+              <div class="stack" style="gap: 2px"><span class="eyebrow">Heart rate</span><span class="num" style="font-size: 22px; font-weight: 600">64 <span class="muted" style="font-size: 14px">bpm</span></span></div>
+              <div class="stack" style="gap: 2px"><span class="eyebrow">PR</span><span class="num" style="font-size: 22px; font-weight: 600">162 <span class="muted" style="font-size: 14px">ms</span></span></div>
+              <div class="stack" style="gap: 2px"><span class="eyebrow">QRS</span><span class="num" style="font-size: 22px; font-weight: 600">94 <span class="muted" style="font-size: 14px">ms</span></span></div>
+              <div class="stack" style="gap: 2px"><span class="eyebrow">QT</span><span class="num" style="font-size: 22px; font-weight: 600">388 <span class="muted" style="font-size: 14px">ms</span></span></div>
+              <div class="stack" style="gap: 2px"><span class="eyebrow">QTc</span><span class="num" style="font-size: 22px; font-weight: 600">401 <span class="muted" style="font-size: 14px">ms</span></span></div>
+            </div>
+            <span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>All values reported by Withings, shown as reported</span>
+          </div>
+
+          <figure class="card" style="padding: 14px; display: flex; flex-direction: column; gap: 10px">
+            <div class="between small"><span class="muted">0–9.5 s of 30 s</span><span class="mono muted">25 mm/s · 10 mm/mV</span></div>
+            <svg viewBox="0 0 1000 160" style="width: 100%; height: auto; display: block; border-radius: 6px" role="img" aria-label="ECG strip, the first 9.5 seconds, on a standard 25 millimetres per second, 10 millimetres per millivolt grid">
+              <defs>
+                <pattern id="ecgMinor" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M4 0 L0 0 0 4" class="ecg-minor"></path></pattern>
+                <pattern id="ecgMajor" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0 L0 0 0 20" class="ecg-major"></path></pattern>
+              </defs>
+              <rect x="0" y="0" width="1000" height="160" class="ecg-paper"></rect>
+              <rect x="0" y="0" width="1000" height="160" fill="url(#ecgMinor)"></rect>
+              <rect x="0" y="0" width="1000" height="160" fill="url(#ecgMajor)"></rect>
+              <path d="M4 100 h8 v-40 h20 v40 h8" class="ecg-cal"></path>
+              <path d="{{c.strip}}" class="ecg-trace"></path>
+            </svg>
+            <svg viewBox="0 0 1000 44" style="width: 100%; height: auto; display: block" role="img" aria-label="Whole 30-second recording; the part shown above is highlighted">
+              <rect x="0" y="0" width="1000" height="44" rx="6" class="c-gapbg"></rect>
+              <path d="{{c.overview}}" class="c-line" style="stroke-width: 0.8"></path>
+              <rect x="1" y="1" width="318" height="42" rx="5" class="c-band" style="opacity: 0.45"></rect>
+              <rect x="1" y="1" width="318" height="42" rx="5" class="c-sel" style="fill: none"></rect>
+            </svg>
+            <div class="between">
+              <div class="row"><button class="btn" type="button" aria-label="Earlier"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12 5l-5 5 5 5" class="ic"></path></svg></button><button class="btn" type="button" aria-label="Later"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5l5 5-5 5" class="ic"></path></svg></button><div class="seg" role="group" aria-label="Gain"><button type="button">5 mm/mV</button><button type="button" aria-pressed="true">10 mm/mV</button><button type="button">20 mm/mV</button></div></div>
+              <span class="small muted">On screen 1 mm = 4 px. The PDF prints true to scale.</span>
+            </div>
+          </figure>
+
+          <div class="exp-box stack" style="gap: 12px">
+            <div class="between">
+              <span class="tier exp"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 L10.8 6 L6 10.8 L1.2 6 Z" class="gl-line"></path></svg>Experimental · only you see this</span>
+              <span class="state ok" style="min-height: 24px; font-size: 12px">Signal quality: passed</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+              <div class="stack" style="gap: 2px"><span class="eyebrow">Heart rate</span><span><span class="muted small">est.</span> <span class="num est" style="font-size: 22px">64</span> <span class="muted small">bpm</span></span></div>
+              <div class="stack" style="gap: 2px"><span class="eyebrow">RMSSD</span><span><span class="muted small">est.</span> <span class="num est" style="font-size: 22px">41</span> <span class="muted small">ms</span></span></div>
+              <div class="stack" style="gap: 2px"><span class="eyebrow">SDNN</span><span><span class="muted small">est.</span> <span class="num est" style="font-size: 22px">52</span> <span class="muted small">ms</span></span></div>
+              <div class="stack" style="gap: 2px"><span class="eyebrow">pNN50</span><span><span class="muted small">est.</span> <span class="num est" style="font-size: 22px">18</span> <span class="muted small">%</span></span></div>
+            </div>
+            <p class="small muted">From ownvitals' own R-peak detection on the raw signal (<span class="mono">ecg 0.3.0</span>). Not certified, not a diagnosis, and never shown as equal to Withings' values. When a recording fails our quality gate, experimental findings for it are hidden; Withings' own result is always shown. The doctor PDF leaves this box out.</p>
+          </div>
+        </section>
+      </div>
+      <p class="synthetic">Example data is synthetic.</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1250}}'>
+class Component extends DCLogic {
+  data() {
+    if (this._d) return this._d;
+    function mkRng(seed) { var s = seed >>> 0; return function () { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
+    function ecg(c) {
+      var r = mkRng(c.seed), pxs = c.mm * 25, pxmv = c.mm * 10, beats = [], t = 0.3;
+      while (t < c.seconds + 1) { beats.push(t); t += 60 / c.hr * (1 + (r() - 0.5) * 0.06); }
+      function g(x, mu, s, a) { return a * Math.exp(-((x - mu) * (x - mu)) / (2 * s * s)); }
+      var d = '', dt = c.dt || 0.004, i, tt, b;
+      for (i = 0; i * dt <= c.seconds; i++) {
+        tt = i * dt;
+        var v = 0.03 * Math.sin(2 * Math.PI * 0.25 * tt);
+        for (b = 0; b < beats.length; b++) {
+          var x = tt - beats[b];
+          if (x < -0.4 || x > 0.6) continue;
+          v += g(x, -0.16, 0.025, 0.12) + g(x, -0.03, 0.008, -0.09) + g(x, 0, 0.010, 1.05) + g(x, 0.025, 0.010, -0.22) + g(x, 0.26, 0.045, 0.28);
+        }
+        v += (r() - 0.5) * 0.02;
+        d += (i ? 'L' : 'M') + (Math.round((c.x0 + tt * pxs) * 10) / 10) + ' ' + (Math.round((c.y0 - v * pxmv) * 10) / 10) + ' ';
+      }
+      return d;
+    }
+    this._d = {
+      strip: ecg({ seed: 3, mm: 4, seconds: 9.5, hr: 64, x0: 44, y0: 100 }),
+      overview: ecg({ seed: 3, mm: 1.333, seconds: 30, hr: 64, x0: 0, y0: 30, dt: 0.006 })
+    };
+    return this._d;
+  }
+  renderVals() {
+    return { theme: this.props.theme ?? 'light', c: this.data() };
+  }
+}
+</script>
+</body>
+</html>

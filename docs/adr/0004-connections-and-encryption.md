@@ -1,9 +1,9 @@
 # ADR 0004: Provider connections, envelope encryption and the KEK ring
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 and #72 (see "Amendments"). Its
-three open questions were decided by the Architect on 2026-10-31 (§7 the code exchange, recorded as
-[roadmap Amendment 1](../roadmap.md); §7 reconnect and disconnect; §3 revocation after a KEK
-compromise), and so was the source of the webhook secrets (§4), raised in review.
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #78 (see "Amendments").
+Its three open questions were decided by the Architect on 2026-10-31 (§7 the code exchange,
+recorded as [roadmap Amendment 1](../roadmap.md); §7 reconnect and disconnect; §3 revocation
+after a KEK compromise), and so was the source of the webhook secrets (§4), raised in review.
 
 ## Context
 
@@ -240,8 +240,9 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   - the operation is one of append, retire, retire-all, rehash or delete-retired; a rehash
     changes only an entry's `pepper_id` and `hmac`; retire-all retires every non-retired entry
     of the app in one call, atomically;
-  - it takes the rotation lock (ADR 0008 §2) and then locks the row (`SELECT … FOR UPDATE`)
-    before any check, and reads the request itself under that lock (amended 2026-10-31, #72);
+  - it refuses any isolation level but READ COMMITTED (amended 2026-10-31, #78), takes the
+    rotation lock (ADR 0008 §2) and then locks the row (`SELECT … FOR UPDATE`) before any other
+    check, and reads the request itself under that lock (amended 2026-10-31, #72);
   - **compare-and-clear** (amended 2026-10-31, #72): retire-all and append take the
     `rotation_requested_at` and `rotation_reason` that the step read when it started. The
     function refuses the call with `stale_request` if `rotation_requested_at` no longer holds
@@ -252,17 +253,18 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
     request is never lost to a race, and no step acts on a request that has changed. Only these
     two calls, the ones made for a request, are checked. That is safe because lock 4 serialises
     the workers' steps (ADR 0008 §2) and a call made on a stale read of the request is refused;
-    retire and delete-retired act on no request, and can only stop a secret verifying, never
-    revive one;
+    retire, delete-retired and rehash act on no request: the first two can only stop a secret
+    verifying, and a rehash keeps each entry's own secret, so none revives or adds one (amended
+    2026-10-31, #78);
   - **the compromise order, against an honest worker's mistakes** (amended 2026-10-31, #72):
     an append that would clear a `compromise` request is refused with `unretired_entries` while
     any other entry is not retired, and with `seed_reused` if its `seed_id` is one that a
     retired entry uses. They stop an honest worker that wasn't restarted after the new seed was
-    installed, or a stale request, from ending the request while an old secret still verifies
-    or from putting a retired seed back. They check only the clearing append and the ids the
-    caller names, so, like the known-id rule, they are no defence against code running with the
-    app role, which chooses the `seed_id` label, can insert check rows and can append an entry
-    whose HMAC it chose (accepted risk 21);
+    installed, or a worker acting on a stale read (amended 2026-10-31, #78), from ending the
+    request while an old secret still verifies or from putting a retired seed back. They check
+    only the clearing append and the ids the caller names, so, like the known-id rule, they are
+    no defence against code running with the app role, which chooses the `seed_id` label, can
+    insert check rows and can append an entry whose HMAC it chose (accepted risk 21);
   - the `secret_id` format is fixed, and an append refuses an id already present; ids are
     random and never reused, so a deleted entry's secret can't come back;
   - `seed_id` and `pepper_id` must be known ids, with a check row in `connection_keks` (§3): a
@@ -449,7 +451,8 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   "also delete imported data" option, revoke retries. Amended 2026-10-31, #72: #21 also builds
   the function's rotation lock, the `stale_request`, `unretired_entries` and `seed_reused`
   refusals and the audit row's content; #24 the worker's rotation lock and the 503 before the
-  first read; #22 the conditional `UPDATE` and the in-app-only owner notice.
+  first read; #22 the conditional `UPDATE` and the in-app-only owner notice. Amended
+  2026-10-31, #78: #21 also builds the function's isolation check (ADR 0008 §2).
 - Losing the current KEK means every user reconnects Withings and re-enrols TOTP; there is no
   recovery path by design.
 - Backups hold tokens and seeds as ciphertext only; restoring one needs the KEK files of its time,
@@ -487,3 +490,9 @@ Architect decisions, made in place above and marked "amended 2026-10-31, #72":
   answers `POST` with 503.
 - §6: in M1 the owner notice is in-app only; mail through the outbox comes with the
   notifications issue (ADR 0007). Consequences: what #21, #22 and #24 add.
+
+### 2026-10-31 (#78): follow-ups of the #73 review
+
+Made in place above and marked "amended 2026-10-31, #78": §4's input rules list ADR 0008 §2's
+READ COMMITTED check, name rehash among the unchecked calls and say "a worker acting on a stale
+read"; Consequences: #21 builds the check.

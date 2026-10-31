@@ -15,9 +15,18 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
 
-# One row for the connected role: the flags of ``PROBLEMS``, then the role's own settings.
+# One row for the connection: the flags of ``PROBLEMS``, then the login role's own settings.
 #
-# ``roles`` is the role itself and every role it is a member of, directly or indirectly, with or
+# ``me`` is the **login** role (``session_user``, the user of the URL), not the role the session
+# runs as (``current_user``). The two differ when the login role has a default ``role`` setting
+# (ALTER ROLE ... SET role) or the connection options set one, and a login role can always go
+# back to itself (``SET ROLE NONE``) or on to any role it may SET: a superuser login, or a member
+# of ``ownvitals_owner``, that starts as ``ownvitals_app`` bypasses RLS whenever it likes. So the
+# checks run on the login role, and flag 9 refuses a ``current_user`` other than the login role.
+# Every role reachable from ``current_user`` is reachable from the login role too (Postgres only
+# lets a login become a role it is a member of, or any role for a superuser).
+#
+# ``roles`` is the login role and every role it is a member of, directly or indirectly, with or
 # without INHERIT or SET (``pg_has_role(..., 'MEMBER')`` ignores both options). A member of a role
 # can use that role's rights: through INHERIT, or by SET ROLE. A member of the role that owns the
 # tables can then disable their row security, and a member of ``pg_read_all_data`` ignores every
@@ -25,13 +34,17 @@ logger = logging.getLogger(__name__)
 # the attribute and ownership flags are evaluated over ``roles`` as well, so each report names
 # what the membership would give. No membership is allowed: the roles script grants none.
 #
-# The last flag refuses a default for any ``app.*`` setting (``app.user_id`` is the RLS user) on
-# the role itself (any database), on the database (``ALTER DATABASE ... SET``) or on every role
+# Flag 8 refuses a default for any ``app.*`` setting (``app.user_id`` is the RLS user) on the
+# login role (any database), on the database (``ALTER DATABASE ... SET``) or on every role
 # (``ALTER ROLE ALL [IN DATABASE ...] SET``): such a default would start every session as a user.
 # Postgres keeps the name as written and compares it case-insensitively, hence ``lower``.
+# Flag 10 reads the session's live ``app.user_id``, which a server-wide setting (``ALTER
+# SYSTEM``, ``postgresql.conf``) or the connection options (``PGOPTIONS``, ``options=-c ...``)
+# set without any catalog row, so a new connection is refused with a ``DatabaseRoleError``
+# rather than replaced by the checkout check over and over.
 ROLE_QUERY = """
 WITH me AS (
-    SELECT oid FROM pg_roles WHERE rolname = current_user
+    SELECT oid FROM pg_roles WHERE rolname = session_user
 ), roles AS (
     SELECT r.oid, r.rolsuper, r.rolbypassrls, r.rolreplication FROM pg_roles r
     WHERE r.oid = (SELECT oid FROM me) OR pg_has_role((SELECT oid FROM me), r.oid, 'MEMBER')
@@ -51,18 +64,21 @@ SELECT
                     OR (s.setrole = 0 AND s.setdatabase IN
                         (0, (SELECT oid FROM pg_database WHERE datname = current_database()))))
                AND starts_with(lower(split_part(c, '=', 1)), 'app.')),
+    session_user <> current_user,
+    coalesce(current_setting('app.user_id', true), '') <> '',
     ARRAY(SELECT s.setdatabase::text || ':' || c FROM pg_db_role_setting s, unnest(s.setconfig) c
            WHERE s.setrole = (SELECT oid FROM me))
 """
-# The role's own settings must be exactly these, at role level (database 0). A role can change
-# its own settings (ALTER ROLE ... SET) and Postgres cannot forbid it, so this detects it.
+# The login role's own settings must be exactly these, at role level (database 0). A role can
+# change its own settings (ALTER ROLE ... SET) and Postgres cannot forbid it, so this detects it.
+# Only the login role's settings apply to a session (SET ROLE does not load the other role's).
 EXPECTED_ROLE_SETTINGS = {
     "statement_timeout": "30s",
     "lock_timeout": "5s",
     "idle_in_transaction_session_timeout": "60s",
 }
 SETTINGS_PROBLEM = "has role settings other than the expected three timeouts"
-FLAG_COUNT = 8
+FLAG_COUNT = 10
 CHECKOUT_QUERY = "SELECT current_setting('app.user_id', true)"
 SETTINGS_MS_QUERY = (
     "SELECT name, setting FROM pg_settings WHERE name IN "
@@ -82,6 +98,8 @@ PROBLEMS = (
     "owns the database, or is a member of its owner",
     "owns a schema, or is a member of a role that does",
     "has a default for an app.* setting (on the role, the database or every role)",
+    "logs in as one role and runs as another (a default or connection option for role)",
+    "starts its sessions with app.user_id set (server configuration or connection options)",
 )
 
 
