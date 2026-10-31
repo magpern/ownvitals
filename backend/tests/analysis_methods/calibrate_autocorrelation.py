@@ -9,20 +9,26 @@ tests can afford, and it is how the constants of ``trend.py`` (``AR1_BIAS_CONSTA
     cd backend
     uvx uv@0.13.6 run python tests/analysis_methods/calibrate_autocorrelation.py trend
     uvx uv@0.13.6 run python tests/analysis_methods/calibrate_autocorrelation.py changepoint
-    uvx uv@0.13.6 run python tests/analysis_methods/calibrate_autocorrelation.py --runs 2000 trend
+    uvx uv@0.13.6 run python tests/analysis_methods/calibrate_autocorrelation.py --runs 40000 trend
 
 Options: ``--runs N`` (default: 5000 for trend, 2000 for changepoint; fewer for long series, which
 are slow), ``--seed S`` (default 20261031), ``--workers W`` (processes). A cell's seed depends only
-on ``--seed`` and the cell, so the output does not depend on the number of workers. Each rate is
-printed with its binomial standard error. Output is Markdown. Takes several minutes.
+on ``--seed`` and the cell, so the output does not depend on the number of workers, and a larger
+``--runs`` with the same seed extends the series of a smaller one. Each rate is printed with its
+binomial standard error. Output is Markdown; its last line gives the CPU time of the run (summed
+over the workers) and the wall time. ``changepoint`` takes minutes. ``--runs 40000 trend`` is the
+run behind the trend tables of ``docs/dev/analysis-methods.md``: 8,320 s of CPU time (43 minutes
+of wall time on 10 workers of a shared machine), so it is run by hand and never in CI.
 """
 
 import argparse
 import math
 import os
 import sys
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ProcessPoolExecutor
+from typing import cast
 
 import numpy as np
 from methods_builders import ar1, generator, plain_p_value
@@ -36,7 +42,7 @@ from ownvitals.analysis.methods.series import Series
 from ownvitals.analysis.methods.trend import Correction, trend
 
 ALPHA = 0.05
-TREND_NS = (8, 12, 20, 30, 60, 100, 200, 365)
+TREND_NS = (8, 10, 12, 15, 20, 30, 60, 100, 200, 365)
 TREND_PHIS = (0.0, 0.3, 0.6)
 CHANGE_NS = (30, 60, 100, 200, 365)
 CHANGE_PHIS = (0.0, 0.3, 0.5, 0.7, 0.8, 0.9)
@@ -54,6 +60,27 @@ def cell_seed(seed: int, *parts: object) -> int:
 def percent(rate: float, runs: int) -> str:
     se = math.sqrt(max(rate * (1.0 - rate), 1e-12) / runs)
     return f"{100 * rate:.1f} ({100 * se:.1f})"
+
+
+def timed[T](job: tuple[Callable[[T], object], T]) -> tuple[object, float]:
+    """Run one cell in a worker and return its result and the CPU seconds it took."""
+    cell, args = job
+    start = time.process_time()
+    result = cell(args)
+    return result, time.process_time() - start
+
+
+class CpuPool:
+    """A process pool that adds up the CPU time its cells took (the workers' own, not the wall)."""
+
+    def __init__(self, pool: ProcessPoolExecutor) -> None:
+        self.pool = pool
+        self.cpu_seconds = 0.0
+
+    def map[T, R](self, cell: Callable[[T], R], jobs: Iterable[T]) -> Iterator[R]:
+        for result, seconds in self.pool.map(timed, [(cell, job) for job in jobs]):
+            self.cpu_seconds += seconds
+            yield cast(R, result)
 
 
 # --- trend -------------------------------------------------------------------------------------
@@ -116,7 +143,7 @@ def runs_for(n: int, runs: int) -> int:
     return runs if n <= 100 else max(runs // 2, 200) if n <= 200 else max(runs // 5, 200)
 
 
-def run_trend(runs: int, seed: int, pool: ProcessPoolExecutor) -> None:
+def run_trend(runs: int, seed: int, pool: CpuPool) -> None:
     print(f"## Trend: share of series with no trend called a trend (alpha {ALPHA}), seed {seed}\n")
     print("Mean (binomial standard error) in percent. Plain Mann-Kendall / Hamed-Rao / AR(1).\n")
     for kind, label, phis, ns in (
@@ -180,7 +207,7 @@ def planted_cell(args: tuple[int, float, int, int]) -> tuple[int, float, int, li
     return n, phi, runs, [one / runs, near / runs, many / runs, float(np.mean(errors or [0]))]
 
 
-def run_changepoint(runs: int, seed: int, pool: ProcessPoolExecutor) -> None:
+def run_changepoint(runs: int, seed: int, pool: CpuPool) -> None:
     print(f"## PELT: AR(1) noise, no change, seed {seed}\n")
     print(
         "Share of series with a change point, mean (binomial standard error) in percent: with the"
@@ -214,10 +241,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--seed", type=int, default=20261031)
     parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     options = parser.parse_args(argv)
-    runner: Callable[[int, int, ProcessPoolExecutor], None]
+    runner: Callable[[int, int, CpuPool], None]
     runner, default_runs = (run_trend, 5000) if options.what == "trend" else (run_changepoint, 2000)
-    with ProcessPoolExecutor(max_workers=options.workers) as pool:
+    started = time.perf_counter()
+    with ProcessPoolExecutor(max_workers=options.workers) as executor:
+        pool = CpuPool(executor)
         runner(options.runs or default_runs, options.seed, pool)
+    print(
+        f"CPU time {pool.cpu_seconds:.0f} s summed over {options.workers} workers, "
+        f"wall time {time.perf_counter() - started:.0f} s."
+    )
     return 0
 
 
