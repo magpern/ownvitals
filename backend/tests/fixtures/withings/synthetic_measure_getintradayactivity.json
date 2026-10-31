@@ -1,0 +1,29 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/measure:getintradayactivity",
+  "response": {
+    "status": 0,
+    "body": {
+      "series": {
+        "1793318400": {
+          "deviceid": "ffffffffffffffffffffffffffffffffffffffff",
+          "model": "ScanWatch",
+          "model_id": 93,
+          "duration": 60,
+          "steps": 12,
+          "heart_rate": 74
+        },
+        "1793318460": {
+          "deviceid": "ffffffffffffffffffffffffffffffffffffffff",
+          "model": "ScanWatch",
+          "model_id": 93,
+          "duration": 60,
+          "steps": 0,
+          "heart_rate": 71,
+          "spo2_auto": 97
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/signature:getnonce",
+  "response": {
+    "status": 0,
+    "body": {
+      "nonce": "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6"
+    }
+  }
+}

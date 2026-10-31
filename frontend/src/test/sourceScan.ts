@@ -101,6 +101,19 @@ const XML_NAMESPACE =
 const URL_AUTHORITY =
   /(?:(?<![a-z0-9+.-])([a-z][a-z0-9+.-]+):[/\\]{2,}|(?<![a-z0-9+.:/\\-])[/\\]{2,})([^\s'"`<>()\\/?#]*)/gi
 
+// The page's own host written as a template expression: `wss://${location.host}/api/ws` and
+// `${location.protocol}//${location.host}/x` name our own origin, whatever it is. The authority
+// must be exactly this one expression: `${location.host}.evil.example`, `${location.host}@evil.example`,
+// `${location.host}:8000` (another port is another origin), `${other.location.host}` and
+// `${ location.host }` (the scan reads no spaces inside braces) are all still hits.
+const SAME_ORIGIN_EXPRESSION = /^\$\{(?:window\.)?location\.(?:host|hostname)\}$/
+
+// `e.g.` and `i.e.` written straight after the slashes of a comment (`//e.g. foo`). Neither is a
+// host: a top-level domain has more than one letter. Only with no scheme, and only as a whole
+// word, with whitespace or the end of the text after it: `//e.g/x` and `"//e.g"` are still hits.
+const ABBREVIATION = /^(?:e\.g|i\.e)$/i
+const WORD_END = /^(?:\s|$)/
+
 /** The host of an authority: no userinfo, no port, no trailing dot, lower case. `''` if it is none. */
 function hostOf(authority: string): string {
   let host = authority.replace(/[.,;:]+$/, '') // punctuation after a URL in running text
@@ -118,7 +131,9 @@ function hostOf(authority: string): string {
  * `http://203.0.113.5`, `wss://x.example`, `http://[2001:db8::1]`, `http://localhost@evil.example`,
  * `https://127.0.0.1.nip.io`), and URLs with no scheme: `//cdn.example.org` and its backslash
  * forms `/\cdn.example.org` and `\\cdn.example.org`. Only `localhost`, `127.0.0.1` and `[::1]`,
- * spelled exactly like that, and XML namespaces are let through.
+ * spelled exactly like that, and XML namespaces are let through, as is an authority that is just
+ * the page's own host as a template expression (`${location.host}`, `${window.location.hostname}`)
+ * and, without a scheme, the words `e.g.` and `i.e.` right after the slashes of a comment.
  *
  * Without a scheme a host needs a dot or is an IPv6 literal, so `// comment`, `//TODO` and
  * `'\\n'` are not hits; with plain slashes only, a host with no dot also counts after an opening
@@ -129,6 +144,11 @@ export function remoteUrls(text: string): string[] {
   const found: string[] = []
   for (const match of plain.matchAll(URL_AUTHORITY)) {
     const [whole = '', scheme, authority = ''] = match
+    const bare = authority.replace(/[.,;:]+$/, '') // punctuation after a URL in running text
+    if (SAME_ORIGIN_EXPRESSION.test(bare)) continue
+    if (scheme === undefined && ABBREVIATION.test(bare) && WORD_END.test(plain.slice(match.index + whole.length))) {
+      continue
+    }
     const host = hostOf(authority)
     if (host === '' || LOCAL_HOSTS.has(host)) continue
     if (scheme === undefined) {
