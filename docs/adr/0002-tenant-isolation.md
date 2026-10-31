@@ -133,13 +133,15 @@ CREATE POLICY owner_isolation ON <t>
      `ownvitals_owner`**, `ensure_month_partitions(table, from_month, to_month)` (amended
      2026-10-31, #49: a backfill writes into past months, which PLAN §5's "3 months ahead"
      doesn't cover). It accepts only an allowlisted table and bounds the range itself: from no
-     earlier than **13 months before now** (the longest backfill window of a partitioned table,
-     plus one month; a constant in the function, so changing it is a reviewed change of the
-     function and its pinned digest) to no later than now + 3 months. It takes
-     `pg_advisory_xact_lock` on the parent table's oid before it checks and creates, so
-     concurrent callers can't race; then it creates the missing monthly partitions and applies 4
-     and 5 to each in the same transaction. It is installed and pinned like the other definer
-     functions (ADR 0005 §3).
+     earlier than a fixed floor, **2009-01-01**, before any Withings data, to no later than now
+     + 3 months. The floor is a constant in the function, so changing it is a reviewed
+     `db-functions` change of the function and its pinned digest. The scheduler creates the
+     months ahead; past months are created lazily, only for the months a backfill window
+     actually writes, so PLAN §4.4's "more on demand" history import works. It takes
+     `pg_advisory_xact_lock` in the partition namespace (ADR 0005 §9), keyed by the parent
+     table's oid, before it checks and creates, so concurrent callers can't race; then it
+     creates the missing monthly partitions and applies 4 and 5 to each in the same transaction.
+     It is installed and pinned like the other definer functions (ADR 0005 §3).
      Web and worker share the `ownvitals_app` role, so "the worker only" is enforced in code:
      only the scheduler module (the months ahead, §4) and the backfill module (the months of a
      window, before inserting it; #25) call it, and #21's guard fails on any other module that
@@ -180,11 +182,12 @@ CREATE POLICY owner_isolation ON <t>
     worker. It writes the row and its admin-audit entry in one transaction. The same tool, in
     the same kind of container, rewraps the enveloped client secret after a KEK rotation (ADR
     0004 §3), and its `rotate` command only sets `rotation_requested_at` and `rotation_reason`
-    (`routine` or `compromise`), which ask the worker to rotate in that order (ADR 0004 §4);
+    (`routine` or `compromise`), which ask the worker to rotate in that order (ADR 0004 §4),
+    and never replaces a pending `compromise` with `routine`;
     the worker reads both through the app role's column grant;
   - **`webhook_secrets` entries:** only the worker's rotation, through the webhook-secret
-    function of ADR 0004 §4 (append, retire, re-hash or delete retired entries of one row, clear
-    the rotation request, plus the audit row; no other column).
+    function of ADR 0004 §4 (append, retire one or all, re-hash or delete retired entries of one
+    row, compare-and-clear the rotation request, plus the audit row; no other column).
 - `webhook_events` holds a Withings user id, an `appli` and a measurement time window: health
   metadata. `ownvitals_app` gets **no privilege on it at all** (the default grants are revoked in
   its migration); only the ingest function's role reads and writes it (§4). Its `job_id` is a
@@ -224,8 +227,9 @@ CREATE POLICY owner_isolation ON <t>
   - `UPDATE` on `withings_apps (webhook_secrets, rotation_requested_at, rotation_reason)`;
   - `INSERT` on the admin audit table, and `USAGE` on the sequence of its `bigserial` id;
   - the column-level `SELECT` that PostgreSQL requires for what those statements read:
-    `withings_apps (id, webhook_secrets)` and `connection_keks (key_id)` (ADR 0004 §4's
-    known-id rule).
+    `withings_apps (id, webhook_secrets, rotation_requested_at, rotation_reason)` (the request
+    columns for ADR 0004 §4's compare-and-clear, amended 2026-10-31, #49; they aren't secret)
+    and `connection_keks (key_id)` (ADR 0004 §4's known-id rule).
 
   So it never reads or writes the client-secret column or any token column: `webhook_secrets`
   holds only HMACs. It is pinned and installed like the others. **#21 builds** the role and the
@@ -394,13 +398,14 @@ these tests instead of skipping.
 Architect decisions, made in place above and marked "amended 2026-10-31, #49":
 
 - §2 rule 6: `ensure_month_partitions(table, from_month, to_month)`, bounded inside the function
-  (13 months back to now + 3 months), serialized per table by an advisory lock, and called by
-  the scheduler and the backfill module, each in a short transaction of its own.
+  (a fixed 2009-01-01 floor to now + 3 months, past months only as written), serialized per
+  table by an advisory lock in its own namespace, and called by the scheduler and the backfill
+  module, each in a short transaction of its own.
 - §3, §5: the webhook-secret function is owned by the `NOLOGIN` role `ownvitals_webhook_secrets`
-  instead of `ownvitals_owner`, with exactly the attributes and privileges listed there; it may
-  also clear the rotation request (`rotation_requested_at`, `rotation_reason`), which #22's
-  `rotate` sets. #21 builds the role and the function; #24 calls it and owns the single-caller
-  guard.
+  instead of `ownvitals_owner`, with exactly the attributes and privileges listed there; it
+  reads and compare-and-clears the rotation request (`rotation_requested_at`, `rotation_reason`),
+  which #22's `rotate` sets and never downgrades from `compromise`. #21 builds the role and the
+  function; #24 calls it and owns the single-caller guard.
 - §3, §4, §5, §7: `ownvitals_maint` can't write `withings_apps` and reads only its non-secret
   columns (guard 11, from #21, checked per column); PLAN §5's "admin-only" means admins view,
   the operator changes; the client-secret rewrap is an operator step under the owner role.

@@ -97,7 +97,8 @@ queued ──claim──> running ──> completed | failed | cancelled
 - **Kinds:** `ownvitals.jobs.kinds` maps each kind to its input model (Pydantic,
   `extra="forbid"`) and its handler. #9 registers one test-only kind; M1 registers PLAN §4.4's.
 - **Creating a job:** `POST /api/jobs` (full session, ADR 0003 §2; CSRF) with an
-  `Idempotency-Key` header. In one transaction under `pg_advisory_xact_lock` on the owner: the
+  `Idempotency-Key` header. In one transaction under `pg_advisory_xact_lock` in the job-creation
+  namespace, keyed by the owner (§9; amended 2026-10-31, #49): the
   same key with the same `request_hash` (canonical JSON of the validated body) returns the
   existing job; a different hash is 409 `idempotency_mismatch`; a per-user limit on queued and
   running user-created jobs (a setting, default 2) answers 429; otherwise insert the job and its
@@ -137,16 +138,17 @@ queued ──claim──> running ──> completed | failed | cancelled
     and the backfill caller);
   - from M1, the webhook-secret function (ADR 0004 §4), owned by the `NOLOGIN` role
     `ownvitals_webhook_secrets` with ADR 0002 §3's column privileges (amended 2026-10-31, #49;
-    it was `ownvitals_owner`): it appends, retires, re-hashes or deletes retired entries in the
-    `webhook_secrets` column of one `withings_apps` row under ADR 0004 §4's input rules, may
-    clear the rotation request (`rotation_requested_at`, `rotation_reason`), and writes the
-    admin-audit row, nothing else;
+    it was `ownvitals_owner`): it appends, retires (one entry, or all at once), re-hashes or
+    deletes retired entries in the `webhook_secrets` column of one `withings_apps` row under ADR
+    0004 §4's input rules, compare-and-clears the rotation request (`rotation_requested_at`,
+    `rotation_reason`), and writes the admin-audit row, nothing else;
     `ownvitals_app` may execute it. #21 builds the role and the function; #24's guard keeps
     every caller but the worker's rotation module out.
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day
-  `webhook_events` purge, scheduler enqueue, rate bucket; ADR 0002 §3) by amending this list with
+  `webhook_events` purge, scheduler enqueue, rate bucket, and the cancel of a replaced
+  rotation's queued `notify update` jobs, ADR 0004 §4; ADR 0002 §3) by amending this list with
   each family's role, grants and digests; anything else is refused.
 - **The privileged step.** Handing a function to `ownvitals_queue` needs the superuser, so the
   role, its grants and the functions live in one idempotent script,
@@ -293,12 +295,26 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
 - **Owner-less upkeep** (retention purges such as the 30-day `webhook_events` purge, creating
   partitions ahead through `ensure_month_partitions` (ADR 0002 §2), secret rotation scheduling
   and picking up a rotation request in the order its `rotation_reason` names (ADR 0004 §4;
-  amended 2026-10-31, #49)) runs as maintenance tasks in
-  the worker loop, like reap and purge, never as queue rows without an owner: `jobs` stays an
-  owned table.
+  amended 2026-10-31, #49)) runs as maintenance tasks in the worker loop, like reap and purge,
+  never as queue rows without an owner: `jobs` stays an owned table.
 - **Past months for a backfill** (amended 2026-10-31, #49): a `withings_backfill` run calls
   `ensure_month_partitions` for its window's months before inserting the window, in a short
   fenced transaction of its own, never in the transaction that inserts the window (ADR 0002 §2).
+
+### 9. Advisory-lock namespaces (amended 2026-10-31, #49)
+
+Every advisory lock uses the two-key form, `(namespace, key)` with two `int4`s, and takes its
+namespace from this registry, so features can't collide. The constants live in one module, and
+the SQL in `db-functions` uses the same numbers. A UUID key is hashed to `int4`
+(`hashtext(id::text)`); a hash collision only makes one caller wait.
+
+| Namespace | Lock | Key | Where |
+|---|---|---|---|
+| 1, job creation | `pg_advisory_xact_lock` | the owner id, hashed | §2 |
+| 2, token refresh | `pg_advisory_lock` (session-scoped) | the connection id, hashed | ADR 0004 §6 |
+| 3, partitions | `pg_advisory_xact_lock` | the parent table's oid, as `int4` | ADR 0002 §2 |
+
+A new advisory lock adds its row here in the PR that introduces it.
 
 ## Alternatives
 
@@ -333,8 +349,10 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
 Architect decisions, made in place above and marked "amended 2026-10-31, #49":
 
 - §3: the webhook-secret function is owned by `ownvitals_webhook_secrets` instead of
-  `ownvitals_owner`, may also delete retired entries and clear the rotation request, and
-  enforces ADR 0004 §4's input rules; `ensure_month_partitions` takes a month range and has two
-  callers, the scheduler and backfill modules.
+  `ownvitals_owner`, may also retire all entries at once, delete retired ones and
+  compare-and-clear the rotation request, and enforces ADR 0004 §4's input rules;
+  `ensure_month_partitions` takes a month range and has two callers, the scheduler and backfill
+  modules; M1's list gains the cancel of a replaced rotation's queued jobs.
+- §2, §9: every advisory lock uses the two-key form with a namespace from §9's registry.
 - §8: a backfill creates the past months its window needs, in a short transaction before the
   window's write; the upkeep picks up a rotation request in the order its reason names.

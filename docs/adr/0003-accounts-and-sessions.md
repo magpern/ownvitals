@@ -180,9 +180,13 @@ else changes.
 - **SMTP never from the worker** (Architect decision, amended 2026-10-31, #49). Mail goes out
   through one mail module, from web and from the operator CLI (for example the notices of the
   KEK or seed wipe, which makes no Withings call, from its one-off container; ADR 0004 §3),
-  never from the worker. **Notices that originate in the worker are in-app only**: stored
-  notifications, shown to the owner on the admin page and at sign-in. That is how PLAN §4.3's
-  "notify the owner" is met (ADR 0004 §6).
+  never from the worker, which never opens SMTP. **Mail that originates in the worker** (the
+  finding notifications of threat model T59 and O8; owner notices such as PLAN §4.3's) is
+  written to a **mail outbox**: owned rows under forced RLS, or a system row for an owner
+  notice. Web sends it with a background task in the web process, through the same
+  guard-listed mail module. The notifications issue (M6/M7) builds the outbox. PLAN §4.3's
+  "notify the owner" goes to the owner (the admin): in-app, plus mail through the outbox
+  (ADR 0004 §6).
 - **Sign-up modes:** `invite` (default) and `closed`. **`open` is refused until the M8 gate**:
   the setting's validation rejects it, and the stored flag can only tighten what the environment
   allows (stricter wins, #12).
@@ -255,5 +259,6 @@ accepted risk.
 ### 2026-10-31 (#49): follow-ups of the #41 review
 
 - §6: SMTP never from the worker. Mail goes out through one mail module, from web and from the
-  operator CLI's one-off containers; notices from the worker are in-app only (Architect
-  decisions). The earlier text called the mail module a web-only path.
+  operator CLI's one-off containers; mail that originates in the worker goes through an outbox
+  that web sends, and PLAN §4.3's owner notice is in-app plus mail (Architect decisions). The
+  earlier text called the mail module a web-only path.
