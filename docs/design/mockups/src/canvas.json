@@ -1,0 +1,169 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-31T12:00:00Z"
+  },
+  "title": "ownvitals design concept",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 3240,
+      "title": "Design language: Quiet instrument"
+    },
+    "Rail.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 248,
+      "h": 980,
+      "title": "Component: navigation rail"
+    },
+    "Dashboard.dc.html": {
+      "x": 0,
+      "y": 3640,
+      "w": 1440,
+      "h": 1500,
+      "title": "Overview",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Metric.dc.html": {
+      "x": 1520,
+      "y": 3640,
+      "w": 1440,
+      "h": 1500,
+      "title": "Metric detail: weight",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Reading.dc.html": {
+      "x": 3040,
+      "y": 3640,
+      "w": 1440,
+      "h": 1650,
+      "title": "Day and reading, with provenance",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "ECG.dc.html": {
+      "x": 4560,
+      "y": 3640,
+      "w": 1440,
+      "h": 1250,
+      "title": "ECG list and viewer",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Findings.dc.html": {
+      "x": 6080,
+      "y": 3640,
+      "w": 1440,
+      "h": 1300,
+      "title": "Findings inbox",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Onboarding.dc.html": {
+      "x": 0,
+      "y": 5690,
+      "w": 1400,
+      "h": 1000,
+      "title": "Onboarding on a phone"
+    },
+    "Connections.dc.html": {
+      "x": 1480,
+      "y": 5690,
+      "w": 1440,
+      "h": 1650,
+      "title": "Connections: Withings",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Auth.dc.html": {
+      "x": 0,
+      "y": 7740,
+      "w": 1440,
+      "h": 1500,
+      "title": "Sign in, second factor, step-up, sign out"
+    },
+    "Settings.dc.html": {
+      "x": 0,
+      "y": 9640,
+      "w": 1440,
+      "h": 1650,
+      "title": "Settings: profile and preferences",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Security.dc.html": {
+      "x": 1520,
+      "y": 9640,
+      "w": 1440,
+      "h": 1650,
+      "title": "Settings: sign-in and security",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Admin.dc.html": {
+      "x": 0,
+      "y": 11690,
+      "w": 1440,
+      "h": 1750,
+      "title": "Admin: accounts and system, no health data",
+      "expand": "fill",
+      "is_interactive": true
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Rail.dc.html",
+    "Dashboard.dc.html",
+    "Metric.dc.html",
+    "Reading.dc.html",
+    "ECG.dc.html",
+    "Findings.dc.html",
+    "Onboarding.dc.html",
+    "Connections.dc.html",
+    "Auth.dc.html",
+    "Settings.dc.html",
+    "Security.dc.html",
+    "Admin.dc.html"
+  ],
+  "notes": {
+    "tA": {
+      "x": 0,
+      "y": -300,
+      "text": "ownvitals · Quiet instrument",
+      "kind": "title1",
+      "maxW": 1768
+    },
+    "tB": {
+      "x": 0,
+      "y": 3380,
+      "text": "Analyse: overview → metric → day → reading",
+      "kind": "title1",
+      "maxW": 7520
+    },
+    "tC": {
+      "x": 0,
+      "y": 5430,
+      "text": "Connect Withings",
+      "kind": "title1",
+      "maxW": 2920
+    },
+    "tE": {
+      "x": 0,
+      "y": 9380,
+      "text": "Your account",
+      "kind": "title1",
+      "maxW": 2960
+    }
+  },
+  "designSystems": []
+}

@@ -15,7 +15,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | M3 | Identity additions | not started | — |
 | M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67) and #56 (#74) merged; #68 in progress; #76 ready | — |
 | M5 | ECG & nerve health | ADR 0006 (#46) in a fix round after its sixth FAIL (root cause of the trigger rule changed); #40 after it; #47 created | — |
-| M6 | MVP UI | not started | — |
+| M6 | MVP UI | not started; the UI design is chosen ([docs/design/](design/README.md), #85) | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
 
@@ -108,6 +108,7 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-31 | Owner: the UI design is "Quiet instrument", exactly as in the mock-ups in `docs/design/mockups/` (IBM Plex self-hosted, the health score shown with its components, range bars on the phone, a System/Light/Dark theme setting). The mock-ups bind every UI change; gaps go to the Architect, design changes to the owner | #85, `docs/design/README.md`, AGENTS.md "UI design" |
 | 2026-10-31 | numpy and scipy join #2's dependencies so #37, #38 and #40 don't need the `pyproject.toml` lock | #2 |
 | 2026-10-31 | Roadmap Amendment 2: partitioned owned tables keyed `(owner_id, id, partition key)`, never FK targets | roadmap, ADR 0002 |
 | 2026-10-31 | Webhook secrets are derived, never stored: `secret = HMAC-SHA256(seed[seed_id], "ownvitals-webhook-v1" ‖ app_id ‖ secret_id)`; each entry keeps `{secret_id, seed_id, pepper_id, hmac, active_from, retire_at}` with hmac = HMAC(pepper, secret) (PLAN §4.4, §5). The worker holds seed and pepper; web holds only the pepper. A seed rotation is a secret rotation. After a seed compromise (or a compromise of the KEK ring holding it), subscriptions whose tokens were wiped keep the old URL until reconnect; the retired secret gets the generic 200 and is ignored: accepted risk 20 | ADR 0004, #8, #24 |
@@ -143,6 +144,9 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 
 ## Architect tasks
 
+- Split M6 into issues by screen group from `docs/design/README.md` ("Building it"): shell and
+  tokens first. Point the UI parts of #10, #11 and #12 at the `Auth`, `Security` and `Admin`
+  mock-ups.
 - When #46 merges: record ADR 0006's assumptions A1–A8 (and the new one next to A7: Withings
   lists the ECG by the time an `ecg` sync completes) below with their settling items; add the
   0006 row to `docs/adr/README.md` (noting that 0006 and its tests file use "§n" for their own
@@ -176,7 +180,7 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/src/ownvitals/cli.py` | #9 |
 | `compose.yaml` | #9 |
 | `Dockerfile` | — (#57 next) |
-| `AGENTS.md` | — |
+| `AGENTS.md` | #85 |
 | `backend/src/ownvitals/web.py` | #8 |
 | `backend/src/ownvitals/db/engine.py` | — |
 | `backend/src/ownvitals/db/tables.py` | #8 |
