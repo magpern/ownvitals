@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Findings · ownvitals mock-up</title>
+<link rel="stylesheet" href="ov.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</head>
+<body>
+<div class="ov app" data-theme="light">
+  <div class="rail-wrap"><div class="ov" data-theme="light" style="width: 100%; background: var(--surface); font-family: 'IBM Plex Sans', system-ui, sans-serif; color: var(--ink)">
+  <nav class="rail" aria-label="Main">
+    <a class="brand" href="Dashboard.html">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>
+      ownvitals
+    </a>
+    <div class="navgroup">
+      <span class="eyebrow">Analyse</span>
+      <div class="navlist">
+        
+          <a href="Dashboard.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z" class="ic"></path></svg>
+            <span>Overview</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="Metric.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0z M6 10.5h12 M12 10.5v5 M8.5 21l3.5-5.5 3.5 5.5" class="ic"></path></svg>
+            <span>Body</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="ECG.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h4l2-5 4 10 3-7 2 2h5" class="ic"></path></svg>
+            <span>Heart &amp; ECG</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="Dashboard.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v6 M12 9l-5 5 M12 9l5 5 M7 14v6 M17 14v6 M12 9v11" class="ic"></path></svg>
+            <span>Nerve health</span>
+            <span class="end small muted">3 of 4</span>
+          </a>
+        
+          <a href="Dashboard.html" class="dim" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" class="ic"></path></svg>
+            <span>Sleep</span>
+            <span class="end small">n/a</span>
+          </a>
+        
+          <a href="Dashboard.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z" class="ic"></path></svg>
+            <span>Activity</span>
+            <span class="end dot attn"></span>
+          </a>
+        
+          <a href="Findings.html" class="" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-8h11L20 13 M4 13v6h16v-6 M4 13h5l1 2h4l1-2h5" class="ic"></path></svg>
+            <span>Findings</span>
+            <span class="end count attn">2</span>
+          </a>
+        
+      </div>
+    </div>
+    <div class="navgroup">
+      <span class="eyebrow">Your data</span>
+      <div class="navlist">
+        
+          <a href="Connections.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15l6-6 M10.5 6.5l1.8-1.8a4 4 0 0 1 5.7 5.7l-1.8 1.8 M13.5 17.5l-1.8 1.8a4 4 0 0 1-5.7-5.7l1.8-1.8" class="ic"></path></svg>
+            <span>Connections</span>
+            <span class="end dot ok"></span>
+          </a>
+        
+      </div>
+    </div>
+    <div class="navgroup">
+      <span class="eyebrow">Account</span>
+      <div class="navlist">
+        
+          <a href="Settings.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10 M18 7h2 M4 17h4 M12 17h8 M16 5v4 M10 15v4" class="ic"></path></svg>
+            <span>Settings</span>
+            <span class="end"></span>
+          </a>
+        
+          <a href="Security.html" class="" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10.5h12v9.5H6z M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5 M12 14v2.5" class="ic"></path></svg>
+            <span>Security</span>
+            <span class="end"></span>
+          </a>
+        
+        
+          <a href="Admin.html" aria-current="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z M9 12l2 2 4-4" class="ic"></path></svg>
+            <span>Admin</span>
+          </a>
+        
+      </div>
+    </div>
+  </nav>
+</div></div>
+  <div class="main">
+    <header class="topbar">
+      <h1 style="font-size: 22px">Findings</h1>
+      <span class="grow"></span>
+      <button class="acct" type="button" aria-haspopup="menu"><span class="avatar">A</span>alex@example.org<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 8l5 5 5-5" class="ic"></path></svg></button>
+    </header>
+    <div class="fresh" role="status">
+      <span class="item"><span class="dot ok"></span>Analysis ran at 07:08 on today's data</span>
+      <span class="item">Rules: analysis 1.2.0</span>
+      <span class="item"><span class="dot attn"></span>Activity history incomplete: activity rules wait for the import</span>
+    </div>
+
+    <div class="content" style="max-width: none">
+      <nav class="tabs" aria-label="Findings">
+        <a href="#live" aria-current="false">Live<span class="count attn">4</span></a>
+        <a href="#history" aria-current="page">History<span class="count">12</span></a>
+      </nav>
+      <div class="row" style="gap: 6px">
+        <button class="chip" type="button" aria-pressed="true">All tiers</button>
+        <button class="chip" type="button">Device</button>
+        <button class="chip" type="button">Trend</button>
+        <button class="chip" type="button">Experimental</button>
+        <button class="chip" type="button">System</button>
+        <span class="grow" style="flex: 1 1 auto"></span>
+        <select class="input" style="width: 180px" aria-label="Area"><option>All areas</option><option>Body</option><option>Heart and ECG</option><option>Nerve health</option><option>Activity</option></select>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+        <section class="stack" style="flex: 1 1 380px; min-width: 0; gap: 10px" aria-label="Finding list">
+          
+          
+            <div class="notice info"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" class="ic"></circle><path d="M10 9v5 M10 6.2v.1" class="ic"></path></svg><p class="small">Found while importing your history. They never notify; they're here so you can look back.</p></div>
+            <div class="finding">
+              <div class="between"><span class="tier trend"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend · Body</span><span class="small muted">From history</span></div>
+              <h3>Weight 5.2 % lower over 6 months</h3>
+              <div class="meta"><span>Jan–Jun 2024</span><span>Confidence: high</span></div>
+            </div>
+            <div class="finding">
+              <div class="between"><span class="tier trend"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend · Heart</span><span class="small muted">From history</span></div>
+              <h3>Resting heart rate above your typical range for 5 days</h3>
+              <div class="meta"><span>12–16 Mar 2023</span><span>Confidence: medium</span></div>
+            </div>
+            <div class="finding">
+              <div class="between"><span class="tier device"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Device · ECG</span><span class="small muted">From history</span></div>
+              <h3>Withings marked 3 of 10 ECGs inconclusive or noisy</h3>
+              <div class="meta"><span>Nov 2023</span><span>Withings' own results</span></div>
+            </div>
+          
+        </section>
+
+        <article id="c1" class="dialog" style="flex: 999 1 560px; min-width: 0; gap: 18px" aria-labelledby="detail-title">
+          <div class="stack" style="gap: 8px">
+            <div class="row"><span class="tier trend"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend</span><span class="small muted">Rule C1 · version 1 · live</span></div>
+            <h2 id="detail-title" style="font-size: 24px">Your resting heart rate has been above your typical range for 3 days</h2>
+            <p class="muted">It was <span class="num" style="color: var(--ink); font-weight: 600">71 bpm</span> on 31 Oct. Over the 90 days before, your typical range was <span class="num" style="color: var(--ink); font-weight: 600">59–63 bpm</span>.</p>
+          </div>
+          <figure class="card" style="padding: 12px 12px 4px">
+            <svg viewBox="0 0 560 180" style="width: 100%; height: auto; display: block" role="img" aria-label="Resting heart rate over October with the typical range; the last three days are above it">
+              <rect x="503.9" y="12" width="44.1" height="144" style="fill: var(--attn-soft)"></rect>
+              <line x1="36" y1="18" x2="548" y2="18" class="c-grid"></line>
+              <line x1="36" y1="48" x2="548" y2="48" class="c-grid"></line>
+              <line x1="36" y1="78" x2="548" y2="78" class="c-grid"></line>
+              <line x1="36" y1="108" x2="548" y2="108" class="c-grid"></line>
+              <line x1="36" y1="138" x2="548" y2="138" class="c-grid"></line>
+              <text x="28" y="22" class="c-axis ta-end">75</text>
+              <text x="28" y="52" class="c-axis ta-end">70</text>
+              <text x="28" y="82" class="c-axis ta-end">65</text>
+              <text x="28" y="112" class="c-axis ta-end">60</text>
+              <text x="28" y="142" class="c-axis ta-end">55</text>
+              <text x="89" y="172" class="c-axis ta-mid">5 Oct</text>
+              <text x="212.6" y="172" class="c-axis ta-mid">12 Oct</text>
+              <text x="336.1" y="172" class="c-axis ta-mid">19 Oct</text>
+              <text x="459.7" y="172" class="c-axis ta-mid">26 Oct</text>
+              <path d="M36 90.6 L53.7 90.6 L71.3 89.6 L89 90.6 L124.3 89.6 L141.9 89 L159.6 89.3 L177.2 88.9 L194.9 88.7 L212.6 88.6 L230.2 89.3 L247.9 88.9 L265.5 89.1 L318.5 88.9 L336.1 89.1 L353.8 89 L371.4 89.1 L389.1 89.2 L406.8 89 L424.4 88.8 L442.1 89 L459.7 89.2 L477.4 89.3 L495 89.3 L512.7 89.1 L530.3 88.9 L548 88.4 L548 113.6 L530.3 113.6 L512.7 113.4 L495 113.3 L477.4 113.3 L459.7 113.2 L442.1 113 L424.4 112.8 L406.8 113 L389.1 113.2 L371.4 113.4 L353.8 113.5 L336.1 113.4 L318.5 113.6 L265.5 113.4 L247.9 113.6 L230.2 113.9 L212.6 114 L194.9 113.8 L177.2 113.6 L159.6 113.9 L141.9 115 L124.3 115.1 L89 114.6 L71.3 115.1 L53.7 114.6 L36 114.6 Z" class="c-band"></path>
+              <path d="M32.8 101.3 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M50.5 88.6 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M68.1 96.3 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M85.8 105.3 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M121.1 81.9 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M138.7 96 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M156.4 88.4 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M174 97.3 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M191.7 93.6 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M209.4 109.9 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M227 106.6 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M244.7 100.2 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M262.3 100.2 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M315.3 110.8 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M332.9 96.8 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M350.6 106.8 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M368.2 96.8 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M385.9 99.4 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M403.6 96.4 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M421.2 90.1 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M438.9 101.4 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M456.5 101.9 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M474.2 107.4 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M491.8 112 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 " class="c-dots"></path>
+              <path d="M36 100.9 L53.7 97.2 L71.3 96.9 L89 99.4 L124.3 90.5 L141.9 92.2 L159.6 91.1 L177.2 92.9 L194.9 93.1 L212.6 98.2 L230.2 100.7 L247.9 100.5 L265.5 100.4 L318.5 107.2 L336.1 104.1 L353.8 104.9 L371.4 102.5 L389.1 101.6 L406.8 100 L424.4 97 L442.1 98.3 L459.7 99.4 L477.4 101.8 L495 104.9 L512.7 86.5 L530.3 73.5 L548 63.7" class="c-line"></path>
+              <path d="M509.5 43.6 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M527.1 43.2 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 M544.8 40.9 a3.2 3.2 0 1 0 6.4 0 a3.2 3.2 0 1 0 -6.4 0 " class="c-out"></path>
+            </svg>
+          </figure>
+          <div class="grid g2" style="gap: 16px">
+            <section class="stack" style="gap: 6px">
+              <h3>Why you're seeing this</h3>
+              <p class="small muted">Your resting heart rate was 10 bpm or more above your usual level, the middle of your typical range, on 3 days in a row. The range comes from your previous 90 days, not from population norms.</p>
+            </section>
+            <section class="stack" style="gap: 6px">
+              <h3>What it isn't</h3>
+              <p class="small muted">It's not a diagnosis. Many everyday things raise resting heart rate for a few days. If it worries you or keeps going, talk to a doctor.</p>
+            </section>
+          </div>
+          <dl class="kv">
+            <dt>Data quality</dt><dd class="num">27 of 30 days · coverage 90 % · longest gap 2 days · 1 reading a day</dd>
+            <dt>Confidence</dt><dd>Medium: 3 days is the shortest run the rule accepts</dd>
+            <dt>Sources</dt><dd>Body Scan heart pulse (type 11), ScanWatch 2</dd>
+            <dt>Provenance</dt><dd class="mono">C1 v1 · analysis 1.2.0 · rev 4812 · sha256 51be…09cd</dd>
+          </dl>
+          <div class="row"><button class="btn primary" type="button">Mark as seen</button><a class="btn" href="Metric.html">Open resting heart rate</a></div>
+        </article>
+      </div>
+      <p class="synthetic">Example data is synthetic.</p>
+    </div>
+  </div>
+</div>
+<script>
+  // ?theme=dark switches every .ov root, the imported rail included.
+  var t = new URLSearchParams(location.search).get('theme') || 'light';
+  document.querySelectorAll('.ov').forEach(function (e) { e.setAttribute('data-theme', t); });
+</script>
+</body>
+</html>

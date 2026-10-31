@@ -257,6 +257,15 @@ written by the issue that creates the area, so parallel issues never edit the sa
 `egress.md`, `crypto.md`, `jobs.md`, `auth.md`, `admin.md`, `connections.md`, `e2e.md`; later
 milestones add `withings.md`, `analysis.md` and others. Read the files for the area you work in.
 
+## UI design
+
+The owner chose the UI design on 2026-10-31: [docs/design/](docs/design/README.md). Its mock-ups
+(`docs/design/mockups/`, screenshots in `png/`) are the reference for every UI change, M6 and the
+UI parts of earlier issues alike: build the screens, components, states, tokens and wording they
+show, and don't invent new ones. A screen or state they don't cover goes to the Architect, and a
+change to the design needs the owner. The specification still wins where they differ. The
+Reviewer of a UI PR compares the result with the screenshots.
+
 ## CI
 
 | Workflow / job | Runs | What it does |

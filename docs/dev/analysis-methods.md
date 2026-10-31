@@ -15,7 +15,9 @@ cd backend
 uvx uv@0.13.6 run pytest -q tests/analysis_methods tests/test_analysis_purity.py
 ```
 
-No database is needed. The simulation tests take about a minute.
+No database is needed. The 286 tests take about 30 s of test time (36 s wall, measured on Windows
+while other work ran), most of it the seeded simulations. The long calibration runs behind the
+tables below are a script that CI does not run (see Tests).
 
 ## Modules
 
@@ -24,8 +26,8 @@ No database is needed. The simulation tests take about a minute.
 | `series.py` | `Series` (times in days, `float64` values), `InputSummary` (n and coverage), `mad()`, `MAD_SCALE` |
 | `baseline.py` | `rolling_baseline()`: median, MAD and typical range over time windows |
 | `ewma.py` | `ewma()`: exponential average weighted by the time gap |
-| `trend.py` | `trend()`: Theil-Sen slope, Mann-Kendall test, Hamed-Rao correction |
-| `changepoint.py` | `find_changes()` (PELT) and `detect_changes()` (PELT behind the minimum-data policy) |
+| `trend.py` | `trend()`: Theil-Sen slope, Mann-Kendall test, AR(1) (default) or Hamed-Rao correction of its variance |
+| `changepoint.py` | `find_changes()` (PELT, cost scaled by the long-run noise) and `detect_changes()` (PELT behind the minimum-data policy) |
 
 The flow, for one metric of one user:
 
@@ -50,9 +52,10 @@ with them.
 
 **Results carry their inputs.** Every result has `inputs: InputSummary` (`n` points, `n_days`
 distinct days, `window_days`, `coverage = n_days / window_days`, first and last time) and the
-`algo_version` of its module (`baseline/1`, `ewma/1`, `trend/1`, `changepoint/1`; PLAN §5). The
+`algo_version` of its module (`baseline/1`, `ewma/1`, `trend/2`, `changepoint/2`; PLAN §5). The
 window is the one given to `Series(..., window_days=...)` (the period the finding is about, e.g.
-90) or, if none, the span from the first to the last day with data. **Bump a module
+90) or, if none, the days from the first to the last day with data, both counted (a window of
+days, one more than the elapsed span the minimum-data policy counts). **Bump a module
 `ALGO_VERSION` whenever its behaviour changes**, in the same change as the tests.
 `as_dict()` gives a JSON-safe form (NaN becomes `null`).
 
@@ -101,48 +104,130 @@ alpha(d1 + d2)`, adding points that repeat the value of the next point changes n
   `Var(S)`, continuity-corrected `Z`, two-sided `p`. It uses only the order of the values.
   Tied times are refused (aggregate to one value per day first); a constant series gives
   `Z = 0, p = 1`.
-- **Hamed-Rao** (1998): detrend with the Theil-Sen slope, rank the residuals, take the
-  autocorrelation of the ranks at the lags significant at 95 % (Anderson limits) and multiply
-  `Var(S)` by `n/n* = 1 + 2/(n(n-1)(n-2)) * sum (n-k)(n-k-1)(n-k-2) rho_k`.
+- **Variance correction for autocorrelation.** Positive autocorrelation makes the points carry
+  less independent information than `n`, so `Var(S)` is multiplied by a factor `n/n*` (never
+  below 1). `correction=` chooses how it is found, and the result says which was used:
+  - `Correction.AR1` (**default**, `trend/2`): the factor of an AR(1) model fitted to the
+    detrended series. Below.
+  - `Correction.HAMED_RAO`: Hamed and Rao (1998), the autocorrelation of the ranks of the
+    detrended series at the lags significant at 95 % (Anderson limits), in
+    `n/n* = 1 + 2/(n(n-1)(n-2)) * sum (n-k)(n-k-1)(n-k-2) rho_k`. Kept as the published method;
+    **it under-corrects** (table below) and is not the default.
+  - `Correction.NONE`: the plain test.
 - **Theil-Sen** (Theil 1950, Sen 1968): the median of all pairwise slopes `(y_j - y_i)/(t_j - t_i)`
   with the real times, so the slope is in value units **per day**. The confidence interval of Sen
-  uses the modified variance (ranks `(N - C)/2` and `(N + C)/2 + 1`, interpolated, as in Gilbert
-  1987 and Helsel and Hirsch 2002). The intercept is the level at `t_ref`, the first time.
-- `correction=Correction.NONE` gives the plain test; the result always says which was used and
-  carries `n_over_n_star_raw` (as published) and `n_over_n_star` (as used).
+  uses the corrected variance (ranks `(N - C)/2` and `(N + C)/2 + 1`, interpolated, as in Gilbert
+  1987 and Helsel and Hirsch 2002), so it widens with the autocorrelation. The intercept is the
+  level at `t_ref`, the first time. The slope and the direction are the same whatever the
+  correction.
+- The result carries `n_over_n_star_raw` (as computed) and `n_over_n_star` (as used), and for
+  `AR1` also `ar1_r` and `ar1_phi`.
 
 Decisions the sources leave open:
 
-- **`n/n*` is never below 1.** The published factor drops below 1 for negative autocorrelation,
-  which would make the test claim more than the plain one; we only inflate.
+- **`n/n*` is never below 1.** The published Hamed-Rao factor drops below 1 for negative
+  autocorrelation, which would make the test claim more than the plain one; we only inflate.
+  (`AR1` cannot go below 1: its coefficient is limited to 0 or more.)
 - **The autocorrelation lag counts points in time order.** On a series with gaps a lag is "k
   readings later", not "k days later". The residuals themselves use the real times.
 - At most `MAX_POINTS = 3000` points (the `n(n-1)/2` slopes are held in memory); trends are
   computed over windows of weeks to a year.
 
-### What the correction achieves (measured, seeded, 1000 series each)
+### The AR(1) correction (#68)
 
-Series with no trend at all, tested at alpha = 0.05 (the tests pin these runs):
+Hamed-Rao uses the sample autocorrelation at the lags that happen to be significant, so it
+misses the small, many-lag part of an AR(1) series' autocorrelation, and a short series' estimate
+is noisy: at 5 % it still flags 9 % of 100-point AR(1) series with `phi` 0.3 and 15 % with
+`phi` 0.6 that have no trend at all (table below). `Correction.AR1` fits one number, `phi`, and uses
+it at every lag. The candidates the issue named, and why this one:
 
-| Series | Plain MK | Hamed-Rao |
+| Candidate | Verdict |
+|---|---|
+| Variance correction with an AR(1)-fitted effective sample size (Bayley and Hammersley 1946; for Mann-Kendall Yue and Wang 2004) | **Chosen.** Keeps `S`, `Var(S)`, the slope and its interval those of the data, pure and deterministic, and is one number to audit (`ar1_phi`) |
+| Trend-free prewhitening (Yue et al. 2002) | Not chosen, not simulated: it tests a different series (the prewhitened one), so `S`, `tau` and Sen's interval would no longer describe the data shown |
+| Block bootstrap | Not chosen: needs random numbers (the package has none) and hundreds of resamples per call |
+
+The factor is the Hamed-Rao formula with `rho_k = phi^k` at all lags (a long series tends to
+`(1 + phi)/(1 - phi)`, the effective sample size of Bayley and Hammersley). `phi` comes from the
+detrended series in four steps:
+
+1. Remove the Theil-Sen trend (real times) and rank the residuals, as Hamed-Rao does. Ranks
+   bound the influence of an outlier.
+2. `r_1`, the lag-1 autocorrelation of the ranks, mapped to the Gaussian scale,
+   `r = 2 sin(pi r_1 / 6)` (the relation between a rank and a product-moment correlation of
+   normal data, Pearson 1907, Kruskal 1958). For AR(1) data `r` is then near `phi`.
+3. `phi = r + (6 + 6 r)/n`. The added term is the **bias** of `r` after a mean and a trend have
+   been removed, measured here as about `-(2 + 5.5 phi)/n` (compare Kendall 1954 and Marriott and
+   Pope 1954 for the mean alone), plus a **safety margin** of about `4/n`: in a short series `phi` is not
+   known well, and guessing low means a false trend. Both constants are calibrated by simulation
+   (`calibrate_autocorrelation.py`), not taken from a paper.
+4. `phi` is limited to 0 to 0.95 (never below 0, so the test is only ever made more cautious).
+
+What it costs, and a decision for the Architect: **power**. The margin that holds the level at
+`phi` 0.6 for 8 to 30 days with data also inflates the variance of independent noise (white noise
+is flagged in 1.8 % to 3.6 % of series up to 100 points and 4.5 % to 4.8 % at 200 and 365, at a
+level of 5 %; the plain test flags 4 % to 5 %), so a real trend
+is found less often in short series (power table). A curved but monotone trend leaves
+smooth residuals after the linear detrending, which look like persistence, so it is penalised the same way: 30
+perfectly monotone readings (a sorted normal sample) get `n/n*` 5 to 11 instead of 2 to 3 and
+`p` between 8e-4 and 0.02 instead of 1e-9 to 1e-5 (test
+`test_a_monotone_series_is_a_significant_trend`).
+
+### What the correction achieves (measured)
+
+`calibrate_autocorrelation.py trend`, seed 20261031, 5000 series per cell (2500 at n = 200, 1000
+at n = 365), no trend at all, alpha 0.05, AR(1) in reading order at irregular days (the test
+uses the order, the detrending the times). Percent of series called a trend; standard error 0.2
+to 0.7 points up to n = 100, 0.9 at 200, 1.5 at 365. The bound of the acceptance criterion is
+alpha plus three standard errors: 5.97 % at 5000 series.
+
+| n | phi 0: plain / Hamed-Rao / AR(1) | phi 0.3: plain / Hamed-Rao / AR(1) | phi 0.6: plain / Hamed-Rao / AR(1) |
+|---|---|---|---|
+| 8 | 3.1 / 3.1 / 1.8 | 7.4 / 7.3 / 3.2 | 15.4 / 15.3 / **5.5** |
+| 12 | 4.1 / 4.0 / 1.8 | 11.1 / 10.8 / 3.7 | 24.4 / 23.6 / **5.8** |
+| 20 | 4.9 / 4.7 / 2.6 | 12.6 / 11.7 / 4.1 | 29.3 / 23.4 / **5.6** |
+| 30 | 4.6 / 4.4 / 2.8 | 12.9 / 11.4 / 3.7 | 29.0 / 18.7 / **4.5** |
+| 60 | 4.9 / 4.6 / 3.5 | 14.6 / 11.0 / 4.3 | 31.0 / 15.4 / **4.2** |
+| 100 | 4.6 / 4.0 / 3.6 | 14.1 / 9.2 / 4.5 | 32.5 / 15.1 / **4.3** |
+| 200 | 5.4 / 4.8 / 4.8 | 14.0 / 8.5 / 4.4 | 29.4 / 12.0 / **4.2** |
+| 365 | 4.6 / 4.0 / 4.5 | 14.1 / 6.8 / 4.4 | 31.1 / 12.6 / **5.5** |
+
+These re-baseline the rates of #38 (8.7 % and 13.5 % for Hamed-Rao at 100 points, from one
+1000-series run with a shared seed, were 1 to 2 standard errors optimistic: 9.2 % and 15.1 %
+here). Other noise, same bound, 5000 series (standard error 0.2 to 0.3), `phi` 0.6; plain / Hamed-Rao / AR(1) in percent:
+
+| Noise | n | plain / Hamed-Rao / AR(1) |
 |---|---|---|
-| white noise, n = 60, irregular times | 5.3 % | 5.0 % |
-| AR(1), phi = 0.3, n = 100 | 13.1 % | 8.7 % |
-| AR(1), phi = 0.6, n = 100 | 29.2 % | 13.5 % |
+| consecutive days instead of irregular ones | 8, 30, 100 | 14.9 / 14.8 / 5.7;  30.6 / 20.8 / 5.4;  32.7 / 15.7 / 5.0 |
+| continuous-time AR(1), `phi` 0.6 **per day**, irregular days | 12, 30, 100 | 18.0 / 17.4 / 4.7;  21.9 / 16.5 / 4.5;  23.8 / 12.5 / 4.1 |
+| heavy tails: AR(1) with t(3) innovations | 12, 30, 100 | 25.1 / 24.0 / 6.2;  30.5 / 19.4 / 4.1;  33.7 / 16.1 / 4.0 |
 
-White noise is held at the stated level (at alpha = 0.01: 1.0 % and 0.9 %). On autocorrelated
-series the correction removes about half of the excess, but **it does not restore alpha**: as
-published it uses only the significant lags, so it under-corrects, more the stronger the
-autocorrelation. A finding from a strongly autocorrelated metric (day-to-day weight) is
-therefore less conservative than its p-value says. The `confidence` the wiring step derives
-from this must not treat `p < alpha` as a guarantee at alpha. Options if that matters: a
-stronger correction (effective sample size from a fitted AR model, prewhitening), a stricter
-alpha, or a block bootstrap; none is in this issue.
+The one cell above the bound is the heavy-tailed series of 12 points (6.2 %, bound 5.97 %); all
+the others are inside it. The continuous-time row is the case the model does not describe exactly
+(the autocorrelation then depends on the gap between readings, and the fit sees the average).
+
+Power: white noise plus a straight trend of `drift` standard deviations over the series
+(percent of series called a trend; standard error 0.5 to 1.0):
+
+| n | drift | plain | Hamed-Rao | AR(1) |
+|---|---|---|---|---|
+| 12 | 3.5 | 86.1 | 85.6 | 55.8 |
+| 20 | 2.5 | 84.4 | 83.8 | 63.5 |
+| 30 | 2.0 | 85.8 | 85.0 | 71.9 |
+| 60 | 1.6 | 92.6 | 91.8 | 88.2 |
+| 200 | 0.8 | 88.6 | 86.9 | 86.7 |
+| 365 | 0.6 | 90.0 | 88.5 | 89.6 |
+
+The tests pin the target on fixed seeds with fewer series (1000, fewer at long lengths) so the
+suite stays fast: `phi` 0.3 and 0.6 at n = 8, 15 and 100, and 0.6 at n = 365, within alpha plus
+three standard errors of the number of series used, with a floor (a rate of at least alpha/4) so that "under the
+bound" is not "never rejects", and a regression test that independent noise keeps at least 90 % of
+the plain test's power at n = 60. They are the acceptance test; the tables are the evidence.
 
 The acceptance criterion "white noise: no trend in at least 95 % of seeded runs at the stated
 alpha" is tested two ways: at alpha = 0.01 the literal 95 % holds; at alpha = 0.05 the rate must
 not exceed alpha plus three binomial standard errors (a seeded sample of 1000 cannot promise
-95.0 % when the own rate of the test is 5.0 %).
+95.0 % when the own rate of the test is 5.0 %). All three corrections pass both.
 
 ## PELT change points (`changepoint.py`)
 
@@ -150,7 +235,11 @@ PELT (Killick, Fearnhead and Eckley 2012) finds the segmentation of the points i
 that minimises `sum cost(segment) + penalty * (number of change points)`, pruning the candidates
 that can never be optimal again (their Theorem 3.1, `K = 0`). It is **exact**: the tests compare
 it with the unpruned O(n^2) optimal-partitioning recursion (Jackson et al. 2005) on random series
-with planted shifts and minimum segment lengths 1 to 5, and it returns the same optimum.
+with planted shifts and minimum segment lengths 1 to 5, and it returns the same optimum. One
+case is written out by hand and needs no random numbers
+(`test_the_minimum_segment_delay_by_hand_without_a_random_generator`): it is returned wrongly by
+a version that prunes at once, so a change of numpy's random stream cannot stop covering the
+delay.
 
 The model and its parameters (ours; the paper leaves them open):
 
@@ -159,34 +248,99 @@ The model and its parameters (ours; the paper leaves them open):
   irregular sampling and gaps need no handling; a change point lies **between** two points and
   is reported as the first point of the new segment (`index`, `time`) with `previous_time`. How
   the change happened inside that gap is not known.
-- **sigma**: robust, from the first differences, `1.4826 * MAD(diff y) / sqrt(2)`, which a few
-  level shifts hardly move. If more than half the differences are zero the standard deviation of
-  the differences over `sqrt(2)` is used. A constant series has no change points. `sigma=`
-  overrides.
+- **sigma**: the **long-run** standard deviation of the noise, estimated robustly (below);
+  `sigma=` overrides it. A constant series has no change points.
 - **Penalty**: `3 ln n` in units of sigma^2 (a BIC-type penalty with a conservative factor);
   `penalty=` overrides.
 - **Minimum segment**: 5 points (`min_segment`). With a minimum length the pruning of a
   candidate takes effect `min_segment` steps late, which keeps the result exact. A series of
   fewer than `2 * min_segment` points cannot have a change point: `searched = False`.
-- Each `ChangePoint` has the means before and after, the shift and the shift in sigmas.
+- Each `ChangePoint` has the means before and after, the shift and the shift in long-run
+  sigmas (`shift_sigmas`). The result has `sigma` and `phi` (None if `sigma=` was given).
 
-Measured (seeded): a shift of 3 sigma at point 40 of 80 is found as exactly one change point in
-98.5 % of 200 series, at most 2 points off (mean 0.16). White noise of 60 points has no change
-point in 97.3 % of 300 series.
+### Autocorrelated noise (#68)
 
-**Limitation: independent noise is assumed.** With autocorrelated noise the cost sees slow drifts
-as level shifts. Measured once with a scratch script, not asserted: AR(1) series of 100 points had
-a spurious change point in about 30 % of runs at phi = 0.3 and about 80 % at phi = 0.5. Day-to-day
-body weight is autocorrelated. `penalty` and `sigma` are the levers (pass the long-run standard
-deviation as `sigma`); nothing here estimates it. Before change points become findings the wiring
-step has to do that or label the result accordingly; this is flagged for the Architect.
+With independent noise the cost is the Gaussian likelihood. With positively autocorrelated noise
+(day-to-day weight is) a stretch of points has a mean that moves by more than
+`sigma/sqrt(length)`, so #38's cost saw slow drifts as level shifts. The cost is now scaled by
+the **long-run** variance, the variance of the mean per point, `g (1 + phi)/(1 - phi)` for AR(1)
+noise of marginal variance `g` (the quantity Newey and West 1987 estimate without a model).
+With it a split's gain on noise alone is about chi-squared with one degree of freedom whatever
+`phi` is, which the penalty `3 ln n` is a margin over.
+
+It has to be estimated without being fooled by the shifts it is there to find. It uses
+**differences**, which a shift touches at a few places (Chakar, Lebarbier, Levy-Leduc and Robin
+2017 estimate the AR(1) coefficient of a series with mean shifts robustly from differences; this
+is the same idea with simpler estimators):
+
+1. `v_h`, h = 1 to 5: the variance of the lag-h differences `y[i+h] - y[i]`, robust: a value
+   beyond 3 robust standard deviations (1.4826 MAD) of the median is left out, and the variance
+   of the rest is divided by that of a normal distribution cut at 3 (0.9733). For AR(1) noise
+   `v_h = 2 g (1 - phi^h)`.
+2. `phi` and `g` from a least-squares fit of that curve over a grid of `phi` from 0 to 0.7 (for
+   a given `phi` the best `2 g` is `sum(v w)/sum(w^2)`, `w_h = 1 - phi^h`).
+3. `phi` is raised by `1/sqrt(n)` (a margin; capped at 0.7) and `sigma = sqrt(g (1+phi)/(1-phi))`.
+
+The margin and the ceiling are calibrated (`calibrate_autocorrelation.py`), not taken from a
+paper. A cheaper estimator was tried first and dropped: `phi = v_2/v_1 - 1` from the lag-1 and
+lag-2 differences alone. It is noisier: on white noise of 100 points its 99th percentile of the
+estimated sd is 3.1 times the true one, against 1.7 times for the fitted curve, and it let more
+spurious change points through at the same margin. The ceiling matters: the long-run variance grows without bound as `phi` goes to 1, which would hide
+any shift. Noise more persistent than 0.7 is therefore treated as level changes.
+
+Measured (`calibrate_autocorrelation.py changepoint`, seed 20261031; percent of series, standard
+error in the brackets). **Series with no change**, AR(1) noise, a change point reported:
+
+| n | phi 0 | phi 0.3 | phi 0.5 | phi 0.7 | phi 0.8 | phi 0.9 |
+|---|---|---|---|---|---|---|
+| 30 | 0.4 (0.1) | 1.2 (0.2) | 2.3 (0.3) | 4.2 (0.5) | 5.5 (0.5) | 13.4 (0.8) |
+| 60 | 0.2 (0.1) | 1.5 (0.3) | 1.7 (0.3) | 2.2 (0.3) | 4.7 (0.5) | 23.1 (0.9) |
+| 100 | 0.1 (0.0) | 0.8 (0.2) | 0.7 (0.2) | 1.6 (0.3) | 4.3 (0.5) | 33.0 (1.1) |
+| 200 | 0.0 (0.0) | 0.4 (0.2) | 0.4 (0.2) | 1.0 (0.3) | 4.9 (0.7) | 49.0 (1.6) |
+| 365 | 0.0 (0.0) | 0.5 (0.4) | 0.2 (0.2) | 0.5 (0.4) | 3.5 (0.9) | 65.2 (2.4) |
+
+The target of the issue is at most 5 % for phi up to 0.5: met at every length, with 2.3 % the
+highest. The same series with #38's noise level (the standard deviation of the differences over
+`sqrt(2)`): 1.7 %, **33.1 %** and **80.8 %** at 100 points for phi 0, 0.3 and 0.5 (the 30 % and 80 %
+that the issue reported), and 5.7 %, 30.3 % and 57.6 % at 30 points. Beyond the ceiling the noise
+is called level changes, as designed: the rate climbs at phi 0.9 (the estimate of the long-run sd
+there is 0.33 to 0.36 of the true one, so it cannot be right for such series).
+For independent noise the estimate is about 8 % to 26 % above the true standard deviation (median
+1.26 at 30 points, 1.14 at 100, 1.08 at 365): the price of not knowing `phi`.
+
+**A shift of 2 long-run standard deviations** at the middle of the series (shift
+`2/(1 - phi)` for AR(1) with innovations of sd 1), found as exactly one change point / within 5
+points of the shift; the mean distance of the single change point from it is 0.13 to 0.73 points
+at every length:
+
+| n | phi 0 | phi 0.3 | phi 0.5 |
+|---|---|---|---|
+| 30 | 60.3 / 60.2 | 42.4 / 42.1 | 42.5 / 43.0 |
+| 60 | 96.1 / 95.5 | 87.6 / 87.3 | 94.7 / 94.8 |
+| 100 | 99.9 / 99.2 | 99.3 / 98.9 | 99.8 / 99.8 |
+| 200 | 100.0 / 99.2 | 99.4 / 99.0 | 99.4 / 100.0 |
+| 365 | 100.0 / 99.0 | 100.0 / 99.0 | 99.5 / 100.0 |
+
+(1000 series per cell up to 100 points, 500 at 200, 200 at 365; more than two change points in
+at most 0.2 %.) A shift of 2 long-run standard deviations is a small shift in a short series:
+less than half of the 30-point series have it found. The stated tolerance of the seeded test is
+one change point exactly in 95 % and within 5 points in 95 % of the 100-point runs; shorter series are
+not claimed. #38's figures under the new noise level: a shift of 3 sigma at point 40 of 80 is
+found as exactly one change point in 100 % of 200 series (at most 2 points off, mean 0.16);
+white noise of 60 points has no change point in 100 % of 300 series.
+
+**Limitation: AR(1) is the model.** Noise with a different shape (a moving-average part, long
+memory, a seasonal cycle) is not described by one `phi`; the variogram fit would still follow
+its first lags. Real data are for the owner's probe, not for this module.
 
 **Minimum data.** `detect_changes(daily, metric_key=..., window_end=..., window_days=...)`
 evaluates the policy (`Purpose.TREND` by default, or `purpose=`, or an explicit `requirement=`)
 on the daily values and returns the `InsufficientData` of the policy untouched, with no search
 run, when it fails. Otherwise it searches the days inside the window and the result carries the
 `data_quality` of the policy. It uses only the public names of the policy (`evaluate`,
-`evaluate_metric`, `Requirement`, `Purpose`, `InsufficientData`).
+`evaluate_metric`, `Requirement`, `Purpose`, `InsufficientData`). `changepoint/2` is used with
+`dataquality/2`, the elapsed-day span of the policy (#74): a series that was one day short under
+the old inclusive count is refused now.
 
 ## Tests
 
@@ -197,7 +351,10 @@ run, when it fails. Otherwise it searches the days inside the window and the res
 - **Hand-computed references**, with the working in comments: the baseline windows (spike,
   boundaries), the EWMA recurrence, Mann-Kendall on a ramp and on tied values, the Theil-Sen
   slope, interval and intercept of a five-point series, the Hamed-Rao factor of ranks 1 to 10,
-  the interval ranks of Sen, and the split and penalty boundary of PELT.
+  the interval ranks of Sen, the split and penalty boundary of PELT, the AR(1) factor
+  (n = 5, phi 0.5: 1.45) and coefficient (ranks 1 3 6 2 5 4), the trimmed variance, the
+  variogram fit (phi 0.5, g 1), and a PELT case that needs no random numbers and catches a
+  missing minimum-segment delay.
 - **Cross-checks**: `scipy.stats.kendalltau` (S, tie-corrected variance, uncorrected p) and
   `scipy.stats.theilslopes` (slope on irregular times); a plain loop implementation of the
   baseline windows and of equation 9 of Hamed and Rao; the O(n^2) recursion for PELT.
@@ -207,7 +364,13 @@ run, when it fails. Otherwise it searches the days inside the window and the res
   shifting and rescaling time and values; EWMA unchanged by points that repeat the next value;
   monotone series give a significant trend; outliers do not move the Theil-Sen slope; the result
   of PELT does not depend on the spacing of the points.
-- **Seeded simulations**: the error rates above.
+- **Seeded simulations** (`test_methods_trend_ar1.py`, `test_methods_changepoint_ar1.py`, and
+  the white-noise tests of `test_methods_trend.py`): the error rates above, on fixed seeds with
+  the bound stated in each test (alpha plus three binomial standard errors of the runs made, or
+  the 5 % of the issue). `calibrate_autocorrelation.py` is **not a test** and CI does not run
+  it: it prints the tables above from larger runs (`trend` about 5000 series per cell,
+  `changepoint` 2000; a few minutes with 8 processes) and is how the constants were chosen.
+  Its output with seed 20261031 is what is recorded in this document.
 - **Irregular sampling and gaps**: windows with too few points are invalid and never invented;
   clustered readings do not dominate the EWMA; the slope is unbiased on gapped calendars; PELT
   is unmoved by a six-week hole.
@@ -224,6 +387,19 @@ run, when it fails. Otherwise it searches the days inside the window and the res
   chapter 12.
 - Hamed and Rao (1998), A modified Mann-Kendall trend test for autocorrelated data, Journal of
   Hydrology 204.
+- Bayley and Hammersley (1946), The "effective" number of independent observations in an
+  autocorrelated time series, Journal of the Royal Statistical Society, Supplement 8. Yue and
+  Wang (2004), The Mann-Kendall test modified by effective sample size to detect trend in serially
+  correlated hydrological series, Water Resources Management 18. Yue, Pilon, Phinney and Cavadias
+  (2002), The influence of autocorrelation on the ability to detect trend in hydrological series,
+  Hydrological Processes 16 (trend-free prewhitening, not used).
+- Kendall (1954), Note on bias in the estimation of autocorrelation, Biometrika 41. Marriott and
+  Pope (1954), Bias in the estimation of autocorrelations, Biometrika 41. Kruskal (1958), Ordinal
+  measures of association, JASA 53 (Pearson 1907 gave the relation between a rank and a
+  product-moment correlation of normal data).
+- Newey and West (1987), A simple, positive semi-definite, heteroskedasticity and autocorrelation
+  consistent covariance matrix, Econometrica 55. Chakar, Lebarbier, Levy-Leduc and Robin (2017), A
+  robust approach for estimating change-points in the mean of an AR(1) process, Bernoulli 23.
 - Killick, Fearnhead and Eckley (2012), Optimal detection of changepoints with a linear
   computational cost, JASA 107. Jackson et al. (2005), An algorithm for optimal partitioning of
   data on an interval, IEEE Signal Processing Letters 12.
