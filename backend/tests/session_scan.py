@@ -10,9 +10,10 @@ Each has its own allowlist, of packages (the package and everything under it) an
   helper of ``ownvitals.jobs`` (#9), whose exact modules join the list in that PR; **job kinds
   live outside the allowlist** and write through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
-  account tables are system tables reached only through it, ADR 0003 section 1). The KEK check
-  (#8), the queue's definer functions (#9) and the flags and admin area (#12) add their exact
-  modules in their own PRs.
+  account tables are system tables reached only through it, ADR 0003 section 1), and the exact
+  module ``ownvitals.crypto.keks`` (#8: the key ring records and compares its ``connection_keks``
+  check rows at startup, before any user is known, ADR 0004 section 3). The queue's definer
+  functions (#9) and the flags and admin area (#12) add their exact modules in their own PRs.
 
 A later package joins a list in its own PR, with its reason, and the tests in
 ``test_session_guard.py`` that pin both lists change with it. Anything else fails
@@ -44,7 +45,9 @@ class Allowlist:
 
 
 USER_SESSION = Allowlist(prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"))
-SYSTEM_SESSION = Allowlist(prefixes=("ownvitals.db", "ownvitals.auth"))
+SYSTEM_SESSION = Allowlist(
+    prefixes=("ownvitals.db", "ownvitals.auth"), modules=("ownvitals.crypto.keks",)
+)
 # Each guarded name and who may use it; the private helper behind both is the session module's
 # own (only ``ownvitals.db`` may name it).
 GUARDED = {

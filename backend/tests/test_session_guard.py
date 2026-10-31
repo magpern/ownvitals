@@ -32,7 +32,9 @@ def test_only_allowlisted_modules_open_a_session() -> None:
 def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
     # A later package joins in its own PR, with its reason (session_scan's docstring).
     user = Allowlist(prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"))
-    system = Allowlist(prefixes=("ownvitals.db", "ownvitals.auth"))
+    system = Allowlist(
+        prefixes=("ownvitals.db", "ownvitals.auth"), modules=("ownvitals.crypto.keks",)
+    )
     private = Allowlist(prefixes=("ownvitals.db",))
     assert (user, system) == (USER_SESSION, SYSTEM_SESSION)
     assert {
@@ -74,6 +76,11 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.db.session", True, True),
         ("ownvitals.auth.deps", True, True),
         ("ownvitals.connections.repository", True, False),
+        # The key ring's startup check (#8): that exact module, nothing else in the package.
+        ("ownvitals.crypto.keks", False, True),
+        ("ownvitals.crypto", False, False),
+        ("ownvitals.crypto.envelope", False, False),
+        ("ownvitals.crypto.keks.other", False, False),
     ],
 )
 def test_the_owning_modules_are_allowlisted(module: str, user: bool, system: bool) -> None:

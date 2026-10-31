@@ -16,6 +16,7 @@ from ownvitals.admin.routes import router as admin_router
 from ownvitals.auth.routes import router as auth_router
 from ownvitals.config import Settings
 from ownvitals.connections.routes import router as connections_router
+from ownvitals.crypto.keks import load_keyring
 from ownvitals.db import (
     check_ready,
     create_engine,
@@ -98,6 +99,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     The lifespan refuses to start when the database role could bypass row-level security
     (``DatabaseRoleError``, ADR 0002 section 5); the engine checks every later connection too.
+    It then loads web's key ring (``KeyRingError``, ADR 0004 sections 3 and 4): the current KEK
+    is required and must match its check row, and web never holds the webhook seed.
     """
     settings = settings if settings is not None else Settings()
 
@@ -106,8 +109,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(settings)
         try:
             await verify_database_role(engine)
+            session_factory = create_session_factory(engine)
+            app.state.keyring = await load_keyring(session_factory, settings, role="web")
             app.state.engine = engine
-            app.state.session_factory = create_session_factory(engine)
+            app.state.session_factory = session_factory
             yield
         finally:
             await engine.dispose()

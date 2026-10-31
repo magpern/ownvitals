@@ -9,14 +9,18 @@ from sqlalchemy.exc import ProgrammingError
 
 from dbtools import alembic_config, applied_revisions, migrated, public_tables
 
-HEAD = "0002_close_alembic_version"
+HEAD = "0003_connection_keks"
 
 
 def test_the_revisions_form_one_line() -> None:
     script = ScriptDirectory.from_config(alembic_config())
     assert script.get_heads() == [HEAD]
     assert script.get_base() == "0001_baseline"
-    assert [r.revision for r in script.walk_revisions()] == [HEAD, "0001_baseline"]
+    assert [r.revision for r in script.walk_revisions()] == [
+        HEAD,
+        "0002_close_alembic_version",
+        "0001_baseline",
+    ]
 
 
 def test_offline_mode_renders_sql_without_a_database(capsys: pytest.CaptureFixture[str]) -> None:
@@ -44,12 +48,14 @@ def test_upgrade_head_then_downgrade_base(
         command.downgrade(config, "base")
 
 
-def test_the_migrations_create_no_tables_of_their_own(
+def test_the_migrations_create_exactly_their_tables(
     database_url: str, owner_database_url: str
 ) -> None:
     with migrated(owner_database_url):
-        assert public_tables(database_url) == {"alembic_version"}
+        # Alembic's own and the key ring's check table (0003, ADR 0004 section 3).
+        assert public_tables(database_url) == {"alembic_version", "connection_keks"}
     assert applied_revisions(database_url) == []
+    assert public_tables(database_url) == {"alembic_version"}  # downgraded: 0003's table gone
 
 
 def test_the_app_role_cannot_read_or_change_the_migration_state(

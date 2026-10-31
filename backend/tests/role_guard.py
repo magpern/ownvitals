@@ -21,7 +21,11 @@ TABLE_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "DELETE"}
 # Tables where the app role gets less than full DML, by table; each migration that narrows a
 # table's grants adds it here (and to 10-roles.sql's restore list). ``NO_APP_ACCESS`` tables get
 # nothing at all.
-RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {}
+RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
+    # Migration 0003: the app role records and reads key check values, never changes or forgets
+    # one (ADR 0004 section 3).
+    "connection_keks": {"SELECT", "INSERT"},
+}
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
 COLUMN_PRIVILEGES: dict[tuple[str, str], set[tuple[str, str]]] = {}
 SEQUENCE_PRIVILEGES = {"USAGE", "SELECT"}

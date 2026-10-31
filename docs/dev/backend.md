@@ -106,6 +106,8 @@ All settings of the platform milestone exist already, so the issues that use the
 | `stepup_window_minutes` | 10 | how long a fresh TOTP check authorises a sensitive action (PLAN §6: 10 minutes; 1 to 10, so the environment can only shorten it) |
 | `purge_interval_seconds` | 3600 | |
 | `connection_kek_id` | `kek-1` | `kek-[a-z0-9-]{1,28}`; the key is the secret file `connection_kek` |
+| `webhook_seed_id` | `seed-1` | `seed-[a-z0-9-]{1,28}`; the key is the secret file `webhook_seed`, worker only (ADR 0004 §4; optional in M0, see [crypto.md](crypto.md)) |
+| `webhook_pepper_id` | `pep-1` | `pep-[a-z0-9-]{1,28}`; the key is the secret file `webhook_pepper`, web and worker (optional in M0) |
 | `smtp_host`, `smtp_port`, `smtp_sender`, `smtp_tls`, `smtp_username` | unset, 587, `ownvitals@localhost`, `starttls` | `smtp_tls=none` only for loopback or `mailpit` |
 | `oauth_google_client_id` | unset | Google is the only OAuth provider |
 | `worker_poll_seconds`, `worker_maintenance_seconds`, `worker_shutdown_wait_seconds` | 2, 30, 25 | wait at most 25 s |
@@ -114,8 +116,9 @@ All settings of the platform milestone exist already, so the issues that use the
 
 Secret files (`SECRET_FILE_FIELDS`): `database_password`, `database_owner_password`,
 `database_maint_password`, `app_secret_key` (at least 32 bytes), `smtp_password`,
-`oauth_google_client_secret`. The key-encryption keys (`connection_kek`, retired
-`connection_kek_<id>`) are read by the crypto package, not by `Settings`.
+`oauth_google_client_secret`. The key ring's files (`connection_kek`, `webhook_seed`,
+`webhook_pepper` and their retired `<file>_<id>`) are read by the crypto package, not by
+`Settings` ([crypto.md](crypto.md)).
 
 `Settings.sqlalchemy_url()` and `migrations_sqlalchemy_url()` return the URL with the password from
 the file substituted when one exists.
@@ -143,7 +146,7 @@ uvx uv@0.13.6 run alembic downgrade base
 ```
 
 `0001_baseline` creates no tables; `0002_close_alembic_version` closes Alembic's own table to the
-app role. Every migration needs a working `downgrade` (the `test_migrations.py` test upgrades to
+app role; `0003_connection_keks` adds the key ring's check table ([crypto.md](crypto.md)). Every migration needs a working `downgrade` (the `test_migrations.py` test upgrades to
 head and downgrades to base). Owned and system tables follow [isolation.md](isolation.md).
 
 ## Layout

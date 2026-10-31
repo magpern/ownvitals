@@ -56,6 +56,10 @@ PLAIN_SMTP_HOSTS = frozenset({"localhost", "mailpit"})
 MIN_APP_SECRET_BYTES = 32
 # The id of the current KEK (the ``connection_kek`` secret file, read by the crypto package).
 CONNECTION_KEK_ID = re.compile(r"kek-[a-z0-9-]{1,28}")
+# The ids of the current webhook-secret seed and pepper (the ``webhook_seed`` and
+# ``webhook_pepper`` secret files, read by the crypto package; ADR 0004 section 4).
+WEBHOOK_SEED_ID = re.compile(r"seed-[a-z0-9-]{1,28}")
+WEBHOOK_PEPPER_ID = re.compile(r"pep-[a-z0-9-]{1,28}")
 
 
 def secrets_dir() -> Path:
@@ -170,6 +174,12 @@ class Settings(BaseSettings):
     # ``connection_kek`` (read by the crypto package, never the environment); retired keys are
     # ``connection_kek_<id>``.
     connection_kek_id: str = "kek-1"
+    # The ids of the current webhook-secret seed (worker only) and pepper (web and worker). The
+    # keys are the secret files ``webhook_seed`` and ``webhook_pepper`` (read by the crypto
+    # package, never the environment); retired ones are ``webhook_seed_<id>`` and
+    # ``webhook_pepper_<id>``. Optional in M0, required from M1 (ADR 0004 section 4).
+    webhook_seed_id: str = "seed-1"
+    webhook_pepper_id: str = "pep-1"
 
     # Mail. Unset ``smtp_host``: no mail is sent (a warning is logged instead).
     smtp_host: str | None = None
@@ -252,6 +262,20 @@ class Settings(BaseSettings):
     def _check_connection_kek_id(cls, value: str) -> str:
         if CONNECTION_KEK_ID.fullmatch(value) is None:
             raise ValueError("connection_kek_id must match ^kek-[a-z0-9-]{1,28}$")
+        return value
+
+    @field_validator("webhook_seed_id")
+    @classmethod
+    def _check_webhook_seed_id(cls, value: str) -> str:
+        if WEBHOOK_SEED_ID.fullmatch(value) is None:
+            raise ValueError("webhook_seed_id must match ^seed-[a-z0-9-]{1,28}$")
+        return value
+
+    @field_validator("webhook_pepper_id")
+    @classmethod
+    def _check_webhook_pepper_id(cls, value: str) -> str:
+        if WEBHOOK_PEPPER_ID.fullmatch(value) is None:
+            raise ValueError("webhook_pepper_id must match ^pep-[a-z0-9-]{1,28}$")
         return value
 
     @field_validator("public_base_url")
