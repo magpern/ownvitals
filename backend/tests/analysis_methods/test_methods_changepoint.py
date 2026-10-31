@@ -13,7 +13,15 @@ from itertools import pairwise
 
 import numpy as np
 import pytest
-from methods_builders import START, SYNTHETIC, daily_values, generator, irregular_times
+from methods_builders import (
+    START,
+    SYNTHETIC,
+    best_by_enumeration,
+    daily_values,
+    generator,
+    irregular_times,
+    optimal_partitioning,
+)
 
 from ownvitals.analysis.methods import changepoint as changepoint_module
 from ownvitals.analysis.methods.changepoint import (
@@ -101,36 +109,6 @@ def test_the_default_penalty_and_segment_length_are_the_documented_ones() -> Non
 # --- PELT is exact: it matches the O(n^2) recursion --------------------------------------------
 
 
-def optimal_partitioning(
-    values: np.ndarray, penalty: float, min_segment: int
-) -> tuple[tuple[int, ...], float]:
-    """Jackson et al. (2005): F(t) = min over s of F(s) + cost(s, t) + penalty, no pruning."""
-    n = len(values)
-    centred = values - values.mean()
-
-    def cost(a: int, b: int) -> float:
-        part = centred[a:b]
-        return float(np.sum((part - part.mean()) ** 2))
-
-    best = [math.inf] * (n + 1)
-    best[0] = -penalty
-    previous = [0] * (n + 1)
-    for t in range(min_segment, n + 1):
-        for s in [0, *range(min_segment, t - min_segment + 1)]:
-            if t - s < min_segment or math.isinf(best[s]):
-                continue
-            value = best[s] + cost(s, t) + penalty
-            if value < best[t] - 1e-12:
-                best[t], previous[t] = value, s
-    points: list[int] = []
-    end = n
-    while previous[end] > 0:
-        end = previous[end]
-        points.append(end)
-    points.reverse()
-    return tuple(points), best[n] - len(points) * penalty
-
-
 def random_case(seed: int) -> tuple[np.ndarray, float, int]:
     """A short series with 0-3 planted level shifts, a penalty and a minimum segment length."""
     rng = generator(seed)
@@ -160,22 +138,46 @@ def test_pelt_returns_the_optimum_of_the_unpruned_recursion(seed: int) -> None:
     assert all(b - a >= minimum for a, b in pairwise([0, *points, n]))
 
 
-def test_the_minimum_segment_delay_by_hand_without_a_random_generator() -> None:
-    # The ten seeds above were found in numpy's random stream, which can change between versions.
-    # This case is written out. Values 3 3 3 -3 1 1 3 -3 (n = 8), penalty 4, minimum segment 2.
-    # Costs are sums of squares about each segment's mean:
-    #   no change point:     56 - 8 * 1^2 = 48
-    #   change at 3:         [3 3 3] 0 + [-3 1 1 3 -3] (29 - 5 * 0.04 = 28.8) = 28.8, plus 4 = 32.8
-    #   changes at 3 and 5:  0 + [-3 1] 8 + [1 3 -3] (19 - 3/9 = 18.667) = 26.667, plus 8 = 34.667
-    # so the optimum is the single change at 3. A candidate that is dropped as soon as it looks
-    # beaten (instead of `min_segment` steps later, when a segment may start at the current point)
-    # leaves PELT with the changes at 3 and 5, which is worse: this is the case that catches it.
-    values = np.array([3.0, 3.0, 3.0, -3.0, 1.0, 1.0, 3.0, -3.0])
-    points, cost = pelt(values, penalty=4.0, min_segment=2)
+# The ten seeds above were found in numpy's random stream, which can change between versions.
+# These two cases are written out. Costs are sums of squares about each segment's mean.
+#
+# Values 3 3 3 -3 1 1 3 -3 (n = 8), penalty 4, minimum segment 2:
+#   no change point:     56 - 8 * 1^2 = 48
+#   change at 3:         [3 3 3] 0 + [-3 1 1 3 -3] (29 - 5 * 0.04 = 28.8) = 28.8, plus 4 = 32.8
+#   changes at 3 and 5:  0 + [-3 1] 8 + [1 3 -3] (19 - 3/9 = 18.667) = 26.667, plus 8 = 34.667
+# so the optimum is the single change at 3. A candidate that is dropped as soon as it looks
+# beaten (instead of `min_segment` steps later, when a segment may start at the current point)
+# leaves PELT with the changes at 3 and 5, which is worse: this is the case that catches it.
+#
+# Values 2 1 3 -3 2 3 2 0 -1 (n = 9), penalty 2, minimum segment 3 (a delay of 2 is right for
+# the case above, so it needs one with 3):
+#   no change point:     41 - 9^2 / 9 = 32
+#   change at 3:         [2 1 3] 14 - 36/3 = 2, [-3 2 3 2 0 -1] 27 - 9/6 = 25.5: 27.5, plus 2 = 29.5
+#   change at 6:         [2 1 3 -3 2 3] 36 - 64/6 = 25.333, [2 0 -1] 5 - 1/3 = 4.667: 30, +2 = 32
+#   changes at 3 and 6:  2 + [-3 2 3] (22 - 4/3 = 20.667) + 4.667 = 27.333, plus 4 = 31.333
+#   change at 4, at 5:   31.55 + 2 = 33.55, 32 + 2 = 34
+# so the optimum is again the single change at 3. At t = 7 the candidates 0 and 3 look beaten by
+# a change at 4 (21.417 against 23.71 and 24), but a change at 7 cannot end a segment at t = 9
+# (2 points, 3 needed), so they stay until t = 10. Dropped after 2 steps, the change at 3 is lost
+# at t = 9 and PELT returns the changes at 3 and 6 (31.333).
+HAND_CASES = [
+    pytest.param([3.0, 3.0, 3.0, -3.0, 1.0, 1.0, 3.0, -3.0], 4.0, 2, 28.8, id="minimum_segment_2"),
+    pytest.param(
+        [2.0, 1.0, 3.0, -3.0, 2.0, 3.0, 2.0, 0.0, -1.0], 2.0, 3, 27.5, id="minimum_segment_3"
+    ),
+]
+
+
+@pytest.mark.parametrize(("data", "penalty", "minimum", "cost_of_3"), HAND_CASES)
+def test_the_minimum_segment_delay_by_hand_without_a_random_generator(
+    data: list[float], penalty: float, minimum: int, cost_of_3: float
+) -> None:
+    values = np.array(data)
+    points, cost = pelt(values, penalty=penalty, min_segment=minimum)
     assert points == (3,)
-    assert cost == pytest.approx(28.8)
-    assert cost + 4.0 == pytest.approx(32.8)
-    assert optimal_partitioning(values, 4.0, 2) == ((3,), pytest.approx(28.8))
+    assert cost == pytest.approx(cost_of_3)
+    assert best_by_enumeration(values, penalty, minimum) == ((3,), pytest.approx(cost_of_3))
+    assert optimal_partitioning(values, penalty, minimum) == ((3,), pytest.approx(cost_of_3))
 
 
 def test_pelt_with_nothing_to_find_or_no_data() -> None:

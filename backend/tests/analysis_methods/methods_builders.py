@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from decimal import Decimal
 from functools import cache
+from itertools import combinations, pairwise
 
 import numpy as np
 from numpy.typing import NDArray
@@ -113,3 +114,57 @@ def plain_and_ar1_p_values(
         plain[i] = plain_p_value(result)
         corrected[i] = result.p_value
     return plain, corrected
+
+
+# --- the optimum of a segmentation, two ways to find it, for the PELT tests -------------------
+
+
+def optimal_partitioning(
+    values: np.ndarray, penalty: float, min_segment: int
+) -> tuple[tuple[int, ...], float]:
+    """Jackson et al. (2005): F(t) = min over s of F(s) + cost(s, t) + penalty, no pruning."""
+    n = len(values)
+    centred = values - values.mean()
+
+    def cost(a: int, b: int) -> float:
+        part = centred[a:b]
+        return float(np.sum((part - part.mean()) ** 2))
+
+    best = [math.inf] * (n + 1)
+    best[0] = -penalty
+    previous = [0] * (n + 1)
+    for t in range(min_segment, n + 1):
+        for s in [0, *range(min_segment, t - min_segment + 1)]:
+            if t - s < min_segment or math.isinf(best[s]):
+                continue
+            value = best[s] + cost(s, t) + penalty
+            if value < best[t] - 1e-12:
+                best[t], previous[t] = value, s
+    points: list[int] = []
+    end = n
+    while previous[end] > 0:
+        end = previous[end]
+        points.append(end)
+    points.reverse()
+    return tuple(points), best[n] - len(points) * penalty
+
+
+def best_by_enumeration(
+    values: np.ndarray, penalty: float, min_segment: int
+) -> tuple[tuple[int, ...], float]:
+    """Every way to cut ``values`` into segments of at least ``min_segment`` points (no
+    recursion, no pruning): the change points and the cost, without the penalty, of the best."""
+    n = len(values)
+    best: tuple[tuple[int, ...], float] | None = None
+    for count in range(n // min_segment):
+        for cuts in combinations(range(min_segment, n - min_segment + 1), count):
+            edges = [0, *cuts, n]
+            if any(b - a < min_segment for a, b in pairwise(edges)):
+                continue
+            cost = sum(
+                float(np.sum((values[a:b] - values[a:b].mean()) ** 2)) for a, b in pairwise(edges)
+            )
+            if best is None or cost + penalty * count < best[1] + penalty * len(best[0]) - 1e-12:
+                best = (cuts, cost)
+    assert best is not None
+    return best
