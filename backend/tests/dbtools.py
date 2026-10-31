@@ -105,6 +105,9 @@ def migrated(owner_url: str, revision: str = "head") -> Iterator[None]:
     patch.setenv("OWNVITALS_MIGRATIONS_DATABASE_URL", owner_url)
     try:
         command.downgrade(alembic_config(), "base")
+        # Alembic keeps its own table at base; a fresh one gets the owner's default privileges
+        # again, so what the migrations revoke on it is checked every time, not inherited.
+        drop_tables(owner_url, "alembic_version")
         command.upgrade(alembic_config(), revision)
         yield
     finally:

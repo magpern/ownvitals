@@ -276,8 +276,12 @@ async def test_a_database_that_comes_up_later_is_still_checked_on_first_connecti
                 async with engine.connect() as connection:
                     await connection.execute(text("SELECT 1"))
         finally:
+            # The pool lets go of any connection first: wait_closed() waits for every forwarded
+            # connection, so a connection the check failed to refuse would otherwise hang here.
+            await engine.dispose()
             server.close()
-            await server.wait_closed()
+            async with asyncio.timeout(10):
+                await server.wait_closed()
     finally:
         await engine.dispose()
 
