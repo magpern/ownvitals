@@ -2,7 +2,9 @@
 
 `frontend/` is a React 19 + Vite + TypeScript (strict) single-page app, ported from classbeat's
 frontend at `d80605100992f85f8f02672b9b5f885ed6166214` (PLAN §2, §3). This is the skeleton:
-the API client, the session, the route guards and the auth pages. The product UI is M6 (PLAN §8).
+the API client, the session, the route guards and the auth pages, and the app shell of the chosen
+design (the rail, the top bar, the theme, the Plex fonts and the design primitives). The screens are
+the rest of M6 (PLAN §8); until each is built it shows "Coming later".
 
 Node 24 and npm. Every dependency is pinned to an exact version and `package-lock.json` is
 committed; every direct dependency, and everything that ships in the bundle, has an accepted licence
@@ -31,10 +33,14 @@ http(s) URL.
 src/api/        client.ts (CSRF, retries, ApiError), decode.ts (runtime checks), auth.ts (endpoints),
                 messages.ts (plain-language texts for the API's reason codes)
 src/auth/       access.ts (what a session may see), guards.tsx (route guards), SessionContext.tsx
-src/router/     a small history-API router (flat routes, safe return_to, mail-link tokens)
-src/pages/      sign in, sign up, mail-link and reset pages, the two second-factor pages, home
-src/components/ forms, the page frame, the QR code, the Google button
-src/styles/     tokens.css (the only place with colours), app.css
+src/router/     a small history-API router (safe return_to, mail-link tokens), appRoutes.ts (the
+                screens of the app by address)
+src/pages/      sign in, sign up, mail-link and reset pages, the two second-factor pages, and
+                appPages.tsx (the screens of the app, or "Coming later")
+src/components/ forms and the plain page frame, the QR code, the Google button;
+                ui/ (the design primitives), shell/ (the app frame: rail, phone tabs, account menu)
+src/theme/      the System, Light or Dark choice: theme.ts, and the useThemePreference hook
+src/styles/     tokens.css (the only place with colours), fonts.css, app.css, primitives.css, shell.css
 src/test/       fake API (fakeApi.ts), render helper, the network guard (networkGuard.ts, installed by
                 setup.ts; setup.test.ts runs that file on scratch tests), and the scanners behind
                 sources.test.ts, build.test.ts and licences.test.ts
@@ -68,7 +74,10 @@ enforces the same rules on every request; the guards keep the screens honest. An
 answered `403 two_factor_required` makes the session provider read the session again, so the
 guards then move the user to the right page.
 
-To add a guarded page, wrap it in `RequireReady` and add its path to `Routes` in `src/App.tsx`.
+To add a screen of the app, add its path to `src/router/appRoutes.ts` and its component to
+`src/pages/appPages.tsx`; `src/App.tsx` wraps every screen in `RequireReady` and the app frame (see
+"The app frame" below). A page outside the app (a sign-in or mail-link page) is a case of `otherPage`
+in `src/App.tsx`.
 Mail-link pages (`/reset`, `/signup/confirm`) are not guarded: a link is followed in whatever
 state the browser is in. They read their token from the URL fragment and remove it from the
 address bar.
@@ -78,13 +87,92 @@ says they saved them, even though the session already counts as signed in.
 
 ## Styling
 
-`src/styles/tokens.css` holds every colour, spacing, type and shape token (`--ov-*`), light by
-default and dark with `prefers-color-scheme`. Everything else uses `var(--ov-...)`. System fonts
-only.
+The stylesheets are in `src/styles/`, imported by `main.tsx` in this order: `fonts.css`,
+`tokens.css`, `app.css` (base styles, the plain frame, and the cards, forms and notices of the
+sign-in pages), `primitives.css` (the design primitives) and `shell.css` (the app frame). Everything
+but `tokens.css` uses `var(--ov-...)`: a colour literal anywhere else fails `sources.test.ts`. New
+classes are `ov-*`; the older `.card`, `.button`, `.notice` and `.field` are the sign-in pages'.
 
-The UI design is chosen ([docs/design/](../design/README.md), owner, 2026-10-31): every screen
-is built from its mock-ups, and nothing is invented beside them. The first M6 issue brings its
-tokens into `tokens.css`, the theme setting and self-hosted IBM Plex.
+The UI design is chosen ([docs/design/](../design/README.md), owner, 2026-10-31): every screen is
+built from its mock-ups, and nothing is invented beside them. Where the mock-up's HTML has an
+inline `style` or the design-canvas runtime, the app uses classes and tokens instead.
+
+### Tokens
+
+`src/styles/tokens.css` holds the colours of `docs/design/mockups/src/ov.css` as `--ov-*` (ground,
+text, brand, series, typical range, the four tiers, attention, urgent, ok, ECG paper, the admin
+band, QR, scrim and shadow), and the type, spacing and shape tokens. `ov.css`'s `--ink` is
+`--ov-text` and its `--brand-ink` is `--ov-on-brand`. `src/styles/tokens.test.ts` holds the file
+to `ov.css` (every colour, in both themes) and checks the 4.5:1 contrast the design promises.
+
+### Theme
+
+Light is the default. Dark comes from `prefers-color-scheme`, and `data-theme="light"` or
+`data-theme="dark"` on `<html>` overrides the device in either direction. "System" (the default)
+sets no attribute. The dark values are written twice in `tokens.css` (behind the media query for a
+root without the Light override, and for `data-theme="dark"`); a test keeps the two equal.
+
+`src/theme/theme.ts` keeps the choice per browser in `localStorage` (key `ownvitals.theme`; System
+stores nothing; every access is in try/catch, so a private window still works for the page) and
+applies it. `initTheme()` runs from `main.tsx` before React renders, as a module and not an inline
+script (the CSP is `'self'`). It also follows a change made in another tab. For the Settings
+issue: `useThemePreference()` returns `[preference, setPreference]`, and `setThemePreference`,
+`getThemePreference` and `THEME_PREFERENCES` are plain functions. Whether the choice should also
+follow the account is that issue's question.
+
+A module that is deferred cannot run before the browser's first paint of an empty page, so on a
+cold load a visitor whose choice differs from their device can see the page background in the
+device's theme for a moment, before the app (which renders only after the theme is applied) appears.
+Closing that gap needs a classic script in `<head>`, which `sources.test.ts` forbids today.
+
+### Fonts
+
+IBM Plex Sans (UI) and Plex Mono (ids, versions, raw values), OFL-1.1, self-hosted through
+`@fontsource/ibm-plex-sans` and `@fontsource/ibm-plex-mono` (exact versions, production
+dependencies). `src/styles/fonts.css` imports only the faces the mock-ups use, in the Latin subset:
+Sans 400, 500, 600 and italic 400, 500 (the "est." value style), Mono 400. The build copies the
+`.woff2` files (and their `.woff` fallbacks) to `assets/`, and the stylesheet loads them from this
+origin; the system stack is the fallback. Never Google Fonts or another host. `build.test.ts`
+checks the files and the `@font-face` URLs, and allows font files in `assets/` (and nothing else
+beyond scripts and styles); `fonts.test.ts` checks the list against the mock-ups. Numbers use
+tabular figures through `Value`, `Num` and the tile styles.
+
+### Design primitives
+
+From `docs/design/mockups/src/Main.dc.html` and `ov.css`, in `src/components/ui/`, each with a test:
+
+| Component | Is | Notes |
+|---|---|---|
+| `DataState` | The ten data states: up to date, stale, importing n %, incomplete import, insufficient data, not supported, not shared, not available, needs reconnect, Withings+ needed | One wording and tone per state (`DATA_STATE_KINDS`, `dataStateLabel`); `progress` for importing (required) and insufficient data draws a native `<progress>` (no inline style); `children` is the line of detail. `StatePill` is the bare pill |
+| `TierMark`, `SourceMark`, `TierGlyph` | The tier badges (Device, Trend, Experimental, System), and the "Reported by Withings / Calculated by ownvitals / Estimated by ownvitals" source line | The glyphs take the text colour |
+| `Value`, `Num`, `Mono` | A number with its unit (`size="large"`, `estimated` for the italic, dotted "est." style), tabular figures, ids and raw values in mono | |
+| `Card`, `Stack`, `ComingLater` | The design's card (with `title`, `level`, `aside`, `flat`, `experimental`), the column, and the "Coming later" row | The sign-in pages' narrow card is `Card` in `components/forms.tsx`; #10 and #11 move those pages over |
+| `Button` | `variant` default, primary, danger, danger-solid, ghost; `wide`; `lock` | `lock` shows the lock icon and sets `aria-haspopup="dialog"`: the action asks for a fresh authenticator code. The shared "Confirm it's you" dialog is #11's; until it exists the page passes its own `onClick` |
+| `Icon`, `Logo` | The icons of the rail and the controls, the logo | Decorative (`aria-hidden`) |
+
+### The app frame
+
+A signed-in user who has passed the second factor sees an app screen (`src/router/appRoutes.ts`) in
+`components/shell/AppFrame.tsx`: the rail on the left (`Rail.tsx`, the `Rail` mock-up), and on the
+right a top bar (the page header as the h1, and the account menu in `AccountMenu.tsx`) above the
+page. Under 760 px the rail gives way to four tabs at the bottom (`PhoneTabs`: Overview, Findings,
+Data, Settings, as on the Onboarding board), the top bar carries the logo, the account button shows
+the avatar only (the address is the button's name and the menu's header), and the targets are at
+least 44 px. Everything else sits in the plain frame (`components/PlainFrame.tsx`): the sign-in,
+sign-up and mail-link pages, the two second-factor pages and "Page not found". The frame is chosen
+from the address, not the session, so a page does not move when the session arrives.
+
+- **Items.** `components/shell/nav.ts` has the groups and items of the mock-up. Admin is shown only
+  to an admin (`isAdmin`: the session's role), in the rail and in the account menu, and `/admin`
+  is "Page not found" for anyone else. The phone has no Admin tab; it is in the account menu.
+- **Status at the end of an item** (`3 of 4`, `n/a`, a dot, a count) is data. `Rail` takes it as
+  `status`, and shows nothing until a screen that owns the data passes it.
+- **Routes** follow the information architecture: `/`, `/body`, `/heart`, `/nerve`, `/sleep`,
+  `/activity`, `/m/:metric`, `/m/:metric/:day`, `/heart/ecg`, `/heart/ecg/:id`, `/findings`,
+  `/connections`, `/settings`, `/settings/security` (the Security rail item and the "Sign-in and
+  security" tab of Settings), `/admin`. A screen that is not built shows its page header and the
+  "Coming later" row. To build one, put its component in `BUILT` in `src/pages/appPages.tsx`.
+- The document title follows the page (`Weight · ownvitals`).
 
 ## Rules the tests enforce
 
@@ -126,8 +214,9 @@ not an image or a font, so a file cannot hide from the scan by being unreadable.
 - **Works under the server's CSP** (`default-src 'self'`, no inline script or style, no `data:`):
   no inline script or style, no `style` attribute, no `innerHTML`/`eval`, no `data:` URL, in the
   sources and in the production build (`src/build.test.ts` builds into a scratch folder and checks
-  `index.html`, the scripts and the stylesheet). An SVG may not hold a `<script>` or an event
-  handler. `assetsInlineLimit` is 0, so no asset is inlined.
+  `index.html`, the scripts and the stylesheet; the Plex font files are the one other kind of file
+  it allows in `assets/`). An SVG may not hold a `<script>` or an event handler.
+  `assetsInlineLimit` is 0, so no asset is inlined.
 
 The server's QR code is drawn as inline SVG from a short allow-list of shapes and attributes
 (`src/components/QrCode.tsx`); nothing from it is inserted as markup.
@@ -199,5 +288,11 @@ are refused.
 
 ## Not here yet
 
-Account settings, step-up and re-authentication dialogs, "log out everywhere" and the dashboard
-pages come in later issues (#11, M6). The email-change page and the admin pages are not ported.
+Account settings, step-up and re-authentication dialogs (the shared "Confirm it's you" dialog is
+#11's), "log out everywhere" and every screen of the app come in later issues (#10, #11, #12, M6).
+The email-change page and the admin pages are not ported.
+
+The shell also leaves out what needs data or a call that does not exist yet: the status line under
+the top bar (freshness, imports, broken connections), the range selector of the Overview and Metric
+top bars, the status at the end of a rail item (`Rail`'s `status`), and the account menu's "This
+device since ..." line. The theme choice has no control until the Settings issue.

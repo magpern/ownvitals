@@ -1,25 +1,76 @@
 /*
  * Design tokens: the one place for colour, spacing, type and shape. No other source file holds a
  * colour literal (src/sources.test.ts fails if one does); they use var(--ov-...) only.
- * Light by default, dark when the device asks for it. System fonts only: nothing is fetched from
- * a font host (the CSP allows 'self' alone).
+ *
+ * The colours are the tokens of the chosen design, docs/design/mockups/src/ov.css ("Quiet
+ * instrument"), under `--ov-` names (ov.css's `--ink` is `--ov-text`, `--brand-ink` is
+ * `--ov-on-brand`). src/styles/tokens.test.ts holds the two files to the same values.
+ *
+ * Themes. Light is the default. Dark comes from the device (`prefers-color-scheme`), and a
+ * `data-theme="light|dark"` attribute on <html> overrides the device either way. "System" is the
+ * default and sets no attribute (src/theme/). The dark values are written twice, once behind the
+ * media query for a root with no `light` override and once for `data-theme="dark"`; the test
+ * keeps the two blocks equal.
+ *
+ * Fonts: IBM Plex Sans and Plex Mono, self-hosted from this origin (src/styles/fonts.css); the
+ * system stack is the fallback. Nothing is fetched from a font host (the CSP allows 'self' alone).
  */
 
 :root {
   color-scheme: light dark;
 
-  /* Colour: light */
-  --ov-bg: #f5f6f8;
+  /* Colour: ground, text, lines */
+  --ov-bg: #f2f4f5;
   --ov-surface: #ffffff;
-  --ov-raised: #eceef2;
-  --ov-line: #d5d9e0;
-  --ov-text: #16181d;
-  --ov-muted: #566070;
+  --ov-raised: #e9edef;
+  --ov-line: #d3d9de;
+  --ov-line-soft: #e5e9ec;
+  --ov-text: #14181d;
+  --ov-muted: #55606c;
+
+  /* Colour: brand (also the Trend tier) */
   --ov-brand: #1f6f78;
   --ov-on-brand: #ffffff;
-  --ov-ok: #0f6e43;
-  --ov-bad: #b32d24;
-  --ov-paper: #ffffff;
+  --ov-brand-soft: #ddedee;
+
+  /* Colour: chart series and the typical range */
+  --ov-series: #24476b;
+  --ov-band: #d6e8e9;
+  --ov-band-edge: #8fbfc3;
+  --ov-grid: #e6eaed;
+
+  /* Colour: tiers */
+  --ov-device: #2d5c8a;
+  --ov-device-soft: #e1eaf4;
+  --ov-trend: #1f6f78;
+  --ov-trend-soft: #ddedee;
+  --ov-exp: #6a4e9e;
+  --ov-exp-soft: #eee8f7;
+
+  /* Colour: attention, urgent and ok (blue and orange carry meaning, not red and green) */
+  --ov-attn: #a8520c;
+  --ov-attn-soft: #fbebdc;
+  --ov-urgent: #a12a2e;
+  --ov-urgent-soft: #f8e1e1;
+  --ov-ok: #146c45;
+  --ov-ok-soft: #ddf0e6;
+
+  /* Colour: ECG paper */
+  --ov-ecg-paper: #fffcfb;
+  --ov-ecg-minor: #f4dcdc;
+  --ov-ecg-major: #e2afaf;
+
+  /* Colour: the admin band */
+  --ov-admin: #1e2630;
+  --ov-admin-ink: #f2f4f6;
+
+  /* Colour: a QR code stays dark on light in both themes (inverted codes fail in scanners) */
+  --ov-qr-ink: #14181d;
+  --ov-qr-paper: #ffffff;
+
+  /* Colour: dialogs */
+  --ov-scrim: rgba(13, 16, 19, 0.42);
+  --ov-shadow: 0 1px 2px rgba(20, 24, 29, 0.06), 0 12px 32px rgba(20, 24, 29, 0.10);
 
   /* Spacing */
   --ov-space-1: 0.25rem;
@@ -31,36 +82,115 @@
   --ov-space-7: 3rem;
 
   /* Type */
-  --ov-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
-  --ov-font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
-  --ov-text-sm: 0.9375rem;
-  --ov-text-base: 1rem;
+  --ov-font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --ov-font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --ov-text-xs: 0.75rem;
+  --ov-text-sm: 0.8125rem;
+  --ov-text-base: 0.9375rem;
+  --ov-text-md: 1rem;
   --ov-text-lg: 1.25rem;
-  --ov-text-xl: 1.5rem;
+  --ov-text-title: 1.375rem;
+  --ov-text-xl: 1.75rem;
+  --ov-text-value: 1.875rem;
+  --ov-text-value-lg: 2.5rem;
+  --ov-text-unit-lg: 1.125rem;
+  --ov-weight-regular: 400;
   --ov-weight-medium: 500;
-  --ov-weight-bold: 700;
+  --ov-weight-semibold: 600;
   --ov-leading-tight: 1.2;
-  --ov-leading-base: 1.55;
+  --ov-leading-snug: 1.35;
+  --ov-leading-base: 1.5;
 
   /* Shape */
+  --ov-radius-xs: 0.25rem;
+  --ov-radius-tag: 0.375rem;
   --ov-radius-sm: 0.5rem;
+  --ov-radius-ctl: 0.625rem;
   --ov-radius-md: 0.75rem;
+  --ov-radius-lg: 1rem;
   --ov-radius-full: 999px;
   --ov-target: 2.75rem;
   --ov-content-width: 64rem;
+  --ov-rail-width: 14.5rem;
+  --ov-page-width: 77.5rem;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --ov-bg: #0e0f13;
-    --ov-surface: #17181e;
-    --ov-raised: #20222b;
-    --ov-line: #2c2f3b;
-    --ov-text: #f4f5f8;
-    --ov-muted: #a6abbb;
-    --ov-brand: #5cc0cb;
-    --ov-on-brand: #0e0f13;
-    --ov-ok: #3ddc97;
-    --ov-bad: #ff7a7a;
+  :root:not([data-theme='light']) {
+    --ov-bg: #0d1013;
+    --ov-surface: #161a1e;
+    --ov-raised: #1f242a;
+    --ov-line: #2d343c;
+    --ov-line-soft: #242a31;
+    --ov-text: #eef1f3;
+    --ov-muted: #a2acb7;
+    --ov-brand: #5ec2cc;
+    --ov-on-brand: #0d1013;
+    --ov-brand-soft: #173438;
+    --ov-series: #9cc3ec;
+    --ov-band: #183236;
+    --ov-band-edge: #2f6b70;
+    --ov-grid: #20262c;
+    --ov-device: #8fb5e3;
+    --ov-device-soft: #1b2a3b;
+    --ov-trend: #5ec2cc;
+    --ov-trend-soft: #173438;
+    --ov-exp: #bba4f2;
+    --ov-exp-soft: #2a2340;
+    --ov-attn: #f0a25b;
+    --ov-attn-soft: #3a2716;
+    --ov-urgent: #ff8e86;
+    --ov-urgent-soft: #3d1c1c;
+    --ov-ok: #5bd49b;
+    --ov-ok-soft: #15301f;
+    --ov-ecg-paper: #141012;
+    --ov-ecg-minor: #2a1d20;
+    --ov-ecg-major: #4a2c31;
+    --ov-admin: #e9edf0;
+    --ov-admin-ink: #14181d;
+    --ov-scrim: rgba(0, 0, 0, 0.6);
+    --ov-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
   }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --ov-bg: #0d1013;
+  --ov-surface: #161a1e;
+  --ov-raised: #1f242a;
+  --ov-line: #2d343c;
+  --ov-line-soft: #242a31;
+  --ov-text: #eef1f3;
+  --ov-muted: #a2acb7;
+  --ov-brand: #5ec2cc;
+  --ov-on-brand: #0d1013;
+  --ov-brand-soft: #173438;
+  --ov-series: #9cc3ec;
+  --ov-band: #183236;
+  --ov-band-edge: #2f6b70;
+  --ov-grid: #20262c;
+  --ov-device: #8fb5e3;
+  --ov-device-soft: #1b2a3b;
+  --ov-trend: #5ec2cc;
+  --ov-trend-soft: #173438;
+  --ov-exp: #bba4f2;
+  --ov-exp-soft: #2a2340;
+  --ov-attn: #f0a25b;
+  --ov-attn-soft: #3a2716;
+  --ov-urgent: #ff8e86;
+  --ov-urgent-soft: #3d1c1c;
+  --ov-ok: #5bd49b;
+  --ov-ok-soft: #15301f;
+  --ov-ecg-paper: #141012;
+  --ov-ecg-minor: #2a1d20;
+  --ov-ecg-major: #4a2c31;
+  --ov-admin: #e9edf0;
+  --ov-admin-ink: #14181d;
+  --ov-scrim: rgba(0, 0, 0, 0.6);
+  --ov-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
 }
