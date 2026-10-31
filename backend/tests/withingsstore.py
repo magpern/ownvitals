@@ -13,6 +13,7 @@ rows, as it would against the real API.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from typing import Any
 
@@ -293,3 +294,19 @@ def delete_group(data: SyntheticDataset, grpid: int) -> None:
     simply stops being returned, which only a reconciliation notices."""
     data.measuregrps.remove(find_group(data, grpid))
     data.deleted_grpids.append(grpid)
+
+
+# endpoint -> (store function, any one of these scopes). The public docs map scopes to
+# notification applis, not to endpoints: this table is assumed from those and the scope texts.
+DATA_ROUTES: dict[tuple[str, str], tuple[Callable[..., dict[str, Any]], tuple[str, ...]]] = {
+    ("/measure", "getmeas"): (getmeas, ("user.metrics",)),
+    ("/v2/heart", "list"): (heart_list, ("user.metrics",)),
+    ("/v2/heart", "get"): (heart_get, ("user.metrics",)),
+    ("/v2/measure", "getactivity"): (getactivity, ("user.activity",)),
+    ("/v2/measure", "getintradayactivity"): (getintradayactivity, ("user.activity",)),
+    ("/v2/measure", "getworkouts"): (getworkouts, ("user.activity",)),
+    ("/v2/sleep", "get"): (sleep_get, ("user.activity",)),
+    ("/v2/sleep", "getsummary"): (sleep_getsummary, ("user.activity",)),
+    ("/v2/user", "getdevice"): (getdevice, ("user.info",)),
+    ("/v2/user", "getgoals"): (getgoals, ("user.info", "user.metrics")),
+}

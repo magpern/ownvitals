@@ -447,10 +447,11 @@ def test_the_purpose_the_metric_and_an_explicit_requirement_choose_the_threshold
 
 
 def test_a_nerve_metric_passes_its_own_policy_but_is_too_short_to_search() -> None:
-    # N1: 4 measures over 28 days are enough for a trend, and far too few for a change point
-    daily = daily_values([0, 9, 18, 27], [50.0, 52.0, 51.0, 49.0])
-    end = START + timedelta(days=27)
-    result = detect_changes(daily, metric_key="nerve_health_score", window_end=end, window_days=28)
+    # N1: 4 measures over 28 days elapsed (day 0 to day 28) are enough for a trend, and far too
+    # few for a change point
+    daily = daily_values([0, 10, 19, 28], [50.0, 52.0, 51.0, 49.0])
+    end = START + timedelta(days=28)
+    result = detect_changes(daily, metric_key="nerve_health_score", window_end=end, window_days=29)
     assert isinstance(result, ChangePointResult)
     assert not result.searched
     assert result.change_points == ()

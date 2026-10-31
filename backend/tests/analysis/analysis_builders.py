@@ -52,11 +52,13 @@ def daily_on(*days: date) -> list[DailyValue]:
 
 
 def spread_days(first: date, span: int, count_: int) -> list[date]:
-    """``count_`` distinct days from ``first`` to ``first + span - 1`` (both included).
+    """``count_`` distinct days, the first on ``first`` and the last ``span`` days later.
 
-    ``span`` is the number of calendar days covered, ``count_`` how many of them have data."""
-    if not 2 <= count_ <= span:
-        raise ValueError("need 2 <= count_ <= span")
-    middle = list(range(1, span - 1))
-    chosen = [0, *middle[: count_ - 2], span - 1]
+    ``span`` is the days **elapsed** between the first and the last day (what ``span_days``
+    counts), so the days cover ``span + 1`` calendar days; ``count_`` is how many of them have
+    data."""
+    if not 2 <= count_ <= span + 1:
+        raise ValueError("need 2 <= count_ <= span + 1")
+    middle = list(range(1, span))
+    chosen = [0, *middle[: count_ - 2], span]
     return [first + timedelta(days=offset) for offset in chosen]

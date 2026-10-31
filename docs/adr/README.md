@@ -27,6 +27,8 @@ question open says so in an **Open questions** section and names who answers it.
 | [0003](0003-accounts-and-sessions.md) | Accounts, sessions, mandatory TOTP and step-up | Accepted |
 | [0004](0004-connections-and-encryption.md) | Provider connections, envelope encryption and the KEK ring | Accepted |
 | [0005](0005-jobs-and-leases.md) | Jobs, leases, fencing and the worker | Accepted |
+| [0007](0007-mail-outbox-and-owner-notices.md) | Mail outbox and owner notices | Accepted |
+| [0008](0008-webhook-secret-lifecycle.md) | Webhook-secret lifecycle, rotations and subscriptions (moved from ADR 0004 §4) | Accepted |
 
 The health-data threat model that these ADRs feed is
 [docs/security/threat-model.md](../security/threat-model.md).

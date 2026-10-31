@@ -3,12 +3,15 @@
 A metric has one ``Requirement`` per purpose (``trend``, ``baseline``). Below it the result is
 an ``InsufficientData`` carrying the numbers (``n``, ``coverage`` and the whole ``DataQuality``)
 and the shortfalls: never a value and never a finding. A "point" is a day with data, i.e. a
-daily value; the window and the span are counted in calendar days (see ``dataquality``).
+daily value; the window is counted in calendar days and a span in days **elapsed** between the
+first and the last day with data (see ``dataquality``): 28 days means a day with data and
+another one 28 days later, not 27.
 
 Defaults (PLAN §7.1 step 4): a **trend** needs at least 8 days with data whose span, first to
 last day with data, is at least 60 % of the window; a **baseline** needs at least 10 days with
 data spanning at least 21 days. ``POLICIES`` holds the per-metric overrides; N1 (PLAN §7.2)
-asks the nerve metrics for at least 4 measures over at least 4 weeks.
+asks the nerve metrics for at least 4 measures over at least 4 weeks (28 days), and their
+baseline needs at least 28 days too, so a nerve baseline is never sufficient while N1 is not.
 
 Every threshold is inclusive: exactly the minimum passes, one less fails.
 """
@@ -23,7 +26,7 @@ from types import MappingProxyType
 from ownvitals.analysis.daily import DailyValue
 from ownvitals.analysis.dataquality import DEFAULT_MIN_GAP_DAYS, DataQuality, summarise
 
-ALGO_VERSION = "policy/1"
+ALGO_VERSION = "policy/2"
 
 
 class Purpose(StrEnum):
@@ -65,6 +68,11 @@ class Requirement:
 TREND_DEFAULT = Requirement(min_days_with_data=8, min_span_fraction=Fraction(3, 5))
 BASELINE_DEFAULT = Requirement(min_days_with_data=10, min_span_days=21)
 NERVE_TREND = Requirement(min_days_with_data=4, min_span_days=28)  # N1, PLAN §7.2
+# The nerve baseline must not be easier to meet than N1: the default's 21-day span would let a
+# baseline pass while the trend still says "insufficient data".
+NERVE_BASELINE = Requirement(
+    min_days_with_data=BASELINE_DEFAULT.min_days_with_data, min_span_days=NERVE_TREND.min_span_days
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,9 +89,9 @@ DEFAULT_POLICY = MetricPolicy()
 # Overrides by metric key (``quality.METRICS``); every other metric uses DEFAULT_POLICY.
 POLICIES: Mapping[str, MetricPolicy] = MappingProxyType(
     {
-        "nerve_health_score": MetricPolicy(trend=NERVE_TREND),
-        "nerve_response_score": MetricPolicy(trend=NERVE_TREND),
-        "esc": MetricPolicy(trend=NERVE_TREND),
+        "nerve_health_score": MetricPolicy(trend=NERVE_TREND, baseline=NERVE_BASELINE),
+        "nerve_response_score": MetricPolicy(trend=NERVE_TREND, baseline=NERVE_BASELINE),
+        "esc": MetricPolicy(trend=NERVE_TREND, baseline=NERVE_BASELINE),
     }
 )
 
