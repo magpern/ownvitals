@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Weight: metric detail</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="./ov.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</helmet>
+<div class="ov app" data-theme="{{theme}}">
+  <div class="rail-wrap"><dc-import name="Rail" active="body" admin="{{ true }}" theme="{{theme}}" hint-size="100%,900px"></dc-import></div>
+  <div class="main">
+    <header class="topbar">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="Dashboard.dc.html">Overview</a><span aria-hidden="true">/</span><a href="Dashboard.dc.html">Body</a><span aria-hidden="true">/</span><span aria-current="page" style="color: var(--ink)">Weight</span></nav>
+      <span class="grow"></span>
+      <button class="acct" type="button" aria-haspopup="menu"><span class="avatar">A</span>alex@example.org<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 8l5 5 5-5" class="ic"></path></svg></button>
+    </header>
+    <div class="fresh" role="status">
+      <span class="item"><span class="dot ok"></span>Measurements up to date · synced 4 min ago</span>
+      <span class="item">Imported from 2 Apr 2019</span>
+      <span class="item">Last weigh-in today 07:12</span>
+    </div>
+
+    <div class="content">
+      <div class="between" style="align-items: flex-end">
+        <div class="stack" style="gap: 6px">
+          <h1>Weight</h1>
+          <span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Reported by Withings · Body Scan · measure type 1</span>
+        </div>
+        <div class="seg" role="group" aria-label="Range"><button type="button">30 d</button><button type="button">90 d</button><button type="button" aria-pressed="true">6 mo</button><button type="button">1 y</button><button type="button">All</button></div>
+      </div>
+
+      <div class="grid g4">
+        <div class="card stack" style="gap: 4px; padding: 16px">
+          <span class="eyebrow">Latest</span>
+          <span class="num" style="font-size: 28px; font-weight: 600">{{c.w.lastV}} <span class="muted" style="font-size: 15px; font-weight: 500">kg</span></span>
+          <span class="small muted">Today 07:12 · morning value</span>
+        </div>
+        <div class="card stack" style="gap: 4px; padding: 16px">
+          <span class="eyebrow">Typical range · 90 days</span>
+          <span class="num" style="font-size: 28px; font-weight: 600">{{c.w.lo}}–{{c.w.hi}} <span class="muted" style="font-size: 15px; font-weight: 500">kg</span></span>
+          <span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Calculated by ownvitals</span>
+        </div>
+        <div class="card stack" style="gap: 4px; padding: 16px">
+          <span class="eyebrow">Trend · 90 days</span>
+          <span class="num" style="font-size: 28px; font-weight: 600">{{c.w.slope}} <span class="muted" style="font-size: 15px; font-weight: 500">kg a month</span></span>
+          <span class="small muted">Decreasing · significant · confidence medium</span>
+        </div>
+        <div class="card stack" style="gap: 4px; padding: 16px">
+          <span class="eyebrow">Data quality · this window</span>
+          <span class="num" style="font-size: 28px; font-weight: 600">{{c.w.n}} <span class="muted" style="font-size: 15px; font-weight: 500">of 180 days</span></span>
+          <span class="small muted">Coverage {{c.w.cov}}% · longest gap {{c.w.maxGap}} days · 2 unconfirmed left out</span>
+        </div>
+      </div>
+
+      <section class="card" style="padding: 16px 16px 8px" aria-labelledby="chart-title">
+        <div class="between" style="padding: 0 4px 8px">
+          <h2 id="chart-title" style="font-size: 16px">Daily weight, May to October</h2>
+          <div class="row small" style="gap: 6px 18px">
+            <label class="check"><input type="checkbox" checked="checked">Typical range</label>
+            <label class="check"><input type="checkbox" checked="checked">Smoothed line</label>
+            <label class="check"><input type="checkbox" checked="checked">Unconfirmed readings</label>
+            <label class="row" style="gap: 8px">Compare with<select class="input" style="width: 150px; min-height: 40px"><option>Nothing</option><option>Fat mass</option><option>Muscle mass</option><option>Hydration</option></select></label>
+          </div>
+        </div>
+        <svg viewBox="0 0 1000 340" style="width: 100%; height: auto; display: block" role="img" aria-label="Weight from May to October 2026 on the personal typical range, with a nine-day gap in July, a change point on 23 August and 14 October selected">
+          <defs><pattern id="hatchMetric" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="c-hatch"></line></pattern></defs>
+          <line x1="48" y1="46.4" x2="980" y2="46.4" class="c-grid"></line>
+          <line x1="48" y1="99.1" x2="980" y2="99.1" class="c-grid"></line>
+          <line x1="48" y1="151.8" x2="980" y2="151.8" class="c-grid"></line>
+          <line x1="48" y1="204.5" x2="980" y2="204.5" class="c-grid"></line>
+          <line x1="48" y1="257.3" x2="980" y2="257.3" class="c-grid"></line>
+          <line x1="48" y1="310" x2="980" y2="310" class="c-grid"></line>
+          <text x="38" y="14" class="c-axis ta-end">kg</text>
+          <text x="38" y="50.4" class="c-axis ta-end">81</text>
+          <text x="38" y="103.1" class="c-axis ta-end">80</text>
+          <text x="38" y="155.8" class="c-axis ta-end">79</text>
+          <text x="38" y="208.5" class="c-axis ta-end">78</text>
+          <text x="38" y="261.3" class="c-axis ta-end">77</text>
+          <text x="38" y="314" class="c-axis ta-end">76</text>
+          <text x="188.6" y="330" class="c-axis ta-mid">Jun</text>
+          <text x="344.8" y="330" class="c-axis ta-mid">Jul</text>
+          <text x="506.2" y="330" class="c-axis ta-mid">Aug</text>
+          <text x="667.6" y="330" class="c-axis ta-mid">Sep</text>
+          <text x="823.8" y="330" class="c-axis ta-mid">Oct</text>
+          <path d="{{c.w.gaps}}" class="c-gapbg"></path>
+          <path d="{{c.w.gaps}}" fill="url(#hatchMetric)"></path>
+          <path d="{{c.w.band}}" class="c-band"></path>
+          <path d="{{c.w.dots}}" class="c-dots"></path>
+          <path d="{{c.w.hollow}}" class="c-hollow"></path>
+          <path d="{{c.w.line}}" class="c-line"></path>
+          <line x1="620.7" y1="20" x2="620.7" y2="310" class="c-cp"></line>
+          <line x1="{{c.w.selX}}" y1="20" x2="{{c.w.selX}}" y2="310" class="c-sel"></line>
+          <circle cx="{{c.w.selX}}" cy="{{c.w.selY}}" r="5" class="c-last"></circle>
+          <circle cx="{{c.w.lastX}}" cy="{{c.w.lastY}}" r="5.5" class="c-last"></circle>
+          <text x="391.7" y="40" class="c-note ta-mid">no data</text>
+          <text x="391.7" y="54" class="c-note ta-mid">9 days</text>
+          <text x="627" y="302" class="c-note">change point · 23 Aug</text>
+          <text x="{{c.w.selLabX}}" y="36" class="c-label ta-end">Tue 14 Oct</text>
+        </svg>
+        <p class="small muted" style="padding: 4px 4px 8px">Click or tap a day to see its readings. Arrow keys move between days; Enter opens the day.</p>
+      </section>
+
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); align-items: start">
+        <section class="stack" style="gap: 12px" aria-labelledby="day-title">
+          <div class="between"><h2 id="day-title">Tue 14 Oct</h2><a href="Reading.dc.html">Open the day</a></div>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Time</th><th class="r">Weight</th><th>Device</th><th>Status</th><th><span class="sr">Open</span></th></tr></thead>
+              <tbody>
+                <tr class="sel"><td class="num">07:04</td><td class="r">{{c.w.selV}} kg</td><td>Body Scan</td><td><span class="state ok" style="min-height: 24px; font-size: 12px">Morning value</span></td><td><a href="Reading.dc.html">Reading</a></td></tr>
+                <tr><td class="num">21:40</td><td class="r muted">80.4 kg</td><td>Body Scan</td><td><span class="state off" style="min-height: 24px; font-size: 12px">Unconfirmed, not used</span></td><td><a href="Reading.dc.html">Reading</a></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="notice info"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" class="ic"></circle><path d="M10 9v5 M10 6.2v.1" class="ic"></path></svg><p class="small">The scale couldn't tell who stood on it at 21:40, so the reading stays out of your analysis. If it was you, confirm it in the Withings app; ownvitals picks the change up at the next sync.</p></div>
+        </section>
+        <section class="card" aria-labelledby="method-title">
+          <div class="head"><h2 id="method-title" style="font-size: 16px">How this page is computed</h2><a href="Reading.dc.html">Full provenance</a></div>
+          <dl class="kv">
+            <dt>Daily value</dt><dd>First morning weigh-in, 04:00–11:00 local time; otherwise the day's median</dd>
+            <dt>Typical range</dt><dd>Rolling median ± 1.5 MAD over 90 days, by time</dd>
+            <dt>Smoothed line</dt><dd>EWMA weighted by the gap between readings</dd>
+            <dt>Trend</dt><dd>Theil–Sen slope with the modified Mann–Kendall test</dd>
+            <dt>Change points</dt><dd>PELT, only on series that meet the minimum-data policy</dd>
+            <dt>Version</dt><dd class="mono">analysis 1.2.0 · input revision 4812</dd>
+          </dl>
+          <hr class="divider" style="margin: 16px 0">
+          <div class="between"><span class="small muted">No live findings for weight in this window.</span><a class="small" href="Findings.dc.html">History (1)</a></div>
+        </section>
+      </div>
+      <p class="synthetic">Example data is synthetic.</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+  data() {
+    if (this._d) return this._d;
+    function mkRng(seed) { var s = seed >>> 0; return function () { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
+    function gauss(r) { var u = r() || 1e-9, v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+    function median(a) { var s = a.slice().sort(function (x, y) { return x - y; }); var m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+    function chart(c) {
+      var r = mkRng(c.seed), pts = [], d, keep = c.keep || [];
+      for (d = 0; d < c.n; d++) {
+        var gap = false;
+        (c.gaps || []).forEach(function (g) { if (d >= g[0] && d <= g[1]) gap = true; });
+        if (gap) continue;
+        if (d < c.n - 1) { var sk = r() < (c.missing || 0); if (sk && keep.indexOf(d) < 0) continue; }
+        pts.push({ d: d, v: c.base(d) + gauss(r) * c.noise });
+      }
+      var L = c.pad[3], T = c.pad[0], W = c.w - c.pad[1] - c.pad[3], H = c.h - c.pad[0] - c.pad[2];
+      function X(x) { return L + x / (c.n - 1) * W; }
+      function Y(v) { return T + (c.max - v) / (c.max - c.min) * H; }
+      function f(x) { return Math.round(x * 10) / 10; }
+      var segs = [], cur = [], maxGap = 0;
+      pts.forEach(function (p, k) { if (k > 0) { maxGap = Math.max(maxGap, p.d - pts[k - 1].d - 1); if (p.d - pts[k - 1].d > c.gapDays) { segs.push(cur); cur = []; } } cur.push(p); });
+      if (cur.length) segs.push(cur);
+      var e = null, prev = 0;
+      pts.forEach(function (p) { if (e === null) { e = p.v; } else { var a = 1 - Math.pow(1 - c.alpha, p.d - prev); e = e + a * (p.v - e); } p.e = e; prev = p.d; });
+      pts.forEach(function (p) {
+        var w = pts.filter(function (q) { return q.d <= p.d && q.d > p.d - c.bandWin; }).map(function (q) { return q.v; });
+        var m = median(w); var mad = median(w.map(function (x) { return Math.abs(x - m); }));
+        var hw = Math.max(c.bandMin, 1.4826 * mad * c.k); p.lo = m - hw; p.hi = m + hw;
+      });
+      var line = '', band = '';
+      segs.forEach(function (s) {
+        line += s.map(function (p, k) { return (k ? 'L' : 'M') + f(X(p.d)) + ' ' + f(Y(p.e)); }).join(' ') + ' ';
+        band += s.map(function (p, k) { return (k ? 'L' : 'M') + f(X(p.d)) + ' ' + f(Y(p.hi)); }).join(' ') + ' ' + s.slice().reverse().map(function (p) { return 'L' + f(X(p.d)) + ' ' + f(Y(p.lo)); }).join(' ') + ' Z ';
+      });
+      function dot(x, y, q) { return 'M' + f(x - q) + ' ' + f(y) + ' a' + q + ' ' + q + ' 0 1 0 ' + (2 * q) + ' 0 a' + q + ' ' + q + ' 0 1 0 ' + (-2 * q) + ' 0 '; }
+      var dots = '', hollow = '', gaps = '';
+      pts.forEach(function (p) { dots += dot(X(p.d), Y(p.v), c.r); });
+      (c.hollow || []).forEach(function (h) { hollow += dot(X(h[0]), Y(h[1]), c.r + 0.8); });
+      (c.gaps || []).forEach(function (g) { var x0 = X(g[0] - 0.5), x1 = X(g[1] + 0.5); gaps += 'M' + f(x0) + ' ' + T + ' H' + f(x1) + ' V' + (T + H) + ' H' + f(x0) + ' Z '; });
+      var recent = pts.filter(function (p) { return p.d >= c.n - 90; }), slopes = [], i, j;
+      for (i = 0; i < recent.length; i++) for (j = i + 1; j < recent.length; j++) slopes.push((recent[j].v - recent[i].v) / (recent[j].d - recent[i].d));
+      var last = pts[pts.length - 1];
+      var sel = pts.filter(function (p) { return p.d === c.sel; })[0] || last;
+      return {
+        line: line, band: band, dots: dots, hollow: hollow, gaps: gaps, n: pts.length, maxGap: maxGap, cov: Math.round(pts.length / c.n * 100),
+        lastX: f(X(last.d)), lastY: f(Y(last.v)), lastV: last.v.toFixed(1), lo: last.lo.toFixed(1), hi: last.hi.toFixed(1),
+        slope: (median(slopes) * 30).toFixed(2).replace('-', '−'),
+        selX: f(X(sel.d)), selY: f(Y(sel.v)), selLabX: f(X(sel.d) - 8), selV: sel.v.toFixed(1)
+      };
+    }
+    this._d = {
+      w: chart({ seed: 7, n: 180, w: 1000, h: 340, pad: [20, 20, 30, 48], min: 76, max: 81.5, noise: 0.32, missing: 0.18, gaps: [[62, 70]], keep: [162], sel: 162, gapDays: 4, alpha: 0.25, bandWin: 90, bandMin: 0.45, k: 1.5, r: 3, hollow: [[120, 80.9], [162, 80.4]], base: function (d) { return d < 110 ? 79.9 - d * 0.006 : 79.24 - (d - 110) * 0.0125; } })
+    };
+    return this._d;
+  }
+  renderVals() {
+    return { theme: this.props.theme ?? 'light', c: this.data() };
+  }
+}
+</script>
+</body>
+</html>

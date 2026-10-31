@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiet instrument: design language · ownvitals mock-up</title>
+<link rel="stylesheet" href="ov.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1F6F78}a:hover{color:#14535A}
+</style>
+</head>
+<body>
+<div class="ov" data-theme="light" style="width: 1440px; min-height: 3000px; padding: 72px 80px 96px; display: flex; flex-direction: column; gap: 72px">
+
+  <header style="display: flex; flex-direction: column; gap: 18px; max-width: 940px">
+    <div class="row" style="gap: 12px">
+      <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" class="logo-bg"></rect><rect x="4" y="10" width="16" height="5" rx="2.5" class="logo-band"></rect><circle cx="15" cy="12.5" r="3" class="logo-dot"></circle></svg>
+      <span style="font-size: 20px; font-weight: 600; letter-spacing: -0.01em">ownvitals</span>
+      <span class="eyebrow" style="margin-left: 8px">UI design for M6 · chosen by the owner, 31 Oct 2026</span>
+    </div>
+    <h1 style="font-size: 64px; line-height: 1.02; letter-spacing: -0.025em">Quiet instrument</h1>
+    <p style="font-size: 21px; line-height: 1.5; color: var(--muted)">A calm, precise instrument for reading your own body data. Every number sits on your own history, says who measured or computed it, and admits what is missing.</p>
+    <p class="small muted">The logo is the idea in miniature: a reading (the dot) on your personal typical range (the band).</p>
+  </header>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Six principles</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">01</span>
+        <h3>Your history is the reference</h3>
+        <p class="muted">Every series is drawn against your own typical range. Comparisons are with your past, never with population charts.</p>
+        <p class="small muted">Trend tier, PLAN §7.2</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">02</span>
+        <h3>Gaps stay gaps</h3>
+        <p class="muted">Missing days are hatched and lines break. A stream we can't read is never a zero and never "normal".</p>
+        <p class="small muted">Capabilities, §4.2</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">03</span>
+        <h3>Say who said it</h3>
+        <p class="muted">Withings-reported values, ownvitals calculations and experimental estimates each carry their own mark. An estimate never looks certified.</p>
+        <p class="small muted">D9, §7.3</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">04</span>
+        <h3>Freshness on every screen</h3>
+        <p class="muted">Each page opens with when you last measured, when we last synced, and which imports are running, incomplete or broken.</p>
+        <p class="small muted">MVP UI rule, §8</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">05</span>
+        <h3>Every number is traceable</h3>
+        <p class="muted">Overview → metric → day → reading → how it was computed: method, algorithm version, inputs and data revision.</p>
+        <p class="small muted">Provenance, §5</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 8px">
+        <span class="mono muted">06</span>
+        <h3>Quiet by default</h3>
+        <p class="muted">No streaks, rings, confetti or nudges. Colour appears only when something deserves a look. An analysis tool, not a copy of the Withings app.</p>
+        <p class="small muted">Withings terms, §9.4</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">The signature chart</div>
+    <h2 style="font-size: 28px; max-width: 900px">One chart grammar for every metric: your readings on your typical range</h2>
+    <div style="display: flex; gap: 40px; align-items: flex-start">
+      <div class="card" style="padding: 16px 12px 8px; flex: none">
+        <svg viewBox="0 0 860 300" width="860" height="300" role="img" aria-label="Example weight chart over 180 days: daily values on the personal typical range, a nine-day gap, two unconfirmed readings and a change point">
+          <defs><pattern id="hatchMain" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="c-hatch"></line></pattern></defs>
+          <line x1="44" y1="39.3" x2="844" y2="39.3" class="c-grid"></line>
+          <line x1="44" y1="85.8" x2="844" y2="85.8" class="c-grid"></line>
+          <line x1="44" y1="132.4" x2="844" y2="132.4" class="c-grid"></line>
+          <line x1="44" y1="178.9" x2="844" y2="178.9" class="c-grid"></line>
+          <line x1="44" y1="225.5" x2="844" y2="225.5" class="c-grid"></line>
+          <line x1="44" y1="272" x2="844" y2="272" class="c-grid"></line>
+          <text x="36" y="12" class="c-axis ta-end">kg</text>
+          <text x="36" y="43.3" class="c-axis ta-end">81</text>
+          <text x="36" y="89.8" class="c-axis ta-end">80</text>
+          <text x="36" y="136.4" class="c-axis ta-end">79</text>
+          <text x="36" y="182.9" class="c-axis ta-end">78</text>
+          <text x="36" y="229.5" class="c-axis ta-end">77</text>
+          <text x="36" y="276" class="c-axis ta-end">76</text>
+          <text x="164.7" y="292" class="c-axis ta-mid">Jun</text>
+          <text x="298.7" y="292" class="c-axis ta-mid">Jul</text>
+          <text x="437.3" y="292" class="c-axis ta-mid">Aug</text>
+          <text x="575.8" y="292" class="c-axis ta-mid">Sep</text>
+          <text x="709.9" y="292" class="c-axis ta-mid">Oct</text>
+          <path d="M318.9 16 H359.1 V272 H318.9 Z " class="c-gapbg"></path>
+          <path d="M318.9 16 H359.1 V272 H318.9 Z " fill="url(#hatchMain)"></path>
+          <path d="M44 74.3 L48.5 51.6 L52.9 46.1 L57.4 51.4 L61.9 73 L66.3 74.1 L70.8 74.3 L75.3 74.1 L79.8 73.8 L84.2 74.1 L88.7 73 L93.2 71.9 L97.6 72 L102.1 73.6 L106.6 73.8 L115.5 74.1 L120 73.8 L124.4 74.1 L128.9 74.3 L142.3 74.1 L146.8 73.8 L151.3 74.1 L155.7 74.3 L160.2 75.5 L164.7 76.7 L169.1 75.5 L178.1 76.7 L182.5 77 L187 77.3 L191.5 77 L196 77.3 L200.4 77.4 L209.4 77.5 L213.8 77.7 L218.3 77.5 L222.8 77.7 L227.2 77.9 L231.7 78.4 L236.2 77.9 L240.6 78.4 L249.6 77.9 L254.1 78.4 L258.5 78.8 L263 78.4 L271.9 78.8 L276.4 78.8 L280.9 78.9 L285.3 79.1 L289.8 78.9 L294.3 79.1 L303.2 79.3 L312.2 79.5 L316.6 79.6 L316.6 121.6 L312.2 121.4 L303.2 121.2 L294.3 121 L289.8 120.8 L285.3 121 L280.9 120.8 L276.4 120.7 L271.9 120.7 L263 120.2 L258.5 120.7 L254.1 120.2 L249.6 119.8 L240.6 120.2 L236.2 119.8 L231.7 120.2 L227.2 119.8 L222.8 119.6 L218.3 119.4 L213.8 119.6 L209.4 119.4 L200.4 119.3 L196 119.2 L191.5 118.9 L187 119.2 L182.5 118.9 L178.1 118.6 L169.1 117.4 L164.7 118.6 L160.2 117.4 L155.7 116.2 L151.3 116 L146.8 115.7 L142.3 116 L128.9 116.2 L124.4 116 L120 115.7 L115.5 116 L106.6 115.7 L102.1 115.5 L97.6 116.8 L93.2 115.4 L88.7 116.4 L84.2 116 L79.8 115.7 L75.3 116 L70.8 116.2 L66.3 116 L61.9 116.4 L57.4 111.6 L52.9 90.4 L48.5 111.9 L44 116.2 Z M361.3 78.9 L365.8 79.2 L370.3 78 L374.7 79.4 L383.7 79.5 L388.1 79.4 L392.6 78 L397.1 79.2 L401.5 77.8 L410.5 76.6 L414.9 78 L419.4 76.6 L423.9 76.3 L428.4 76.1 L432.8 76.4 L437.3 76.1 L441.8 76.1 L446.2 75.1 L455.2 76.2 L459.6 75.5 L464.1 75 L473.1 74.2 L477.5 74.2 L486.5 74.6 L490.9 75.1 L495.4 75.4 L499.9 77.4 L504.3 80.7 L508.8 80 L513.3 81.1 L522.2 83.8 L526.7 83.8 L531.2 84.4 L535.6 84 L540.1 84.7 L544.6 84.8 L549 85.9 L558 84.8 L562.4 84.4 L566.9 84 L575.8 83.1 L580.3 84.7 L584.8 85 L589.3 84.2 L593.7 85.9 L598.2 86.1 L602.7 85.1 L607.1 85.6 L616.1 85.6 L625 87 L633.9 88.2 L638.4 91.5 L642.9 92 L647.4 93 L651.8 94.2 L656.3 94.5 L660.8 94.6 L665.2 94.4 L669.7 95.3 L674.2 94 L678.6 94.1 L683.1 94.1 L687.6 94 L696.5 93.3 L701 93.2 L705.5 92.9 L709.9 92.5 L714.4 92.1 L718.9 91.9 L723.3 94.2 L727.8 95.3 L732.3 95.2 L736.7 95.9 L741.2 95.5 L745.7 94.7 L754.6 95.2 L763.6 97.4 L768 97.5 L772.5 97.9 L777 100 L785.9 101.1 L790.4 101.1 L803.8 102.4 L808.2 102.4 L812.7 102.4 L821.7 103.1 L826.1 104.3 L830.6 102.9 L835.1 103.4 L839.5 103.8 L844 107.6 L844 164.4 L839.5 166.5 L835.1 164.6 L830.6 162.2 L826.1 160.4 L821.7 161.7 L812.7 160.7 L808.2 160.7 L803.8 160.5 L790.4 161.1 L785.9 161.1 L777 161.7 L772.5 162.3 L768 160.3 L763.6 159 L754.6 160.3 L745.7 160 L741.2 159 L736.7 158.4 L732.3 158.8 L727.8 158.3 L723.3 157.7 L718.9 158.4 L714.4 157.1 L709.9 154.6 L705.5 154.3 L701 154 L696.5 153.8 L687.6 150.3 L683.1 147.9 L678.6 147.9 L674.2 147.4 L669.7 146.1 L665.2 147.2 L660.8 146.6 L656.3 145.3 L651.8 145.4 L647.4 146.3 L642.9 147.4 L638.4 146.9 L633.9 149 L625 148.6 L616.1 149.1 L607.1 147.2 L602.7 146.5 L598.2 144.1 L593.7 143.9 L589.3 143.3 L584.8 140.3 L580.3 139.7 L575.8 138.8 L566.9 136.2 L562.4 135.2 L558 134.5 L549 134.1 L544.6 134.5 L540.1 134.5 L535.6 134.6 L531.2 134.8 L526.7 135.5 L522.2 135.5 L513.3 134.7 L508.8 133.4 L504.3 130.1 L499.9 131.2 L495.4 129.8 L490.9 129.9 L486.5 130.1 L477.5 130.3 L473.1 130.3 L464.1 127 L459.6 126.5 L455.2 125.7 L446.2 126.6 L441.8 125.3 L437.3 125.2 L432.8 125 L428.4 125.2 L423.9 124.9 L419.4 124.6 L414.9 123.3 L410.5 124.6 L401.5 123.1 L397.1 122 L392.6 123.3 L388.1 122 L383.7 121.8 L374.7 122 L370.3 123.3 L365.8 122 L361.3 122 Z " class="c-band"></path>
+          <path d="M41.4 95.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M45.9 68.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M50.3 58.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M54.8 94.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M59.3 104.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M63.7 101 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M68.2 97.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M72.7 92.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M77.2 83.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M81.6 122.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M86.1 69.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M90.6 84.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M95 94.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M99.5 102.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M104 98.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M112.9 105.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M117.4 87.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M121.8 100.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M126.3 121.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M139.7 89.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M144.2 88.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M148.7 110.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M153.1 114.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M157.6 99.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M162.1 102.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M166.5 95.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M175.5 98.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M179.9 98.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M184.4 112.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M188.9 97.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M193.4 111.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M197.8 109 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M206.8 100.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M211.2 99.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M215.7 87.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M220.2 110.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M224.6 102.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M229.1 100.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M233.6 88.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M238 100.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M247 78.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M251.5 100.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M255.9 115 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M260.4 64.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M269.3 126.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M273.8 104.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M278.3 119.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M282.7 121.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M287.2 97.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M291.7 116.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M300.6 135 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M309.6 120.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M314 120.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M358.7 87.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M363.2 123.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M367.7 114.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M372.1 110 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M381.1 95.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M385.5 117.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M390 65.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M394.5 94.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M398.9 84.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M407.9 150.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M412.3 102 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M416.8 89.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M421.3 156.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M425.8 133.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M430.2 106.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M434.7 83.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M439.2 119.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M443.6 117 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M452.6 91.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M457 127.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M461.5 125.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M470.5 109.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M474.9 94.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M483.9 143.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M488.3 130.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M492.8 127.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M497.3 137 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M501.7 112.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M506.2 124.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M510.7 115.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M519.6 131 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M524.1 102.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M528.6 118.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M533 103.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M537.5 109.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M542 118.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M546.4 135.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M555.4 103 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M559.8 144.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M564.3 131.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M573.2 141.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M577.7 150.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M582.2 129.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M586.7 128.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M591.1 123.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M595.6 126.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M600.1 138.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M604.5 119.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M613.5 152.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M622.4 108.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M631.3 144.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M635.8 131.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M640.3 137.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M644.8 108.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M649.2 128.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M653.7 123.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M658.2 140.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M662.6 138.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M667.1 118.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M671.6 153.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M676 133.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M680.5 114.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M685 147.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M693.9 142.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M698.4 149.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M702.9 159.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M707.3 140.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M711.8 142.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M716.3 131.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M720.7 150.7 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M725.2 149.1 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M729.7 168.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M734.1 131.2 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M738.6 168.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M743.1 158.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M752 154.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M761 136.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M765.4 157 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M769.9 164 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M774.4 158.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M783.3 134.6 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M787.8 120.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M801.2 156.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M805.6 154.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M810.1 146.8 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M819.1 144 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M823.5 142.4 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M828 170.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M832.5 153.3 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M836.9 160.9 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 M841.4 146.5 a2.6 2.6 0 1 0 5.2 0 a2.6 2.6 0 1 0 -5.2 0 " class="c-dots"></path>
+          <path d="M576.9 43.9 a3.4000000000000004 3.4000000000000004 0 1 0 6.800000000000001 0 a3.4000000000000004 3.4000000000000004 0 1 0 -6.800000000000001 0 M715.5 57.9 a3.4000000000000004 3.4000000000000004 0 1 0 6.800000000000001 0 a3.4000000000000004 3.4000000000000004 0 1 0 -6.800000000000001 0 " class="c-hollow"></path>
+          <path d="M44 95.3 L48.5 88.5 L52.9 81 L57.4 84.4 L61.9 89.4 L66.3 92.3 L70.8 93.6 L75.3 93.4 L79.8 90.9 L84.2 98.8 L88.7 91.5 L93.2 89.7 L97.6 90.9 L102.1 93.7 L106.6 95 L115.5 99.6 L120 96.5 L124.4 97.6 L128.9 103.5 L142.3 95.6 L146.8 93.8 L151.3 97.9 L155.7 102.1 L160.2 101.5 L164.7 101.8 L169.1 100.1 L178.1 99.3 L182.5 99.1 L187 102.5 L191.5 101.2 L196 103.8 L200.4 105.1 L209.4 103.2 L213.8 102.4 L218.3 98.7 L222.8 101.6 L227.2 101.8 L231.7 101.6 L236.2 98.4 L240.6 98.9 L249.6 89.9 L254.1 92.6 L258.5 98.2 L263 89.7 L271.9 105.9 L276.4 105.5 L280.9 109.1 L285.3 112.1 L289.8 108.5 L294.3 110.5 L303.2 121.2 L312.2 120.9 L316.6 120.9 M361.3 89.3 L365.8 97.8 L370.3 102.1 L374.7 104 L383.7 100.4 L388.1 104.8 L392.6 95 L397.1 95 L401.5 92.4 L410.5 118 L414.9 114 L419.4 107.9 L423.9 120.1 L428.4 123.3 L432.8 119.2 L437.3 110.3 L441.8 112.7 L446.2 113.8 L455.2 104.2 L459.6 110 L464.1 113.8 L473.1 112 L477.5 107.5 L486.5 123.1 L490.9 125 L495.4 125.5 L499.9 128.4 L504.3 124.5 L508.8 124.5 L513.3 122.2 L522.2 126.1 L526.7 120.2 L531.2 119.7 L535.6 115.6 L540.1 114.1 L544.6 115.3 L549 120.4 L558 112.8 L562.4 120.8 L566.9 123.5 L575.8 131.2 L580.3 136.1 L584.8 134.5 L589.3 132.9 L593.7 130.6 L598.2 129.6 L602.7 131.7 L607.1 128.7 L616.1 139.1 L625 125.9 L633.9 134.1 L638.4 133.4 L642.9 134.3 L647.4 127.9 L651.8 128 L656.3 126.9 L660.8 130.3 L665.2 132.3 L669.7 128.8 L674.2 134.9 L678.6 134.5 L683.1 129.5 L687.6 134 L696.5 137.8 L701 140.7 L705.5 145.3 L709.9 144 L714.4 143.5 L718.9 140.5 L723.3 143.1 L727.8 144.6 L732.3 150.5 L736.7 145.7 L741.2 151.5 L745.7 153.3 L754.6 154 L763.6 146.2 L768 148.9 L772.5 152.7 L777 154.2 L785.9 145.6 L790.4 139.4 L803.8 149.5 L808.2 150.8 L812.7 149.8 L821.7 147.3 L826.1 146 L830.6 152.2 L835.1 152.5 L839.5 154.6 L844 152.5 " class="c-line"></path>
+          <line x1="535.6" y1="16" x2="535.6" y2="272" class="c-cp"></line>
+          <circle cx="844" cy="146.5" r="5.5" class="c-last"></circle>
+          <text x="834" y="134.5" class="c-label ta-end">78.7 kg</text>
+          <text x="339" y="36" class="c-note ta-mid">no data</text>
+          <text x="339" y="50" class="c-note ta-mid">9 days</text>
+          <text x="543" y="264" class="c-note">change point · 23 Aug</text>
+          <text x="730" y="44" class="c-note">unconfirmed</text>
+        </svg>
+      </div>
+      <ul style="display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto; min-width: 0; padding-top: 8px">
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><rect x="0" y="2" width="28" height="10" rx="3" class="c-band"></rect></svg><span><strong>Typical range.</strong> <span class="muted">Your rolling median ± 1.5 MAD over 90 days, by time, not by point count.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><path d="M1 10 C 8 2, 18 12, 27 4" class="c-line"></path></svg><span><strong>Smoothed line.</strong> <span class="muted">Gap-weighted EWMA. It stops where the data stops.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><circle cx="14" cy="7" r="3.5" class="c-dots"></circle></svg><span><strong>Daily value.</strong> <span class="muted">First morning weigh-in (04:00–11:00), otherwise the median of the day.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><circle cx="14" cy="7" r="4" class="c-hollow"></circle></svg><span><strong>Unconfirmed.</strong> <span class="muted">The scale couldn't tell who stepped on it. Shown, never used.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><defs><pattern id="hatchLegend" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" class="c-hatch"></line></pattern></defs><rect x="0" y="0" width="28" height="14" rx="3" fill="url(#hatchLegend)"></rect></svg><span><strong>No data.</strong> <span class="muted">Nothing is drawn across a gap, and it is labelled with its length.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><line x1="14" y1="0" x2="14" y2="14" class="c-cp"></line></svg><span><strong>Change point.</strong> <span class="muted">Shown only on series that pass the minimum-data policy.</span></span></li>
+        <li class="row" style="flex-wrap: nowrap; align-items: flex-start"><svg width="28" height="14" aria-hidden="true" style="flex: none; margin-top: 4px"><circle cx="14" cy="7" r="5" class="c-last"></circle></svg><span><strong>Latest.</strong> <span class="muted">Bigger, labelled. Orange when outside your typical range, never red.</span></span></li>
+      </ul>
+    </div>
+    <p class="synthetic">Example data is synthetic.</p>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Who said it: three value styles</div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px">
+        <span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Reported by Withings · Body Scan</span>
+        <div class="tile-like"><span style="font-size: 40px; font-weight: 600; letter-spacing: -0.01em" class="num">401</span><span class="muted" style="font-size: 18px; margin-left: 4px">ms</span></div>
+        <p><strong>QTc</strong></p>
+        <p class="small muted">Shown exactly as Withings reported it, with its original meaning and status, and attributed.</p>
+      </div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px">
+        <span class="src"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Calculated by ownvitals · analysis 1.2</span>
+        <div><span style="font-size: 40px; font-weight: 600; letter-spacing: -0.01em" class="num">77.6–79.3</span><span class="muted" style="font-size: 18px; margin-left: 4px">kg</span></div>
+        <p><strong>Typical range, 90 days</strong></p>
+        <p class="small muted">Descriptive maths over your own readings. One tap shows the method, the inputs and the version.</p>
+      </div>
+      <div class="exp-box" style="display: flex; flex-direction: column; gap: 10px">
+        <span class="src" style="color: var(--exp)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 L10.8 6 L6 10.8 L1.2 6 Z" class="gl-line"></path></svg>Estimated by ownvitals · experimental · only you see this</span>
+        <div><span style="font-size: 18px; color: var(--muted); margin-right: 6px">est.</span><span class="num est" style="font-size: 40px; font-weight: 500">41</span><span class="muted" style="font-size: 18px; margin-left: 4px">ms</span></div>
+        <p><strong>RMSSD from the ECG signal</strong></p>
+        <p class="small muted">Our own estimate from the raw signal, behind the owner flag. Italic, dotted, prefixed "est." and boxed: never equal to a certified value.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Finding tiers</div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+      <div class="stack" style="gap: 8px">
+        <span class="tier device" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" class="icf"></rect></svg>Device</span>
+        <p class="small muted">Withings' own result, attributed: "Withings classified this ECG as …". Everyone.</p>
+      </div>
+      <div class="stack" style="gap: 8px">
+        <span class="tier trend" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="0.5" y="3.5" width="11" height="5" rx="2.5" class="gl-soft"></rect><circle cx="8" cy="6" r="2.2" class="icf"></circle></svg>Trend</span>
+        <p class="small muted">Compared with your own history: "higher than your 90-day typical range". No diagnostic labels. Everyone.</p>
+      </div>
+      <div class="stack" style="gap: 8px">
+        <span class="tier exp" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 L10.8 6 L6 10.8 L1.2 6 Z" class="gl-line"></path></svg>Experimental</span>
+        <p class="small muted">Clinical bands and our estimates. Dashed everywhere it appears. Owner flag only, household only, until the M8 review.</p>
+      </div>
+      <div class="stack" style="gap: 8px">
+        <span class="tier system" style="align-self: flex-start"><svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4" class="ic"></circle></svg>System</span>
+        <p class="small muted">About your data, not your body: no weigh-in for 14 days, low battery, reconnect needed, import incomplete.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Data states: the vocabulary every view uses</div>
+    <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px">
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state ok" style="align-self: flex-start"><span class="dot ok"></span>Up to date</span><p class="small muted">Synced 4 min ago. Last reading today 07:12.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state attn" style="align-self: flex-start"><span class="dot attn"></span>Stale</span><p class="small muted">No weigh-in for 14 days. The last value is shown with its date, greyed.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state" style="align-self: flex-start">Importing 64%</span><div class="bar"><span style="width: 64%"></span></div><p class="small muted">ECG history: 142 of 220 recordings.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state attn" style="align-self: flex-start">Incomplete import</span><p class="small muted">History before 2021 isn't imported yet. Trends start from 2021.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state" style="align-self: flex-start">Insufficient data</span><div class="bar"><span style="width: 75%"></span></div><p class="small muted">3 of 4 measures over 4 weeks needed before we say anything.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state off" style="align-self: flex-start">Not supported</span><p class="small muted">No blood-pressure monitor on this Withings account.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state off" style="align-self: flex-start">Not shared</span><p class="small muted">Sleep wasn't shared when you connected. Reconnect to share it.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state off" style="align-self: flex-start">Not available</span><p class="small muted">Withings returned nothing for this stream. We'll keep checking.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state urgent" style="align-self: flex-start"><span class="dot urgent"></span>Needs reconnect</span><p class="small muted">Withings stopped accepting our access. Your data is kept.</p></div>
+      <div class="card" style="display: flex; flex-direction: column; gap: 10px; padding: 16px"><span class="state info" style="align-self: flex-start">Withings+ needed</span><p class="small muted">Accounts created on or after 13 Oct 2026 need Withings+ to share data.</p></div>
+    </div>
+  </section>
+
+  <section style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px">
+    <div style="display: flex; flex-direction: column; gap: 20px">
+      <div class="eyebrow">Type: IBM Plex Sans and Plex Mono</div>
+      <div class="stack" style="gap: 14px">
+        <div class="between" style="align-items: baseline"><span style="font-size: 44px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1">Body composition</span><span class="mono muted">44 / 600</span></div>
+        <div class="between" style="align-items: baseline"><span style="font-size: 28px; font-weight: 600">Weight</span><span class="mono muted">28 / 600</span></div>
+        <div class="between" style="align-items: baseline"><span style="font-size: 20px; font-weight: 600">Readings on Tue 14 Oct</span><span class="mono muted">20 / 600</span></div>
+        <div class="between" style="align-items: baseline"><span>Higher than your 90-day typical range for 3 days.</span><span class="mono muted">15 / 400</span></div>
+        <div class="between" style="align-items: baseline"><span class="eyebrow">Typical range</span><span class="mono muted">12 / 600 caps</span></div>
+        <div class="between" style="align-items: baseline"><span class="num" style="font-size: 30px; font-weight: 600">78.4<span class="muted" style="font-size: 15px; margin-left: 3px; font-weight: 500">kg</span></span><span class="mono muted">tabular figures</span></div>
+        <div class="between" style="align-items: baseline"><span class="mono">grp 4812 · daily 1.0.0 · rev 4812 · sha256 9f3c…a71e</span><span class="mono muted">Mono 13</span></div>
+      </div>
+      <p class="small muted">Plex is OFL-1.1, on the accepted licence list, and self-hosted from the app's own origin, so the CSP stays 'self' only. Fallback: the system stack in tokens.css today.</p>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 20px">
+      <div class="eyebrow">Colour: light / dark</div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 12px">
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg)"></div><span class="small"><strong>Ground</strong></span><span class="mono muted" style="font-size: 11px">#F2F4F5 / #0D1013</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface)"></div><span class="small"><strong>Surface</strong></span><span class="mono muted" style="font-size: 11px">#FFFFFF / #161A1E</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--ink)"></div><span class="small"><strong>Ink</strong></span><span class="mono muted" style="font-size: 11px">#14181D / #EEF1F3</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--muted)"></div><span class="small"><strong>Muted</strong></span><span class="mono muted" style="font-size: 11px">#55606C / #A2ACB7</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--brand)"></div><span class="small"><strong>Brand · trend</strong></span><span class="mono muted" style="font-size: 11px">#1F6F78 / #5EC2CC</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--series)"></div><span class="small"><strong>Series</strong></span><span class="mono muted" style="font-size: 11px">#24476B / #9CC3EC</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--band); border: 1px solid var(--band-edge)"></div><span class="small"><strong>Typical range</strong></span><span class="mono muted" style="font-size: 11px">#D6E8E9 / #183236</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--device)"></div><span class="small"><strong>Device</strong></span><span class="mono muted" style="font-size: 11px">#2D5C8A / #8FB5E3</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--exp)"></div><span class="small"><strong>Experimental</strong></span><span class="mono muted" style="font-size: 11px">#6A4E9E / #BBA4F2</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--attn)"></div><span class="small"><strong>Attention</strong></span><span class="mono muted" style="font-size: 11px">#A8520C / #F0A25B</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--urgent)"></div><span class="small"><strong>Urgent</strong></span><span class="mono muted" style="font-size: 11px">#A12A2E / #FF8E86</span></div>
+        <div class="stack" style="gap: 6px"><div style="height: 44px; border-radius: 8px; background: var(--ok)"></div><span class="small"><strong>OK</strong></span><span class="mono muted" style="font-size: 11px">#146C45 / #5BD49B</span></div>
+      </div>
+      <p class="small muted">Blue and orange carry meaning, not red and green. Every text colour passes 4.5:1 on its ground in both themes. Urgent is kept for two things: a Withings AFib-positive result and a broken connection.</p>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 20px">
+    <div class="eyebrow">Controls</div>
+    <div class="row" style="gap: 16px">
+      <button class="btn primary" type="button">Connect Withings</button>
+      <button class="btn" type="button">Sync now</button>
+      <button class="btn ghost" type="button">Cancel</button>
+      <button class="btn danger" type="button">Disconnect…</button>
+      <div class="seg" role="group" aria-label="Range"><button type="button">30 d</button><button type="button" aria-pressed="true">90 d</button><button type="button">1 y</button><button type="button">All</button></div>
+      <span class="state info"><svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2" class="ic"></rect><path d="M7 9 V6.5 a3 3 0 0 1 6 0 V9" class="ic"></path></svg>Needs your authenticator code</span>
+      <div class="field" style="width: 280px"><label for="demo-email">Email</label><input id="demo-email" class="input" type="email" placeholder="you@example.org"></div>
+    </div>
+    <p class="small muted">Targets are at least 44 px. Destructive actions end with "…" because they open a confirmation, and every action on the step-up list asks for a fresh authenticator code in one shared dialog.</p>
+  </section>
+
+</div>
+<script>
+  // ?theme=dark switches every .ov root, the imported rail included.
+  var t = new URLSearchParams(location.search).get('theme') || 'light';
+  document.querySelectorAll('.ov').forEach(function (e) { e.setAttribute('data-theme', t); });
+</script>
+</body>
+</html>
