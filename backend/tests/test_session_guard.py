@@ -37,7 +37,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
     )
     system = Allowlist(
         prefixes=("ownvitals.db", "ownvitals.auth"),
-        modules=("ownvitals.jobs.queue",),
+        modules=("ownvitals.jobs.queue", "ownvitals.crypto.keks"),
     )
     private = Allowlist(prefixes=("ownvitals.db",))
     assert (user, system) == (USER_SESSION, SYSTEM_SESSION)
@@ -90,6 +90,11 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.jobs.service", True, False),
         ("ownvitals.jobs.progress", True, False),
         ("ownvitals.jobs.queue", False, True),
+        # The key ring's startup check (#8): that exact module, nothing else in the package.
+        ("ownvitals.crypto.keks", False, True),
+        ("ownvitals.crypto", False, False),
+        ("ownvitals.crypto.envelope", False, False),
+        ("ownvitals.crypto.keks.other", False, False),
     ],
 )
 def test_the_owning_modules_are_allowlisted(module: str, user: bool, system: bool) -> None:

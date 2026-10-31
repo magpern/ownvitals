@@ -15,6 +15,7 @@ def test_defaults() -> None:
     assert settings.signup_mode == "invite"
     assert settings.stepup_window_minutes == 10
     assert settings.connection_kek_id == "kek-1"
+    assert (settings.webhook_seed_id, settings.webhook_pepper_id) == ("seed-1", "pep-1")
     assert (settings.smtp_host, settings.smtp_port, settings.smtp_tls) == (None, 587, "starttls")
     assert settings.smtp_sender == "ownvitals@localhost"
     assert settings.oauth_google_client_id is None
@@ -123,6 +124,40 @@ def test_connection_kek_id_accepts_the_documented_form(value: str) -> None:
 def test_connection_kek_id_rejects_other_forms(value: str) -> None:
     with pytest.raises(ValidationError, match="connection_kek_id"):
         Settings(connection_kek_id=value)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("webhook_seed_id", "seed-1"),
+        ("webhook_seed_id", "seed-2026-10"),
+        ("webhook_seed_id", "seed-" + "a" * 28),
+        ("webhook_pepper_id", "pep-1"),
+        ("webhook_pepper_id", "pep-2026-10"),
+        ("webhook_pepper_id", "pep-" + "a" * 28),
+    ],
+)
+def test_webhook_key_ids_accept_the_documented_form(field: str, value: str) -> None:
+    assert getattr(Settings(**{field: value}), field) == value  # pyright: ignore[reportArgumentType]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        *(
+            ("webhook_seed_id", value)
+            for value in ("", "seed", "seed-", "SEED-1", "seed-1_", "seed-" + "a" * 29, "kek-1")
+        ),
+        *(
+            ("webhook_pepper_id", value)
+            for value in ("", "pep", "pep-", "PEP-1", "pep-1_", "pep-" + "a" * 29, "seed-1")
+        ),
+        ("connection_kek_id", "pep-1"),
+    ],
+)
+def test_webhook_key_ids_reject_other_forms_and_other_kinds(field: str, value: str) -> None:
+    with pytest.raises(ValidationError, match=field):
+        Settings(**{field: value})  # pyright: ignore[reportArgumentType]
 
 
 @pytest.mark.parametrize("mode", ["invite", "closed", "open"])
