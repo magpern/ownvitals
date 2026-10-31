@@ -10,6 +10,8 @@ export interface LockPackage {
   devDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
+  /** A peer marked `optional` is installed only if something else asks for it. */
+  peerDependenciesMeta?: Record<string, { optional?: boolean } | undefined>
 }
 
 export interface Lockfile {
@@ -18,8 +20,14 @@ export interface Lockfile {
   packages: Record<string, LockPackage>
 }
 
-/** The licences the project accepts (SPDX identifiers, compared without regard to case). */
-export const ACCEPTED_LICENCES = new Set(['MIT', 'ISC', 'Apache-2.0', 'OFL-1.1'].map((id) => id.toLowerCase()))
+/**
+ * The licences the project accepts, as SPDX identifiers. The one list: `licenceAccepted` below
+ * and the check of the direct dependencies in src/packageJson.test.ts both read it.
+ */
+export const ACCEPTED_LICENCE_IDS: readonly string[] = ['MIT', 'ISC', 'Apache-2.0', 'OFL-1.1']
+
+/** The same, in lower case: `licenceAccepted` compares without regard to case. */
+export const ACCEPTED_LICENCES = new Set(ACCEPTED_LICENCE_IDS.map((id) => id.toLowerCase()))
 
 /**
  * Whether an SPDX licence expression is acceptable: `A OR B` when either side is, `A AND B` when
@@ -93,9 +101,27 @@ function resolve(lock: Lockfile, from: string, name: string): string | undefined
 }
 
 /**
+ * The names the package at `key` pulls in: its dependencies, optional dependencies and peer
+ * dependencies. A peer marked optional (`peerDependenciesMeta`) counts only when what it resolves
+ * to is installed as a non-dev package. npm installs an optional peer when something else asks
+ * for it, and a dev tool may be the one that does: the package is then flagged `dev` and does not
+ * ship, and the package that merely allows it does not pull it in. A required peer is always
+ * followed, so a hand-set `dev: true` still cannot hide one.
+ */
+function pulledIn(lock: Lockfile, key: string): string[] {
+  const pkg = lock.packages[key]
+  const peers = Object.keys(pkg?.peerDependencies ?? {}).filter((peer) => {
+    if (pkg?.peerDependenciesMeta?.[peer]?.optional !== true) return true
+    const installed = resolve(lock, key, peer)
+    return installed !== undefined && lock.packages[installed]?.dev !== true
+  })
+  return [...Object.keys(pkg?.dependencies ?? {}), ...Object.keys(pkg?.optionalDependencies ?? {}), ...peers]
+}
+
+/**
  * The install paths reachable from the project's `dependencies` (and optional dependencies)
- * through each package's dependencies, optional dependencies and peer dependencies: the
- * production tree, worked out here rather than taken from npm's `dev` flags.
+ * through what each package pulls in (`pulledIn`): the production tree, worked out here rather
+ * than taken from npm's `dev` flags.
  */
 export function productionClosure(lock: Lockfile): string[] {
   const seen = new Set<string>()
@@ -104,8 +130,7 @@ export function productionClosure(lock: Lockfile): string[] {
       const key = resolve(lock, from, name)
       if (key === undefined || seen.has(key)) continue
       seen.add(key)
-      const pkg = lock.packages[key]
-      visit(key, Object.keys({ ...pkg?.dependencies, ...pkg?.optionalDependencies, ...pkg?.peerDependencies }))
+      visit(key, pulledIn(lock, key))
     }
   }
   const root = lock.packages['']

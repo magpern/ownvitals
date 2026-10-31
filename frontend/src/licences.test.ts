@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  ACCEPTED_LICENCES,
+  ACCEPTED_LICENCE_IDS,
   type LockPackage,
   type Lockfile,
   licenceAccepted,
@@ -135,6 +137,80 @@ describe('the licence rule', () => {
       'node_modules/p': { version: '1.0.0', license: 'Unlicense' },
     })
     expect(unacceptedLicences(planted)).toEqual(['o@1.0.0: "LGPL-3.0"', 'p@1.0.0: "Unlicense"'])
+  })
+
+  describe('an optional peer dependency', () => {
+    /** `a` allows the optional peer `p`; `tool` (build only) asks for `p` and `c`. */
+    function withOptionalPeer(p: LockPackage, meta: { optional?: boolean } | null = { optional: true }): Lockfile {
+      return lockWith({
+        'node_modules/a': {
+          version: '1.0.0',
+          license: 'MIT',
+          dependencies: { b: '^1.0.0' },
+          peerDependencies: { p: '1.0.0' },
+          peerDependenciesMeta: meta === null ? undefined : { p: meta },
+        },
+        'node_modules/tool': {
+          version: '1.0.0',
+          license: 'MPL-2.0',
+          dev: true,
+          dependencies: { c: '^1.0.0', p: '1.0.0' },
+        },
+        'node_modules/p': p,
+      })
+    }
+
+    it('is followed when it is installed as a non-dev package', () => {
+      const planted = withOptionalPeer({ version: '1.0.0', license: 'GPL-3.0' })
+      expect(productionClosure(planted).map(nameOf)).toEqual(['a', 'b', 'p'])
+      expect(productionClosure(planted)).toEqual(notFlaggedDev(planted))
+      expect(unacceptedLicences(planted)).toEqual(['p@1.0.0: "GPL-3.0"'])
+    })
+
+    it('is not followed when only a build tool made npm install it (flagged dev)', () => {
+      const planted = withOptionalPeer({ version: '1.0.0', license: 'GPL-3.0', dev: true })
+      expect(productionClosure(planted).map(nameOf)).toEqual(['a', 'b'])
+      // The check that production closure and npm's flags agree holds, so the suite stays green.
+      expect(productionClosure(planted)).toEqual(notFlaggedDev(planted))
+      expect(unacceptedLicences(planted)).toEqual([])
+    })
+
+    it('is followed when something that ships also asks for it', () => {
+      const planted = withOptionalPeer({ version: '1.0.0', license: 'GPL-3.0', dev: true })
+      planted.packages['node_modules/b'] = { version: '1.2.0', license: 'ISC', dependencies: { p: '1.0.0' } }
+      expect(productionClosure(planted).map(nameOf)).toEqual(['a', 'b', 'p'])
+      expect(unacceptedLicences(planted)).toEqual(['p@1.0.0: "GPL-3.0"'])
+    })
+
+    it('is followed when it is also an optional dependency of the package', () => {
+      const planted = withOptionalPeer({ version: '1.0.0', license: 'GPL-3.0', dev: true })
+      const a = planted.packages['node_modules/a']
+      planted.packages['node_modules/a'] = { ...a, optionalDependencies: { p: '1.0.0' } }
+      expect(unacceptedLicences(planted)).toEqual(['p@1.0.0: "GPL-3.0"'])
+    })
+
+    it('is ignored when it is not installed at all', () => {
+      const planted = withOptionalPeer({ version: '1.0.0' })
+      delete planted.packages['node_modules/p']
+      planted.packages['node_modules/tool'] = { version: '1.0.0', license: 'MPL-2.0', dev: true }
+      expect(productionClosure(planted).map(nameOf)).toEqual(['a', 'b'])
+    })
+
+    it('does not exempt a required peer, or one marked optional: false, that is flagged dev', () => {
+      for (const meta of [null, { optional: false }, {}]) {
+        const planted = withOptionalPeer({ version: '1.0.0', license: 'GPL-3.0', dev: true }, meta)
+        expect(productionClosure(planted).map(nameOf), JSON.stringify(meta)).toEqual(['a', 'b', 'p'])
+        expect(unacceptedLicences(planted), JSON.stringify(meta)).toEqual(['p@1.0.0: "GPL-3.0"'])
+      }
+    })
+  })
+
+  it('has one list of accepted licences, which the lockfile check and package.json check both read', () => {
+    // src/packageJson.test.ts imports ACCEPTED_LICENCE_IDS too. Adding an id (OFL-1.1-RFN, say) is
+    // a deliberate decision, so it has to change this line.
+    expect([...ACCEPTED_LICENCE_IDS]).toEqual(['MIT', 'ISC', 'Apache-2.0', 'OFL-1.1'])
+    for (const id of ACCEPTED_LICENCE_IDS) expect(licenceAccepted(id), id).toBe(true)
+    expect([...ACCEPTED_LICENCES].sort()).toEqual(ACCEPTED_LICENCE_IDS.map((id) => id.toLowerCase()).sort())
   })
 
   it.each([
