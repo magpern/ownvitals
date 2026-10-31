@@ -26,6 +26,21 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 2 (2026-10-31, Architect): keys of partitioned owned tables
+
+- **Changes:** PLAN §5 ("Every owned table has `owner_id`, `UNIQUE (owner_id, id)` and
+  owner-inclusive composite foreign keys") is refined for the monthly-partitioned tables
+  (`observations`, `sleep_series`, `intraday`): their key is
+  `PRIMARY KEY (owner_id, id, <partition key>)`; they must never be the target of a foreign key
+  (a guard enforces it); their own foreign keys stay owner-inclusive
+  (e.g. `(owner_id, connection_id) → connections(owner_id, id)`). Every other owned table keeps
+  `UNIQUE (owner_id, id)`.
+- **Evidence:** PostgreSQL requires every unique constraint and primary key on a partitioned
+  table to include all partition-key columns, so `UNIQUE (owner_id, id)` cannot exist there. The
+  rule's purpose, owner-inclusive foreign keys pointing at a row, is kept: the partitioned tables
+  are leaf tables nothing references. Raised by the review of ADR 0002 (PR #41).
+- **ADR:** ADR 0002 records the key rule and the guard 1 extension (#21).
+
 ### Amendment 1 (2026-10-31, Architect): the authorization-code exchange runs in the web process
 
 - **Changes:** PLAN §2 ("The worker owns every outbound call") gains one Withings exception: the

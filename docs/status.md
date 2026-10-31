@@ -9,7 +9,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: wave 1 PRs open (#35 backend, #34 frontend, #41 ADRs and threat model) | — |
+| M0 | Platform | in progress: #3 merged (#34); #35 backend and #41 ADRs in fix rounds | — |
 | M1 | Withings core | not started; backlog #18–#30 (dependency graph below) | — |
 | M2 | Home deploy (early) | not started; mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
@@ -89,6 +89,8 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 | Date | Decision | Where |
 |---|---|---|
 | 2026-10-31 | numpy and scipy join #2's dependencies so #37, #38 and #40 don't need the `pyproject.toml` lock | #2 |
+| 2026-10-31 | Roadmap Amendment 2: partitioned owned tables keyed `(owner_id, id, partition key)`, never FK targets | roadmap, ADR 0002 |
+| 2026-10-31 | Webhook secrets are derived, never stored: secret = HMAC(seed key from the KEK ring, app_id ‖ secret_id); the database keeps only HMAC(pepper, secret) (PLAN §4.4, §5). The worker holds the seed (subscribe, `notify update`); web holds only the pepper. After a KEK compromise, subscriptions that can't be updated (tokens wiped) keep the old secret until reconnect; the receiver retires it, payloads are only hints and polling covers the gap (D3): accepted risk | ADR 0004, #8, #24 |
 | 2026-10-31 | Roadmap Amendment 1: the code exchange in the OAuth callback runs in web through a web-only egress entry | roadmap, ADR 0004 |
 | 2026-10-31 | Partitioned owned tables allowed only with forced RLS on parent and partitions, no app-role privileges on partitions, partitions created by one reviewed `SECURITY DEFINER` function; guard 1 extended by #21 | ADR 0002 |
 | 2026-10-31 | Reversible default until the owner says otherwise (ADR 0004 had left it to the owner): disconnect keeps imported data, with an explicit delete option; linking another Withings account requires disconnecting first; a failed upstream revoke still deletes local secrets | ADR 0004, #27 |
@@ -121,7 +123,7 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `compose.yaml` | #2 |
 | `Dockerfile` | #2 |
 | `AGENTS.md` | #44 |
-| `backend/src/ownvitals/web.py` | — (startup wiring: #5, #8, #9, #10, #12 take it in turn) |
+| `backend/src/ownvitals/web.py` | — (any issue that wires startup checks takes it; #5 first) |
 | `backend/src/ownvitals/db/engine.py` | — (#5 first) |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
@@ -150,7 +152,7 @@ assumptions below.
 | Connect your Withings account and run `ownvitals probe` on the home server | M1 → INTEGRATION_VERIFIED | Run it; paste the shape-only output into the issue |
 | Written clarification from Withings on Developer Agreement §4 and D2 (BYO, user cap) | M8 | Contact Withings |
 | Human security review, legal checklist (§9.3), medical-claims review | M8 | Owner or a trusted reviewer |
-| Threat model O6: SWAG settings for ownvitals: security headers, body limits, no buffering for SSE, the webhook location's access log without the URI, and port 8096 firewalled to SWAG only | M2 | Confirm or apply (192.168.1.151 and 192.168.1.222) |
+| Threat model O6: SWAG settings for ownvitals as the threat model lists them (no buffering for SSE, the webhook location's access log without the URI, `CF-Connecting-IP` trusted only via SWAG, port 8096 firewalled to SWAG only) | M2 | Confirm or apply (192.168.1.151 and 192.168.1.222) |
 | Threat model O12: disk encryption on 192.168.1.222; whether Cloudflare proxies `withings.pernemark.se` | M2 | Decide and tell the Architect |
 | Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section once #41 merges |
 
