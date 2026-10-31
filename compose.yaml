@@ -1,0 +1,90 @@
+# Local stack: db, migrate (one-shot) and web.
+# Ports bind 127.0.0.1 only and come from .env (scripts/worktree.sh init writes it).
+# Passwords are files under secrets/ mounted as Docker secrets, never environment variables.
+#
+# Interim: the database roles ownvitals_owner and ownvitals_app do not exist yet (the tenant
+# isolation issue creates them). Until then migrate and web connect as the postgres superuser of
+# this throwaway stack, and the postgres_password secret is mounted as the owner password
+# (migrate) and the app password (web). That issue switches both URLs to the roles and the
+# secrets to database_owner_password and database_password, which scripts/worktree.sh init
+# already creates.
+
+x-app: &app
+  build: .
+  image: ${COMPOSE_PROJECT_NAME:-ownvitals}:local
+  restart: "no"
+  environment: &app-env
+    OWNVITALS_ENVIRONMENT: dev
+    # The password comes from the database_password secret file (Settings reads it).
+    OWNVITALS_DATABASE_URL: postgresql+psycopg://postgres@db:5432/ownvitals
+    # The origin the browser uses; the Origin check compares against it.
+    OWNVITALS_PUBLIC_BASE_URL: http://127.0.0.1:${WEB_PORT:-8000}
+    # The id of the current key-encryption key, the secret file connection_kek.
+    OWNVITALS_CONNECTION_KEK_ID: ${CONNECTION_KEK_ID:-kek-1}
+
+services:
+  db:
+    image: postgres:17.11
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ownvitals
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DB_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d ownvitals"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # Alembic as the owner role (interim: the superuser, see above); never web.
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      <<: *app-env
+      OWNVITALS_MIGRATIONS_DATABASE_URL: postgresql+psycopg://postgres@db:5432/ownvitals
+    secrets:
+      - source: postgres_password
+        target: database_owner_password
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    restart: unless-stopped
+    secrets:
+      - source: postgres_password
+        target: database_password
+      - app_secret_key
+      - connection_kek
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3)"
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  app_secret_key:
+    file: ./secrets/app_secret_key
+  connection_kek:
+    file: ./secrets/connection_kek
+
+volumes:
+  db-data:
