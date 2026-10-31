@@ -41,3 +41,13 @@ export function withReturnTo(path: string, target: string | null): string {
   if (target === null || target === HOME_PATH) return path
   return `${path}?return_to=${encodeURIComponent(target)}`
 }
+
+/**
+ * Whether this session belongs to an administrator: the `admin` role (ADR 0002). It decides what
+ * to show (the Admin item of the rail and the account menu, the admin screens); the server decides
+ * what an admin may do. It does not look at the second factor: the guards already require
+ * `ready` before any app screen.
+ */
+export function isAdmin(session: SessionState | null): boolean {
+  return session?.authenticated === true && session.user?.role === 'admin'
+}

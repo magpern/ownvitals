@@ -6,9 +6,10 @@
 (baseline, EWMA, Theil-Sen, PELT) live in `analysis/methods/` and have their own document.
 
 **Pure**: no database, web, Withings, job, egress, account, configuration, logging or HTTP-client
-import (the list is under "Purity guard"), no I/O, no clock, no randomness. Inputs are plain frozen dataclasses; every function is deterministic and does not
-depend on the order its input was passed in. `tests/test_analysis_purity.py` enforces the import
-rule for `ownvitals.analysis` and `ownvitals.ecg` (below).
+import (the list is under "Purity guard"), no I/O, no clock, no randomness. Inputs are plain frozen
+dataclasses; every function is deterministic and does not depend on the order its input was
+passed in. `tests/test_analysis_purity.py` enforces the import rule for `ownvitals.analysis` and
+`ownvitals.ecg` (below).
 
 ```bash
 cd backend
@@ -212,6 +213,7 @@ included) or `ownvitals.ecg` (once it exists) imports anything in `FORBIDDEN`:
 | `ownvitals.withings`, `ownvitals.egress`, `httpx`, `requests` | the network |
 | `ownvitals.auth`, `ownvitals.context` | who is acting: the pure core takes plain values |
 | `ownvitals.config`, `ownvitals.log`, `ownvitals.cli` | the environment, secret files, stdout and the operator CLI |
+| `ownvitals.__main__` | the entry point: it starts uvicorn and imports the web app, config and logging |
 
 Everything else in `ownvitals` stays importable (`ownvitals.emailnorm` is the one pure helper at
 the top level). A name matches itself and its submodules, not a name that merely starts with it
@@ -237,11 +239,18 @@ the top level). A name matches itself and its submodules, not a name that merely
     string names, and for which a pure library has no use;
   - a string that is exactly the name of one of those functions (`getattr(importlib,
     'import_module')`, `importlib.__dict__['import_module']`), which can only be a lookup by name;
+    the names are `import_module`, `__import__`, `exec`, `eval`, `compile`, `run_module`,
+    `run_path`, `resolve_name` and `patch`;
   - `import_module` or `__import__` used as a value or under another name
     (`from importlib import import_module as load`, `load = importlib.import_module`);
   - **aliases are collected from the whole file first**, so a use before (or above, in the walk's
     depth order) an `import ownvitals` nested in a function or class is caught, and a name bound
     by two imports (`import ownvitals as x`, `import os as x`) stands for both;
+- **words to avoid**: whatever the word means in the code, `patch`, `run_module`, `run_path` and
+  `resolve_name` are refused as an identifier (`patch = ...`, `sample.patch`), `exec`, `eval` and
+  `compile` as a plain name (`re.compile(...)` stays allowed), and all nine names above as an
+  exact string (`'patch'` as a dictionary key or a label). Code in `ownvitals.analysis` and
+  `ownvitals.ecg` uses other words, for example `electrode` for a skin patch;
 - **dynamic**: importing every module in a clean interpreter must not load any forbidden module,
   which also catches an indirect import. A name built at run time (`getattr(m, 'import_' +
   'module')`) is beyond a syntax tree and is left to this check;

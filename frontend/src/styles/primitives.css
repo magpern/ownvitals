@@ -1,0 +1,455 @@
+/*
+ * The design primitives of "Quiet instrument" (docs/design/, Main): layout (card, stack), buttons,
+ * tier marks, data states and value styles. A port of the matching rules of
+ * docs/design/mockups/src/ov.css to classes (`ov-*`) and tokens (`var(--ov-*)`), with no inline
+ * style. Colour comes from tokens.css only. The React components are in src/components/ui/.
+ */
+
+/* Helpers */
+
+.ov-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-mono {
+  font-family: var(--ov-font-mono);
+  font-size: var(--ov-text-sm);
+}
+
+.ov-muted {
+  color: var(--ov-muted);
+}
+
+.ov-small {
+  font-size: var(--ov-text-sm);
+}
+
+.ov-eyebrow {
+  color: var(--ov-muted);
+  font-size: var(--ov-text-xs);
+  font-weight: var(--ov-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ov-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Icons and the logo */
+
+.ov-icon {
+  flex: none;
+}
+
+.ov-ic {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ov-glyph-solid {
+  fill: currentColor;
+}
+
+.ov-glyph-soft {
+  fill: currentColor;
+  opacity: 0.35;
+}
+
+.ov-glyph-dashed {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-dasharray: 2 1.6;
+}
+
+.ov-logo-bg {
+  fill: var(--ov-brand);
+}
+
+.ov-logo-band {
+  fill: var(--ov-on-brand);
+  opacity: 0.35;
+}
+
+.ov-logo-dot {
+  fill: var(--ov-on-brand);
+}
+
+/* Layout: stack and card */
+
+.ov-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-3);
+}
+
+.ov-stack[data-gap='sm'] {
+  gap: var(--ov-space-2);
+}
+
+.ov-stack[data-gap='lg'] {
+  gap: 1.25rem;
+}
+
+.ov-card {
+  padding: 1.25rem;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+  background: var(--ov-surface);
+}
+
+.ov-card--flat {
+  background: transparent;
+}
+
+/* An experimental estimate sits in a dashed box (the dashed border says "not certified"). */
+.ov-card--experimental {
+  padding: var(--ov-space-4) 1.125rem;
+  border: 1.5px dashed var(--ov-exp);
+}
+
+.ov-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ov-space-2) var(--ov-space-4);
+  margin-bottom: var(--ov-space-3);
+}
+
+.ov-card__title {
+  margin: 0;
+  font-size: var(--ov-text-lg);
+  font-weight: var(--ov-weight-semibold);
+  line-height: 1.3;
+}
+
+.ov-card__title--small {
+  font-size: var(--ov-text-md);
+  line-height: var(--ov-leading-snug);
+}
+
+/* A labelled row inside a card: what it is, and what state or control it has */
+
+.ov-setting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ov-space-3) var(--ov-space-5);
+  padding: var(--ov-space-4) 0;
+  border-bottom: 1px solid var(--ov-line-soft);
+}
+
+/* The first row of a card with no heading starts at the card's own padding. */
+.ov-card > .ov-setting:first-child {
+  padding-top: 0;
+}
+
+.ov-setting:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.ov-setting__what {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+.ov-setting__label {
+  font-size: 0.875rem;
+  font-weight: var(--ov-weight-medium);
+}
+
+.ov-setting__what p {
+  margin: 2px 0 0;
+  color: var(--ov-muted);
+  font-size: var(--ov-text-sm);
+}
+
+/* Buttons */
+
+.ov-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ov-space-2);
+  min-height: var(--ov-target);
+  padding: 0 1.125rem;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-ctl);
+  background: var(--ov-surface);
+  color: var(--ov-text);
+  font: inherit;
+  font-weight: var(--ov-weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ov-btn:hover {
+  border-color: var(--ov-muted);
+}
+
+.ov-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Doubled class: a variant keeps its border on hover. */
+.ov-btn.ov-btn--primary {
+  border-color: var(--ov-brand);
+  background: var(--ov-brand);
+  color: var(--ov-on-brand);
+}
+
+.ov-btn.ov-btn--danger {
+  border-color: var(--ov-urgent);
+  color: var(--ov-urgent);
+}
+
+.ov-btn.ov-btn--danger-solid {
+  border-color: var(--ov-urgent);
+  background: var(--ov-urgent);
+  color: var(--ov-surface);
+}
+
+.ov-btn.ov-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.ov-btn--wide {
+  width: 100%;
+}
+
+.ov-btn svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+/* Tier marks: Device (solid square), Trend (band), Experimental (dashed diamond), System (ring) */
+
+.ov-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.5rem;
+  padding: 0 0.5625rem;
+  border: 1px solid transparent;
+  border-radius: var(--ov-radius-tag);
+  font-size: var(--ov-text-xs);
+  font-weight: var(--ov-weight-semibold);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.ov-tier svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.ov-tier--device {
+  background: var(--ov-device-soft);
+  color: var(--ov-device);
+}
+
+.ov-tier--trend {
+  background: var(--ov-trend-soft);
+  color: var(--ov-trend);
+}
+
+.ov-tier--experimental {
+  border: 1px dashed var(--ov-exp);
+  background: var(--ov-exp-soft);
+  color: var(--ov-exp);
+}
+
+.ov-tier--system {
+  background: var(--ov-raised);
+  color: var(--ov-muted);
+}
+
+/* Source marks: who said it */
+
+.ov-src {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--ov-muted);
+  font-size: var(--ov-text-xs);
+}
+
+.ov-src svg {
+  width: 0.6875rem;
+  height: 0.6875rem;
+}
+
+.ov-src--estimate {
+  color: var(--ov-exp);
+}
+
+/* Value styles: number, unit, raw value in mono, and the estimate */
+
+.ov-value {
+  color: var(--ov-text);
+  font-size: var(--ov-text-value);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--ov-weight-semibold);
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.ov-value__unit {
+  margin-left: 3px;
+  color: var(--ov-muted);
+  font-size: var(--ov-text-base);
+  font-weight: var(--ov-weight-medium);
+  letter-spacing: 0;
+}
+
+.ov-value--large {
+  font-size: var(--ov-text-value-lg);
+}
+
+.ov-value--large .ov-value__unit {
+  margin-left: var(--ov-space-1);
+  font-size: var(--ov-text-unit-lg);
+}
+
+/* Estimated: italic, dotted underline and "est." in front. Never looks like a certified value. */
+.ov-value--estimate .ov-value__num {
+  font-style: italic;
+  font-weight: var(--ov-weight-medium);
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 5px;
+}
+
+.ov-value__est {
+  color: var(--ov-muted);
+  font-size: var(--ov-text-unit-lg);
+  font-weight: var(--ov-weight-regular);
+  letter-spacing: 0;
+}
+
+/* Data states: one pill per state, an optional bar and an optional line of detail */
+
+.ov-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ov-space-2);
+  min-height: 1.75rem;
+  padding: 0.125rem 0.6875rem;
+  border-radius: var(--ov-radius-full);
+  background: var(--ov-raised);
+  color: var(--ov-text);
+  font-size: var(--ov-text-sm);
+  font-weight: var(--ov-weight-medium);
+  white-space: nowrap;
+}
+
+.ov-state--ok {
+  background: var(--ov-ok-soft);
+  color: var(--ov-ok);
+}
+
+.ov-state--attn {
+  background: var(--ov-attn-soft);
+  color: var(--ov-attn);
+}
+
+.ov-state--urgent {
+  background: var(--ov-urgent-soft);
+  color: var(--ov-urgent);
+}
+
+.ov-state--info {
+  background: var(--ov-device-soft);
+  color: var(--ov-device);
+}
+
+.ov-state--off {
+  border: 1px dashed var(--ov-muted);
+  background: transparent;
+  color: var(--ov-muted);
+}
+
+.ov-dot {
+  display: inline-block;
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--ov-muted);
+}
+
+.ov-dot--ok {
+  background: var(--ov-ok);
+}
+
+.ov-dot--attn {
+  background: var(--ov-attn);
+}
+
+.ov-dot--urgent {
+  background: var(--ov-urgent);
+}
+
+.ov-dot--off {
+  border: 1.5px solid var(--ov-muted);
+  background: transparent;
+}
+
+.ov-data-state {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.ov-data-state > .ov-state {
+  align-self: flex-start;
+}
+
+.ov-data-state__detail {
+  margin: 0;
+  color: var(--ov-muted);
+  font-size: var(--ov-text-sm);
+}
+
+/* A native <progress>: no inline style is needed for its width. */
+.ov-bar {
+  display: block;
+  width: 100%;
+  height: 0.5rem;
+  border: 0;
+  border-radius: var(--ov-radius-xs);
+  background: var(--ov-raised);
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ov-bar::-webkit-progress-bar {
+  border-radius: var(--ov-radius-xs);
+  background: var(--ov-raised);
+}
+
+.ov-bar::-webkit-progress-value {
+  border-radius: var(--ov-radius-xs);
+  background: var(--ov-brand);
+}
+
+.ov-bar::-moz-progress-bar {
+  border-radius: var(--ov-radius-xs);
+  background: var(--ov-brand);
+}

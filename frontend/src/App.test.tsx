@@ -1,10 +1,16 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { MFA_OFF, SIGNED_IN, SIGNED_IN_NO_CODE, fakeApi, reason } from './test/fakeApi'
 import { renderAt } from './test/render'
 
 const here = () => window.location.pathname + window.location.search
+
+/** Opens the account menu of the app frame and returns it. */
+async function openAccountMenu() {
+  fireEvent.click(await screen.findByRole('button', { name: /ann@example.test/ }))
+  return screen.findByRole('menu', { name: 'Account' })
+}
 
 describe('the page frame', () => {
   it('shows the product name before the session has loaded', () => {
@@ -23,19 +29,19 @@ describe('the page frame', () => {
     expect(within(nav).queryByRole('button', { name: 'Sign out' })).toBeNull()
   })
 
-  it('shows who is signed in, with Sign out', async () => {
+  it('shows who is signed in, with Sign out in the account menu', async () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/')
-    const nav = await screen.findByRole('navigation', { name: 'Account' })
-    expect(within(nav).getByText('ann@example.test')).toBeInTheDocument()
-    expect(within(nav).getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+    const menu = await openAccountMenu()
+    expect(within(menu).getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument()
   })
 
-  it('shows a placeholder home page for a signed-in user, and nothing from the dashboard', async () => {
+  it('shows the Overview placeholder for a signed-in user: the page header and Coming later', async () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/')
-    expect(await screen.findByRole('heading', { name: 'Welcome, ann' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument()
     expect(screen.getByText('The dashboard comes in M6.')).toBeInTheDocument()
+    expect(screen.getByText('Coming later')).toBeInTheDocument()
   })
 
   it('has a page for an unknown address', async () => {
@@ -56,7 +62,7 @@ describe('signing out', () => {
       },
     })
     renderAt('/')
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
+    fireEvent.click(within(await openAccountMenu()).getByRole('menuitem', { name: 'Sign out' }))
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
     expect(here()).toBe('/signin')
     expect(api.to('POST', '/api/auth/logout')).toHaveLength(1)
@@ -85,12 +91,11 @@ describe('signing out', () => {
       'POST /api/auth/logout': reason(500, 'boom'),
     })
     renderAt('/')
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
+    fireEvent.click(within(await openAccountMenu()).getByRole('menuitem', { name: 'Sign out' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/went wrong on the server/)
     expect(here()).toBe('/')
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled()
-    })
+    // Still signed in: the account menu opens again, with Sign out in it.
+    expect(within(await openAccountMenu()).getByRole('menuitem', { name: 'Sign out' })).toBeEnabled()
   })
 })
 

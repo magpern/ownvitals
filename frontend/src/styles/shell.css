@@ -1,0 +1,358 @@
+/*
+ * The app frame of "Quiet instrument" (docs/design/mockups/src/ov.css: "App frame", "Navigation
+ * rail", and the phone tabs of the Onboarding board): the rail, the top bar, the account menu
+ * and, on a phone, the tabs at the bottom. Colour, spacing and type come from tokens.css only.
+ * Under 760 px (the mock-up's breakpoint) the rail gives way to the tabs.
+ *
+ * index.html asks for viewport-fit=cover, so the page reaches under a notch, the status bar and the
+ * home indicator: the frame pads itself by env(safe-area-inset-*) on every side it touches
+ * (zero on a screen without them).
+ */
+
+.ov-app {
+  display: grid;
+  grid-template-columns: var(--ov-rail-width) minmax(0, 1fr);
+  min-height: 100vh;
+  padding-right: env(safe-area-inset-right);
+  padding-left: env(safe-area-inset-left);
+}
+
+.ov-rail-wrap {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  border-right: 1px solid var(--ov-line);
+  background: var(--ov-surface);
+  overflow-y: auto;
+}
+
+.ov-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Top bar: the page header, and the account menu */
+
+.ov-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ov-space-3) var(--ov-space-4);
+  padding: 0.875rem var(--ov-space-6);
+  padding-top: calc(0.875rem + env(safe-area-inset-top));
+  border-bottom: 1px solid var(--ov-line);
+  background: var(--ov-surface);
+}
+
+.ov-topbar__title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--ov-text-title);
+  font-weight: var(--ov-weight-semibold);
+  letter-spacing: -0.01em;
+  line-height: var(--ov-leading-tight);
+}
+
+/* The logo is the rail's brand on a desktop; the phone has no rail. */
+.ov-topbar__logo {
+  display: none;
+  align-items: center;
+  min-height: var(--ov-target);
+}
+
+.ov-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-5);
+  width: 100%;
+  max-width: var(--ov-page-width);
+  padding: var(--ov-space-5) var(--ov-space-6) 3.5rem;
+}
+
+/* Navigation rail */
+
+.ov-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.375rem;
+  padding: 1.125rem var(--ov-space-3) var(--ov-space-5);
+}
+
+.ov-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: var(--ov-target);
+  padding: 0 var(--ov-space-3);
+  color: var(--ov-text);
+  font-size: 1.125rem;
+  font-weight: var(--ov-weight-semibold);
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.ov-navgroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-1);
+}
+
+.ov-navgroup > .ov-eyebrow {
+  padding: 0 var(--ov-space-3) var(--ov-space-1);
+}
+
+.ov-navlist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov-navlist a {
+  display: flex;
+  align-items: center;
+  gap: var(--ov-space-3);
+  min-height: var(--ov-target);
+  padding: 0 var(--ov-space-3);
+  border-radius: var(--ov-radius-ctl);
+  color: var(--ov-text);
+  font-weight: var(--ov-weight-medium);
+  text-decoration: none;
+}
+
+.ov-navlist a:hover {
+  background: var(--ov-bg);
+}
+
+.ov-navlist a[aria-current] {
+  background: var(--ov-brand-soft);
+  color: var(--ov-brand);
+}
+
+.ov-navlist a.ov-navlist__dim {
+  color: var(--ov-muted);
+}
+
+.ov-navlist svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.ov-navlist a > span {
+  white-space: nowrap;
+}
+
+.ov-navlist .ov-navlist__end {
+  margin-left: auto;
+}
+
+/* A count that wants a look, at the end of a rail item */
+.ov-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.375rem;
+  height: 1.375rem;
+  padding: 0 0.4375rem;
+  border-radius: 0.6875rem;
+  background: var(--ov-raised);
+  color: var(--ov-text);
+  font-size: var(--ov-text-xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-count--attn {
+  background: var(--ov-attn-soft);
+  color: var(--ov-attn);
+}
+
+/* Account menu */
+
+.ov-acct-wrap {
+  position: relative;
+}
+
+.ov-acct {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: var(--ov-target);
+  padding: 0 0.875rem 0 6px;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-full);
+  background: var(--ov-surface);
+  color: var(--ov-text);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.ov-acct__email {
+  overflow-wrap: anywhere;
+}
+
+.ov-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--ov-brand-soft);
+  color: var(--ov-brand);
+  font-size: 0.875rem;
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 16.25rem;
+  padding: 6px;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+  background: var(--ov-surface);
+  box-shadow: var(--ov-shadow);
+}
+
+.ov-menu__who {
+  margin: 0;
+  padding: var(--ov-space-2) var(--ov-space-3);
+  border-bottom: 1px solid var(--ov-line);
+  font-weight: var(--ov-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.ov-menu [role='menu'] {
+  display: flex;
+  flex-direction: column;
+}
+
+.ov-menu a,
+.ov-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: var(--ov-target);
+  padding: 0 var(--ov-space-3);
+  border: 0;
+  border-radius: var(--ov-radius-sm);
+  background: transparent;
+  color: var(--ov-text);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ov-menu a:hover,
+.ov-menu button:hover {
+  background: var(--ov-bg);
+}
+
+.ov-menu svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.ov-menu__rule {
+  height: 1px;
+  margin: var(--ov-space-1) 0;
+  border: 0;
+  background: var(--ov-line);
+}
+
+/* Phone tabs: four places, at the bottom, 64 px high */
+
+.ov-phone-tabs {
+  display: none;
+}
+
+.ov-phone-tabs a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ov-space-1);
+  min-height: 4rem;
+  color: var(--ov-muted);
+  font-size: var(--ov-text-xs);
+  text-decoration: none;
+}
+
+.ov-phone-tabs a[aria-current] {
+  color: var(--ov-brand);
+}
+
+.ov-phone-tabs svg {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+@media (max-width: 760px) {
+  .ov-app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ov-rail-wrap {
+    display: none;
+  }
+
+  .ov-topbar {
+    padding-right: var(--ov-space-4);
+    padding-left: var(--ov-space-4);
+  }
+
+  .ov-topbar__logo {
+    display: inline-flex;
+  }
+
+  /* The address is in the menu's header; here it stays as the button's name, but is not drawn. */
+  .ov-acct__email {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .ov-acct {
+    gap: var(--ov-space-2);
+    padding-right: var(--ov-space-3);
+  }
+
+  .ov-menu {
+    max-width: calc(100vw - 2rem);
+  }
+
+  /* Room for the tabs, which stay in view. */
+  .ov-content {
+    padding: var(--ov-space-4) var(--ov-space-4) calc(5rem + env(safe-area-inset-bottom));
+  }
+
+  .ov-phone-tabs {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    border-top: 1px solid var(--ov-line);
+    background: var(--ov-surface);
+  }
+}
