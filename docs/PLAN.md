@@ -10,17 +10,14 @@ redesigned later.
 - Host: `withings.pernemark.se`.
 - Evidence from reverse-engineering the Withings app: [withings-findings.md](withings-findings.md).
 
-**Revision 2 (2026-10-31)** incorporates an external architecture review:
-- corrected webhook-delivery wording
-- crash-safe token rotation
-- mandatory 2FA moved to M0, before any real data
-- webhook hardening
-- capability discovery
-- tiered findings with a medical-claims gate
-- provenance and minimum-data rules
-- a scoped deploy mechanism
-- an earlier legal gate
-- integration-status levels
+**Revision history (2026-10-31)**
+- **Revision 2** applied an external architecture review: webhook wording, crash-safe tokens,
+  2FA in M0, webhook hardening, capability discovery, finding tiers, provenance and minimum-data
+  rules, a scoped deploy, an earlier legal gate and status levels.
+- **Revision 3** keeps ownvitals free (D11), records Withings' terms (§9.4), and applies a second
+  review: dataset revisions for provenance (§5), rate tokens consumed once claimed (§4.4), M0
+  step-up for disconnect and credential changes (§6), and deploys pinned to attested digests
+  (§9.2).
 
 The agent merge gate (§10.2) is deliberately unchanged and stays enforced by the agents, not by
 GitHub.
@@ -208,8 +205,11 @@ Also: `notify list`, then re-subscribe or `notify update` on drift.
 
 **Rate limiter**:
 - Per Withings app: a Postgres token bucket, budget 100/min of the documented 120.
-- Reservations carry a lease expiry, so a crashed worker's tokens come back. Several workers
-  claim with `FOR UPDATE SKIP LOCKED`.
+- A token counts as **consumed the moment it's claimed and is never refunded**, because the call
+  may already have started. A crash only costs unused capacity in that minute; the bucket refills
+  at its normal rate.
+- Concurrency slots (in-flight calls) carry a lease and are freed when it expires; tokens aren't.
+  Several workers claim with `FOR UPDATE SKIP LOCKED`.
 - A global concurrency cap (e.g. 4 in-flight calls).
 - **Per-user fairness**: round-robin, with each user's backfill share capped.
 - Lanes, highest first: user "sync now" > webhook > poll > reconcile > backfill.
@@ -250,7 +250,7 @@ Also: `notify list`, then re-subscribe or `notify update` on drift.
   - duplicate, out-of-order and forged webhooks
   - oversized and malformed bodies
   - worker crash mid-backfill (lease expiry → resume)
-  - abandoned rate reservations
+  - crashed calls (tokens stay consumed, concurrency slots are freed)
 - [ ] Capability states drive behavior; missing streams are never shown as zero.
 - [ ] RLS guard tests on every new table in web, worker, scheduler, webhook and admin contexts.
 - [ ] Metrics exported for every item in the list above.
@@ -292,14 +292,24 @@ ecg_recordings       owner_id, connection_id, signalid, recorded_at, source_tz, 
 sleep_summaries, activity_daily, workouts; sleep_series, intraday (monthly partitions)
 observations         owner_id, metric_key, ts, source_ts, source_tz, value, source_value_raw,
                      source_unit, conversion, quality_flags, source_ref   (monthly partitions)
-metric_daily         owner_id, metric_key, day, morning, mean, min, max, n, algo_version
+metric_daily         owner_id, metric_key, day, morning, mean, min, max, n, algo_version, input_revision
 findings             owner_id, rule_id, rule_version, tier (device|trend|experimental), severity,
                      confidence, data_quality jsonb, origin (live|backfill), metric_keys[], window,
-                     evidence jsonb, input_version, status, first_seen, last_seen
-scores               owner_id, kind, day, value, components jsonb, algo_version, input_version
+                     evidence jsonb, input_revision, input_fingerprint, status, first_seen, last_seen
+scores               owner_id, kind, day, value, components jsonb, algo_version, input_revision,
+                     input_fingerprint
+data_revisions       owner_id, stream, revision bigint   (bumped transactionally on every source change)
 ```
-- **Provenance**: every derived row stores `algo_version` and `input_version` (the max `modified`
-  of its inputs), so results can be reproduced and recomputed when an algorithm changes.
+- **Provenance**: every derived row stores:
+  - `algo_version`
+  - `input_revision`: the `data_revisions` counter for its owner and stream. The counter is
+    bumped in the same transaction as every insert, update or soft-delete of source rows, so
+    deletions and backdated edits are caught too.
+  - `input_fingerprint`: SHA-256 over the sorted ids and payload hashes of the exact input rows,
+    deleted ones marked
+
+  A derived row is stale when either value differs, and it can be reproduced from the same
+  inputs and algorithm version.
 - **Partitions**: monthly partitions are created 3 months ahead by the scheduler; retention is
   per table (raw kept, intraday configurable); BRIN on `ts`. Restore drills include partitioned
   tables.
@@ -312,7 +322,13 @@ scores               owner_id, kind, day, value, components jsonb, algo_version,
 - classbeat auth (password, Google OIDC, sessions, rate limits, notices, purge, audit)
 - **TOTP 2FA mandatory** for every account
 - protected sessions (rotation, idle and absolute limits, log out everywhere)
-- **step-up 2FA** for connecting Withings
+- **step-up 2FA** (a fresh TOTP within 10 min) for every sensitive action that exists before real
+  data arrives (M2):
+  - connect and disconnect Withings
+  - delete account
+  - enable, disable or reset 2FA, and regenerate recovery codes
+  - change password or email
+  - log out everywhere
 
 **M3**:
 
@@ -320,7 +336,9 @@ scores               owner_id, kind, day, value, components jsonb, algo_version,
 |---|---|
 | Passkeys | WebAuthn. "Use a phone" via QR (hybrid transport) gives standard QR sign-in |
 | QR approve-login | Desktop QR with a 60 s single-use nonce bound to the desktop session cookie; the signed-in phone shows the desktop's browser, OS, IP and city and asks to approve; desktop receives the session via SSE |
-| Step-up extended | Export, delete account, 2FA changes |
+
+Passkey and QR-login management (add or remove a passkey, approve a login) follow the M0
+step-up rule. Export requires step-up when it lands (M7).
 
 Disconnect and delete (with upstream revoke and purge) are part of M1, because they must exist
 before real users.
@@ -445,14 +463,14 @@ See [PLAN-operations.md](PLAN-operations.md): local development, the home server
 
 | Milestone | Scope | Done when |
 |---|---|---|
-| M0 Platform | Port classbeat (auth, crypto, connections, RLS, jobs, worker, admin, CI, agents, e2e); **mandatory TOTP, session protection, step-up for connect**; RLS tests in worker, scheduler, webhook and admin contexts; health-data threat-model review of the ported parts | CI green; e2e login + TOTP; guards pass; threat model updated |
+| M0 Platform | Port classbeat (auth, crypto, connections, RLS, jobs, worker, admin, CI, agents, e2e); **mandatory TOTP, session protection, step-up for connect, disconnect, delete and credential changes**; RLS tests in worker, scheduler, webhook and admin contexts; health-data threat-model review of the ported parts | CI green; e2e login + TOTP; guards pass; threat model updated |
 | M1 Withings core | §4 complete (tokens, capabilities, webhook security, completeness, observability, disconnect/delete) | §4.4 checklist → **IMPLEMENTED** |
 | M2 Home deploy (early) | §9.2: SWAG, Cloudflare, deploy user, backups + restore drill, rollback, monitoring. Then you connect your account and run the probe | Real-data gate passed; M1 **INTEGRATION_VERIFIED** |
-| M3 Identity additions | Passkeys, QR approve-login, step-up for export/delete/2FA changes | Opus review PASS; e2e for each flow |
+| M3 Identity additions | Passkeys, QR approve-login, both under the M0 step-up rule | Opus review PASS; e2e for each flow |
 | M4 Analysis v1 | Normalization with provenance, daily values, minimum-data policy, baselines, trends, change points, trend-tier rules, Health Score, backfill/live separation | Rules tested on synthetic irregular and sparse series; reproducible on your data |
 | M5 ECG & nerve health | ECG spec ADR, preserve + view + PDF, SQI gate, descriptive HRV, nerve trends; experimental rules behind the flag | Validated on your history (owner-run); experimental tier reviewed by you |
 | M6 MVP UI | §8 | A household member completes onboarding unaided |
-| M7 AI & reports | Digest, assistant, doctor PDF, JSON/CSV export (FIT where the data supports it), per-user monthly AI cost cap (D11) | Consent, provider review, privacy and prompt-injection evals green; cap holds under concurrency |
+| M7 AI & reports | Digest, assistant, doctor PDF, JSON/CSV export with step-up (FIT where the data supports it), per-user monthly AI cost cap (D11) | Consent, provider review, privacy and prompt-injection evals green; cap holds under concurrency |
 | M8 Beyond-household gate | §9.3 checklist, VPS move, human security review, Withings terms (§9.4: written clarification of the "substantially similar" clause, D2 assumptions), load test of the rate limiter | Owner sign-off → **PRODUCTION_READY** for non-household users |
 
 ---

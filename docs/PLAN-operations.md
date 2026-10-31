@@ -1,6 +1,6 @@
 # ownvitals: plan, operations part
 
-Sections 9 and 10 of [PLAN.md](PLAN.md) (Revision 2), split out to keep each file under 500 lines.
+Sections 9 and 10 of [PLAN.md](PLAN.md) (Revision 3), split out to keep each file under 500 lines.
 Section numbers match the references in PLAN.md.
 
 ---
@@ -20,8 +20,8 @@ Section numbers match the references in PLAN.md.
 | Ports | web on **`192.168.1.222:8096`**. Postgres not published |
 | Reverse proxy | SWAG on 192.168.1.151: `site-confs/ownvitals.conf` for `withings.pernemark.se` → `http://192.168.1.222:8096`; the wildcard cert covers it. The webhook location has its own `access_log` format without the URI |
 | DNS / Cloudflare | `withings` CNAME (you, manually). If proxied: SSL Full (strict), WAF skip rule for `/api/webhooks/withings/*`, trust `CF-Connecting-IP` only via SWAG |
-| **Deploy mechanism** | A dedicated `ownvitals-deploy` user whose SSH key has a **forced command** (`command="/usr/local/bin/ownvitals-deploy",no-pty,no-port-forwarding`) that only accepts a release tag. It pulls that image, runs migrations and `up -d`, and records the previous tag. **No shell, no database, key or log access.** Agents get only this key, and use it only after your go-ahead |
-| Rollback | `ownvitals-deploy <previous-tag>`. Migrations follow expand/contract, so the previous release runs on the new schema |
+| **Deploy mechanism** | A dedicated `ownvitals-deploy` user whose SSH key has a **forced command** (`command="/usr/local/bin/ownvitals-deploy",no-pty,no-port-forwarding`) that takes a release tag and an image digest. It refuses unless (1) the tag is a protected `v*` tag on `magpern/ownvitals`, (2) the digest has a GitHub **build-provenance attestation** showing `release.yml` built it from that tag (verified with `gh attestation verify` against the repo and workflow), and (3) the image is pulled **by digest** (`ghcr.io/magpern/ownvitals@sha256:…`), never by a mutable tag. It then runs migrations and `up -d`, and records the deployed and previous digests. **No shell, no database, key or log access.** Agents get only this key, and use it only after your go-ahead |
+| Rollback | Redeploy the previously recorded digest through the same checks. Migrations follow expand/contract, so the previous release runs on the new schema |
 | Backups / DR | Nightly encrypted `pg_dump` + KEK backup (separately) to another machine. Targets: RPO 24 h, RTO 4 h. Quarterly restore drill |
 | Hardening | Host firewall: 8096 only from .151; own Docker network; KEK files read-only, outside the DB |
 | Shared-host risk | The host also runs a torrent client, flaresolverr, Portainer (Docker socket) and more. Acceptable for household use only |
@@ -111,7 +111,9 @@ milestone → issues → Developer (worktree) → PR → CI → fresh Reviewer
 - Every push after a PASS needs a new (delta) review.
 - Agents never `--admin`, `--auto`, approve, or override a FAIL.
 - You can always merge on GitHub yourself.
-- The gate is enforced by the agents (AGENTS.md/CLAUDE.md), not by GitHub checks.
+- The gate is enforced by the agents (AGENTS.md/CLAUDE.md), not by GitHub checks. That's a
+  deliberate choice, and it depends on §10.3: the deterministic CI security checks and the human
+  security review at M8 stay mandatory.
 - Health-specific review checks:
   - no real health data in tests, fixtures or logs
   - units and time zones correct
@@ -150,4 +152,5 @@ So:
   PRs could run code on it.
 - `main` requires a PR plus green CI, squash only, linear history; `v*` tags protected.
 - CODEOWNERS, Dependabot, commitlint, secret scanning and push protection.
-- Release: tag → GHCR image → deploy via §9.2.
+- Release: protected `v*` tag → `release.yml` builds the image, pushes it to GHCR and creates a
+  build-provenance attestation (`actions/attest-build-provenance`) → deploy by digest via §9.2.
