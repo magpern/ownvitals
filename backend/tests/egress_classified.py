@@ -65,6 +65,7 @@ TABLE: dict[str, Entry] = {
         "CancelledError",  # an exception class (jobs, worker)
         "Event",  # an in-process flag (jobs, worker)
         "FIRST_COMPLETED",  # a constant of asyncio.wait (worker.loop)
+        "Lock",  # an in-process lock (crypto.keks)
         "SelectorEventLoop",  # psycopg on Windows (db.engine); its methods: LOOP_METHODS
         "Task",  # a type (jobs, worker)
         "ensure_future",  # schedules a coroutine on the running loop; no I/O of its own
