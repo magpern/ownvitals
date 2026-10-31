@@ -1,11 +1,12 @@
 # ADR 0006 §13: the synthetic test specification
 
 Part of [ADR 0006](0006-ecg-subsystem.md), with the same status, split out to keep the ADR under 500
-lines. "§n" means a section of ADR 0006, whose references this file cites and whose conventions
-apply here: bounds are inclusive (Context). **Synthetic signals only**: no real or public
-recordings. Strips are 30 s long. Every threshold and tolerance here is our choice, and every
-seeded CI case must satisfy every assertion; #40 implements them, except those of the last
-section, which names its issues.
+lines. Its amendments are listed in the ADR's "Amendments" (amended 2026-10-31, #88). "§n" means a
+section of ADR 0006, whose conventions apply here: bounds are inclusive (Context). The sources both
+files cite are listed under References at the end of this file (amended 2026-10-31, #88).
+**Synthetic signals only**: no real or public recordings. Strips are 30 s long. Every threshold and
+tolerance here is our choice, and every seeded CI case must satisfy every assertion; #40 implements
+them, except those of the last section, which names its issues.
 
 ## Generator
 
@@ -102,7 +103,7 @@ RMSSD tolerance, by the generator's mean HR:
 | HR | Clean and respiratory | Noisy and ectopic |
 |---|---|---|
 | 40 to under 60 bpm | ± 6.0 ms | ± 10.5 ms |
-| 60 to under 100 bpm | ± 4.0 ms | ± 6.5 ms |
+| 60 to under 100 bpm | ± 4.0 ms | ± 7.0 ms (amended 2026-10-31, #88) |
 | 100 to under 140 bpm | ± 5.0 ms | ± 8.0 ms |
 | 140 to 180 bpm | ± 5.5 ms | ± 8.5 ms |
 
@@ -177,13 +178,16 @@ Outside CI, on synthetic series; the first five items run §8's rules on RR seri
 
   The noisy 40–59 bpm value rests on one ectopic strip at 41 bpm; 3 of 118,805 ectopic strips at
   40–45 bpm exceed 7.0 ms. Clean 60–99 bpm is set at 4.0 ms although 3.5 ms is 20.3 % above 2.91 ms,
-  since the review's own sample reached 2.96 ms. The largest SDNN error is 2.46 ms clean (default,
-  40 bpm) and 3.66 ms noisy (ectopic, 45 bpm). The mean RMSSD error under the default variability is
-  +0.20, +0.48, +0.96 and +1.47 ms at 1.41 ms, and +0.45, +1.05, +1.97 and +2.80 ms at 2.12 ms; the
-  median true RMSSD is 31.0, 13.2, 6.0 and 3.4 ms (25.7, 11.1, 5.1 and 2.9 ms with linear
-  interpolation at 1 Hz). The earlier ± max(2 ms, 5 %) misses in 3 % of clean strips at 40 bpm, 2 %
-  at 120, 5 % at 140, 13 % at 160 and 25 % at 180 bpm. No exclusion differed from the truth
-  (respiratory: none after the first interval);
+  since the review's own sample reached 2.96 ms. Noisy 60–99 bpm is set at 7.0 ms, not 6.5 ms
+  (amended 2026-10-31, #88), on the same rule: the #46 review's own samples reached 5.45 ms (one
+  default-variability strip at 96 bpm in 1,000 strips per bpm, a 19.2 % margin against 6.5 ms; 5.45
+  × 1.2 = 6.54, rounded up to 0.5 ms) and at most 5.35 ms in 760,000 strips (20,000 per bpm at 61–98
+  bpm). The largest SDNN error is 2.46 ms clean (default, 40 bpm) and 3.66 ms noisy (ectopic, 45
+  bpm). The mean RMSSD error under the default variability is +0.20, +0.48, +0.96 and +1.47 ms at
+  1.41 ms, and +0.45, +1.05, +1.97 and +2.80 ms at 2.12 ms; the median true RMSSD is 31.0, 13.2, 6.0
+  and 3.4 ms (25.7, 11.1, 5.1 and 2.9 ms with linear interpolation at 1 Hz). The earlier ± max(2 ms,
+  5 %) misses in 3 % of clean strips at 40 bpm, 2 % at 120, 5 % at 140, 13 % at 160 and 25 % at 180
+  bpm. No exclusion differed from the truth (respiratory: none after the first interval);
 - kSQI on a McSharry implementation: 10.7 at 40 bpm, 8.6 at 60 and 5.6 at 180 bpm; white noise
   2.6 to 3.7 in the middle window over 3,000 strips per rate. Edge windows of noise reach 14, as
   odd padding turns an edge sample into a step, hence the middle window;
@@ -238,10 +242,61 @@ hold, with synthetic findings and recordings:
   that revision, the bound counted from the first; a withdrawn finding sends nothing. E1 to E3 are
   sent at once. A later failure recalls nothing.
 - The hold waits only for trigger recordings: a baseline recording without a current `estimated`
-  never holds it. With no linkable recording it ends at once and sends the notification marked
-  "not evaluated", well before the bound: for each `ecg` capability state `unsupported`,
-  `not_authorized` and `not_available`, and once an `ecg` sync that started after the trigger
-  was stored completes successfully without a match. A sync that started before, failed, or
-  completed only partly doesn't end the hold. The hold records how it ended (gate result, no
-  link possible, bound) as a reason code, and a link that appears after a "no link possible" end
-  is counted, for A9 (count only).
+  never holds it. With no linkable recording it ends at once and sends the notification marked "not
+  evaluated", well before the bound: for each `ecg` capability state `unsupported`, `not_authorized`
+  and `not_available`, and once an `ecg` sync that started after the trigger was stored completes
+  successfully without a match. A sync that started before, failed, or completed only partly doesn't
+  end the hold. A linked recording kept with `signal` NULL has, once the recompute that #25 enqueues
+  at storage has run (§1), an `estimated` with `signal_missing`, which gives no gate result. When
+  that recording is the trigger's only linked one and no other trigger group can still be linked,
+  the hold then ends at once and the notification is sent marked "not evaluated"; otherwise §11
+  governs (amended 2026-10-31, #88). The hold records how it ended (gate result, no link possible,
+  bound) as a reason code, and a link that appears after a "no link possible" end is counted, for A9
+  (count only).
+
+## References
+
+The sources cited in ADR 0006 and in this file, moved here verbatim from the end of the ADR to keep
+the ADR within 500 lines (amended 2026-10-31, #88).
+
+- ANSI/AAMI EC57:2012. Testing and reporting performance results of cardiac rhythm and ST segment
+  measurement algorithms.
+- Behar J, Oster J, Li Q, Clifford GD. ECG signal quality during arrhythmia and its application to
+  false alarm reduction. IEEE Trans Biomed Eng 2013;60(6):1660–1666.
+- Bland JM, Altman DG. Statistical methods for assessing agreement between two methods of clinical
+  measurement. Lancet 1986;1(8476):307–310.
+- Clifford GD, Behar J, Li Q, Rezek I. Signal quality indices and data fusion for determining
+  clinical acceptability of electrocardiograms. Physiol Meas 2012;33(9):1419–1433.
+- Dash S, Chon KH, Lu S, Raeder EA. Automatic real time detection of atrial fibrillation. Ann
+  Biomed Eng 2009;37(9):1701–1709.
+- Elgendi M. Fast QRS detection with an optimized knowledge-based method: evaluation on 11
+  standard ECG databases. PLoS ONE 2013;8(9):e73557.
+- Hamilton PS, Tompkins WJ. Quantitative investigation of QRS detection rules using the MIT/BIH
+  arrhythmia database. IEEE Trans Biomed Eng 1986;33(12):1157–1165.
+- Kligfield P, Gettes LS, Bailey JJ, et al. Recommendations for the standardization and
+  interpretation of the electrocardiogram, part I. Circulation 2007;115(10):1306–1324.
+- Li Q, Mark RG, Clifford GD. Robust heart rate estimation from multiple asynchronous noisy sources
+  using signal quality indices and a Kalman filter. Physiol Meas 2008;29(1):15–32.
+- Lippman N, Stein KM, Lerman BB. Comparison of methods for removal of ectopy in measurement of
+  heart rate variability. Am J Physiol 1994;267(1 Pt 2):H411–H418.
+- Lipponen JA, Tarvainen MP. A robust algorithm for heart rate variability time series artefact
+  correction using novel beat classification. J Med Eng Technol 2019;43(3):173–181.
+- Malik M, et al. Heart rate variability in relation to prognosis after myocardial infarction:
+  selection of optimal processing techniques. Eur Heart J 1989;10(12):1060–1074.
+- Martínez JP, Almeida R, Olmos S, Rocha AP, Laguna P. A wavelet-based ECG delineator: evaluation
+  on standard databases. IEEE Trans Biomed Eng 2004;51(4):570–581.
+- McSharry PE, Clifford GD, Tarassenko L, Smith LA. A dynamical model for generating synthetic
+  electrocardiogram signals. IEEE Trans Biomed Eng 2003;50(3):289–294.
+- Moody GB, Muldrow WE, Mark RG. A noise stress test for arrhythmia detectors. Computers in
+  Cardiology 1984;11:381–384.
+- Munoz ML, van Roon A, Riese H, et al. Validity of (ultra-)short recordings for heart rate
+  variability measurements. PLoS ONE 2015;10(9):e0138921.
+- Orphanidou C, et al. Signal-quality indices for the electrocardiogram and photoplethysmogram:
+  derivation and applications to wireless monitoring. IEEE J Biomed Health Inform 2015;19:832–838.
+- Pan J, Tompkins WJ. A real-time QRS detection algorithm. IEEE Trans Biomed Eng 1985;32:230–236.
+- Peltola MA. Role of editing of R–R intervals in the analysis of heart rate variability. Front
+  Physiol 2012;3:148.
+- Shaffer F, Ginsberg JP. An overview of heart rate variability metrics and norms. Front Public
+  Health 2017;5:258.
+- Task Force of the ESC and NASPE. Heart rate variability: standards of measurement, physiological
+  interpretation and clinical use. Circulation 1996;93(5):1043–1065.
