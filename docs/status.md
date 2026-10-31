@@ -9,13 +9,13 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #9 (#96), #45 (#48), #49 (#58), #52 (#64), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55) in review after its second fix round; #8 (#82) renumbering its migration after its first fix round; #42 in progress (the `ci.yml` lock); #77 and #89 wait for #8 (and #77 for #6); #57 and #101 wait for locks | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #9 (#96), #45 (#48), #49 (#58), #52 (#64), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55) gets a root-cause change after its third FAIL (ADR 0009, runtime egress enforcement), then a fresh Opus full review; #8 (#82) renumbered its migration to `0004` and waits for a fresh Opus delta review; #42 (#106) in progress (the `ci.yml` lock); #77 and #89 wait for #8 (and #77 for #6); #57 and #101 wait for locks | — |
 | M1 | Withings core | #19 (#63) and #66 (#71) merged; backlog #18, #20–#30, #36 (dependency graph below) | — |
-| M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward): an Architect change (no downgrade) before its review; the rest are mostly owner actions (see "Blocked on the owner") | — |
+| M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward): the no-downgrade change is in, and the PR is in Opus review; the rest are mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
-| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74), #68 (#87) and #76 (#94) merged; #95 in progress; #99 (#102) in review | — |
-| M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 in progress (it carries an ADR 0006 amendment for five unreachable assertions); #47 waits for #40, #21 and #25 | — |
-| M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (shell, tokens, theme, fonts and primitives; pulled forward) in progress | — |
+| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74), #68 (#87), #76 (#94) and #99 (#102) merged; #95 in progress | — |
+| M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 in progress (it carries an ADR 0006 amendment: five unreachable assertions and the `distorted_beat` HRV rule); #47 waits for #40, #21 and #25 | — |
+| M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (#105: shell, tokens, theme, fonts and primitives; pulled forward) in review | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
 
@@ -23,15 +23,14 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #6 | Egress allowlist and mail | Opus | #55 | second fix round pushed (`3f1b007`, updated from `main`); fresh Opus delta review |
-| #8 | Envelope encryption and KEK ring | Opus | #82 | first fix round done (`59a6ed1`); renumbering its migration to `0004` after #96, then a fresh Opus delta review |
-| #84 | Forced-command deploy script (M2, pulled forward) | Opus | #100 | the Architect's no-downgrade change, then an Opus review |
-| #40 | ECG signal-processing core | Sonnet | — | in progress; five unreachable assertions decided (an ADR 0006 amendment in its PR, Opus review) |
-| #42 | CI dependency audits | Sonnet | — | in progress |
+| #6 | Egress allowlist and mail | Opus | #55 | third FAIL on B1 (`3f1b007`); root-cause change in the same PR (ADR 0009, runtime egress enforcement), then a fresh Opus full review |
+| #8 | Envelope encryption and KEK ring | Opus | #82 | migration renumbered to `0004_connection_keks` (`b887d95`, merges #96); a fresh Opus delta review, covering the #81 merge and the renumbering |
+| #84 | Forced-command deploy script (M2, pulled forward) | Opus | #100 | no-downgrade change pushed (`ec28cd9`, updated from `main` as `4373d2c`); in Opus review |
+| #40 | ECG signal-processing core | Sonnet | — | in progress; Architect decisions on five unreachable assertions (item 2 revised) and the `distorted_beat` HRV rule, carried by an ADR 0006 amendment in its PR (Opus review) |
+| #42 | CI dependency audits | Sonnet | #106 | PR open; the Developer is adding the planted-pin evidence |
 | #95 | Calibration and test follow-ups from the #87 review | Sonnet | — | in progress |
-| #98 | App shell, tokens, theme, Plex fonts and design primitives (M6) | Sonnet | — | in progress |
-| #99 | Purity guard follow-ups from the #94 review | Sonnet | #102 | in review |
-| #103 | Status after the #94, #96 and #97 merges (this update) | Architect | this PR | in review |
+| #98 | App shell, tokens, theme, Plex fonts and design primitives (M6) | Sonnet | #105 | the Architect's decisions applied (`0a6efb4`); in Sonnet review |
+| #107 | Status after the #102 and #104 merges (this update) | Architect | this PR | in review |
 
 Ready, waiting for a free slot: none (#57 and #101 wait for the `ci.yml` and `compose.yaml`
 locks). At most five Developers work on issues at once; a fix round on an open PR may run while
@@ -119,12 +118,14 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 
 | Date | Decision | Where |
 |---|---|---|
-| 2026-10-31 | ECG (**#40 is open**; Architect decisions on five assertions the specified algorithms can't meet, carried by an ADR 0006 amendment in #40's PR): the generator scales each beat's event amplitudes by ω_k/ω̄, so R amplitude doesn't follow RR; the premature interval is max(60–70 % of the sinus interval, 250 ms); the gate-pass target for white noise at 12 dB is ≥ 85 % below 50 bpm; downstream beats are confirmed beats (a Pan–Tompkins detection matched by Elgendi within ± 50 ms; unmatched ones are dropped and their intervals deleted as `unconfirmed_beat`); the 20 % rule holds except within ± 0.5 % of its limit. An accepted strip's floors and HR/HRV tolerances are never loosened: it meets them or its HRV is null | #40 |
+| 2026-10-31 | Egress, root-cause change after three FAILs on B1 (#6, **#55 is open**; ADR 0009 in its PR): a static scan can't prove a library never reaches the network (lazy fetchers such as numpy's `DataSource`), so a PEP 578 audit hook in every process (web, worker, CLI) is the authoritative control. It resolves only the process kind's hosts (its egress hosts, the database host, and SMTP in web and the CLI), refuses every reverse lookup (the mailer passes a fixed `local_hostname`), and allows AF_INET and AF_INET6 connects only inside an egress-transport or mail context. The static closed-world guard stays the early warning for direct imports. Out of the hook's reach: C extensions with their own sockets (libpq, by design) and `ctypes`. Web's install is #55's if #82 has merged first, otherwise #77's | #6 (#55), #77 |
+| 2026-10-31 | M6 shell (#98, **#105 is open**): the reviewer's screenshots stay outside the repository; `isAdmin` lives in `auth/access.ts`; the theme flash on a cold load is accepted (the Settings issue decides on a second pinned same-origin script); the Settings tabs are `/settings/profile`, `/settings/security`, `/settings/notifications` and `/settings/data`, and `/settings` shows the first (the IA line in `docs/design/README.md`); Admin on a phone is in the account menu; the freshness line, the range selector, the rail's status marks and "This device since" wait for their data; `build.test.ts` allows `.woff` and `.woff2` under `assets/`; `index.html` asks for `viewport-fit=cover` and both frames pad by the safe-area insets | #98 (#105) |
+| 2026-10-31 | ECG (**#40 is open**; Architect decisions on five assertions the specified algorithms can't meet, carried by an ADR 0006 amendment in #40's PR): the generator scales each beat's event amplitudes by ω_k/ω̄, so R amplitude doesn't follow RR; the premature interval is max(60–70 % of the sinus interval, 250 ms); downstream beats are confirmed beats (a Pan–Tompkins detection matched by Elgendi within ± 50 ms; unmatched ones are dropped and their intervals deleted as `unconfirmed_beat`); the 20 % rule holds except within ± 0.5 % of its limit. White noise at 12 dB (revised after re-measurement: 0/15 strips at 300 Hz, 9/15 at 500 Hz): below 50 bpm it may pass or fail, at 50 bpm and above the gate passes at ≥ 95 %, and clean strips at 40–49 bpm pass at ≥ 95 %; the PR reports gate pass by heart-rate band, and the amendment records the known limitation (such strips yield no ownvitals values and hide E4/E6 when they are the trigger; §14 V2 measures it). HRV on accepted motion-burst strips: a confirmed beat whose Pearson r with its window's median beat is below a threshold taken from the clean strips (below their 0.5th percentile) is distorted, and its intervals leave the NN intervals as `distorted_beat` (HR keeps its definition; `hrv` `ALGO_VERSION` bumps). An accepted strip's floors and HR/HRV tolerances are never loosened: it meets them or its HRV is null | #40 |
 | 2026-10-31 | Deploy (**#100 is open**): `deploy` refuses a SemVer lower than the recorded current tag, and the same version with another digest; `rollback` (one step, through every check) is the only way back; pre-release tags are refused, as in `release.yml`; the script lives in `deploy/`; the state is recorded after migrations and before `up -d` | #84 (#100) |
 | 2026-10-31 | Owner notices (#97): the owner-notice write takes only a `kind`; its route comes from a fixed per-kind mapping inside the definer function, and the notifications issue keeps at most one pending row per kind (bounds the backlog, not the send rate). Owned outbox rows still hold a route key from the fixed list | ADR 0007 (#97) |
 | 2026-10-31 | Job queue (#96): classbeat's `expire` step is dropped (it served approvals), so the reaper is the only maintenance step; the advisory-lock registry in `queue_locks.py` is tested against ADR 0005 §9's table; until #77, guard 2 can't see the queue, web doesn't refuse a drifted queue, and the worker loads neither the allowlist nor the key ring, each seam failing closed and pinned by a test | #9 (#96), #77 |
-| 2026-10-31 | Purity guard (#94): `ownvitals.config`, `admin`, `flags`, `cli`, `log`, `headers`, `auth`, `context` and `connections`, `sqlalchemy`, `psycopg` and `requests` are forbidden in `ownvitals.analysis` and `ownvitals.ecg`; the identifiers and strings `patch`, `compile`, `exec`, `eval`, `import_module`, `__import__`, `run_module`, `run_path` and `resolve_name` are refused there | #76 (#94), #99 |
-| 2026-10-31 | Analysis methods (#87): Theil–Sen with an AR(1) variance correction for the trend test (`trend/2`) and PELT with a long-run noise scale from a robust variogram (`changepoint/2`). The power lost on short series is accepted. At φ 0.6 and fewer than 20 points the false-trend rate is about 6 % (5.8–6.4 % on 42,000 series per cell), not 5 %, so the M4 findings issue treats such trends as low-confidence; #95 restates the documented rates. `shift_sigmas` is in long-run noise units, and φ above 0.7 reads as level changes | #68 (#87), #95 |
+| 2026-10-31 | Purity guard (#94): `ownvitals.config`, `admin`, `flags`, `cli`, `log`, `headers`, `auth`, `context` and `connections`, `sqlalchemy`, `psycopg` and `requests` are forbidden in `ownvitals.analysis` and `ownvitals.ecg`. There, `patch`, `run_module`, `run_path` and `resolve_name` are refused as names, `exec`, `eval` and `compile` as bare names (or on `builtins` or a computed base), and all nine with `import_module` and `__import__` as exact strings; `re.compile`, and `import_module` or `__import__` called directly with a clean literal, are allowed (#99 added the planted tests) | #76 (#94), #99 (#102) |
+| 2026-10-31 | Analysis methods (#87): Theil–Sen with an AR(1) variance correction for the trend test (`trend/2`) and PELT with a long-run noise scale from a robust variogram (`changepoint/2`). The power lost on short series is accepted. At φ 0.6 and fewer than 20 points the false-trend rate is about 6 % (5.8–6.4 % on 42,000 series per cell), not 5 %, so the M4 wiring issue treats such trends as low-confidence; #95 restates the documented rates. `shift_sigmas` is in long-run noise units, and φ above 0.7 reads as level changes | #68 (#87), #95 |
 | 2026-10-31 | ECG, Architect decisions on the #46 review (ADR 0006 as amended by #88, merged in #97): the noisy RMSSD tolerance at 60–99 bpm widens from ± 6.5 to ± 7.0 ms (the 20 % margin rule, applied as for clean 60–99 bpm); every listed recording gets an `estimated`, and one stored with `signal` NULL gets `signal_missing` (no gate result), so a hold on it ends at once; A9 stays open until the M6/M7 hold records its end reasons, and OC5 reports its late-link count as not applicable until then; the M4 wiring carries the groups the value came from (the morning group, or the readings the median used), not the day's fingerprint inputs | #88 (#97) |
 | 2026-10-31 | `transaction_timeout` (#83): a 5-minute role default on `ownvitals_app` (#77) and `ownvitals_maint` (#12). It bounds role-default transactions only: a session can set it to 0, and a session-level lock 4 outlives it. It ends the whole connection, not just the transaction (ADR 0002 §5 as amended by #88) | ADR 0002 §5, #77, #12, #88 (#97) |
 | 2026-10-31 | Role check (#81): it judges the login role (`session_user`), not `current_user`; a login that Postgres refuses (SQLSTATE class 28 or 42501) will fail closed with `DatabaseRoleError` instead of reading as "database unreachable" | #75, #89 |
@@ -172,10 +173,17 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
   (#83 finding 1) on the `kind`-only write with its per-kind route mapping, tested by its signature
   and mapping (#97, N8), and the hold records how it ended as a reason code (ADR 0006 A9, OC5).
 - #82's next review (a fresh Opus delta) also covers its merges of `main`: #81 changed
-  `db/role_check.py`, which web's startup calls, and #96's migration `0003` makes #82 renumber.
+  `db/role_check.py`, which web's startup calls, and the renumbering to `0004_connection_keks`
+  after #96's `0003_jobs`.
+- When #82 merges, `web.py` passes to #6 for ADR 0009's install call in web's startup. If #55 is
+  ready before #82 merges, web's install becomes an acceptance criterion of #77 instead.
+- The next change to the analysis purity guard carries the #102 review's nits: `ownvitals.worker`
+  on `FORBIDDEN` (the dynamic check catches it today through `db`), and the docs' "refused as an
+  identifier" wording (a name that is defined and never used isn't flagged).
 - After #100 merges: align threat model T62 ("an optional pre-release") with the deploy
   script's refusal, and note `deploy/` in ADR 0001's layout; with them, the ADR 0007 wording N6
-  and N7 from the #97 review.
+  and N7 from the #97 review. #101 also shellchecks `deploy/ownvitals-deploy` in the `checks` job if
+  #100 has merged by then (with its own item 4, `docker/postgres/**/*.sh`; both need the `ci.yml` lock).
 - The M4 wiring issue (to create) reconciles `metric_daily` (morning, mean, min, max, n; PLAN §5)
   with #37's `DailyValue` (morning or median, min, max, MAD), and keys duplicates of segmental
   types 173–175 on `(grpid, position)`.
@@ -201,14 +209,14 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `.github/workflows/ci.yml` | #42; then #57, then #101 |
+| `.github/workflows/ci.yml` | #42 (#106); then #57, then #101 |
 | `backend/src/ownvitals/config.py` | #8 |
-| `backend/pyproject.toml`, `backend/uv.lock` | #42 (the `audit` group) |
-| `backend/src/ownvitals/cli.py` | — |
+| `backend/pyproject.toml`, `backend/uv.lock` | — (#106 doesn't change them: the `audit` group is already locked) |
+| `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/worker/__main__.py` | #6 (ADR 0009's install call) |
 | `compose.yaml` | — (#101 next) |
 | `Dockerfile` | — (#57 next) |
-| `AGENTS.md` | #42 (the CI table) |
-| `backend/src/ownvitals/web.py` | #8 |
+| `AGENTS.md` | #42 (#106, the CI table) |
+| `backend/src/ownvitals/web.py` | #8; then #6 (ADR 0009's install call), or #77 if #55 is ready first |
 | `backend/src/ownvitals/db/engine.py` | — |
 | `backend/src/ownvitals/db/tables.py` | #8 |
 | `backend/tests/dbtools.py` | — |
@@ -222,11 +230,12 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/tests/rls_guard.py` | — |
 | `backend/tests/test_compose_roles.py` | — (#101 next) |
 | `scripts/ci-changes.sh` | #84 (one filter line) |
-| `scripts/test-ci-gate.sh` | #84 (its filter case); #42 coordinates if it changes the job lists in `scripts/ci-gate.sh` (the second to merge re-runs the gate tests) |
+| `scripts/test-ci-gate.sh` | #84 (#100, its filter case) and #42 (#106, the `ci-uv-version.sh` cases), in separate sections; the second to merge updates from `main` and re-runs the gate tests, and a fresh Reviewer checks a hand-resolved conflict |
 | `docs/dev/stack.md` | — |
-| `scripts/ci-gate.sh`, `scripts/ci-uv-version.sh`, `.trivyignore` | #42 |
-| `frontend/package.json`, `frontend/package-lock.json` | #98 (the two font packages) |
-| `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/router/**`, `frontend/src/styles/**`, `frontend/src/components/**`, `docs/dev/frontend.md` | #98 |
+| `scripts/ci-uv-version.sh`, `.trivyignore` | #42 (#106) |
+| `scripts/ci-gate.sh` | — (#42 takes it only if a job list changes; #106 doesn't) |
+| `frontend/package.json`, `frontend/package-lock.json` | #98 (#105, the two font packages) |
+| `frontend/index.html`, `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/router/**`, `frontend/src/styles/**`, `frontend/src/components/**`, `frontend/src/theme/**`, `frontend/src/auth/access.ts`, new placeholders in `frontend/src/pages/`, `docs/dev/frontend.md` | #98 (#105) |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
 migration merges first, it renumbers and re-chains on its update, which needs a fresh scoped
@@ -234,6 +243,8 @@ review.
 
 ## Completed
 
+- 2026-10-31: #99 purity guard follow-ups merged as #102 (Sonnet PASS `83ad6b2`, merge check `09f3c4d`) → IMPLEMENTED; its two nits wait for the next analysis-guard change.
+- 2026-10-31: #103 status merged as #104 (Sonnet PASS `8491382`); its drift findings are fixed here.
 - 2026-10-31: #88 ADR follow-ups merged as #97 (Opus delta PASS `0155ddc` after FAILs `80a0606` and `cfb5039`, merge check `eec8f60`).
 - 2026-10-31: #9 job queue, leases, fencing and the worker merged as #96 (Opus PASS `8fe99e3`, merge check `71ff8fb`) → IMPLEMENTED; its seams wait for #77.
 - 2026-10-31: #76 purity guard and policy follow-ups merged as #94 (Sonnet PASS `99f64f1`, merge check `50adba8`) → IMPLEMENTED.
@@ -286,7 +297,7 @@ assumptions below.
 | Human security review, legal checklist (§9.3), medical-claims review | M8 | Owner or a trusted reviewer |
 | Threat model O6: SWAG settings for ownvitals as the threat model lists them (no buffering for SSE, the webhook location's access log without the URI, `CF-Connecting-IP` honoured only on connections from Cloudflare's ranges (SWAG's real-IP settings), port 8096 firewalled to SWAG only) | M2 | Confirm or apply (192.168.1.151 and 192.168.1.222) |
 | Threat model O12: disk encryption on 192.168.1.222; whether Cloudflare proxies `withings.pernemark.se` | M2 | Decide and tell the Architect |
-| Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section of `docs/security/threat-model.md` (merged with #41; risks 20 and 21 are new; #49 and #72 extend 21, including the ways code with the app role could stall a rotation) |
+| Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section of `docs/security/threat-model.md` (merged with #41; risks 20 and 21 are new; #49 and #88 extend 21, including the ways code with the app role could stall a rotation) |
 | ECG (ADR 0006, merged in #46): whether our ECG estimates may be shown to anyone but the owner; whether public research ECG datasets may ever be used | M5 | Decide when M5 reaches them |
 
 ## Assumptions (unverified; each needs the probe or the owner)
