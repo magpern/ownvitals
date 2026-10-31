@@ -172,15 +172,19 @@ are refused.
   optional dependencies and peer dependencies, and a test requires it to equal the packages npm
   does not flag `dev`. A package counts as shipped if either says so, so a hand-set `dev: true`
   cannot hide one.
-  - **Optional peers.** A peer marked optional in `peerDependenciesMeta` is followed only when it
-    is installed as a non-dev package. npm also installs an optional peer when a dev tool asks for
-    it, and then flags it `dev`: it does not ship, and the package that merely allows it does not
-    pull it in, so it is neither checked nor counted. A required peer is always followed, flagged
-    or not.
+  - **Optional peers are followed too.** A peer a shipped package marks optional in
+    `peerDependenciesMeta` is checked like any other, as long as it is installed, whatever its
+    flags. The bundler decides what ships, not the lockfile: Vite follows the imports of a shipped
+    package into `node_modules`, so an optional peer that a dev tool made npm install ends up in
+    the bundle as soon as a shipped package imports it. npm marks such a package `devOptional`
+    (never `dev`), which counts as not dev-only, so the cross-check above agrees. A peer that is
+    not installed is ignored. A package flagged `dev` by hand that a shipped package names as a
+    peer is reported, and the cross-check fails on it.
 - **One list of accepted ids.** `ACCEPTED_LICENCE_IDS` in `src/test/licenceScan.ts` is the only
   list (`MIT`, `ISC`, `Apache-2.0`, `OFL-1.1`). `licenceAccepted` (the lockfile check) and
-  `packageJson.test.ts` (the direct dependencies) both read it, and a test pins its value, so a
-  change is one deliberate edit.
+  `packageJson.test.ts` (the direct dependencies) both read it. A test pins its value, so a change
+  is one deliberate edit, and another reads the source of `packageJson.test.ts` to check that it
+  imports the list whole and names no licence of its own.
 - **Dev-only tooling is exempt** (Vite, ESLint, Vitest, the CSS tooling ...): it is not
   distributed. Some of it is under other permissive or weak-copyleft licences (BSD, MPL-2.0
   unmodified, MIT-0, CC0, BlueOak-1.0.0, CC-BY-4.0 data); the decisions log in `docs/status.md`

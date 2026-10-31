@@ -6,11 +6,13 @@ export interface LockPackage {
   license?: unknown
   /** npm: only reachable through `devDependencies`. */
   dev?: boolean
+  /** npm: a dev dependency that is also an optional (peer) dependency of something that ships. */
+  devOptional?: boolean
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
-  /** A peer marked `optional` is installed only if something else asks for it. */
+  /** A peer marked `optional` is only installed if something asks for it; it is followed all the same. */
   peerDependenciesMeta?: Record<string, { optional?: boolean } | undefined>
 }
 
@@ -101,27 +103,16 @@ function resolve(lock: Lockfile, from: string, name: string): string | undefined
 }
 
 /**
- * The names the package at `key` pulls in: its dependencies, optional dependencies and peer
- * dependencies. A peer marked optional (`peerDependenciesMeta`) counts only when what it resolves
- * to is installed as a non-dev package. npm installs an optional peer when something else asks
- * for it, and a dev tool may be the one that does: the package is then flagged `dev` and does not
- * ship, and the package that merely allows it does not pull it in. A required peer is always
- * followed, so a hand-set `dev: true` still cannot hide one.
- */
-function pulledIn(lock: Lockfile, key: string): string[] {
-  const pkg = lock.packages[key]
-  const peers = Object.keys(pkg?.peerDependencies ?? {}).filter((peer) => {
-    if (pkg?.peerDependenciesMeta?.[peer]?.optional !== true) return true
-    const installed = resolve(lock, key, peer)
-    return installed !== undefined && lock.packages[installed]?.dev !== true
-  })
-  return [...Object.keys(pkg?.dependencies ?? {}), ...Object.keys(pkg?.optionalDependencies ?? {}), ...peers]
-}
-
-/**
  * The install paths reachable from the project's `dependencies` (and optional dependencies)
- * through what each package pulls in (`pulledIn`): the production tree, worked out here rather
- * than taken from npm's `dev` flags.
+ * through each package's dependencies, optional dependencies and peer dependencies: the
+ * production tree, worked out here rather than taken from npm's `dev` flags.
+ *
+ * Every peer that is installed is followed, optional (`peerDependenciesMeta`) or not, and whatever
+ * its `dev` flag says. The bundler decides what ships, not the lockfile: Vite follows the imports
+ * of a shipped package into `node_modules`, so an optional peer that a dev tool made npm install
+ * is bundled as soon as a shipped package imports it. (npm marks such a package `devOptional`,
+ * not `dev`, so the cross-check against npm's flags agrees.) A peer that is not installed is
+ * ignored.
  */
 export function productionClosure(lock: Lockfile): string[] {
   const seen = new Set<string>()
@@ -130,7 +121,8 @@ export function productionClosure(lock: Lockfile): string[] {
       const key = resolve(lock, from, name)
       if (key === undefined || seen.has(key)) continue
       seen.add(key)
-      visit(key, pulledIn(lock, key))
+      const pkg = lock.packages[key]
+      visit(key, Object.keys({ ...pkg?.dependencies, ...pkg?.optionalDependencies, ...pkg?.peerDependencies }))
     }
   }
   const root = lock.packages['']
