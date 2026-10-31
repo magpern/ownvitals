@@ -1,0 +1,42 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/heart:list",
+  "response": {
+    "status": 0,
+    "body": {
+      "series": [
+        {
+          "deviceid": "dddddddddddddddddddddddddddddddddddddddd",
+          "model": 91,
+          "ecg": {
+            "signalid": 7001,
+            "afib": 1,
+            "afib_details": 11
+          },
+          "heart_rate": 72,
+          "modified": 1793300100,
+          "timestamp": 1793300040
+        },
+        {
+          "deviceid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model": 44,
+          "ecg": {
+            "signalid": 7000,
+            "afib": 0,
+            "afib_details": 0
+          },
+          "bloodpressure": {
+            "diastole": 74,
+            "systole": 118
+          },
+          "heart_rate": 61,
+          "modified": 1793200100,
+          "timestamp": 1793200040
+        }
+      ],
+      "more": false,
+      "offset": 0
+    }
+  }
+}
