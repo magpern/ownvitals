@@ -1,0 +1,35 @@
+{
+  "synthetic": true,
+  "source": "shaped after the public Withings OpenAPI file; every value invented",
+  "endpoint": "v2/measure:getworkouts",
+  "response": {
+    "status": 0,
+    "body": {
+      "series": [
+        {
+          "id": 90001,
+          "category": 2,
+          "timezone": "UTC",
+          "model": 93,
+          "attrib": 0,
+          "startdate": 1793340000,
+          "enddate": 1793343000,
+          "date": "2026-10-30",
+          "modified": 1793343300,
+          "deviceid": "ffffffffffffffffffffffffffffffffffffffff",
+          "data": {
+            "calories": 320,
+            "intensity": 55,
+            "hr_average": 142,
+            "hr_min": 98,
+            "hr_max": 171,
+            "steps": 4800,
+            "distance": 5100
+          }
+        }
+      ],
+      "more": false,
+      "offset": 0
+    }
+  }
+}
