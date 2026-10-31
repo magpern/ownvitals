@@ -52,9 +52,12 @@ the dashboard needs is either in the public API or can be computed from it (see 
 - **The authorization code is valid for only 30 seconds**, so the callback handler must exchange it
   immediately (server-side, not via a queued job).
 - Access token `expires_in` = 10800 s (3 h). Response includes `userid`, `scope`, `refresh_token`.
-- The refresh token **rotates**: every refresh returns a new one and the old one stops working.
-  Persist the new token in the same transaction, and never refresh the same connection twice at
-  once (withings-sync explicitly avoids retrying token requests for this reason).
+- The refresh token **rotates**: every refresh returns a new one, which replaces the old one.
+  The refresh token itself lives 1 year.
+- **Grace period**: after a renewal, the old refresh token stays valid for **up to 8 hours, or
+  until the new access token is first used**, whichever comes first. This is Withings' safety net
+  for a lost response. So persist the new pair before using the new access token, and never
+  refresh the same connection twice at once (withings-sync also avoids retrying token requests).
 - Scopes: `user.info`, `user.metrics`, `user.activity`, `user.sleepevents`.
 - Other actions: revoke user access (for disconnect and account deletion), get user list, and
   **"Get access to demo account"**, a free demo dataset for CI and integration tests.
@@ -75,9 +78,10 @@ the dashboard needs is either in the public API or can be computed from it (see 
   HTTPS on port 443 with a domain name (no IP or localhost), and be at most 255 characters.
 - Payload: `application/x-www-form-urlencoded` (userid, appli, startdate/enddate…). Respond 2xx
   within a few seconds, then fetch the data asynchronously.
-- Retries: 5 cycles over about 5 h (+10 s, +1 min, +1 h, +4 h). After 20 days of failures the
-  subscription is auto-cancelled. **Missed notifications are never redelivered**, so a backfill
-  using `lastupdate` is mandatory.
+- Retries: a failed delivery is retried in 5 cycles over about 5 h (+10 s, +1 min, +1 h, +4 h),
+  2 attempts per cycle. **After that schedule is exhausted, the notification is not
+  redelivered**, so a backfill using `lastupdate` is mandatory. After 20 days of failures the
+  subscription is auto-cancelled.
 - Typical delay is under 2 min, with no SLA. Notifications are not signed, so treat them as a
   hint only.
 
@@ -244,8 +248,9 @@ rebuilt from public-API data.
 4. Whether ECG notifications (appli 54) carry a `signalid` or only a time window.
 5. Whether vascular age (155) and PWV (91) come from Body Scan, and whether 135–138 intervals are
    present for every ECG.
-6. Which region the account is in (EU `wbsapi.withings.net` vs US medical cloud). The app has
-   separate US hosts, so keep the API base URL per connection.
+6. Nothing to verify per account here: the standard public integration uses
+   `wbsapi.withings.net`. The US Medical Cloud hosts seen in the app belong to a separate,
+   contracted environment, so the base URL is configured per Withings app, not per connection.
 
 ---
 
