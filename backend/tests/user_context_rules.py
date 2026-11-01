@@ -61,7 +61,7 @@ with code review, RLS and the role checks (ADR 0002 section 1).
 
 import ast
 
-from user_context_dunders import SEGMENT, strings
+from user_context_dunders import SEGMENT, binds, own_nodes, strings
 
 CONTEXT_MODULE = "ownvitals.context"
 PACKAGE = "ownvitals"
@@ -87,6 +87,10 @@ PACKAGE_LOOKUPS = {
 }
 # The attribute name that reaches the context module from its package.
 CONTEXT_ATTRIBUTE = "context"
+# ``self.context.wrap_socket(...)`` is allowed here only (``_wrap_socket_contexts``).
+MAIL = "ownvitals/mail.py"
+# The issuer token's names (also in ``user_context_scan``).
+TOKEN_NAMES = {"issuer_token", "_ISSUER"}
 # ``sys.modules`` methods that take a module name.
 MODULES_LOOKUPS = {"get", "pop", "setdefault"}
 # ``importlib.import_module`` under any spelling: only with a literal module name.
@@ -273,22 +277,78 @@ def _is_string(node: ast.AST | None, value: str) -> bool:
     return isinstance(node, ast.Constant) and node.value == value
 
 
+def _wrap_socket_contexts(tree: ast.AST, module: str | None) -> set[int]:
+    """Ids of the ``self.context`` in ``self.context.wrap_socket(...)``, in ``mail.py`` only,
+    where ``self`` is the first parameter of a method in a class body, never rebound there (nor
+    by ``nonlocal``/``global``), and the call is in the method's own body."""
+    allowed: set[int] = set()
+    if module != MAIL:
+        return allowed
+    for cls in ast.walk(tree):
+        if not isinstance(cls, ast.ClassDef):
+            continue
+        for method in cls.body:
+            if not isinstance(method, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            positional = [*method.args.posonlyargs, *method.args.args]
+            if not positional or positional[0].arg != "self" or method.decorator_list:
+                continue
+            nodes = own_nodes(method)
+            if any(binds(node, "self") for node in nodes):
+                continue
+            if any(
+                isinstance(node, ast.Nonlocal | ast.Global) and "self" in node.names
+                for node in ast.walk(method)
+            ):
+                continue
+            for node in nodes:
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "wrap_socket"
+                    and isinstance(node.func.value, ast.Attribute)
+                    and node.func.value.attr == CONTEXT_ATTRIBUTE
+                    and isinstance(node.func.value.value, ast.Name)
+                    and node.func.value.value.id == "self"
+                ):
+                    allowed.add(id(node.func.value))
+    return allowed
+
+
+def _public_continuations(tree: ast.AST) -> set[int]:
+    """Ids of the attributes ``x.context`` that continue to a public name
+    (``ownvitals.context.UserContext``): the one form an annotation may use."""
+    return {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and not node.attr.startswith("_")
+        and node.attr not in TOKEN_NAMES
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == CONTEXT_ATTRIBUTE
+    }
+
+
 def _package_findings(
-    tree: ast.AST, package: set[str], annotation_nodes: set[int]
+    tree: ast.AST, package: set[str], annotation_nodes: set[int], module: str | None
 ) -> list[tuple[int, str]]:
     """The context module reached from its package (see the module docstring). ``package``
-    holds the local names bound to the package; annotations may name
-    ``ownvitals.context.UserContext``."""
+    holds the local names bound to the package. In an annotation (a ``TypeAlias`` value
+    included) ``ownvitals.context`` may only continue to a public name
+    (``ownvitals.context.UserContext``); ``self.context`` is pinned to ``mail.py``'s
+    ``wrap_socket`` (``_wrap_socket_contexts``)."""
     found: list[tuple[int, str]] = []
     chain_roots = {
         id(node.value)
         for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute) and node.attr != CONTEXT_ATTRIBUTE
+        if isinstance(node, ast.Attribute)
+        and (node.attr != CONTEXT_ATTRIBUTE or id(node) in annotation_nodes)
     }
+    continued = _public_continuations(tree)
+    wrap_socket = _wrap_socket_contexts(tree, module)
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
-        if id(node) in annotation_nodes:
-            continue
+        annotation = id(node) in annotation_nodes
         if (
             isinstance(node, ast.Name)
             and isinstance(node.ctx, ast.Load)
@@ -296,12 +356,11 @@ def _package_findings(
             and id(node) not in chain_roots
         ):
             found.append((line, "the package ownvitals as a value"))
-        elif (
-            isinstance(node, ast.Attribute)
-            and node.attr == CONTEXT_ATTRIBUTE
-            and not (isinstance(node.value, ast.Name) and node.value.id == "self")
-        ):
-            found.append((line, "the attribute context"))
+        elif isinstance(node, ast.Attribute) and node.attr == CONTEXT_ATTRIBUTE:
+            if annotation and id(node) not in continued:
+                found.append((line, "ownvitals.context in an annotation, not a name in it"))
+            elif not annotation and id(node) not in wrap_socket:
+                found.append((line, "the attribute context"))
         elif isinstance(node, ast.Subscript) and _is_string(node.slice, PACKAGE):
             found.append((line, "the package looked up by its name"))
         elif isinstance(node, ast.Call):
@@ -325,7 +384,7 @@ def findings(
     ``module`` is the path under ``src`` (``importlib.util``'s one use is in ``hook.py``)."""
     found: list[tuple[int, str]] = [
         *_importlib_util_findings(tree, module),
-        *_package_findings(tree, _package_names(tree), annotation_nodes),
+        *_package_findings(tree, _package_names(tree), annotation_nodes, module),
     ]
     package = _package_names(tree)
     builtins = _builtins_names(tree)

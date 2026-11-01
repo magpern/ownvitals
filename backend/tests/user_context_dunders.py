@@ -207,7 +207,7 @@ _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 
-def _own_nodes(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.AST]:
+def own_nodes(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.AST]:
     """The nodes of ``function``'s body, not those of functions, lambdas or classes inside it."""
     found: list[ast.AST] = []
     pending: list[ast.AST] = list(function.body)
@@ -220,7 +220,7 @@ def _own_nodes(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.AST
     return found
 
 
-def _binds(node: ast.AST, name: str) -> bool:
+def binds(node: ast.AST, name: str) -> bool:
     """Any binding of ``name``: assignment, ``for``, ``with``, walrus, ``del``, ``except ...
     as``, ``import ... as``, a ``match`` capture, a ``global``/``nonlocal`` declaration."""
     if isinstance(node, ast.Name):
@@ -249,8 +249,8 @@ def _own_parameter_comparisons(tree: ast.AST) -> dict[int, str]:
         if not positional:
             continue
         first = positional[0].arg
-        nodes = _own_nodes(function)
-        if any(_binds(node, first) for node in nodes):
+        nodes = own_nodes(function)
+        if any(binds(node, first) for node in nodes):
             continue
         if len(function.args.defaults) >= len(positional):
             continue  # a default: the function can run on an object written next to it

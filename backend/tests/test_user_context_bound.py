@@ -21,6 +21,8 @@ from test_user_context_writers import body
 from user_context_scan import scan_source
 
 HOOK = "ownvitals/egress/hook.py"
+# ``self.context.wrap_socket(...)`` in a method: allowed in ``mail.py`` only.
+WRAP_SOCKET = "class Mailer:\n    def send(self, s):\n        return self.context.wrap_socket(s)\n"
 LOG = "ownvitals/log.py"
 QUEUE = "ownvitals/db/queue_check.py"
 AUDIT = "def _audit(event, args):\n    if event == 'socket.__new__':\n        return args\n"
@@ -165,11 +167,12 @@ NEAR_MISSES = {
     "a comment without a dunder": "x = 1  # no context here\n",
     "a comment naming another module": "x = 1  # see ownvitals.db\n",
     "a plain import of the module": "import ownvitals.context\n",
-    "another object's context": body("return self.context.wrap_socket(s)"),
+    "mail.py's wrap_socket": WRAP_SOCKET,
     "the package name as a value": body("return version('ownvitals')"),
     "the placeholders' assignment": "QUEUE_QUERY = '(__NAMES__)'.replace('__NAMES__', n)\n",
 }
 MODULES = {
+    "mail.py's wrap_socket": "ownvitals/mail.py",
     "the audit comparison": HOOK,
     "the uvloop check": HOOK,
     "an allowed docstring dunder in its module": LOG,

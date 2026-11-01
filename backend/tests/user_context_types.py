@@ -17,7 +17,8 @@ annotation position may hold only a **type expression**:
 Two subscripts are special:
 
 - ``Literal[...]``'s arguments are values, never evaluated as types: they are not parsed, and
-  may be constants and dotted names (``Color.RED``);
+  must be constants (or a nested ``Literal``). A name is refused (the thirteenth #115 review):
+  ``Literal[ownvitals.context]`` hands the module to ``typing.get_args``;
 - ``Annotated[T, m1, m2]``: ``T`` is a type expression and ``m1, m2`` (the metadata) are ordinary
   code, the one place in an annotation where a call is allowed (FastAPI's ``Depends(...)``).
 
@@ -349,8 +350,8 @@ def type_findings(
         elif isinstance(node, ast.Constant):
             if node.value in token_names:
                 refuse(node, "the issuer token's name in Literal")
-        elif not (name(node) or spellings.is_literal(node)):
-            refuse(node, f"{type(node).__name__} in Literal's arguments")
+        elif not spellings.is_literal(node):
+            refuse(node, f"{type(node).__name__} in Literal's arguments (constants only)")
 
     def check(node: ast.AST) -> None:
         if isinstance(node, ast.Constant):

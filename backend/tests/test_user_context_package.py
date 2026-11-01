@@ -25,6 +25,8 @@ from test_user_context_writers import body
 from user_context_scan import scan_source
 
 HOOK = "ownvitals/egress/hook.py"
+# ``self.context.wrap_socket(...)`` in a method: allowed in ``mail.py`` only.
+WRAP_SOCKET = "class Mailer:\n    def send(self, s):\n        return self.context.wrap_socket(s)\n"
 CONFIG = "ownvitals/config.py"
 
 
@@ -155,11 +157,11 @@ NEAR_MISSES = {
     "an annotation through the package": (
         "import ownvitals.context\ndef f(c: ownvitals.context.UserContext): ...\n"
     ),
-    "self's context": body("return self.context.wrap_socket(s)"),
+    "mail.py's wrap_socket": WRAP_SOCKET,
     "the package's version": body("return version('ownvitals')"),
     "the audit comparison": AUDIT,
 }
-MODULES = {"the audit comparison": HOOK}
+MODULES = {"the audit comparison": HOOK, "mail.py's wrap_socket": "ownvitals/mail.py"}
 
 
 @pytest.mark.parametrize(("case", "source"), REFUSED.items(), ids=REFUSED.keys())

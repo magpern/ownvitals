@@ -99,7 +99,7 @@ ROUTES: dict[str, tuple[str, str]] = {
     ),
     "a non-constant in Literal": (
         TYPING + "def g(x: Literal[make()]): ...\n",
-        TYPING + "def g(x: Literal['user', 'admin', Color.RED, None]): ...\n",
+        TYPING + "def g(x: Literal['user', 'admin', 1, None, Literal['b']]): ...\n",
     ),
     "forward references": (
         TYPING + 'def g(x: "Node.__dict__") -> "list[Node]": ...\n',
