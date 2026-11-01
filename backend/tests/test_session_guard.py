@@ -37,7 +37,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
     )
     system = Allowlist(
         prefixes=("ownvitals.db", "ownvitals.auth"),
-        modules=("ownvitals.jobs.queue", "ownvitals.crypto.keks"),
+        modules=("ownvitals.jobs.queue", "ownvitals.crypto.keks", "ownvitals.flags.routes"),
     )
     private = Allowlist(prefixes=("ownvitals.db",))
     assert (user, system) == (USER_SESSION, SYSTEM_SESSION)
@@ -95,6 +95,11 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.crypto", False, False),
         ("ownvitals.crypto.envelope", False, False),
         ("ownvitals.crypto.keks.other", False, False),
+        # The public settings (#12): that exact module; the rest of flags and admin get nothing.
+        ("ownvitals.flags.routes", False, True),
+        ("ownvitals.flags.effective", False, False),
+        ("ownvitals.admin.settings", False, False),
+        ("ownvitals.admin.db", False, False),
     ],
 )
 def test_the_owning_modules_are_allowlisted(module: str, user: bool, system: bool) -> None:

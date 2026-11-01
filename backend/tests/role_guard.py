@@ -4,9 +4,11 @@
 reads ``pg_roles``, ``pg_auth_members``, ``pg_shdepend`` and the ACLs through ``aclexplode``, so
 a privilege of a kind nobody thought of still fails.
 
-The function owners of ADR 0005 section 3 (``ownvitals_queue``, #9) and the admin role
-``ownvitals_maint`` (#12) are not here yet: each issue adds its role as an allowed grantee, with
-exactly its privileges, when it creates it. Until then any other grantee fails.
+The function owners of ADR 0005 section 3 (``ownvitals_queue``, #9) are not here yet: each issue
+adds its role as an allowed grantee, with exactly its privileges, when it creates it. Until then
+any other grantee fails. The admin role ``ownvitals_maint`` (#12) is an allowed grantee; guard 11
+(``tests/test_maint_privileges.py``) checks that it holds exactly its allowlist, so its column
+privileges are left out of the column check here.
 """
 
 from sqlalchemy import text
@@ -15,8 +17,8 @@ from sqlalchemy.engine import Connection
 from ownvitals.db.role_check import EXPECTED_ROLE_SETTINGS
 from ownvitals.db.tables import NO_APP_ACCESS
 
-APP, OWNER = "ownvitals_app", "ownvitals_owner"
-GRANTEES = {APP, OWNER}
+APP, OWNER, MAINT = "ownvitals_app", "ownvitals_owner", "ownvitals_maint"
+GRANTEES = {APP, OWNER, MAINT}
 TABLE_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "DELETE"}
 # Tables where the app role gets less than full DML, by table; each migration that narrows a
 # table's grants adds it here (and to 10-roles.sql's restore list). ``NO_APP_ACCESS`` tables get
@@ -25,6 +27,11 @@ RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
     # Migration 0004: the app role records and reads key check values, never changes or forgets
     # one (ADR 0004 section 3).
     "connection_keks": {"SELECT", "INSERT"},
+    # Migration 0006 (#12): the app role reads the stored flags and holds nothing on the admin
+    # audit log or its id sequence (the log is append-only by privileges).
+    "app_settings": {"SELECT"},
+    "admin_audit": set(),
+    "admin_audit_id_seq": set(),
 }
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
 COLUMN_PRIVILEGES: dict[tuple[str, str], set[tuple[str, str]]] = {}
@@ -232,6 +239,8 @@ def check_roles(conn: Connection) -> list[str]:
     found_columns: dict[tuple[str, str], set[tuple[str, str]]] = {}
     for table, column, grantee, privilege, grantable in column_rows:
         need(not grantable, f"{table}.{column}: no grantable column privilege")
+        if grantee == MAINT:
+            continue  # guard 11's allowlist
         found_columns.setdefault((str(table), str(column)), set()).add(
             (str(grantee), str(privilege))
         )

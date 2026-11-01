@@ -121,6 +121,15 @@ SELECT 'REVOKE ALL ON TABLE public.alembic_version FROM ownvitals_app, PUBLIC'
 -- reads check values, never changes or forgets one.
 SELECT 'REVOKE UPDATE, DELETE ON TABLE public.connection_keks FROM ownvitals_app'
  WHERE to_regclass('public.connection_keks') IS NOT NULL \gexec
+-- The stored flags and the admin audit log (migration 0006, #12): the app role reads the flags
+-- and holds nothing on the audit log or its sequence.
+SELECT 'REVOKE INSERT, UPDATE, DELETE ON TABLE public.app_settings FROM ownvitals_app'
+ WHERE to_regclass('public.app_settings') IS NOT NULL \gexec
+SELECT 'REVOKE ALL ON TABLE public.admin_audit FROM ownvitals_app'
+ WHERE to_regclass('public.admin_audit') IS NOT NULL \gexec
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC, ownvitals_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ownvitals_app;
+-- The audit log's id sequence (migration 0006, #12): nothing for the app role.
+SELECT 'REVOKE ALL ON SEQUENCE public.admin_audit_id_seq FROM ownvitals_app'
+ WHERE to_regclass('public.admin_audit_id_seq') IS NOT NULL \gexec
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;

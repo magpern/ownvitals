@@ -9,7 +9,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from dbtools import alembic_config, applied_revisions, migrated, public_tables
 
-HEAD = "0005_auth"
+HEAD = "0006_admin"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -18,6 +18,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0005_auth",
         "0004_connection_keks",
         "0003_jobs",
         "0002_close_alembic_version",
@@ -54,8 +55,8 @@ def test_the_migrations_create_exactly_their_tables(
     database_url: str, owner_database_url: str
 ) -> None:
     """Besides Alembic's own table, 0003's job tables (ADR 0005 section 1), 0004's key-ring
-    check table (ADR 0004 section 3) and 0005's account tables (ADR 0003, #10); the connection
-    tables arrive with #13."""
+    check table (ADR 0004 section 3), 0005's account tables (ADR 0003, #10) and 0006's stored
+    flags and admin audit log (#12); the connection tables arrive with #13."""
     from ownvitals.auth.tables import metadata
 
     with migrated(owner_database_url):
@@ -64,6 +65,8 @@ def test_the_migrations_create_exactly_their_tables(
             "jobs",
             "job_events",
             "connection_keks",
+            "app_settings",
+            "admin_audit",
             *metadata.tables,
         }
     assert applied_revisions(database_url) == []

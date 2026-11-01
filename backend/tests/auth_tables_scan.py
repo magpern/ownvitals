@@ -73,7 +73,9 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     # the app: middleware, routers and state (ownvitals.web)
     "ownvitals.auth.setup": frozenset({"attach_state", "detach_state", "install"}),
     # the jobs API: the signed-in user and the event stream's session check
-    "ownvitals.auth.deps": frozenset({"Probe", "require_user", "session_probe"}),
+    "ownvitals.auth.deps": frozenset({"Probe", "require_user", "session_probe"})
+    # the admin gate (#12): the session, the context and the client address of the request
+    | frozenset({"current_context", "current_session", "request_ip"}),
     # the worker: the issuer's account check and the purge
     "ownvitals.auth.owners": frozenset({"ACCOUNTS"}),
     "ownvitals.auth.purge": frozenset({"purge_expired"}),

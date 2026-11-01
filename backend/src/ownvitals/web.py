@@ -12,6 +12,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ownvitals import __version__
+from ownvitals.admin.db import AdminDb
+from ownvitals.admin.routes import install as install_admin
 from ownvitals.admin.routes import router as admin_router
 from ownvitals.auth.setup import attach_state, detach_state
 from ownvitals.auth.setup import install as install_auth
@@ -114,12 +116,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     is required and must match its check row, and web never holds the webhook seed. Then the
     accounts state (``ownvitals.auth.setup.attach_state``): it refuses to start without the
     ``app_secret_key`` secret file, from which the auth keys are derived (ADR 0003 section 1).
+    Last the admin database (#12): without the maint URL or its password file there is none and
+    the admin routes answer 503; with them, a role other than exactly ``ownvitals_maint``
+    refuses the start (``MaintRoleError``).
     """
     settings = settings if settings is not None else Settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_engine(settings)
+        admin_db: AdminDb | None = None
         try:
             await verify_database_role(engine)
             session_factory = create_session_factory(engine)
@@ -127,8 +133,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.engine = engine
             app.state.session_factory = session_factory
             attach_state(app, settings, session_factory)
+            admin_db = AdminDb.from_settings(settings)
+            if admin_db is not None:
+                await admin_db.verify()
+            app.state.admin_db = admin_db
             yield
         finally:
+            app.state.admin_db = None
+            if admin_db is not None:
+                await admin_db.dispose()
             detach_state(app)
             await engine.dispose()
 
@@ -147,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_auth(app)
     for router in FEATURE_ROUTERS:
         app.include_router(router)
+    install_admin(app)  # the admin area's feature routers and handlers, after install_auth
 
     if settings.static_dir is not None:
         if settings.static_dir.is_dir():
