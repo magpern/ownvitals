@@ -91,6 +91,28 @@ def _forward(text: str, depth: int = 0) -> list[ast.expr] | None:
     return found
 
 
+_RUNS = (ast.Call, ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+_RUNS += (ast.NamedExpr, ast.Await, ast.Yield, ast.YieldFrom, ast.JoinedStr)
+
+
+def holds_code(text: str, depth: int = 0) -> bool:
+    """Whether ``text`` parses as an expression that runs code if ``typing`` or pydantic
+    evaluate it: a call, a lambda, a comprehension, a walrus, an f-string, or a string in it that
+    does (every import needs a call). Text that does not parse (prose, SQL) does not; operators
+    and comparisons on names (``"no-store"``, ``"utf-8"``) only read names."""
+    try:
+        parsed = ast.parse(text, mode="eval")
+    except (SyntaxError, ValueError):
+        return False
+    for node in ast.walk(parsed):
+        if isinstance(node, _RUNS):
+            return True
+        nested = isinstance(node, ast.Constant) and isinstance(node.value, str) and depth < 8
+        if nested and holds_code(str(node.value), depth + 1):
+            return True
+    return False
+
+
 def spelled(node: ast.expr) -> str | None:
     """A name or dotted name as written (``ctypes.c_int``), with no alias resolved."""
     parts: list[str] = []

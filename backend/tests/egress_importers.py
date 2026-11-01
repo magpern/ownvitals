@@ -23,14 +23,18 @@ import re
 from collections.abc import Callable
 
 from egress_classified import (
+    CODE_STRINGS,
+    CODE_WORDS,
     EVALUATORS,
     IMPORT_CALLS,
     LOADER_MODULES,
     NATIVE_MODULES,
     PROCESS_MODULES,
+    SOURCE_READERS,
     SPEC_FINDERS,
 )
 from egress_closure import under
+from egress_forward import holds_code
 from egress_typeonly import dotted
 
 Landings = Callable[[str], frozenset[str]]
@@ -38,6 +42,10 @@ NOT_DIRECT = "an importer is only called directly, with one constant name"
 _IMPORTLIB_ALLOWED = ("importlib", "importlib.import_module")
 _IMPORTER_STRINGS = frozenset({"__import__", "import_module"})
 _BUILTINS = "__builtins__"
+_READ_BACK = {
+    _BUILTINS: "reaches every importer by name",
+    "__doc__": "reads a docstring back as a string",
+}
 _SEPARATORS = re.compile(r"[^A-Za-z0-9_]+")
 
 
@@ -93,6 +101,11 @@ def evaluator(name: str, landings: Landings) -> bool:
     return any(under(n, EVALUATORS) for n in landings(name))
 
 
+def reads_source(name: str, landings: Landings) -> bool:
+    """Whether ``name`` lands in a module that hands back source text (``SOURCE_READERS``)."""
+    return any(under(n, SOURCE_READERS) for n in landings(name))
+
+
 def _standalone(tree: ast.AST) -> set[int]:
     """``id``s of the strings that are a statement of their own: docstrings and the like."""
     return {
@@ -120,11 +133,27 @@ def _names_module(value: str | bytes) -> str | None:
     return None
 
 
-def names(tree: ast.AST, skip: set[int]) -> list[tuple[int, str]]:
-    """``(line, why)`` for each ``str`` or ``bytes`` constant naming a native or process module
-    as an identifier segment, the strings ``"__import__"``, ``"import_module"`` and
-    ``"__builtins__"``, and each use of ``__builtins__``. Docstrings and the strings ``skip``
-    (``egress_forward`` reads them) are not judged here."""
+def _string(value: str | bytes, module: str) -> str | None:
+    """Why a ``str``/``bytes`` constant is refused: it names a native or process module or a
+    code word as identifier segments, or (a ``str``) parses as more than names (``holds_code``),
+    unless ``CODE_STRINGS`` lists it for ``module``."""
+    named = _names_module(value)
+    if named is not None:
+        return f"names {named!r}: a native or process module, by string"
+    if isinstance(value, str) and (module, value) in CODE_STRINGS:
+        return None
+    words = sorted(CODE_WORDS.intersection(_segments(value)))
+    if words or value in _IMPORTER_STRINGS:
+        return f"names {words[0] if words else value!r}: an importer or evaluator, by string"
+    if isinstance(value, str) and holds_code(value):
+        return f"string {value[:40]!r} parses as code: typing or pydantic could evaluate it"
+    return None
+
+
+def names(tree: ast.AST, skip: set[int], module: str) -> list[tuple[int, str]]:
+    """``(line, why)`` for each refused ``str`` or ``bytes`` constant (``_string``), and each use
+    of ``__builtins__`` or ``__doc__``. Docstrings and the strings ``skip`` (``egress_forward``
+    reads them) are not judged here; ``__doc__`` and ``SOURCE_READERS`` keep them unread."""
     found: list[tuple[int, str]] = []
     skip = skip | _standalone(tree)
     for node in ast.walk(tree):
@@ -132,13 +161,9 @@ def names(tree: ast.AST, skip: set[int]) -> list[tuple[int, str]]:
             continue
         line = getattr(node, "lineno", 1)
         if isinstance(node, ast.Constant) and isinstance(node.value, str | bytes):
-            module = _names_module(node.value)
-            if module is not None:
-                found.append((line, f"names {module!r}: a native or process module, by string"))
-            elif node.value in _IMPORTER_STRINGS or node.value == _BUILTINS:
-                found.append((line, f"names {node.value!r}: an importer, by string"))
-        elif isinstance(node, ast.Name) and node.id == _BUILTINS:
-            found.append((line, f"uses {_BUILTINS}: reaches every importer by name"))
-        elif isinstance(node, ast.Attribute) and node.attr == _BUILTINS:
-            found.append((line, f"uses .{_BUILTINS}: reaches every importer by name"))
+            why = _string(node.value, module)
+            if why is not None:
+                found.append((line, why))
+        elif (spelled := getattr(node, "id", None) or getattr(node, "attr", None)) in _READ_BACK:
+            found.append((line, f"uses {spelled}: {_READ_BACK[str(spelled)]}"))
     return found

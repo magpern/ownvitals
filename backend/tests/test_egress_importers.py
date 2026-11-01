@@ -61,7 +61,7 @@ NEAR_MISSES = [
     "from importlib.metadata import PackageNotFoundError, version",  # ``ownvitals/__init__.py``
     "import importlib\nimportlib.import_module('json')",
     "name = 'ctypesish'\nother = 'json'\nthird = 'multiprocessingx'",
-    "name = 'concurrent.futures'\nother = 'process'\ntext = 'import modules'",
+    "name = 'concurrent.futures'\nother = 'process'\ntext = 'import json'",
     "raw = b'multiprocessingx'\nmore = b'json'",
     # D2 near misses: ``re.compile`` is not the builtin, and a docstring may name ``ctypes``.
     "import re\nre.compile('x')",

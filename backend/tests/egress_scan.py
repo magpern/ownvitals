@@ -63,6 +63,7 @@ from egress_importers import (
     importer,
     loader,
     names,
+    reads_source,
 )
 from egress_typeonly import annotations, assignments, type_only
 from egress_typeonly import dotted as _dotted
@@ -319,6 +320,8 @@ def _internal(name: str, module: str, verb: str) -> list[str]:
         found.append(f"{verb} {name}: loads a module by a name the guard cannot judge")
     if evaluator(name, _landings):
         found.append(f"{verb} {name}: evaluates code or data the guard cannot read")
+    if reads_source(name, _landings):
+        found.append(f"{verb} {name}: hands back source text, docstrings or comments")
     return found
 
 
@@ -372,7 +375,7 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
     aliases = _BUILTIN_NAMES | every | runtime
     direct = direct_imports(tree, aliases, _landings)
     refused, references, read = forward_references(tree, aliases)
-    found: list[tuple[int, str]] = assignments(tree) + names(tree, read) + refused
+    found: list[tuple[int, str]] = assignments(tree) + names(tree, read, module) + refused
     imports = _imports(tree, module, skip)
     object_names = object_network_names()
     for node in ast.walk(tree):

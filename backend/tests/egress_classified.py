@@ -231,6 +231,36 @@ EVALUATORS: tuple[str, ...] = (
     "pydantic.ImportString",
     "pydantic.types.ImportString",
 )
+# Source readers (the FAIL on #123, E2): they hand back docstrings, comments or source text,
+# which a string rule never sees. Refused outright, with the name ``__doc__``.
+SOURCE_READERS: tuple[str, ...] = ("inspect", "pydoc", "linecache", "tokenize")
+# Words that make a string code (the FAIL on #123, E1a): an importer, evaluator or reflection
+# name as an identifier segment of any string ``src`` writes (docstrings aside).
+CODE_WORDS: frozenset[str] = frozenset(
+    {
+        "__import__",
+        "import_module",
+        "exec",
+        "eval",
+        "compile",
+        "__builtins__",
+        "builtins",
+        "modules",
+        "getattr",
+        "vars",
+        "globals",
+    }
+)
+# Strings refused by E1 (a code word, or a parse that runs code) and reviewed as harmless: exact
+# text, by module. ``test_egress_importers.py`` pins each to ``src``.
+CODE_STRINGS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("ownvitals.mail", "MailMessage(...)"),  # MailMessage.__repr__: never evaluated
+        ("ownvitals.mail", "Mailer(...)"),  # Mailer.__repr__: never evaluated
+        # A key of the ECG record (the analysis modules and their versions): data, not a lookup.
+        ("ownvitals.ecg.pipeline", "modules"),
+    }
+)
 
 LOOP_METHODS: frozenset[str] = frozenset(
     {

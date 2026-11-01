@@ -56,7 +56,7 @@ NEAR_MISSES = [
     'from typing import Optional\nx: Optional["Node"] = None',
     'from typing import Literal\nx: Literal["a b"]',
     'from typing import Literal\nx: list[Literal["a b", "(c)"]]',
-    'import typing\nx: typing.Literal["__import__(1)"]',  # a value, never evaluated
+    'import typing\nx: typing.Literal["a b", "c-d"]',  # values, never evaluated
     'from typing import Annotated\nx: Annotated[int, "any metadata, (here)"]',
     "from typing import Annotated\nfrom pydantic import Field\n"
     'x: Annotated[str, Field(description="free text, (here)")]',

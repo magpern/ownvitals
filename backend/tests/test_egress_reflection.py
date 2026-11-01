@@ -89,7 +89,7 @@ NEAR_MISSES = [
     "class A:\n    modules: dict[str, int] = {}\n\nA.modules.get('x')",
     "import types\ntypes.ModuleType",
     "import importlib\nimportlib.import_module('json')",
-    "text = 'sys.modules'\nname = 'ctypesish'",  # name no capable module ('ctypes' would)
+    "text = 'sys.argv'\nname = 'ctypesish'",  # ('sys.modules' and 'ctypes' would be refused)
     "ctypes_count = 1\nsys_modules = {}\nsys_modules['x']",  # names that only look alike
     "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import ctypes\n"
     "def f(x: ctypes.c_int) -> None: ...",  # type-only: never runs (docs/dev/egress.md)
