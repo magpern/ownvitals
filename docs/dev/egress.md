@@ -233,6 +233,20 @@ What else the guard refuses outside the package:
   in a variable or a list, passed to `partial`, taken through `getattr`) is refused, so the
   name it imports is always visible. `importlib.util.find_spec` and `spec_from_*` are refused
   outright (`IMPORT_CALLS`, `SPEC_FINDERS`). `getattr(x, "name")` is the reference `x.name`;
+- **module loaders**, under any alias, `from` form or chain (`LOADER_MODULES`,
+  `tests/egress_importers.py`): `runpy`, `pkgutil` (the whole module), `zipimport`,
+  `importlib.machinery`, `importlib.abc`, `importlib._bootstrap*`, `_frozen_importlib*`, `_imp`,
+  and every `importlib` name except `import_module` (direct, literal only) and
+  `importlib.metadata`. Each loads a module by a name the guard does not judge; `src` uses
+  none of them, so this fails closed;
+- **names in strings** (fail closed, `tests/test_egress_importers.py`): a string constant (an
+  f-string part included) equal to or under a native or process module (`"ctypes"`,
+  `"ctypes.util"`, `"_posixsubprocess"`, `"multiprocessing.pool"` ...), the strings
+  `"__import__"`, `"import_module"` and `"__builtins__"`, and the name or attribute
+  `__builtins__`. Every importer reached by name (`__builtins__["__import__"]`,
+  `vars(builtins)["__import__"]`, `importlib.__dict__["import_module"]`) names one of them. An
+  annotation that is one string (`x: "ctypes.c_int"`) is a forward reference and passes; a
+  string nested inside an annotation expression does not;
 - **a module looked up by name**: any reference to `sys.modules` (a subscript, `.get(...)`, an
   `in` test, a variable holding it) and `pkgutil.resolve_name`, under any alias of `sys`, as
   `from sys import modules` and through a chain (`os.sys.modules`). `subprocess` imports
@@ -274,7 +288,8 @@ Otherwise the block is ordinary code and is scanned as such. Separately, these a
 - any write to a name or attribute `TYPE_CHECKING`: `TYPE_CHECKING = True`,
   `typing.TYPE_CHECKING = True`, `del`, a parameter or type parameter, a definition, a `match`
   capture;
-- the string `"TYPE_CHECKING"` and the keyword `TYPE_CHECKING=` anywhere. Every other way to
+- the string `"TYPE_CHECKING"` (or bytes `b"TYPE_CHECKING"`) and the keyword `TYPE_CHECKING=`
+  anywhere. Every other way to
   write the flag names it like that: `globals()[...]`, `globals().update(...)`, `vars(...)`,
   `__dict__`, and `setattr`, `__setattr__` or `object.__setattr__` by any spelling. `src` only
   imports the flag and tests it, so this fails closed.
@@ -314,7 +329,7 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_closure.py tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
   tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py \
   tests/test_egress_scope.py tests/test_egress_process.py tests/test_egress_reflection.py \
-  tests/test_egress_typeonly.py
+  tests/test_egress_typeonly.py tests/test_egress_importers.py
 ```
 
 ## Known limits
@@ -339,11 +354,15 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
 - The guard is static; the hook covers at run time what it cannot see, and the review gate the
   rest:
   - deliberate indirection (N9): a computed `getattr`, `vars(sys)`, `sys.__dict__`, a module
-    an expression returns (`importlib.import_module("sys").modules`), `exec`/`eval`,
-    `importlib.util.module_from_spec` and loaders, a flag name built at run time
-    (`"TYPE_" + "CHECKING"`). The cheap partial closes are in: a rebound or named
-    `TYPE_CHECKING`, dynamic imports and stored importers, `find_spec`/`spec_from_*`, `sys.modules`, `pkgutil.resolve_name`, `ctypes`, constant `getattr`, and
-    `_socket`/`_ssl` as seeds. The `module:attr`
+    an expression returns (`importlib.import_module("sys").modules`), `exec`/`eval`, the
+    module's own `__loader__` and `__spec__.loader` (bound to its own file), and a module or
+    flag name **built at run time**: `"cty" + "pes"`, `"TYPE_" + "CHECKING"`,
+    `"".join(map(chr, ...))`, `"type_checking".upper()`, `b"...".decode()`, an f-string with a
+    variable part. Every route that names its target as a constant is refused (above). The
+    cheap partial closes are in: a rebound or named `TYPE_CHECKING`, dynamic imports and stored
+    importers, module loaders, names of refused modules and importers in strings,
+    `__builtins__`, `find_spec`/`spec_from_*`, `sys.modules`, `pkgutil`, `ctypes`, constant
+    `getattr`, and `_socket`/`_ssl` as seeds. The `module:attr`
     string form (pydantic's `ImportString`, `"socket:create_connection"`) is not read by the
     string rule (N18): indirection of this kind, refused by the hook when it connects;
   - process execution (N10): `subprocess` is capable (it imports `select`) and so refused, as

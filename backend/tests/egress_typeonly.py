@@ -117,7 +117,7 @@ def _named(node: ast.AST) -> bool:
     """The flag as a string or a keyword: how ``globals()``, ``vars()``, ``__dict__`` and every
     ``setattr`` spelling would write it (the FAIL on #123, B2)."""
     if isinstance(node, ast.Constant):
-        return node.value == FLAG
+        return node.value in (FLAG, FLAG.encode())
     return isinstance(node, ast.keyword) and node.arg == FLAG
 
 

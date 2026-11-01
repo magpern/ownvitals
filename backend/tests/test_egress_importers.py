@@ -1,0 +1,98 @@
+"""The FAIL on #123 (C1, C2): module loaders and names in strings, refused in ``src`` and fail
+closed (``egress_importers``). Stored and aliased ``import_module``/``__import__`` are in
+``test_egress_reflection.py``.
+"""
+
+import pytest
+
+from egress_scan import scan_source
+
+MODULES = ["ownvitals.web.planted", "ownvitals.worker.loop", "ownvitals.mail", "ownvitals.cli"]
+LOADS = "loads a module by a name the guard cannot judge"
+BY_STRING = "by string"
+BUILTINS = "reaches every importer by name"
+
+# C1: a module loader, or an ``importlib`` name outside ``import_module`` and the metadata.
+LOADERS = [
+    "import runpy\nrunpy.run_module('ctypes.wintypes')['ctypes'].CDLL",
+    "from runpy import run_module as r\nr('ctypes.wintypes')",
+    "import runpy\nrunpy.run_path('/x.py')",
+    "import pkgutil\npkgutil.get_loader('ctypes').load_module('ctypes')",
+    "import pkgutil\npkgutil.find_loader('_posixsubprocess')",
+    "import pkgutil\npkgutil.iter_modules()",
+    "from importlib.machinery import PathFinder\ns = PathFinder.find_spec('ctypes')",
+    "from importlib import machinery\nmachinery.BuiltinImporter.find_spec('_posixsubprocess')",
+    "import importlib\nimportlib.machinery.ExtensionFileLoader",
+    "import inspect\ninspect.importlib.machinery.PathFinder",  # a chain through a binding
+    "from importlib._bootstrap import _gcd_import\n_gcd_import('ctypes')",
+    "import importlib._bootstrap_external",
+    "import _frozen_importlib\n_frozen_importlib._gcd_import('ctypes')",
+    "import _imp",
+    "import zipimport\nzipimport.zipimporter('x.zip')",
+    "import importlib.abc\nimportlib.abc.Loader",
+    "import importlib\nimportlib.reload(m)",
+    "from importlib.util import LazyLoader",
+    "from importlib.util import module_from_spec",
+    "import importlib\nimportlib.invalidate_caches()",
+]
+# C2: a string naming a native or process module or an importer, and ``__builtins__``.
+NAMED = [
+    ("__builtins__['__import__']('ctypes')", BUILTINS),
+    ("f = __builtins__.__import__\nf('ctypes')", BUILTINS),
+    ("import builtins\nvars(builtins)['__import__']('_posixsubprocess').fork_exec", BY_STRING),
+    ("import builtins\nbuiltins.__dict__['__import__']('ctypes')", BY_STRING),
+    ("import importlib\nimportlib.__dict__['import_module']('ctypes')", BY_STRING),
+    ("def f():\n    return f.__globals__['__builtins__']", BY_STRING),
+    ("import os\nos.__builtins__", BUILTINS),
+    ("name = 'ctypes'", BY_STRING),
+    ("name = 'ctypes.util'", BY_STRING),
+    ("name = '_ctypes'", BY_STRING),
+    ("name = f'_posixsubprocess'", BY_STRING),
+    ("name = '_winapi'", BY_STRING),
+    ("name = 'multiprocessing.pool'", BY_STRING),
+    ("name = 'concurrent.futures.process'", BY_STRING),
+    ("name = 'import_module'", BY_STRING),
+    ("import builtins\ndef f(x: vars(builtins)['__import__']('ctypes')) -> None: ...", BY_STRING),
+]
+NEAR_MISSES = [
+    "from importlib.metadata import version\nversion('ownvitals')",
+    "import importlib.metadata\nimportlib.metadata.version('ownvitals')",
+    "from importlib import metadata\nmetadata.PackageNotFoundError",
+    "from importlib.metadata import PackageNotFoundError, version",  # ``ownvitals/__init__.py``
+    "import importlib\nimportlib.import_module('json')",
+    "name = 'ctypesish'\nother = 'json'\nthird = 'multiprocessingx'",
+    "name = 'concurrent.futures'\npath = 'x.ctypes'\ntext = 'import modules'",
+    "def f(x: 'ctypes.c_int') -> None: ...",  # a forward reference: kept as a string
+    "builtins_ = 1\nimporter = 'import_module_x'",
+]
+# R2 of the FAIL on #123: an unresolved ``import_module`` callee is still judged.
+UNRESOLVED = [
+    ("def f(lib):\n    return lib.import_module('ctypes')", "imports ctypes"),
+    ("def f(lib, n):\n    return lib.import_module(n)", "imports dynamically"),
+    ("def f(lib):\n    return lib.__import__('_posixsubprocess')", "imports _posixsubprocess"),
+]
+
+
+@pytest.mark.parametrize("source", LOADERS)
+def test_a_module_loader_is_refused(source: str) -> None:
+    for module in MODULES:
+        found = scan_source(source, module)
+        assert any(LOADS in why for _, why in found), (module, found)
+
+
+@pytest.mark.parametrize(("source", "why"), NAMED)
+def test_a_name_in_a_string_or_builtins_is_refused(source: str, why: str) -> None:
+    for module in MODULES:
+        found = scan_source(source, module)
+        assert any(why in w for _, w in found), (module, found)
+
+
+@pytest.mark.parametrize("source", NEAR_MISSES)
+def test_the_near_misses_pass(source: str) -> None:
+    assert scan_source(source, "ownvitals.web.planted") == []
+
+
+@pytest.mark.parametrize(("source", "why"), UNRESOLVED)
+def test_an_unresolved_importer_call_is_judged(source: str, why: str) -> None:
+    found = scan_source(source, "ownvitals.web.planted")
+    assert any(why in w for _, w in found), found

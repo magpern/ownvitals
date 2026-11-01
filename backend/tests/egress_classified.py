@@ -199,6 +199,21 @@ SPEC_FINDERS: tuple[str, ...] = (
     "importlib.util.spec_from_file_location",
     "importlib.util.spec_from_loader",
 )
+# Module loaders (the FAIL on #123, C1): each loads a module by a name the guard cannot judge
+# (``runpy.run_module``, ``pkgutil.get_loader``, ``PathFinder.find_spec``, ``_gcd_import``).
+# Refused outright, with every ``importlib`` name but ``import_module`` and ``importlib.metadata``.
+LOADER_MODULES: tuple[str, ...] = (
+    "runpy",
+    "pkgutil",
+    "zipimport",
+    "importlib.machinery",
+    "importlib.abc",
+    "importlib._bootstrap",
+    "importlib._bootstrap_external",
+    "_frozen_importlib",
+    "_frozen_importlib_external",
+    "_imp",
+)
 
 LOOP_METHODS: frozenset[str] = frozenset(
     {

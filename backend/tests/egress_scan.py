@@ -14,7 +14,8 @@ name under ``ownvitals``) may not do outside the egress package:
   module's re-exports, is judged where it lands. ``getattr`` with a constant name counts;
 - import a module **not in the locked environment**, import dynamically (``import_module`` or
   ``__import__`` with a name that is not a constant, a ``package`` or a ``fromlist``; any
-  reference to an importer but a direct call, and ``find_spec``/``spec_from_*``), look a
+  reference to an importer but a direct call, ``find_spec``/``spec_from_*``, a module loader,
+  a string naming a refused module or an importer, ``__builtins__``: ``egress_importers``), look a
   module up by name (``sys.modules``, ``pkgutil.resolve_name``), use ``ctypes`` or a process
   route the hook cannot see (``PROCESS_MODULES``) by any spelling, or star-import;
 - name a classified-out dotted path in a **string** (``"logging.handlers.SysLogHandler"`` for
@@ -44,17 +45,16 @@ from pathlib import Path
 
 from egress_classified import (
     EDGE_CUTS,
-    IMPORT_CALLS,
     LOOP_METHODS,
     NATIVE_MODULES,
     PROCESS_MODULES,
     PROCESS_NAMES,
     REFLECTION_NAMES,
-    SPEC_FINDERS,
     TABLE,
     Entry,
 )
 from egress_closure import OWN, Closure, resolve_from, under
+from egress_importers import NOT_DIRECT, direct_imports, dynamic_import, importer, loader, names
 from egress_typeonly import annotations, assignments, type_only
 from egress_typeonly import dotted as _dotted
 
@@ -100,7 +100,6 @@ WORKER_ROLE_MODULES: dict[str, str] = {
 INSTALL_HOOK = f"{EGRESS}.install_egress_hook"
 HOOK_INSTALLERS = frozenset({"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web"})
 SMTP_SESSION = f"{EGRESS}.smtp_session"
-_NOT_DIRECT = "an importer is only called directly, with one constant name"
 _DOTTED = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+")
 _EXCEPTIONS = frozenset(
     n for n, v in vars(builtins).items() if isinstance(v, type) and issubclass(v, BaseException)
@@ -304,6 +303,8 @@ def _internal(name: str, module: str, verb: str) -> list[str]:
         found.append(f"{verb} {name}: calls native code the egress hook cannot see (ADR 0009)")
     if any(under(n, REFLECTION_NAMES) for n in spelled):
         found.append(f"{verb} {name}: resolves a module by name at run time")
+    if loader(name, _landings):
+        found.append(f"{verb} {name}: loads a module by a name the guard cannot judge")
     return found
 
 
@@ -327,38 +328,6 @@ def _imports(tree: ast.AST, module: str, skip: set[int]) -> list[tuple[int, str,
             found.append((node.lineno, source, True))
             found += [(node.lineno, f"{source}.{a.name}", False) for a in node.names]
     return found
-
-
-def _importer(name: str, calls_only: bool = False) -> bool:
-    """Whether ``name`` lands on an importer; ``calls_only``: one that may be called directly."""
-    for n in _landings(name):
-        if n in IMPORT_CALLS or (not calls_only and under(n, SPEC_FINDERS)):
-            return True
-    return False
-
-
-def _direct_imports(tree: ast.AST, aliases: dict[str, str]) -> set[int]:
-    """``id``s of the callees of direct ``import_module``/``__import__`` calls: the one way an
-    importer may be referenced (``_dynamic_import`` then judges the name)."""
-    return {
-        id(node.func)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and _importer(_dotted(node.func, aliases) or "", True)
-    }
-
-
-def _dynamic_import(node: ast.Call, aliases: dict[str, str]) -> list[tuple[int, str, bool]] | str:
-    """A constant ``import_module``/``__import__`` as an import, or why it is refused."""
-    func = node.func
-    called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-    resolved = _importer(_dotted(func, aliases) or "", True)
-    if called not in ("import_module", "__import__") and not resolved:
-        return []
-    first = node.args[0] if node.args else None
-    extra = node.args[1:] or [k for k in node.keywords if k.arg in ("package", "fromlist", None)]
-    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)) or extra:
-        return f"imports dynamically ({called}): a module name must be one constant"
-    return [(node.lineno, first.value, True)]
 
 
 def _strings(tree: ast.AST) -> list[tuple[int, str]]:
@@ -386,15 +355,15 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
     typed = annotations(tree)
     runtime = _aliases(tree, module, skip)
     aliases = {"__import__": "builtins.__import__"} | every | runtime
-    direct = _direct_imports(tree, aliases)
-    found: list[tuple[int, str]] = assignments(tree)
+    direct = direct_imports(tree, aliases, _landings)
+    found: list[tuple[int, str]] = assignments(tree) + names(tree)
     imports = _imports(tree, module, skip)
     object_names = object_network_names()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
             found.append((node.lineno, "star import: names must be visible"))
         elif isinstance(node, ast.Call):
-            dynamic = _dynamic_import(node, aliases)
+            dynamic = dynamic_import(node, aliases, _landings)
             if isinstance(dynamic, str):
                 found.append((node.lineno, dynamic))
             else:
@@ -416,8 +385,8 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
                 continue
             found += [(node.lineno, w) for w in _internal(name, module, "uses")]
             found += [(node.lineno, w) for w in classify(name, module, "uses", used)]
-            if id(node) not in direct and _importer(name):
-                found.append((node.lineno, f"uses {name}: {_NOT_DIRECT}"))
+            if id(node) not in direct and importer(name, _landings):
+                found.append((node.lineno, f"uses {name}: {NOT_DIRECT}"))
             if isinstance(node.ctx, ast.Store | ast.Del) and isinstance(node, ast.Attribute):
                 found += [(node.lineno, w) for w in _assigned(name, module)]
         elif isinstance(node, ast.ClassDef):
@@ -447,7 +416,7 @@ def _scan_call(
             name = f"{target}.{attr.value}"
             if called != "getattr":
                 return _assigned(name, module)
-            refused = [f"uses {name}: {_NOT_DIRECT}"] if _importer(name) else []
+            refused = [f"uses {name}: {NOT_DIRECT}"] if importer(name, _landings) else []
             return refused + _internal(name, module, "uses") + classify(name, module, "uses", used)
         if target is not None and called != "getattr":
             return _assigned(target + ".?", module)

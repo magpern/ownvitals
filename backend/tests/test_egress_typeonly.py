@@ -56,6 +56,7 @@ NAMED = [
     "import typing\nsetattr(typing, 'TYPE_CHECKING', True)\n" + DOTTED,
     "import typing\ndelattr(typing, 'TYPE_CHECKING')\n" + DOTTED,
     FROM + "flag = f'TYPE_CHECKING'\n" + BLOCK,
+    FROM + "flag = b'TYPE_CHECKING'\n" + BLOCK,  # bytes too (the second FAIL on #123)
 ]
 # The flag is not ``typing``'s, or its module name is rebound: the block is scanned.
 NOT_TYPING = [
