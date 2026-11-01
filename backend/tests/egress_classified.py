@@ -273,7 +273,7 @@ EVALUATORS: tuple[str, ...] = (
 # which a string rule never sees. Refused outright, with the name ``__doc__``.
 SOURCE_READERS: tuple[str, ...] = ("inspect", "pydoc", "linecache", "tokenize", "traceback")
 # Words that make a string code (the FAIL on #123, E1a): an importer, evaluator or reflection
-# name as an identifier segment of any string ``src`` writes (docstrings and comments too).
+# name as an identifier segment of any string ``src`` writes (prose: ``PROSE_WORDS`` only).
 CODE_WORDS: frozenset[str] = frozenset(
     {
         "__import__",
@@ -295,28 +295,19 @@ CODE_STRINGS: frozenset[tuple[str, str]] = frozenset(
     {
         ("ownvitals.mail", "MailMessage(...)"),  # MailMessage.__repr__: never evaluated
         ("ownvitals.mail", "Mailer(...)"),  # Mailer.__repr__: never evaluated
-        # Docstring and comment lines (prose, never read back: __doc__ and the readers are refused).
-        ("ownvitals.analysis.methods.baseline", "max(MAD_SCALE * mad, min_scale)"),  # a formula
-        ("ownvitals.analysis.methods.changepoint", "F(t)"),  # a formula
-        ("ownvitals.analysis.methods.trend", "S / (n(n-1)/2)"),  # a formula
-        (
-            "ownvitals.config",
-            "Wraps the environment source and drops the secret fields: env vars never set secrets.",
-        ),
+        ("ownvitals.auth.keys", "Keys(...)"),  # Keys.__repr__: never evaluated
+        ("ownvitals.auth.tables", "gen_random_uuid()"),  # a SQL server default, sent to Postgres
+        ("ownvitals.auth.tables", "now()"),  # a SQL server default, sent to Postgres
+        # Docstring lines that name a refused module or an importer, as prose.
         (
             "ownvitals.context",
             "slot descriptors, ctypes) is out of scope for runtime checks; "
             "the review gate catches it.",
         ),
         (
-            "ownvitals.db.session",
-            "the modules on the allowlist of ``tests/session_scan.py`` may open either. "
-            "What this does and",
-        ),
-        (
-            "ownvitals.headers",
-            "everything from our own origin only, with no exception. No inline or ``eval`` "
-            "script, no inline",
+            "ownvitals.auth",
+            "re-export table (PEP 562, ``import_module`` with a computed name) is not ported, "
+            "because the",
         ),
     }
 )

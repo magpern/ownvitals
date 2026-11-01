@@ -45,6 +45,8 @@ Landings = Callable[[str], frozenset[str]]
 NOT_DIRECT = "an importer is only called directly, with one constant name"
 _IMPORTLIB_ALLOWED = ("importlib", "importlib.import_module")
 _IMPORTER_STRINGS = frozenset({"__import__", "import_module"})
+# The code words a docstring or comment may not hold (the others are common English).
+PROSE_WORDS = frozenset({"__import__", "import_module", "__builtins__"})
 _BUILTINS = "__builtins__"
 _READ_BACK = {
     _BUILTINS: "reaches every importer by name",
@@ -160,20 +162,32 @@ def _string(value: str | bytes, module: str) -> str | None:
     return None
 
 
+def _prose_line(line: str, module: str) -> str | None:
+    """Why a line of a docstring or comment is refused: it names a native or process module, or
+    an importer (``PROSE_WORDS``). Common-English code words and the parse rule do not apply:
+    every reader that gets at the text and every evaluator is refused, so prose cannot run."""
+    if (module, line) in CODE_STRINGS:
+        return None
+    named = _names_module(line)
+    if named is not None:
+        return f"names {named!r}: a native or process module, by string"
+    words = sorted(PROSE_WORDS.intersection(_segments(line)))
+    return f"names {words[0]!r}: an importer, in prose" if words else None
+
+
 def _prose(text: str, module: str, first: int) -> list[tuple[int, str]]:
     """A docstring or comment, judged line by line (``CODE_STRINGS`` lists reviewed lines, each
-    stripped), and as a whole for what spans lines (a call or a dotted module name)."""
+    stripped), and as a whole for a dotted module name broken over lines."""
     found: list[tuple[int, str]] = []
     for offset, line in enumerate(text.splitlines()):
-        why = _string(line.strip(), module)
+        why = _prose_line(line.strip(), module)
         if why is not None:
             found.append((first + offset, why))
     kept = [
         s for s in (line.strip() for line in text.splitlines()) if (module, s) not in CODE_STRINGS
     ]
-    rest = "\n".join(kept)  # the reviewed lines aside
-    if not found and len(kept) > 1 and (_names_module(" ".join(kept)) or holds_code(rest)):
-        found.append((first, "prose that spans lines names a refused name or parses as code"))
+    if not found and len(kept) > 1 and _names_module(" ".join(kept)):
+        found.append((first, "prose that spans lines names a native or process module"))
     return found
 
 

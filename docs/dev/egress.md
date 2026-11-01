@@ -273,18 +273,24 @@ What else the guard refuses outside the package:
     the table: header names (`"X-Content-Type-Options"`), MIME types (`"text/event-stream"`),
     algo version ids (`"daily/1"`), `"utf-8"`, `"smtp_host is not configured"`. Text that does
     not parse (prose, SQL, log messages) passes;
-- **docstrings and comments** are judged by the same rules (`tests/test_egress_prose.py`), with
-  no exemption for text that "never runs": whatever reads it back (`__doc__`, `__dict__`,
-  `globals()`, `co_consts`, `traceback`, `linecache` ...), the text itself names nothing refused.
-  Each line is judged (stripped); a docstring is also judged as a whole for what spans lines (a
-  dotted module name or a call broken over lines). Comments are read with `tokenize`;
-- **reviewed exceptions**: exact text by module (`CODE_STRINGS`): the two `mail.py` reprs
-  `"MailMessage(...)"` and `"Mailer(...)"`, three formula comments in `analysis.methods`
-  (`max(MAD_SCALE * mad, min_scale)`, `F(t)`, `S / (n(n-1)/2)`) and four docstring lines of prose
-  in `config`, `context`, `db.session` and `headers` (`vars`, `ctypes`, `modules`, `eval` as
-  words). `DICT_KEY_STRINGS` holds the ECG record key `"modules"` in `ownvitals.ecg.pipeline`,
-  which passes only as a key of a dict display there. A test pins each entry to `src` and shows
-  it refused elsewhere;
+- **docstrings and comments** are judged too (`tests/test_egress_prose.py`; comments are read
+  with `tokenize`), each line stripped and a docstring also as a whole for a dotted name broken
+  over lines. In them a native or process module (or process name) and the importer words
+  `__import__`, `import_module` and `__builtins__` are refused. The common-English code words
+  (`exec`, `eval`, `compile`, `modules`, `vars`, `getattr`, `globals`, `builtins`) and the parse
+  rule are not applied there (Architect decision on the fifth review). The reason: a docstring
+  or comment only matters if code can turn it into an import or an evaluation, and both halves
+  are refused. Every reader that gets at the text is refused (`__doc__`, `inspect`, `pydoc`,
+  `linecache`, `tokenize`, `traceback`), and so is every evaluator (`exec`, `eval`, `compile`,
+  the profilers, `trace`, `doctest`, `pdb`, `bdb`). So prose words such as "exec" or "modules"
+  cannot run, while naming a refused module or an importer in prose stays refused, whatever
+  might read it;
+- **reviewed exceptions**: exact text by module (`CODE_STRINGS`): the reprs `"MailMessage(...)"`
+  and `"Mailer(...)"` (`mail`) and `"Keys(...)"` (`auth.keys`), the SQL server defaults
+  `"gen_random_uuid()"` and `"now()"` (`auth.tables`), and two docstring lines of prose
+  (`context`, which names `ctypes`, and `auth`, which names `import_module`). `DICT_KEY_STRINGS`
+  holds the ECG record key `"modules"` in `ownvitals.ecg.pipeline`, which passes only as a key of
+  a dict display there. A test pins each entry to `src` and shows it refused elsewhere;
 - **reading source text back**: the name or attribute `__doc__`, and `inspect`, `pydoc`,
   `linecache`, `tokenize` and `traceback` under any alias, `from` form or chain
   (`SOURCE_READERS`); `src` uses none;

@@ -61,6 +61,7 @@ CODE_RUNS = [
     "s = '[x for x in y]'",
     "s = '{x: 1 for x in y}'",
     "s = '(x for x in y)'",
+    "s = '{n for n in y}'",  # P7: a set comprehension runs code
     "s = 'lambda: 1'",
     "s = '(y := 1)'",
     "s = \"f'{x}'\"",

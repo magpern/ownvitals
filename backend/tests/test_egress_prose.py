@@ -10,7 +10,6 @@ from egress_scan import scan_source
 M = "ownvitals.web.planted"
 NATIVE = "a native or process module, by string"
 WORD = "an importer or evaluator, by string"
-CODE = "parses as code"
 SPANS = "prose that spans lines"
 EVALUATES = "evaluates code or data the guard cannot read"
 SOURCE = "hands back source text"
@@ -29,16 +28,30 @@ COMMENT_ROUTE = (
     "import traceback\n"
     "T = traceback.extract_stack()[-1].line.rpartition('# ')[2]  # __import__('ctypes') and int"
 )
+# Prose (Architect decision on the fifth FAIL): a native or process module, or an importer
+# (``__import__``, ``import_module``, ``__builtins__``), is refused; the other code words and
+# the parse rule are not applied, as every reader and evaluator of prose is refused.
+PROSE_IMPORTER = "an importer, in prose"
 PROSE = [
     ('"""See ctypes for details."""', NATIVE),
-    ('def f():\n    """Calls eval once."""', WORD),
     ('"""First line.\n\n    Uses multiprocessing.pool here."""', NATIVE),
     ("x = 1  # uses ctypes", NATIVE),
-    ("x = 1  # sys.modules is read here", WORD),
-    ("x = 1  # g()", CODE),
-    ("x = 1  # {n for n in y}", CODE),  # P7: a set comprehension runs code
-    ('"""(g\n(1))"""', SPANS),  # a call split over lines
+    ("x = 1  # __import__('json')", PROSE_IMPORTER),
+    ("x = 1  # see import_module", PROSE_IMPORTER),
+    ('def f():\n    """Reads __builtins__."""', PROSE_IMPORTER),
     ('"""concurrent.futures.\nprocess"""', SPANS),  # a module name split over lines
+]
+PROSE_NEAR_MISSES = [
+    "x = 1  # docker compose exec web",
+    "x = 1  # no eval script",
+    "x = 1  # compile the regex once",
+    "x = 1  # the analysis modules",
+    "x = 1  # env vars never set secrets",
+    "x = 1  # getattr is not used",
+    "x = 1  # no globals here",
+    "x = 1  # builtins only",
+    "x = 1  # max(MAD_SCALE * mad, min_scale)",  # a formula: the parse rule is not applied
+    'def f():\n    """Calls eval once, on F(t)."""',
 ]
 # F1: the process names as strings (``concurrent.futures`` imports ``process`` lazily).
 PROCESS_NAMES = [
@@ -101,7 +114,7 @@ def test_the_further_evaluators_and_readers_are_refused(source: str, why: str) -
     assert any(why in w for w in found), found
 
 
-@pytest.mark.parametrize("source", NEAR_MISSES[:-1])
+@pytest.mark.parametrize("source", NEAR_MISSES[:-1] + PROSE_NEAR_MISSES)
 def test_the_near_misses_pass(source: str) -> None:
     assert scan_source(source, M) == []
 
