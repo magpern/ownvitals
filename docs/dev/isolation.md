@@ -220,7 +220,8 @@ never from a path, query, body or header. The same scan refuses, in every module
 `tests/user_context_types.py`). Annotations run on Python 3.12: parameter, return and variable
 annotations when the `def` or the statement runs, and every string in one when
 `typing.get_type_hints` resolves it. So every annotation position (parameters, returns,
-variable annotations, the value of `X: TypeAlias = ...`, PEP 695 `type` aliases and
+variable annotations, the value of `X: TypeAlias = ...` (`TypeAlias` under any alias imported
+from `typing` or `typing_extensions`), PEP 695 `type` aliases and
 type-parameter bounds) may hold only a type expression:
 
 ```
@@ -248,8 +249,13 @@ type-args := type | (type, ...) | [type, ...]
   string), is parsed **into the module's tree** before any rule runs, so its code is judged with
   the module's own imports and aliases: `"Annotated[int, vars(ownvitals.context)]"` after
   `import ownvitals.context`, an aliased `UserContext` and `dataclasses.replace` are refused as
-  they are unquoted. A string that doesn't parse stays a string (`get_type_hints` would raise on
-  it); strings nested more than 8 deep are refused.
+  they are unquoted. **The grammar fails closed:** a string passes only if it parses and the
+  grammar accepts it, and a string that doesn't parse is refused. A string starting with `*` is
+  checked as `*<rest>` (`"*Ts"` passes, `"*[getattr(...)]"` is refused), as 3.12's `ForwardRef`
+  evaluates it. Strings nested more than 8 deep are refused. Before a string is parsed, the
+  string rules run on it as written (the module strings, the token's names, `__globals__` and
+  the like), so a key such as `sys.modules["ownvitals.context"]` is refused as it is outside an
+  annotation.
 - Anything else in a type position is refused: a call, an attribute of a call, a subscript of a
   non-name, a lambda, a comprehension, a walrus.
 
@@ -281,7 +287,14 @@ leaves to the review gate. Known limits:
 - a keyword dict bound to a name first: `kw = {"issuer": tok}`, then `K(..., **kw)`;
 - code evaluated from a string outside annotations, other than through `eval`, `exec` and
   `compile`: `typing.get_type_hints` on a string built at run time, `pickle`, `pydoc.locate` and
-  the like are reflection under the threat model;
+  the like are reflection under the threat model. Among them:
+  - a plain string alias used as a type: `S = "getattr(...)"` (or `S = list["..."]`) without a
+    `TypeAlias` annotation, then `def g(x: list[S])`; also `TypeVar("T", bound="...")` and
+    `NewType("N", "...")`. The string is written outside an annotation position;
+  - `eval`, `exec` and `compile` reached without their names: `getattr(builtins, "eval")`,
+    `vars(builtins)["eval"]`, `builtins.__dict__["eval"]`, `sys.modules["builtins"].eval`,
+    `importlib.import_module("builtins")`, `__import__("builtins")`, and other evaluators of
+    code in strings (`timeit`, `code`, `runpy`);
 - class-level patching: `type(ctx).role = property(...)` changes what every context reads
   (accepted by the Architect);
 - a hook reached without its name, as above, when it sets a field that isn't one of the context's:

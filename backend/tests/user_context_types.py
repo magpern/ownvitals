@@ -9,7 +9,9 @@ annotation position may hold only a **type expression**:
   them included, for ``Callable[[int], str]``);
 - ``X | Y`` of type expressions, and ``*Ts``;
 - a constant (``None``, ``...``, numbers, strings);
-- a string, which is parsed and checked as a type expression in its place, recursively.
+- a string, which is parsed and checked as a type expression in its place, recursively. A
+  string starting with ``*`` is checked as ``*<rest>`` (``"*Ts"``), as 3.12's ``ForwardRef``
+  evaluates it. The grammar fails closed: a string that doesn't parse is refused.
 
 Two subscripts are special:
 
@@ -23,7 +25,8 @@ Two subscripts are special:
 an attribute of a call, a lambda, a comprehension, a walrus, a subscript of a non-name.
 
 The annotation positions: arguments, returns, variable annotations, the value of a
-``X: TypeAlias = ...``, and PEP 695 ``type`` aliases and type-parameter bounds.
+``X: TypeAlias = ...`` (``TypeAlias`` under any alias), and PEP 695 ``type`` aliases and
+type-parameter bounds.
 
 ``splice_strings`` runs first and replaces each string in a type position with its parsed
 expression **inside the module's own tree**, so every other rule of guard 5 judges the parsed
@@ -79,6 +82,7 @@ class Spellings:
     def __init__(self, tree: ast.AST) -> None:
         self.annotated = typing_names(tree, "Annotated")
         self.literal = typing_names(tree, "Literal")
+        self.type_alias = typing_names(tree, "TypeAlias")
 
     def is_annotated(self, node: ast.AST) -> bool:
         return (
@@ -98,18 +102,28 @@ class _Splice(ast.NodeTransformer):
     def __init__(self, spellings: Spellings) -> None:
         self.spellings = spellings
         self.depth = 0
-        self.too_deep: list[int] = []
+        self.refused: list[tuple[int, str]] = []
+        self.strings: list[tuple[int, str]] = []  # every string met, before it is parsed
 
     def visit_Constant(self, node: ast.Constant) -> ast.AST:
         if not isinstance(node.value, str):
             return node
-        try:
-            parsed = ast.parse(node.value.strip(), mode="eval").body
-        except SyntaxError:
-            return node  # not code: ``get_type_hints`` would raise on it
+        self.strings.append((node.lineno, node.value))
         if self.depth >= MAX_DEPTH:
-            self.too_deep.append(node.lineno)
+            self.refused.append((node.lineno, "a string nested too deep in an annotation"))
             return node
+        text = node.value.strip()
+        # 3.12's ForwardRef evaluates a string starting with ``*`` as ``(<rest>,)[0]`` unpacked
+        # (``"*Ts"``): the rest is a type expression, checked in a ``Starred``.
+        starred = text.startswith("*")
+        try:
+            parsed = ast.parse(text[1:] if starred else text, mode="eval").body
+        except SyntaxError:
+            # Fails closed: a string the scan can't parse may still be evaluated.
+            self.refused.append((node.lineno, "a string in a type position that doesn't parse"))
+            return node
+        if starred:
+            parsed = ast.Starred(value=parsed, ctx=ast.Load())
         for sub in ast.walk(parsed):
             ast.copy_location(sub, node)  # report the string's own line
         self.depth += 1
@@ -128,7 +142,7 @@ class _Splice(ast.NodeTransformer):
         return self.generic_visit(node)
 
 
-def _type_roots(tree: ast.AST) -> list[tuple[ast.AST, str]]:
+def _type_roots(tree: ast.AST, spellings: Spellings) -> list[tuple[ast.AST, str]]:
     """``(owner, field)`` of every annotation position in ``tree``."""
     roots: list[tuple[ast.AST, str]] = []
     for node in ast.walk(tree):
@@ -137,7 +151,10 @@ def _type_roots(tree: ast.AST) -> list[tuple[ast.AST, str]]:
             if (
                 isinstance(node, ast.AnnAssign)
                 and node.value is not None
-                and (dotted(node.annotation) or "").split(".")[-1] == "TypeAlias"
+                and (
+                    (dotted(node.annotation) or "").split(".")[-1] == "TypeAlias"
+                    or dotted(node.annotation) in spellings.type_alias
+                )
             ):
                 roots.append((node, "value"))
         elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.returns is not None:
@@ -149,16 +166,20 @@ def _type_roots(tree: ast.AST) -> list[tuple[ast.AST, str]]:
     return roots
 
 
-def splice_strings(tree: ast.AST, spellings: Spellings) -> tuple[list[ast.AST], list[int]]:
+def splice_strings(
+    tree: ast.AST, spellings: Spellings
+) -> tuple[list[ast.AST], list[tuple[int, str]], list[tuple[int, str]]]:
     """Parse every string in a type position into ``tree`` in place. Returns the annotation
-    roots (after splicing) and the lines of strings nested deeper than ``MAX_DEPTH``."""
+    roots (after splicing), what the splice refuses (a string that doesn't parse, or nested
+    deeper than ``MAX_DEPTH``), and every string it met as written, for the string rules (a
+    subscript key such as ``sys.modules["ownvitals.context"]`` reads as a name once parsed)."""
     splice = _Splice(spellings)
     roots: list[ast.AST] = []
-    for owner, field in _type_roots(tree):
+    for owner, field in _type_roots(tree, spellings):
         root = splice.visit(getattr(owner, field))
         setattr(owner, field, root)
         roots.append(root)
-    return roots, splice.too_deep
+    return roots, splice.refused, splice.strings
 
 
 def metadata(root: ast.AST, spellings: Spellings) -> list[ast.expr]:
@@ -189,8 +210,8 @@ def type_findings(
     def name(node: ast.AST) -> bool:
         """A name or dotted name; refuses ``_`` parts and the token's names."""
         if isinstance(node, ast.Name):
-            if node.id in token_names:
-                refuse(node, "the issuer token in a type expression")
+            if node.id.startswith("_") or node.id in token_names:
+                refuse(node, f"use of {node.id} in a type expression")
             return True
         if isinstance(node, ast.Attribute):
             if node.attr.startswith("_") or node.attr in token_names:

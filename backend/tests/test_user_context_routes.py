@@ -132,7 +132,7 @@ ANNOTATION_ROUTES: dict[str, tuple[str, str]] = {
     ),
     "the token's name in Literal": (
         "x: Literal['_ISSUER'] = None\n",
-        "x: Literal['_user'] = None\n",
+        "from typing import Literal\nx: Literal['_user'] = None\n",
     ),
     "issuer= in Annotated's metadata": (
         "from typing import Annotated\ndef f(x: Annotated[int, Field(issuer=t)]): ...\n",

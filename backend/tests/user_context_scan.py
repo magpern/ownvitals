@@ -62,7 +62,7 @@ review gate. ``docs/dev/isolation.md`` lists these limits.
 
 import ast
 
-from user_context_rules import CONTEXT_FIELDS
+from user_context_rules import CONTEXT_FIELDS, MODULE_STRINGS, NEVER_NAMED
 from user_context_rules import findings as token_route_findings
 from user_context_types import Spellings, metadata, splice_strings, type_findings
 
@@ -382,7 +382,7 @@ def scan_source(source: str) -> list[tuple[int, str]]:
     # are parsed into the tree first, so every rule below judges them with the module's imports.
     # ``Annotated``'s metadata is code, evaluated with the annotation: every rule applies to it.
     types = Spellings(tree)
-    roots, too_deep = splice_strings(tree, types)
+    roots, splice_refused, type_strings = splice_strings(tree, types)
     annotation_nodes: set[int] = set()
     for root in roots:
         annotation_nodes.update(id(n) for n in ast.walk(root))
@@ -404,7 +404,10 @@ def scan_source(source: str) -> list[tuple[int, str]]:
 
     found += _depends_findings(tree, aliases)
     found += token_route_findings(tree, annotation_nodes)
-    found += [(line, "a string nested too deep in an annotation") for line in too_deep]
+    found += splice_refused
+    for line, value in type_strings:  # the string rules, on each string as written
+        if value in REFUSED_STRINGS | TOKEN_NAMES | NEVER_NAMED | MODULE_STRINGS:
+            found.append((line, f"string {value!r} in an annotation"))
     for root in roots:
         found += type_findings(root, types, TOKEN_NAMES)
     refused = _spellings(tree, ALWAYS_REFUSED) | (

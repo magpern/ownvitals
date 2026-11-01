@@ -119,6 +119,53 @@ ROUTES: dict[str, tuple[str, str]] = {
         TYPING + "def g(x: Annotated[int, Field(description=\"eval('1')\")]): ...\n",
     ),
     "a walrus in a type": ("def g(x: (y := int)): ...\n", "def g(x: tuple[*Ts]): ...\n"),
+    # The fifth #115 review: ForwardRef evaluates a string starting with * as (<rest>,)[0].
+    "a * string on *args": (
+        f'def g(*a: "*[{SETTER}]"): ...\n',
+        'def g(*a: "*Ts"): ...\n',
+    ),
+    "a * string in a generic": (
+        f'def g(x: list["*[{SETTER}]"]): ...\n',
+        'def g(x: tuple["*Ts"]): ...\n',
+    ),
+    "a * string as the return": (
+        f'def g() -> "*[{SETTER}]": ...\n',
+        'def g() -> "Node": ...\n',
+    ),
+    "a string that doesn't parse": (
+        'def g(x: "int ]"): ...\n',
+        'def g(x: "int"): ...\n',
+    ),
+    "sys.modules['ownvitals.context'] in an annotation": (
+        'import sys\ndef g(x: sys.modules["ownvitals.context"]): ...\n',
+        'import sys\ndef g(x: dict["ownvitals.db", int]): ...\n',
+    ),
+    "an aliased TypeAlias": (
+        f'from typing import TypeAlias as TA\nS: TA = "{SETTER}"\n',
+        'from typing import TypeAlias as TA\nS: TA = "list[int]"\n',
+    ),
+    "issuer_token as an attribute": (
+        "import ownvitals.context\ndef g(x: ownvitals.context.issuer_token): ...\n",
+        "import ownvitals.context\ndef g(x: ownvitals.context.UserContext): ...\n",
+    ),
+    "issuer_token as an attribute, in a string": (
+        'import ownvitals.context\ndef g(x: "ownvitals.context.issuer_token"): ...\n',
+        'import ownvitals.context\ndef g(x: "ownvitals.context.UserContext"): ...\n',
+    ),
+    "a concatenation in a type": (
+        'def g(x: list["getattr(object, " + "\'__setattr__\')"]): ...\n',
+        "def g(x: int | None): ...\n",
+    ),
+    # Each half parses and passes alone; the concatenation is a ForwardRef for "make()".
+    "a concatenation of parsing halves": (
+        'def g(x: list["make" + "()"]): ...\n',
+        'def g(x: list["make"] | None): ...\n',
+    ),
+    "a call in a *args type": ("def g(*a: *make()): ...\n", "def g(*a: *Ts): ...\n"),
+    "a name starting with _": (
+        'def g(x: list["__builtins__"]): ...\n',
+        'def g(x: list["builtins_list"]): ...\n',
+    ),
 }
 # The three rebinding mutations the review saw survive: typing's Annotated rebound by a def or
 # class, by another module's import, and its module alias rebound. Metadata is code only for
@@ -141,6 +188,11 @@ REBOUND: dict[str, tuple[str, str]] = {
     "the module alias": (
         "import typing as t\nt = dict\ndef g(x: t.Annotated[int, f()]): ...\n",
         "import typing as t\nu = dict\ndef g(x: t.Annotated[int, f()]): ...\n",
+    ),
+    "a non-typing import aliased as typing's name": (
+        "from typing import Annotated\nimport mylib as Annotated\n"
+        "def g(x: Annotated[int, f()]): ...\n",
+        "from typing import Annotated\nimport mylib as Other\ndef g(x: Annotated[int, f()]): ...\n",
     ),
 }
 CODE_BUILTINS: dict[str, tuple[str, str]] = {
