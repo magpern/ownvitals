@@ -1,7 +1,8 @@
 # ADR 0006 §13: the synthetic test specification
 
 Part of [ADR 0006](0006-ecg-subsystem.md), with the same status, split out to keep the ADR under 500
-lines. Its amendments are listed in the ADR's "Amendments" (amended 2026-10-31, #88). "§n" means a
+lines. Its amendments, and the ADR's, are in
+[0006-ecg-subsystem-amendments.md](0006-ecg-subsystem-amendments.md). "§n" means a
 section of ADR 0006, whose conventions apply here: bounds are inclusive (Context). The sources both
 files cite are listed under References at the end of this file (amended 2026-10-31, #88).
 **Synthetic signals only**: no real or public recordings. Strips are 30 s long. Every threshold and
@@ -21,13 +22,15 @@ fall at the series' beat times. The default series is ECGSYN's RR process (LF 0.
 0.25 Hz, widths 0.01 Hz, LF/HF 0.5), generated at 1 Hz (256 samples), scaled to mean 60 / HR s
 and SD 2 % of it, and read between samples by band-limited (Fourier-series) interpolation of
 those samples, never linearly: linear interpolation at 1 Hz damps the 0.25 Hz component by about
-19 %, and the RMSSD tolerances below depend on the realised RMSSD. Options:
+19 %, and the RMSSD tolerances below depend on the realised RMSSD. Each event amplitude of a beat is
+scaled by ω_k / ω̄ (ω̄ = 2π · HR / 60) so that its deflections do not depend on its RR (amended
+2026-10-31, #40). Options:
 
 - AF-like: P amplitude 0, 0.05 mV f-waves at 5–7 Hz, independent lognormal RR with CV 0.25, mean
   HR 100–150 bpm;
-- ectopic beats: a premature interval at 60–70 % of the preceding sinus interval and a full
-  compensatory pause (the two sum to twice it), QRS twice as wide, inverted T; sinus background
-  modulated by ± 2 % at 0.1 Hz and ± 2 % at 0.25 Hz;
+- ectopic beats: a premature interval at max(60–70 % of the preceding sinus interval, 250 ms) and a
+  full compensatory pause (the two sum to twice it), QRS twice as wide, inverted T; sinus background
+  modulated by ± 2 % at 0.1 Hz and ± 2 % at 0.25 Hz (the 250 ms: amended 2026-10-31, #40);
 - respiratory modulation of the RR intervals (not of instantaneous HR), a sinusoidal series alone;
 - the noise models below.
 
@@ -68,13 +71,19 @@ A detection matches a true beat within ±150 ms (ANSI/AAMI EC57). Se = TP / (TP 
 | Condition (each alone) | Gate | Pooled Se and +P |
 |---|---|---|
 | Clean, HR 40–180 bpm | passes 100 % | ≥ 99 % (expected 100 %) |
-| White noise 12 dB; baseline wander; mains; A = 0.3 mV; inverted polarity | passes ≥ 95 % | ≥ 99 % |
+| Clean, HR 40–49.9 bpm, asserted apart (amended 2026-10-31, #40) | passes ≥ 95 % | ≥ 99 % |
+| White noise 12 dB; baseline wander, HR 50–180 bpm (amended 2026-10-31, #40) | passes ≥ 95 % | ≥ 99 % |
+| White noise 12 dB; baseline wander, HR 40–49.9 bpm (amended 2026-10-31, #40) | may pass or fail | ≥ 98 % |
+| Mains; A = 0.3 mV; inverted polarity | passes ≥ 95 % | ≥ 99 % |
 | White or EMG-like noise 6 dB | may pass or fail | ≥ 98 % |
 | AF-like rhythm; ectopic beats (≤ 2 per strip) | passes ≥ 95 % | ≥ 99 % |
 | One motion burst ≤ 3 s at 0 dB at the start or end | passes ≥ 90 % | ≥ 99 % |
 | Motion at 0 dB over ≥ 50 % of the strip | fails ≥ 95 % | — |
 | Dropout (zeros) of 12 s at the start, in the middle and at the end of a 30-s strip | fails 100 % | — |
 | Flat line, all zeros, clipping on every R-peak | fails 100 % | — |
+
+Se, +P and the 95 % floor are measured on the beats that go downstream: the confirmed beats of the
+verified span (§6, §7; amended 2026-10-31, #40).
 
 ## HR and HRV
 
@@ -91,9 +100,13 @@ counts 100 / pairs percentage points of pNN50; the **band** is the number of tru
   interval and pause is excluded, and no sinus interval is.
 - **Respiratory modulation**, a sinusoidal RR series alone, ± 12 % at 0.25 Hz: at HR ≥ 55 bpm no
   sinus interval after the first is excluded and the clean tolerances hold (the first can be,
-  §8). At 40 and 45 bpm, §8's limit: exactly the intervals more than 20 % from the last accepted
-  one are excluded, and `hrv` is computed from the rest or null with its reasons; no tolerance
+  §8). At 40 and 45 bpm, §8's limit: no decision contradicts the rule on the true intervals,
+  except one within ± 0.5 % of the limit (the fiducial's timing error decides those; amended
+  2026-10-31, #40), and `hrv` is computed from the rest or null with its reasons; no tolerance
   against the unfiltered truth applies.
+- **Motion bursts** are not exempt (amended 2026-10-31, #40): every accepted strip meets the noisy
+  tolerances, or its `hrv` is null. **HR near the 220 bpm limit**: the HR assertion leaves out a
+  strip with a true interval within ± 5 ms of 272.7 ms; #40 counts those strips and reports them.
 - **AF-like strips** have no HRV ground truth. On their fixed seeds: the gate as in the table, and
   `hrv` null with `too_many_excluded` (never a display label, §9). For every strip of any
   condition: more than 20 % excluded means `hrv` null with `too_many_excluded`.
@@ -131,6 +144,9 @@ At 300 and 500 Hz, on clean strips unless stated:
   Gaussian noise, in the window from 10 to 20 s of a 30-s strip, within 3 ± 1.
 - pSQI on 30-s sinusoids, every window: 10 Hz ≥ 0.99, 30 Hz ≤ 0.01. basSQI likewise: 0.3 Hz
   ≤ 0.01, 10 Hz ≥ 0.99.
+- The first and last window leave the strip's first and last 0.5 s out of kSQI and pSQI (§7;
+  amended 2026-10-31, #40): white Gaussian noise gives kSQI within 3 ± 1 in the first and the
+  last window too.
 - A DC offset: the same 1 mV sinusoids plus 1 mV of DC give the same basSQI bounds (0.3 Hz
   ≤ 0.01, 10 Hz ≥ 0.99), as §7 subtracts each window's mean before Welch.
 
@@ -140,7 +156,8 @@ Seeds: ≥ 20 per condition and rate in CI; a ≥ 200-seed `slow` sweep run by #
 that bumps a module version, its numbers in `docs/dev/ecg.md`. Also: the filter responses above; a
 property test that a failed gate yields no downstream value; determinism and a golden output (a
 golden change without a version bump fails); a guard against recording formats (WFDB, EDF,
-SCP-ECG, HL7 aECG, DICOM waveform) and files over 256 KB under `backend/tests/ecg/`.
+SCP-ECG, HL7 aECG, DICOM waveform) and files over 256 KB under `backend/tests/ecg/`. A row read
+per heart-rate band has its own ≥ 20 seeds in CI (amended 2026-10-31, #40).
 
 ## Simulation note (not CI assertions)
 
@@ -300,3 +317,8 @@ the ADR within 500 lines (amended 2026-10-31, #88).
   Health 2017;5:258.
 - Task Force of the ESC and NASPE. Heart rate variability: standards of measurement, physiological
   interpretation and clinical use. Circulation 1996;93(5):1043–1065.
+
+## Amendments
+
+The dated amendments of this file and of ADR 0006 are in
+[0006-ecg-subsystem-amendments.md](0006-ecg-subsystem-amendments.md).
