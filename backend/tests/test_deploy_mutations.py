@@ -12,6 +12,11 @@ from pathlib import Path
 
 import pytest
 
+from test_deploy_db_functions import (
+    scenario_refuses_db_functions_with_a_config,
+    scenario_refuses_db_functions_with_a_volume,
+    scenario_refuses_db_functions_with_another_secret,
+)
 from test_deploy_failures import (
     scenario_a_failed_state_write_records_nothing,
     scenario_a_hung_pull_is_stopped,
@@ -235,10 +240,7 @@ MUTATIONS: dict[str, tuple[str, str, Scenario]] = {
         scenario_accepts_a_newer_release,
     ),
     "versions compared as text": (
-        "    if ((${#a[i]} != ${#b[i]})); then\n"
-        "      ((${#a[i]} > ${#b[i]}))\n"
-        "      return\n"
-        "    fi\n",
+        "    if ((${#a[i]} != ${#b[i]})); then ((${#a[i]} > ${#b[i]})); return; fi\n",
         "",
         scenario_compares_versions_as_numbers,
     ),
@@ -375,6 +377,31 @@ MUTATIONS: dict[str, tuple[str, str, Scenario]] = {
         '|| refuse "compose: $COMPOSE_BASE has no service $service"',
         "|| :",
         scenario_refuses_a_missing_service,
+    ),
+    "db-functions mounts unchecked": (
+        "  check_db_functions_mounts\n",
+        "",
+        scenario_refuses_db_functions_with_a_volume,
+    ),
+    "db-functions volumes accepted": (
+        'refuse "compose: db-functions has $key; its SQL must come from the image only" ;;',
+        ": ;;",
+        scenario_refuses_db_functions_with_a_volume,
+    ),
+    "db-functions configs accepted": (
+        "volumes | volumes_from | configs | develop)",
+        "volumes | volumes_from | develop)",
+        scenario_refuses_db_functions_with_a_config,
+    ),
+    "db-functions secrets unchecked": (
+        '  [[ $secrets == "$DB_FUNCTIONS_SECRETS" ]] \\\n',
+        "  true \\\n",
+        scenario_refuses_db_functions_with_another_secret,
+    ),
+    "config output shown": (
+        'config=$(compose "$OVERRIDE_NEXT" config 2> /dev/null)',
+        'config=$(compose "$OVERRIDE_NEXT" config)',
+        scenario_tool_output_is_never_shown,
     ),
     "image by tag accepted": (
         'refuse "compose: a service names $IMAGE other than by the digest $2"',

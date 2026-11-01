@@ -171,7 +171,31 @@ def default_world() -> dict[str, Any]:
         ],
         "attestations": [attestation(tag, COMMITS[c]) for tag, c in TAGS.items()],
         "registry": [digest_of(tag) for tag in TAGS],
-        "compose": {"db": "postgres:17.11", "migrate": IMAGE, "web": IMAGE, "worker": IMAGE},
+        "compose": {
+            "db": "postgres:17.11",
+            "migrate": IMAGE,
+            "db-functions": IMAGE,
+            "web": IMAGE,
+            "worker": IMAGE,
+        },
+        # Per service, the lines `docker compose config` prints under it besides its image, as
+        # compose v5 normalises them (every volume spelling becomes the long form).
+        "mounts": {
+            "db": [
+                "    volumes:",
+                "      - source: db-data",
+                "        target: /var/lib/postgresql/data",
+                "        type: volume",
+                "        volume: {}",
+            ],
+            "db-functions": [
+                "    secrets:",
+                "      - source: postgres_password",
+                "        target: /run/secrets/postgres_password",
+                "    tmpfs:",
+                "      - /run/pgpass:mode=0700,uid=10001,gid=10001",
+            ],
+        },
         "compose_valid": True,
         "pull_exit": 0,
         "migrate_exit": 0,

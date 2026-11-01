@@ -142,6 +142,23 @@ TABLE: dict[str, Entry] = {
     "alembic.op": _allowed(
         "SQL on the migration's connection to the configured database", "execute"
     ),
+    # The queue's one-shot runner (#101, ADR 0005 section 3): one libpq connection to the stack's
+    # database, by host, port, database and user from its argument (password from PGPASSFILE).
+    # No egress hook: docs/dev/deploy.md, "db-functions and the egress hook".
+    "psycopg": _allowed(
+        "one libpq connection to the database named on db-functions' command line, and the two "
+        "error classes it catches (psycopg re-exports them from psycopg.errors)",
+        "connect",
+        "Error",
+        "ProgrammingError",
+        only_in=("ownvitals.db.install_functions",),
+    ),
+    "psycopg.conninfo": _allowed(
+        "parses and rebuilds db-functions' connection string to check its keys; no connection",
+        "conninfo_to_dict",
+        "make_conninfo",
+        only_in=("ownvitals.db.install_functions",),
+    ),
 }
 
 EDGE_CUTS: dict[str, str] = {

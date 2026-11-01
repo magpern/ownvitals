@@ -57,3 +57,49 @@ def test_the_compose_stack_passes_no_secret_through_the_environment(compose: str
     names = set(re.findall(r"^\s+(OWNVITALS_\w+):", compose, re.MULTILINE))
     assert "OWNVITALS_ENVIRONMENT" in names
     assert names.isdisjoint({f"OWNVITALS_{field.upper()}" for field in SECRET_FILE_FIELDS})
+
+
+PINNED = re.compile(r"[a-z0-9][a-z0-9./-]*(?::[0-9]+)?/?[a-z0-9./_-]*:[\w.-]+@sha256:[0-9a-f]{64}")
+
+
+def check_dockerfile_pins(dockerfile: str) -> None:
+    """Every image the build pulls is pinned as ``name:tag@sha256:<index digest>``: the syntax
+    line, each FROM, and nothing pulled through ``--from`` or ``--mount=from`` but an earlier
+    stage. A tag alone would let a re-pushed tag change what a release contains."""
+    syntax = re.findall(r"^# syntax=(\S+)$", dockerfile, re.MULTILINE)
+    assert len(syntax) == 1, "one syntax line"
+    assert PINNED.fullmatch(syntax[0]), syntax[0]
+    stages: set[str] = set()
+    froms = re.findall(r"^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$", dockerfile, re.MULTILINE | re.I)
+    assert len(froms) == len(re.findall(r"^FROM\b", dockerfile, re.MULTILINE | re.I))
+    assert froms
+    for image, stage in froms:
+        assert image in stages or PINNED.fullmatch(image), image
+        if stage:
+            stages.add(stage)
+    for source in re.findall(r"--(?:mount=)?from=([^\s,]+)", dockerfile):
+        assert source in stages, f"--from={source} is not an earlier stage"
+
+
+def test_every_image_the_build_pulls_is_pinned_by_digest(dockerfile: str) -> None:
+    check_dockerfile_pins(dockerfile)
+
+
+@pytest.mark.parametrize(
+    ("pattern", "replacement"),
+    [
+        (r"^(# syntax=\S+?)@sha256:[0-9a-f]{64}$", r"\1"),
+        (r"^(FROM ghcr\.io/astral-sh/uv:\S+?)@sha256:[0-9a-f]{64}", r"\1"),
+        (r"^(FROM python:\S+?)@sha256:[0-9a-f]{64}", r"\1"),
+        (r"^(FROM python:\S+?)@sha256:[0-9a-f]{64}", r"\1@sha256:abc"),
+        (r"--mount=from=uv,", "--mount=from=ghcr.io/astral-sh/uv:latest,"),
+        (r"^(COPY backend/alembic\.ini)", r"COPY --from=busybox:latest /bin/sh /x\n\1"),
+    ],
+)
+def test_the_pin_check_fails_without_a_digest(
+    dockerfile: str, pattern: str, replacement: str
+) -> None:
+    unpinned = re.sub(pattern, replacement, dockerfile, count=1, flags=re.MULTILINE)
+    assert unpinned != dockerfile
+    with pytest.raises(AssertionError):
+        check_dockerfile_pins(unpinned)
