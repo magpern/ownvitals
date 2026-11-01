@@ -49,6 +49,18 @@ def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _egress_hook_stays_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The egress hook (ADR 0009) cannot be removed, so it never goes into this process: an
+    entry point a test runs here (the worker's ``main``, a CLI command) records its install
+    instead (``egress.installed_kind()``). ``test_egress_hook.py`` runs the real hook in fresh
+    interpreters."""
+    from ownvitals.egress import hook
+
+    monkeypatch.setattr(hook, "_policy", None)
+    monkeypatch.setattr(sys, "addaudithook", lambda _hook: None)
+
+
+@pytest.fixture(autouse=True)
 def secrets_dir(
     _isolated_environment: None,
     tmp_path_factory: pytest.TempPathFactory,
