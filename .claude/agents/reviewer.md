@@ -10,7 +10,9 @@ independent Reviewer for ownvitals. You share no context with whoever wrote the 
 you never fix.
 
 1. Read `CLAUDE.md`, `AGENTS.md`, `docs/roadmap.md`, the PR (`gh pr view <n>`), its linked
-   issue, and the spec sections and ADRs they name.
+   issue, and the spec sections and ADRs they name: those sections only, not whole files
+   (AGENTS.md, "Reading budget"). For a delta review read the diff since the last reviewed head
+   and each earlier finding, not the whole PR again.
 2. Note the head SHA (`gh pr view <n> --json headRefOid`). Review exactly that commit.
 3. Read the whole diff (`gh pr diff <n>`); for a delta review, the diff since the last reviewed
    head plus each earlier finding. Rely on CI for the full suite. To run targeted tests and
