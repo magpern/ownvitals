@@ -26,6 +26,29 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 4 (2026-11-01, owner): Codex and Cursor development alternatives
+
+- **Changes:** PLAN-operations §10.1–10.2's development model names and attribution gain
+  optional tool profiles. Codex: Astra/high Architect and security-critical Developer/Reviewer,
+  Sol/high routine Developer/Reviewer, Luna/medium Explorer. Cursor: Grok 4.7/high/standard
+  Architect and routine Reviewer, Composer 2.5/standard routine Developer/Explorer, Opus 5.5/high
+  security-critical Developer/Reviewer and production security decisions/ADRs.
+- **Evidence:** the owner requested equivalent Codex and economical Cursor support after
+  Classbeat's alternatives (ownvitals issue #130). This is a tooling decision, not a product,
+  architecture, verification-status or data-sharing change.
+- All shared security classifications, frozen-spec guard, file locks, isolated worktrees,
+  independent current-head PASS, CI and Architect integration review remain mandatory.
+  After a second FAIL use Astra (Codex) or Opus (Cursor). Both profiles keep the security
+  Reviewer for all security-critical deltas, including tests/docs-only changes.
+- Verdict comments name the actual model. Codex/Cursor PRs use their own attribution footer
+  as documented in [dev/agent-tools.md](dev/agent-tools.md); no Co-Authored-By trailer.
+  Unavailable/substituted models block that role, never authorize silent downgrades.
+- The no-real-health-data rule, owner-only integration/production/legal gates, health-claims
+  requirements and all external-action permissions remain unchanged. No application model
+  route/provider is enabled and no real account is accessed by this change.
+- Configuration: `.codex/` and `.cursor/`; onboarding: [dev/agent-tools.md](dev/agent-tools.md).
+  Existing Claude Code definitions and the frozen three specification files stay unchanged.
+
 ### Amendment 3 (2026-11-01, Architect): `findings.tier` gains `system`
 
 - **Changes:** PLAN §5's `findings.tier` (`device|trend|experimental`) gains a fourth value,

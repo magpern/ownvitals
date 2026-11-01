@@ -1,0 +1,16 @@
+---
+description: OwnVitals shared workflow and economical Cursor role selection
+alwaysApply: true
+---
+
+Read AGENTS.md and CLAUDE.md in full, docs/dev/agent-tools.md, docs/roadmap.md and docs/status.md.
+Roadmap Amendment 4 authorizes Cursor model substitutions only. Primary Architect: Grok 4.7,
+high effort, standard speed in the model picker. Use explicit cursor-* roles: Composer 2.5
+for routine implementation/exploration; Grok for routine reviews; Opus for security-critical
+implementation, production security decisions/ADRs, all security-critical reviews and second-FAIL escalation.
+Verify the actual model used; client fallback blocks that role. Never silently downgrade.
+Preserve issue/PR/worktree isolation, shared-file locks and frozen-spec guard. No real health data:
+synthetic fixtures/fakes only. Never connect real Withings accounts or expose credentials.
+Independent current-head PASS, green ci/pr-title and Architect integration review precede merge.
+Agents claim IMPLEMENTED only after gated merge. Integration/production/legal gates are owner-only.
+The shared exact merge command and external-action authorization boundaries remain in force.
