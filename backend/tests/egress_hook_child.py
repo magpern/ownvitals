@@ -301,7 +301,7 @@ def winapi_create_process() -> None:
     import _winapi  # pyright: ignore[reportMissingImports]
 
     command = subprocess.list2cmdline(PYTHON_PASS)
-    _winapi.CreateProcess(sys.executable, command, None, None, False, 0, None, None, None)  # pyright: ignore[reportUnknownMemberType, reportArgumentType]
+    _winapi.CreateProcess(sys.executable, command, None, None, False, 0, None, None, None)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportArgumentType]
 
 
 def starts_the_app() -> None:
