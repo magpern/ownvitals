@@ -29,8 +29,8 @@ Keep files under 500 lines.
 All runtime dependencies of the platform milestone (M0), plus numpy and scipy for the analysis
 and ECG cores, are declared up front: alembic, argon2-cffi, authlib, certifi, cryptography,
 fastapi, httpx, joserfc, numpy, psycopg[binary], pydantic, pydantic-settings, pyotp, scipy, segno,
-sqlalchemy[asyncio], uvicorn[standard]. Dev: pyright, pytest, pytest-asyncio, ruff. Group `audit`:
-pip-audit (CI only). Packages whose modules arrive later are installed already, so the lockfile
+sqlalchemy[asyncio], uvicorn (no extras: uvloop would bypass the egress hook, ADR 0009). Dev:
+pyright, pytest, pytest-asyncio, ruff. Group `audit`: pip-audit (CI only). Packages whose modules arrive later are installed already, so the lockfile
 does not change under parallel issues; nothing imports numpy or scipy yet. The exact versions are
 the ones in `uv.lock`.
 
