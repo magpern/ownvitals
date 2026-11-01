@@ -30,6 +30,7 @@ question open says so in an **Open questions** section and names who answers it.
 | [0006](0006-ecg-subsystem.md) | The ECG subsystem: data contract, quality gate, descriptive analysis and validation; it and its [test specification](0006-ecg-subsystem-tests.md) use "§n" for their own sections | Accepted |
 | [0007](0007-mail-outbox-and-owner-notices.md) | Mail outbox and owner notices | Accepted |
 | [0008](0008-webhook-secret-lifecycle.md) | Webhook-secret lifecycle, rotations and subscriptions (moved from ADR 0004 §4) | Accepted |
+| [0009](0009-runtime-egress-enforcement.md) | Runtime egress enforcement: an audit hook per process, the standard event loop only, no uvloop | Accepted |
 | [0010](0010-finding-rules-v1.md) | v1 finding rules: parameters, definitions, confidence; its [test specification](0010-finding-rules-v1-tests.md) is part of it | Accepted |
 
 The health-data threat model that these ADRs feed is
