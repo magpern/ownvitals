@@ -23,10 +23,11 @@ name under ``ownvitals``) may not do outside the egress package:
 - build an allowlist, a transport or an opener of the package (``Allowlist``, ...), hand an
   entry point a list, use a **private name** of ``ownvitals.egress`` or ``ownvitals.mail``, or
   **assign** to (or delete) any attribute of either from outside;
+- write to a name or attribute ``TYPE_CHECKING`` (``egress_typeonly``);
 - use ``install_worker_allowlist``, which makes a process the worker: only the worker's entry
   point and the probe CLI may (``WORKER_ROLE_MODULES``), and tests.
 
-Type-only imports (``if TYPE_CHECKING:``) pass when their names appear only in annotations. The
+Type-only imports pass when their names appear only in annotations (``egress_typeonly``). The
 rest of deliberate indirection (``vars(sys)``, a computed ``getattr``, ``exec``) is review's (N9).
 
 A worker module never imports ``ownvitals.mail`` (``egress_worker``: ``WORKER_PACKAGES``,
@@ -51,6 +52,8 @@ from egress_classified import (
     Entry,
 )
 from egress_closure import OWN, Closure, resolve_from, under
+from egress_typeonly import annotations, assignments, type_only
+from egress_typeonly import dotted as _dotted
 
 EGRESS = "ownvitals.egress"
 MAIL = "ownvitals.mail"
@@ -231,31 +234,6 @@ def classify(dotted: str, scanning: str, verb: str, used: set[str] | None = None
 # --- aliases ------------------------------------------------------------------------------------
 
 
-def _type_only(tree: ast.AST, aliases: dict[str, str]) -> set[int]:
-    """``id``s of the import nodes inside ``if TYPE_CHECKING:`` (``typing``'s, by any alias);
-    the ``else`` branch runs and is not one."""
-    nodes: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.If) and _dotted(node.test, aliases) == "typing.TYPE_CHECKING":
-            for statement in node.body:
-                nodes.update(
-                    id(n) for n in ast.walk(statement) if isinstance(n, ast.Import | ast.ImportFrom)
-                )
-    return nodes
-
-
-def _annotations(tree: ast.AST) -> set[int]:
-    """``id``s of every node inside an annotation: the only place a name imported for type
-    checking may appear (anywhere else it would run, and could only work if rebound)."""
-    roots: list[ast.expr] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.returns:
-            roots.append(node.returns)
-        elif isinstance(node, ast.arg | ast.AnnAssign) and node.annotation:
-            roots.append(node.annotation)
-    return {id(inner) for root in roots for inner in ast.walk(root)}
-
-
 def _is_package(module: str) -> bool:
     found = CLOSURE.find(module)
     return found is not None and found.search is not None
@@ -277,17 +255,6 @@ def _aliases(tree: ast.AST, module: str, skip: set[int] | None = None) -> dict[s
             for alias in node.names:
                 names[alias.asname or alias.name] = f"{source}.{alias.name}"
     return names
-
-
-def _dotted(node: ast.expr, aliases: dict[str, str]) -> str | None:
-    parts: list[str] = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    if not isinstance(node, ast.Name):
-        return None
-    head = aliases.get(node.id)
-    return None if head is None else ".".join([head, *reversed(parts)])
 
 
 def _canonical(name: str) -> str:
@@ -390,13 +357,13 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
         return []
     tree = ast.parse(source)
     every = _aliases(tree, module)
-    skip = _type_only(tree, every)
+    skip = type_only(tree, source)
     # In an annotation a name means what the run-time imports bind; anywhere else a name bound
     # only for type checking still counts (it could only run if rebound).
-    typed = _annotations(tree)
+    typed = annotations(tree)
     runtime = _aliases(tree, module, skip)
     aliases = every | runtime
-    found: list[tuple[int, str]] = []
+    found: list[tuple[int, str]] = assignments(tree)
     imports = _imports(tree, module, skip)
     object_names = object_network_names()
     for node in ast.walk(tree):
@@ -496,5 +463,5 @@ def scan_tree(src: Path, used: set[str] | None = None) -> list[tuple[str, int, s
 def imported_modules(source: str, module: str) -> set[str]:
     """Every dotted name ``module`` imports at run time (and each ``from`` source)."""
     tree = ast.parse(source)
-    skip = _type_only(tree, _aliases(tree, module))
+    skip = type_only(tree, source)
     return {name for _, name, _ in _imports(tree, module, skip)}

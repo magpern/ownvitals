@@ -244,14 +244,25 @@ What else the guard refuses outside the package:
   `ownvitals.cli`, `ownvitals.web`), or `smtp_session` outside `ownvitals.mail`;
 - star-importing anything.
 
-An import inside `if TYPE_CHECKING:` (`typing`'s, by any alias) passes every rule, `ctypes` and
-the process routes included, when its names appear only in annotations. Such an import never
-runs: `typing.TYPE_CHECKING` is `False` at run time, so it only tells the type checker what a
-name is. A name it binds is judged as a run-time reference anywhere outside an annotation, and
-inside an annotation it resolves only through the run-time imports, so an annotation that is
-evaluated cannot reach the module unless a run-time import binds it, which the guard sees. An
-`else:` branch runs and is scanned. Rebinding `TYPE_CHECKING` itself is deliberate indirection,
-left to review (N9).
+An import inside `if TYPE_CHECKING:` passes every rule, `ctypes` and the process routes
+included, when its names appear only in annotations (`tests/egress_typeonly.py`,
+`tests/test_egress_typeonly.py`). Such an import never runs: `typing.TYPE_CHECKING` is `False`
+at run time, so it only tells the type checker what a name is. A name it binds is a run-time
+reference anywhere outside an annotation, and inside an annotation it resolves only through the
+run-time imports, so an annotation that is evaluated cannot reach the module unless a run-time
+import binds it, which the guard sees. That holds only while the flag is really `typing`'s, so
+the block is skipped only when:
+
+- its test is `TYPE_CHECKING` imported from `typing` or `typing_extensions` (by any alias), or
+  `typing.TYPE_CHECKING` with `typing` (or `typing_extensions`) imported by any alias;
+- every import that binds that name binds it to one of those, and nothing else in the module
+  rebinds it: `symtable` sees every binding in every scope (assignment, `del`, a parameter,
+  `global`/`nonlocal`, the walrus, a loop, `with` or `except` target, a nested import);
+- nothing in the module writes to a name or attribute `TYPE_CHECKING`.
+
+Otherwise the block is ordinary code and is scanned as such. Separately, any write to a name or
+attribute `TYPE_CHECKING` (`TYPE_CHECKING = True`, `typing.TYPE_CHECKING = True`, `setattr`,
+`del`, a parameter, a definition) is refused in `src/`. An `else:` branch runs and is scanned.
 
 **Adding a dependency or an import.** The guard names the path to the network
 (`x can reach the network (x -> y -> socket); not classified`). The PR adds a table entry with
@@ -285,7 +296,8 @@ cd backend
 uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_closure.py tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
   tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py \
-  tests/test_egress_scope.py tests/test_egress_process.py tests/test_egress_reflection.py
+  tests/test_egress_scope.py tests/test_egress_process.py tests/test_egress_reflection.py \
+  tests/test_egress_typeonly.py
 ```
 
 ## Known limits
@@ -311,7 +323,7 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   rest:
   - deliberate indirection (N9): a computed `getattr`, `vars(sys)`, `sys.__dict__`, a module
     an expression returns (`importlib.import_module("sys").modules`), `exec`/`eval`,
-    `importlib.util` loaders, rebinding `TYPE_CHECKING`. The cheap partial closes are in:
+    `importlib.util` loaders. The cheap partial closes are in: a rebound `TYPE_CHECKING`,
     dynamic imports, `sys.modules`, `pkgutil.resolve_name`, `ctypes`, constant `getattr`, and
     `_socket`/`_ssl` as seeds. The `module:attr`
     string form (pydantic's `ImportString`, `"socket:create_connection"`) is not read by the
