@@ -4,6 +4,7 @@ Moved out of [docs/status.md](../status.md) so the index stays short; the text i
 
 ## Completed
 
+- 2026-11-01: #12 admin gate, audit log and stored flags merged as #129 (Opus PASS `b6d69c3`, Grok 4.7 delta PASS `f631a9b` after the #132 merge; Architect integration review PASS) → IMPLEMENTED. Synthetic data only. Follow-ups are #140.
 - 2026-11-01: #119 ECG follow-ups from the #114 review merged as #120 (Sonnet PASS `a0b7629`) → IMPLEMENTED.
 - 2026-11-01: #40 ECG signal-processing core merged as #114 (Opus delta PASS `308e54b` after FAIL `b40a263`; Architect integration review PASS) → IMPLEMENTED; synthetic data only, nothing verified against Withings. Its follow-ups are #119.
 - 2026-11-01: #116 ADR 0010 corrections and acceptance merged as #117 (Sonnet PASS `bcd3685`, merge check `11f4939`); ADR 0010 is Accepted.

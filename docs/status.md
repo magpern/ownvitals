@@ -9,7 +9,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement), #101 (#118), #10 (#125) and #11 (#132) merged; open: #12 (#129, Opus PASS on `b6d69c3`, CI green on that SHA; conflicts with `main` after #132, so not a merge-only update), #89 (#115) and #122 (#123) | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement), #101 (#118), #10 (#125), #11 (#132) and #12 (#129, admin gate, audit log and stored flags) merged; open: #89 (#115) and #122 (#123) | — |
 | M1 | Withings core | #19 (#63), #66 (#71) and #20 (#128, the API client, error taxonomy and response models) merged; backlog #18, #21–#30, #36 (dependency graph in [status/dependency-graphs.md](status/dependency-graphs.md)) | — |
 | M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward) merged: IMPLEMENTED, not installed (installing it is the owner's); #101 (#118, the deploy-side follow-up) merged; the rest are mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
@@ -23,13 +23,13 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #12 | Admin, audit log and stored flags | Grok 4.7 | #129 | Opus PASS on `b6d69c3` (`ci` and `pr-title` green on that SHA) stays valid for that SHA. `main` has since moved through #132; the branch conflicts in `backend/tests/auth_tables_scan.py` and calls auth modules #132 changed, so the update needs the decided five-minute `stepup_within` switch and a fresh Grok 4.7 high security review before merge. Owns migration `0006_admin`. The PASS non-blocking items wait for follow-ups after merge |
 | #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews | Grok 4.7 | #115 | latest Opus FAIL `d2891d9`; head `d21fdb2` (fix round 15: code and tests pushed; docs, the full backend suite and the PR-body section outstanding; `ci` is red on that SHA) has no verdict. The next security review is Grok 4.7 high |
-| #122 | Static egress guard: refuse `sys.modules` lookups and `ctypes` in `src` | Grok 4.7 | #123 | latest Opus FAIL `ea76498`; head `5787e19` (fix round 10: the docstring-and-comment word rule pushed; `ci` and `pr-title` green on that SHA; docs, mutation runs and the PR-body section outstanding) has no verdict. The next security review is Grok 4.7 high |
+| #122 | Static egress guard: refuse `sys.modules` lookups and `ctypes` in `src` | Grok 4.7 | #123 | latest Opus FAIL `ea76498`; head `bab31a2` (the word rule plus the egress.md round) is in security review. `ci` was not green yet when that review started |
+| #140 | Step-up window gaps from the #129 review | Grok 4.7 | — | ready. A future `stepup_at` is still accepted, and dropping `min` with the shorter configured window survived the suite. The eight earlier non-blocking notes stay non-blocking |
 
-Merged since the last reconcile: #138 is on `main` at `f7f7c99`, after #131, #137 and #136.
+Merged since the last reconcile: #12 (#129) is on `main` at `b7a04c4` → IMPLEMENTED, after #139 at `4c75430`.
 On GitHub #77 and the open issues #13–#16, #18 and #21–#30 still carry `blocked-deps`
-(#17, #19 and #20 do not). The dependency re-check waits until #129, #115 and #123 are through. At most five Developers work on issues at
+(#17, #19 and #20 do not). The dependency re-check waits until #115 and #123 are through. At most five Developers work on issues at
 once; a fix round on an open PR may run while five are busy, and no new issue starts until fewer
 than five are.
 
@@ -54,9 +54,10 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `.github/workflows/ci.yml`, `compose.yaml`, `Dockerfile`, `AGENTS.md`, `deploy/`, `scripts/ci-changes.sh`, `scripts/test-ci-gate.sh`, `scripts/test-release.sh`, `backend/pyproject.toml`, `backend/uv.lock` | — (#118, #55 and #134 released them) |
 | `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py`, `backend/src/ownvitals/mail.py`, `backend/src/ownvitals/egress/**` except `egress/hook.py`, `docs/dev/stack.md`, `docs/dev/deploy.md`, `docs/dev/jobs.md`, `docs/dev/release.md` | — (#55 and #118 released them) |
 | `backend/src/ownvitals/db/engine.py`, `db/role_check.py`, `egress/hook.py`, `backend/tests/user_context_*.py`, `backend/tests/conftest.py`, `docs/dev/backend.md`, `docs/dev/isolation.md`, `docs/dev/isolation-guard5.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | #89 (#115), with `test_role_check*.py`, `test_user_context_*.py`, `test_egress_hook.py` |
-| `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md` | #122 (#123); `backend/tests/egress_classified.py` is also in #12 (#129), additive hunks in each, and the second to merge updates from `main` |
-| `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `backend/src/ownvitals/web.py`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | #12 (#129) |
-| `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md`, `docs/adr/README.md`, `docs/status.md`, `docs/status/decisions-log.md` | #139 |
+| `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md` | #122 (#123). `egress_classified.py` merged with #129; #123 updates it from `main` if that file still differs |
+| `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `backend/src/ownvitals/web.py`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | — (#129 released them). #140 may take `admin/routes.py` and the step-up test it adds |
+| `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md`, `docs/adr/README.md` | — (#139 released them) |
+| `docs/status.md`, `docs/status/completed.md` | #141 |
 | `.codex/**` | — (#131 released it) |
 | `backend/src/ownvitals/db/queue_check.py` | — (#77 next) |
 | `backend/src/ownvitals/config.py`, `backend/tests/dbtools.py`, `test_web.py`, `rls_guard.py`, `test_config_milestone.py` | — (#8, #82 and #11 released them) |
