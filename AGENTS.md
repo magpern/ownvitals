@@ -273,8 +273,8 @@ Reviewer of a UI PR compares the result with the screenshots.
 
 | Workflow / job | Runs | What it does |
 |---|---|---|
-| `ci` / `changes` | always | `scripts/ci-changes.sh`: which areas the PR changed (`backend`, `frontend`, `stack`, `all`); a change to `.github/`, `.gitattributes` or the CI scripts, the weekly run and a manual run set `all`; a diff that can't be computed runs everything |
-| `ci` / `checks` | always | Frozen-spec guard (the three spec files equal `635901d`); gitleaks over the PR's own commits (weekly: whole history); `bash -n` and shellcheck on `scripts/*.sh`; the CI gate and change-filter tests (`scripts/test-ci-gate.sh`); the release workflow tests (`scripts/test-release.sh`) and the download checksum tests (`scripts/test-ci-downloads.sh`); actionlint; the uv version check (`scripts/ci-uv-version.sh`); pip-audit; npm audit; Trivy repository scan |
+| `ci` / `changes` | always | `scripts/ci-changes.sh`: which areas the PR changed (`backend`, `frontend`, `stack`, `all`); `Dockerfile`, `.dockerignore`, `compose*.yaml`, `docker-compose*.yml`, `.env.example`, `deploy/` and `docker/` set `backend` too (its tests guard them); a change to `.github/`, `.gitattributes` or the CI scripts, the weekly run and a manual run set `all`; a diff that can't be computed runs everything |
+| `ci` / `checks` | always | Frozen-spec guard (the three spec files equal `635901d`); gitleaks over the PR's own commits (weekly: whole history); `bash -n` and shellcheck on `scripts/*.sh`, `deploy/ownvitals-deploy` and `docker/postgres/**/*.sh` (`sh -n` for those); the CI gate and change-filter tests (`scripts/test-ci-gate.sh`); the release workflow tests (`scripts/test-release.sh`) and the download checksum tests (`scripts/test-ci-downloads.sh`); actionlint; the uv version check (`scripts/ci-uv-version.sh`); pip-audit; npm audit; Trivy repository scan |
 | `ci` / `backend` | `backend` | From `backend/`: `uv sync --locked`, ruff, format check, pyright, pytest against a Postgres 17 service. No step skips: a missing `backend/`, `pyproject.toml` or `uv.lock` fails the job |
 | `ci` / `frontend` | `frontend` | From `frontend/`: `npm ci`, lint, typecheck, Vitest, build. No step skips: a missing `frontend/` or `package-lock.json` fails the job |
 | `ci` / `ci` | always | The required check (`scripts/ci-gate.sh`): `changes` and `checks` succeeded, and every other job succeeded or was skipped while its filter is false. Fails closed |
@@ -286,7 +286,8 @@ this table in the same PR.
 Every GitHub Action is pinned by full commit SHA with the version in a comment. Release
 binaries downloaded in CI (gitleaks, Trivy) are checksum-verified (`scripts/test-ci-downloads.sh`
 tests it), and the shellcheck and actionlint images are pinned by digest. commitlint runs through
-`npx` at exact versions (no lockfile), and the Postgres service image is pinned by exact tag.
+`npx` at exact versions (no lockfile), and the Postgres service image is pinned by tag and index
+digest, the same reference as `compose.yaml`'s `db` (a test checks they agree).
 Dependabot keeps Actions, uv, npm and the Docker images current; what it can't see is bumped by
 hand ([docs/dev/release.md](docs/dev/release.md)).
 
