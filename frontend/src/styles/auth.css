@@ -1,0 +1,287 @@
+/*
+ * The second-factor pages, the shared "Confirm it's you" dialog and the "Where you're signed in"
+ * table (#11), after docs/design/mockups/src/Auth.dc.html and Security.dc.html (`.otp`,
+ * `.dialog`, `.scrim`, `.notice.info`, `.tbl`). Colour, spacing and type come from tokens.css.
+ */
+
+/* A second-factor page: the card of the Auth mock-up */
+
+.ov-auth {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-4);
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: var(--ov-space-6);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+  background: var(--ov-surface);
+}
+
+.ov-auth__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-4);
+}
+
+.ov-auth__title {
+  margin: 0;
+  font-size: var(--ov-text-xl);
+  font-weight: var(--ov-weight-semibold);
+  line-height: var(--ov-leading-tight);
+}
+
+.ov-auth p,
+.ov-auth .notice {
+  margin: 0;
+}
+
+.ov-auth .field {
+  margin-bottom: 0;
+}
+
+.ov-auth__foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ov-space-1);
+  margin-top: var(--ov-space-6);
+}
+
+.ov-auth__qr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--ov-space-4);
+}
+
+.ov-auth__qr .qr {
+  flex: none;
+  width: 9.375rem;
+  height: 9.375rem;
+  margin: 0;
+  padding: var(--ov-space-2);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-sm);
+}
+
+.ov-auth__qr .ov-stack {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+/* The six boxes of a code */
+
+.ov-otp {
+  display: flex;
+  gap: var(--ov-space-2);
+}
+
+.ov-otp input {
+  /* Shrink to fit a phone-width card; never wider than the mock-up's box. */
+  /* A zero base width, so the column's min-content does not hold the row at full size. */
+  width: 0;
+  flex: 1 1 0;
+  max-width: 2.875rem;
+  min-width: 0;
+  height: 3.5rem;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-ctl);
+  background: var(--ov-surface);
+  color: var(--ov-text);
+  font: inherit;
+  font-size: 1.375rem;
+  font-weight: var(--ov-weight-semibold);
+  text-align: center;
+}
+
+.ov-input {
+  min-height: var(--ov-target);
+  padding: 0 var(--ov-space-3);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-ctl);
+  background: var(--ov-surface);
+  color: var(--ov-text);
+  font: inherit;
+}
+
+/* A link that does something on the page ("Use a recovery code instead") */
+
+.ov-linkbutton {
+  align-self: flex-start;
+  min-height: var(--ov-target);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ov-brand);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ov-linkbutton:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Recovery codes */
+
+.ov-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem var(--ov-space-4);
+  margin: 0;
+  padding: var(--ov-space-4);
+  border-radius: var(--ov-radius-ctl);
+  background: var(--ov-bg);
+  font-size: 0.9375rem;
+  list-style: none;
+}
+
+.ov-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ov-space-2);
+}
+
+.ov-between {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ov-space-3);
+}
+
+.ov-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  min-height: var(--ov-target);
+}
+
+.ov-check input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 2px 0 0;
+  accent-color: var(--ov-brand);
+}
+
+/* The lock band at the top of the Security tab (`.notice.info`) */
+
+.ov-band {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ov-space-3);
+  margin: 0;
+  padding: 0.875rem var(--ov-space-4);
+  border-radius: var(--ov-radius-ctl);
+  background: var(--ov-device-soft);
+  font-size: var(--ov-text-sm);
+}
+
+.ov-band svg {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--ov-device);
+}
+
+/* "Confirm it's you" */
+
+.ov-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ov-space-4);
+  background: var(--ov-scrim);
+}
+
+.ov-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-4);
+  width: 100%;
+  max-width: 27.5rem;
+  max-height: 100%;
+  overflow: auto;
+  padding: var(--ov-space-6);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-lg);
+  background: var(--ov-surface);
+  box-shadow: var(--ov-shadow);
+}
+
+.ov-dialog p,
+.ov-dialog .notice,
+.ov-dialog .field {
+  margin: 0;
+}
+
+.ov-dialog__icon {
+  color: var(--ov-brand);
+}
+
+.ov-dialog__title {
+  margin: 0;
+  font-size: var(--ov-text-lg);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ov-space-2);
+}
+
+/* "Where you're signed in" */
+
+.ov-tbl-wrap {
+  /* Positioned, so a visually hidden header (.ov-sr, absolute) scrolls with the table instead of
+     widening the page at phone width. */
+  position: relative;
+  overflow-x: auto;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+  background: var(--ov-surface);
+}
+
+.ov-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.ov-tbl th {
+  padding: var(--ov-space-3) var(--ov-space-4);
+  border-bottom: 1px solid var(--ov-line);
+  color: var(--ov-muted);
+  font-size: var(--ov-text-xs);
+  font-weight: var(--ov-weight-semibold);
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.ov-tbl td {
+  padding: var(--ov-space-3) var(--ov-space-4);
+  border-bottom: 1px solid var(--ov-line-soft);
+  vertical-align: middle;
+}
+
+.ov-tbl tr:last-child td {
+  border-bottom: 0;
+}
+
+.ov-tbl__sel td {
+  background: var(--ov-brand-soft);
+}
+
+.ov-tbl td .ov-state {
+  margin-left: var(--ov-space-2);
+}

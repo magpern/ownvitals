@@ -167,7 +167,9 @@ class Settings(BaseSettings):
     # configuration). The header counts only on a request whose peer is in both lists. Default:
     # none, so the header is never believed.
     cf_connecting_ip_proxies: str = ""
-    session_idle_days: int = 7
+    # A session ends after this long without a request, and after ``session_absolute_days`` at
+    # most (ADR 0003 section 3: 72 hours idle, 30 days absolute).
+    session_idle_hours: int = 72
     session_absolute_days: int = 30
     password_hash_workers: int = 4
     # Who may create an account: ``invite`` (default) or ``closed``. ``open`` is refused until
@@ -378,7 +380,7 @@ class Settings(BaseSettings):
             raise ValueError("smtp_total_seconds must be positive and finite")
         return value
 
-    @field_validator("session_idle_days", "session_absolute_days", "password_hash_workers")
+    @field_validator("session_idle_hours", "session_absolute_days", "password_hash_workers")
     @classmethod
     def _check_positive(cls, value: int, info: ValidationInfo) -> int:
         if value < 1:

@@ -153,10 +153,19 @@ async def caller(
     mfa: bool = True,
     stepup: bool = True,
 ) -> Caller:
-    """A signed-in user: ``mfa`` passed TOTP now (the 12-hour admin window), ``stepup`` a fresh
-    step-up (the 5-minute admin-write window)."""
+    """A signed-in full session (a confirmed TOTP, so #132's second-factor gate lets it through).
+
+    ``mfa`` keeps the 12-hour admin window; without it that check is older than 12 hours and
+    ``admin_gate`` answers ``mfa_required``. ``stepup`` is a fresh step-up (the 5-minute
+    admin-write window).
+    """
     user_id = await aenv.env.user(email, role=role)
-    issued = await aenv.env.login(user_id, mfa=mfa)
+    issued = await aenv.env.full_login(user_id)
+    if not mfa:
+        await aenv.env.run(
+            "UPDATE sessions SET mfa_at = now() - interval '12 hours 1 minute' WHERE id = :i",
+            i=issued.id,
+        )
     if stepup:
         await aenv.env.run("UPDATE sessions SET stepup_at = now() WHERE id = :i", i=issued.id)
     return Caller(aenv, user_id, issued.token)

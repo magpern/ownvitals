@@ -81,8 +81,8 @@ depends on `admin_gate`, in this order:
 1. 401 `not_authenticated`; 403 `forbidden` for a non-admin (no audit row, no maint connection);
    403 `mfa_required` for an admin without TOTP within 12 hours;
 2. for every method but `GET` and `HEAD`: 403 `step_up_required` without a step-up within **5
-   minutes** (`stepped_up`, the one place that decides it; switching to #11's
-   `require_admin_stepup` is a one-line change there);
+   minutes** (`stepped_up` calls `stepup_within` with that window, the same rule as
+   `require_admin_stepup`; the dependency stays off the route so the refusal still writes its row);
 3. 503 `admin_unavailable` without maint;
 4. 429 `rate_limited` over 60 requests per admin and minute. The window is **per process and
    resets on restart**; web runs as a single process (#77's rule).

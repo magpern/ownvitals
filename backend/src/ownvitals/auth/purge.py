@@ -23,6 +23,9 @@ RETENTION_DAYS = 30
 DEVICE_RETENTION_DAYS = 90
 # The longest rate-limit window is an hour; older windows can never be hit again.
 RATE_LIMIT_KEEP = timedelta(hours=2)
+# ``sessions.PENDING_WINDOW``, repeated so the worker does not load the session module (a test
+# holds them equal).
+PENDING_WINDOW = timedelta(minutes=10)
 
 
 def _ago(days: int) -> Any:
@@ -34,19 +37,31 @@ async def purge_expired(
 ) -> dict[str, int]:
     """Delete what is expired or used; returns the number of rows removed per table.
 
-    - ``sessions``: past their absolute expiry, or idle longer than the idle limit; their ``ip``
-      is cleared after 30 days;
+    - ``sessions``: past their absolute expiry, idle longer than the idle limit, or without a
+      second factor ten minutes after their latest proof; their ``ip`` is cleared after 30 days;
     - ``pending_signups``, ``auth_tokens`` (also used ones), ``oauth_flows``: expired;
     - ``rate_limits``: windows over two hours old;
     - ``invites``: used or expired more than 30 days ago;
     - ``known_devices``: unused for 90 days;
     - ``auth_events``: older than 30 days.
     """
-    idle = timedelta(days=settings.session_idle_days)
+    idle = timedelta(hours=settings.session_idle_hours)
     now = func.now()
     statements = {
         "sessions": delete(sessions).where(
-            or_(sessions.c.expires_at <= now, sessions.c.last_seen_at <= now - idle)
+            or_(
+                sessions.c.expires_at <= now,
+                sessions.c.last_seen_at <= now - idle,
+                # never passed its second factor, ten minutes after its latest proof
+                and_(
+                    sessions.c.mfa_at.is_(None),
+                    func.coalesce(
+                        func.greatest(sessions.c.reauth_at, sessions.c.stepup_at),
+                        sessions.c.created_at,
+                    )
+                    <= now - PENDING_WINDOW,
+                ),
+            )
         ),
         "pending_signups": delete(pending_signups).where(pending_signups.c.expires_at <= now),
         "auth_tokens": delete(auth_tokens).where(

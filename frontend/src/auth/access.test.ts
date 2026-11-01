@@ -6,7 +6,7 @@ function state(overrides: Partial<SessionState> = {}, mfa = true): SessionState 
   return {
     authenticated: true,
     user: { id: 'u1', email: 'ann@example.test', role: 'user' },
-    session: { expiresAt: '2030-01-01T00:00:00Z', recentAuth: true, mfa, stepup: mfa },
+    session: { id: 's1', expiresAt: '2030-01-01T00:00:00Z', recentAuth: true, mfa, stepup: mfa },
     totpEnabled: true,
     ...overrides,
   }

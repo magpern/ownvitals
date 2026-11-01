@@ -72,10 +72,22 @@ AUTH_PACKAGE = "ownvitals.auth"
 PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     # the app: middleware, routers and state (ownvitals.web)
     "ownvitals.auth.setup": frozenset({"attach_state", "detach_state", "install"}),
-    # the jobs API: the signed-in user and the event stream's session check
-    "ownvitals.auth.deps": frozenset({"Probe", "require_user", "session_probe"})
-    # the admin gate (#12): the session, the context and the client address of the request
-    | frozenset({"current_context", "current_session", "request_ip"}),
+    # the jobs API: the signed-in user and the event stream's session check; the step-up
+    # dependencies (#11) for the connections layer (#13) and the admin writes; the admin
+    # gate (#12): current_context, current_session and request_ip
+    "ownvitals.auth.deps": frozenset(
+        {
+            "Probe",
+            "current_context",
+            "current_session",
+            "request_ip",
+            "require_admin_stepup",
+            "require_sensitive",
+            "require_stepup",
+            "require_user",
+            "session_probe",
+        }
+    ),
     # the worker: the issuer's account check and the purge
     "ownvitals.auth.owners": frozenset({"ACCOUNTS"}),
     "ownvitals.auth.purge": frozenset({"purge_expired"}),

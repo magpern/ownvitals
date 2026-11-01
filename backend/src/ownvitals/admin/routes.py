@@ -10,10 +10,11 @@ The gate, in this order:
    audit row, no maint connection); 403 ``mfa_required`` for an admin without TOTP in the last
    12 hours (the admin window, ADR 0003 section 7).
 2. For every method but GET and HEAD: 403 ``step_up_required`` without a TOTP or recovery code
-   in the last 5 minutes (ADR 0003 section 4, admin writes). ``stepped_up`` is the one place
-   that decides it: once #11's ``require_admin_stepup`` is on ``main``, switching to it is a
-   one-line change there. CSRF and Origin are checked for those methods by the auth middleware
-   before any route runs.
+   within 5 minutes (ADR 0003 section 4, admin writes). ``stepped_up`` calls
+   ``info.stepup_within(ADMIN_STEPUP_WINDOW)``, the same rule as ``require_admin_stepup``: five
+   minutes, and never wider than the configured step-up window. That dependency is not mounted
+   on the route; it would answer 403 before ``refused`` writes the audit row. CSRF and Origin
+   are checked for those methods by the auth middleware before any route runs.
 3. 503 ``admin_unavailable`` when web has no maint credentials (``AdminDb`` is ``None``).
 4. 60 requests per admin and minute (``RequestLimiter``, per process): 429 ``rate_limited``.
 
@@ -56,10 +57,13 @@ STEPUP_REASON: Final = "step_up_required"
 
 
 def stepped_up(info: Any) -> bool:
-    """Whether the session's last step-up is within ``ADMIN_STEPUP_WINDOW`` (the one place that
-    decides it; see the module docstring). ``info`` is the auth package's ``SessionInfo``; it is
-    typed ``Any`` because guard 8 keeps that class inside ``ownvitals.auth``."""
-    return info.stepup_at is not None and info.now - info.stepup_at <= ADMIN_STEPUP_WINDOW
+    """Whether the session's last step-up is inside the admin write window.
+
+    ``info.stepup_within(ADMIN_STEPUP_WINDOW)`` is the same rule as ``require_admin_stepup``
+    (see the module docstring). ``info`` is the auth package's ``SessionInfo``; it is typed
+    ``Any`` because guard 8 keeps that class inside ``ownvitals.auth``.
+    """
+    return bool(info.stepup_within(ADMIN_STEPUP_WINDOW))
 
 
 def _refuse(status: int, reason: str) -> NoReturn:

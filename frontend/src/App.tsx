@@ -2,6 +2,7 @@ import { RequireReady, RequireSignedOut } from './auth/guards'
 import { accessOf, isAdmin } from './auth/access'
 import { SessionProvider, useSession } from './auth/SessionContext'
 import { PlainFrame } from './components/PlainFrame'
+import { StepUpProvider } from './components/StepUp'
 import { AppFrame } from './components/shell/AppFrame'
 import { AppPage } from './pages/appPages'
 import { ProviderEmailPage } from './pages/ProviderEmailPage'
@@ -103,7 +104,9 @@ export function App() {
   return (
     <RouterProvider>
       <SessionProvider>
-        <Routes />
+        <StepUpProvider>
+          <Routes />
+        </StepUpProvider>
       </SessionProvider>
     </RouterProvider>
   )

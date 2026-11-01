@@ -209,7 +209,7 @@ async def test_the_rate_limit_answers_429_and_is_audited(aenv: AdminEnv) -> None
 
 async def test_without_maint_credentials_the_admin_area_answers_503(plain_env: Env) -> None:
     user_id = await plain_env.user("admin@example.com", role="admin")
-    issued = await plain_env.login(user_id, mfa=True)
+    issued = await plain_env.full_login(user_id)
     response = await plain_env.client.get("/api/admin/jobs", headers=session_cookie(issued.token))
     assert (response.status_code, reason(response)) == (503, "admin_unavailable")
 

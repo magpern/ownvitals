@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { post } from '../api/client'
 import { RouterProvider, useRouter } from '../router/Router'
-import { MFA_OFF, MFA_ON, SIGNED_IN, SIGNED_IN_NO_CODE, fakeApi, reason } from '../test/fakeApi'
+import { SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, fakeApi, reason } from '../test/fakeApi'
 import { renderAt } from '../test/render'
 import { RequireReady, RequireSignedOut } from './guards'
 import { SessionProvider } from './SessionContext'
@@ -68,30 +68,23 @@ describe('signed-out visitors', () => {
 })
 
 describe('a session without TOTP', () => {
-  const routes = { 'GET /api/auth/session': SIGNED_IN_NO_CODE, 'GET /api/auth/mfa': MFA_OFF }
+  const routes = { 'GET /api/auth/session': SIGNED_IN_NO_TOTP }
 
   it('goes to enrolment from the home page', async () => {
     fakeApi(routes)
     renderAt('/')
-    expect(await screen.findByRole('heading', { name: 'Set up two-factor' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Set up your authenticator app' })).toBeInTheDocument()
     expect(here()).toBe('/two-factor/setup')
     expect(screen.queryByText('The dashboard comes in M6.')).toBeNull()
   })
 
   it('goes to enrolment from a guarded page, even when the session says it passed the code', async () => {
-    fakeApi({ ...routes, 'GET /api/auth/session': SIGNED_IN })
+    fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, session: { ...SIGNED_IN.session, totp_enabled: false } } })
     guarded('/metrics', 'ready')
     await waitFor(() => {
       expect(here()).toBe('/two-factor/setup?return_to=%2Fmetrics')
     })
     expect(screen.queryByText('inside the guard')).toBeNull()
-  })
-
-  it('goes to enrolment when the server refuses the status call with two_factor_required', async () => {
-    fakeApi({ ...routes, 'GET /api/auth/mfa': reason(403, 'two_factor_required') })
-    renderAt('/')
-    expect(await screen.findByRole('heading', { name: 'Set up two-factor' })).toBeInTheDocument()
-    expect(here()).toBe('/two-factor/setup')
   })
 
   it('is kept off sign-in and sent to enrolment, with the return_to kept', async () => {
@@ -112,7 +105,7 @@ describe('a session without TOTP', () => {
 })
 
 describe('a session that has not passed its code', () => {
-  const routes = { 'GET /api/auth/session': SIGNED_IN_NO_CODE, 'GET /api/auth/mfa': MFA_ON }
+  const routes = { 'GET /api/auth/session': SIGNED_IN_NO_CODE }
 
   it('goes to the code prompt from the home page', async () => {
     fakeApi(routes)
@@ -213,15 +206,5 @@ describe('an API refusal with two_factor_required', () => {
     expect(await screen.findByRole('heading', { name: 'Enter your code' })).toBeInTheDocument()
     expect(here()).toBe('/two-factor')
     expect(api.to('GET', '/api/auth/session').length).toBeGreaterThan(reads)
-  })
-
-  it('does not loop when the refusal comes to the session read itself', async () => {
-    const api = fakeApi({
-      'GET /api/auth/session': SIGNED_IN_NO_CODE,
-      'GET /api/auth/mfa': reason(403, 'two_factor_required'),
-    })
-    renderAt('/two-factor/setup')
-    expect(await screen.findByRole('heading', { name: 'Set up two-factor' })).toBeInTheDocument()
-    expect(api.to('GET', '/api/auth/mfa')).toHaveLength(1)
   })
 })

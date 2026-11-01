@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.keys import new_token, token_hash
@@ -22,7 +22,13 @@ USER_AGENT_LIMIT = 200
 TOUCH_INTERVAL = timedelta(minutes=1)
 ADMIN_MFA_WINDOW = timedelta(hours=12)
 RECENT_AUTH_WINDOW = timedelta(minutes=10)
-STEPUP_WINDOW = timedelta(minutes=5)
+# The step-up window is the setting ``stepup_window_minutes`` (PLAN section 6: 10 minutes at
+# most); admin writes use their own 5 minutes (ADR 0003 section 4).
+STEPUP_WINDOW = timedelta(minutes=10)
+ADMIN_STEPUP_WINDOW = timedelta(minutes=5)
+# A session that has not passed its second factor lives this long after its latest proof (the
+# sign-in, or the step-up that removed the factor), then it is deleted (ADR 0003 section 2).
+PENDING_WINDOW = RECENT_AUTH_WINDOW
 
 
 class SessionGone(Exception):
@@ -44,7 +50,30 @@ class SessionInfo:
     mfa_at: datetime | None
     stepup_at: datetime | None
     now: datetime
-    totp_enabled: bool = False  # a confirmed TOTP exists: step-up applies (section 6)
+    totp_enabled: bool = False  # the account has a confirmed TOTP
+    stepup_window: timedelta = STEPUP_WINDOW
+
+    @property
+    def full(self) -> bool:
+        """The session passed its second factor (ownvitals ADR 0003 section 2): the account has
+        a confirmed TOTP and a TOTP or recovery code was verified in this session (or its first
+        enrolment was confirmed in it). Only a full session yields a ``UserContext``."""
+        return self.totp_enabled and self.mfa_at is not None
+
+    @property
+    def second_factor(self) -> Literal["enrol", "verify"] | None:
+        """What a session that is not full still owes: ``enrol`` (no TOTP yet) or ``verify``."""
+        if self.full:
+            return None
+        return "verify" if self.totp_enabled else "enrol"
+
+    @property
+    def pending_expired(self) -> bool:
+        """A session that is not full and whose latest proof is older than ten minutes."""
+        if self.full:
+            return False
+        proofs = [moment for moment in (self.reauth_at, self.stepup_at) if moment is not None]
+        return not proofs or self.now - max(proofs) > PENDING_WINDOW
 
     @property
     def role(self) -> Literal["user", "admin"]:
@@ -70,7 +99,12 @@ class SessionInfo:
 
     @property
     def recent_stepup(self) -> bool:
-        return _within(self.stepup_at, self.now, STEPUP_WINDOW)
+        """A TOTP or recovery code within the step-up window (``stepup_window_minutes``)."""
+        return _within(self.stepup_at, self.now, self.stepup_window)
+
+    def stepup_within(self, window: timedelta) -> bool:
+        """A TOTP or recovery code within ``window`` and within the step-up window."""
+        return _within(self.stepup_at, self.now, min(window, self.stepup_window))
 
 
 def _within(moment: datetime | None, now: datetime, window: timedelta) -> bool:
@@ -137,18 +171,7 @@ async def resolve_session(
         ).first()
         if row is None:
             return Resolution("anonymous")  # maybe a token that was just rotated
-        idle = timedelta(days=settings.session_idle_days)
-        if row.expires_at <= row.now or row.now - row.last_seen_at >= idle or row.disabled_at:
-            await db.execute(delete(sessions).where(sessions.c.id == row.id))
-            return Resolution("refused")
-        await db.execute(
-            update(sessions)
-            .where(sessions.c.id == row.id, sessions.c.last_seen_at < func.now() - TOUCH_INTERVAL)
-            .values(last_seen_at=func.now())
-        )
-    return Resolution(
-        "ok",
-        SessionInfo(
+        info = SessionInfo(
             id=row.id,
             user_id=row.user_id,
             email=row.email,
@@ -161,8 +184,23 @@ async def resolve_session(
             stepup_at=row.stepup_at,
             now=row.now,
             totp_enabled=row.totp_enabled,
-        ),
-    )
+            stepup_window=timedelta(minutes=settings.stepup_window_minutes),
+        )
+        idle = timedelta(hours=settings.session_idle_hours)
+        if (
+            row.expires_at <= row.now
+            or row.now - row.last_seen_at >= idle
+            or row.disabled_at
+            or info.pending_expired
+        ):
+            await db.execute(delete(sessions).where(sessions.c.id == row.id))
+            return Resolution("refused")
+        await db.execute(
+            update(sessions)
+            .where(sessions.c.id == row.id, sessions.c.last_seen_at < func.now() - TOUCH_INTERVAL)
+            .values(last_seen_at=func.now())
+        )
+    return Resolution("ok", info)
 
 
 async def start_session(
@@ -179,13 +217,15 @@ async def start_session(
 
     The sign-in itself is a fresh authentication, so ``reauth_at`` is now. When the old session
     was this user's, the new row keeps its ``expires_at`` (rotation never extends a session past
-    its absolute limit) and its ``mfa_at`` and ``stepup_at``; otherwise it starts clean.
+    its absolute limit). A sign-in never carries a second factor over: ``mfa_at`` and
+    ``stepup_at`` start empty, so every sign-in passes TOTP again (ownvitals ADR 0003 section 2).
+    ``mfa`` is for tests and the operator tooling only; no route passes it.
     """
     inherited = None
     if replacing_token:
         # Only a session that is still valid passes anything on: not absolute-expired, not
         # idle-expired, and its user not disabled. The old row is deleted either way.
-        idle = timedelta(days=settings.session_idle_days)
+        idle = timedelta(hours=settings.session_idle_hours)
         old = (
             await db.execute(
                 delete(sessions)
@@ -193,8 +233,6 @@ async def start_session(
                 .returning(
                     sessions.c.user_id,
                     sessions.c.expires_at,
-                    sessions.c.mfa_at,
-                    sessions.c.stepup_at,
                     (sessions.c.expires_at > func.now()).label("absolute_ok"),
                     (sessions.c.last_seen_at > func.now() - idle).label("idle_ok"),
                     select(users.c.disabled_at.is_(None))
@@ -225,10 +263,8 @@ async def start_session(
                 if same_user and inherited
                 else now + timedelta(days=settings.session_absolute_days),
                 reauth_at=now,
-                mfa_at=func.now()
-                if mfa
-                else (inherited.mfa_at if same_user and inherited else None),
-                stepup_at=inherited.stepup_at if same_user and inherited else None,
+                mfa_at=func.now() if mfa else None,
+                stepup_at=None,
                 user_agent=_truncate(user_agent),
                 ip=ip,
             )
@@ -249,12 +285,15 @@ async def rotate_session(
     reauth: bool = False,
     mfa: bool = False,
     stepup: bool = False,
+    drop_mfa: bool = False,
     user_agent: str | None = None,
     ip: str | None = None,
 ) -> IssuedSession:
-    """After MFA verification or re-authentication: a new token in a new row, the old row
-    deleted, ``expires_at`` unchanged, ``mfa_at``, ``reauth_at`` and ``stepup_at`` carried over
-    unless this rotation sets them. No grace period: the old token is dead at once."""
+    """After MFA verification, re-authentication, a step-up or a privilege change: a new token
+    in a new row, the old row deleted, ``expires_at`` unchanged, ``mfa_at``, ``reauth_at`` and
+    ``stepup_at`` carried over unless this rotation sets them. ``drop_mfa`` (the TOTP was
+    removed) clears ``mfa_at``, so the session goes back to enrolment. No grace period: the old
+    token is dead at once."""
     old = (
         await db.execute(
             delete(sessions)
@@ -282,7 +321,7 @@ async def rotate_session(
                 created_at=old.created_at,
                 expires_at=old.expires_at,
                 reauth_at=func.now() if reauth else old.reauth_at,
-                mfa_at=func.now() if mfa else old.mfa_at,
+                mfa_at=None if drop_mfa else (func.now() if mfa else old.mfa_at),
                 stepup_at=func.now() if stepup else old.stepup_at,
                 user_agent=_truncate(user_agent) or old.user_agent,
                 ip=ip or old.ip,
@@ -291,13 +330,6 @@ async def rotate_session(
         )
     ).one()
     return IssuedSession(row.id, token, row.expires_at, max(int(row.remaining), 0))
-
-
-async def clear_mfa(db: AsyncSession, session_id: UUID) -> None:
-    """The session no longer counts as having passed TOTP or a step-up (after TOTP was removed)."""
-    await db.execute(
-        update(sessions).where(sessions.c.id == session_id).values(mfa_at=None, stepup_at=None)
-    )
 
 
 async def revoke_session(db: AsyncSession, user_id: UUID, session_id: UUID) -> bool:
@@ -337,11 +369,12 @@ async def list_sessions(
 ) -> list[SessionSummary]:
     """The user's own live sessions, newest first. Never the token or its hash.
 
-    Absolute- and idle-expired rows that the purge has not removed yet are left out, the same
-    rule as ``resolve_session`` (a row whose ``expires_at`` has passed, or whose ``last_seen_at``
-    is ``session_idle_days`` or more ago, is not a session).
+    Absolute- and idle-expired rows, and rows that never passed their second factor and are past
+    their ten minutes, that the purge has not removed yet are left out, the same rule as
+    ``resolve_session`` (a row whose ``expires_at`` has passed, or whose ``last_seen_at``
+    is ``session_idle_hours`` or more ago, is not a session).
     """
-    idle = timedelta(days=settings.session_idle_days)
+    idle = timedelta(hours=settings.session_idle_hours)
     rows = await db.execute(
         select(
             sessions.c.id,
@@ -355,6 +388,16 @@ async def list_sessions(
             sessions.c.user_id == user_id,
             sessions.c.expires_at > func.now(),
             sessions.c.last_seen_at > func.now() - idle,
+            # a session that never passed its second factor ends ten minutes after its proof
+            or_(
+                sessions.c.mfa_at.is_not(None),
+                # PostgreSQL's GREATEST ignores NULLs; both NULL counts from the creation
+                func.coalesce(
+                    func.greatest(sessions.c.reauth_at, sessions.c.stepup_at),
+                    sessions.c.created_at,
+                )
+                > func.now() - PENDING_WINDOW,
+            ),
         )
         .order_by(sessions.c.created_at.desc())
     )

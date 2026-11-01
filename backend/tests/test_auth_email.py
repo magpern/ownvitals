@@ -166,14 +166,10 @@ async def test_deleting_the_account_needs_recent_auth_and_removes_everything(men
 
 
 async def test_deleting_the_account_needs_step_up_when_totp_is_confirmed(menv: Env) -> None:
-    browser = await signed_in(menv)
-    await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
-        "dek_nonce, confirmed_at) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
-        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'), now() FROM users"
-    )
+    browser = await signed_in(menv)  # every account has a confirmed TOTP (#11)
+    await menv.run("UPDATE sessions SET stepup_at = NULL")
     refused = await browser.request("DELETE", "/api/auth/account")
-    assert (refused.status_code, reason(refused)) == (403, "stepup_required")
+    assert (refused.status_code, reason(refused)) == (403, "step_up_required")
     await menv.run("UPDATE sessions SET stepup_at = now()")
     assert (await browser.request("DELETE", "/api/auth/account")).status_code == 204
 
