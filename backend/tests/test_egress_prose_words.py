@@ -33,7 +33,7 @@ B1_ROUTES = [
     # A multi-line docstring read through ``co_consts`` (non-blocking item 2).
     "def _d():\n    '''exec('import cty'\n    +'pes', {}) or int'''\nT = _d.__code__.co_consts[0]"
     + MODEL,
-    "x = 1  # ｅｘｅｃ('x')",  # fullwidth exec: NFKC, as Python reads names
+    "x = 1  # \uff45\uff58\uff45\uff43('x')",  # fullwidth exec: NFKC, as Python reads names
     "x = 1  # TODO: eval(s)",
     "x = 1  #! compile(s, 'f', 'exec')",
     'def f():\n    """Uses help, breakpoint and sys.__breakpointhook__."""',
