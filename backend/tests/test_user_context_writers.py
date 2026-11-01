@@ -307,7 +307,7 @@ RULES: dict[str, tuple[dict[str, str], dict[str, str]]] = {
             "def f(ctx: ownvitals.context.UserContext): ...\n",
             "another module of the package": "from ownvitals import db\nimport ownvitals.db\n"
             "x = ownvitals.db\n",
-            "another object's context": body("return request.context"),
+            "self's context": body("return self.context"),
             "a similar string": body("return 'ownvitals.contexts'"),
         },
     ),

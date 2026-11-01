@@ -21,8 +21,10 @@ from ownvitals.context import require_context
 from test_user_context_writers import body
 from user_context_dunders import (
     ALLOWED,
+    COMMENT,
     WRITE,
     beyond_the_allow_list,
+    comment_dunders,
     is_dunder,
     named_dunders,
 )
@@ -210,10 +212,14 @@ def _src_dunders() -> dict[str, tuple[set[str], set[str]]]:
         module = path.relative_to(SRC).as_posix()
         if module in ISSUER_MODULES:
             continue
-        for _, name, form in named_dunders(ast.parse(path.read_text("utf-8"))):
+        source = path.read_text("utf-8")
+        for _, name, form in named_dunders(ast.parse(source)):
             forms, modules = used.setdefault(name, (set(), set()))
             forms.add(form)
             modules.add(module)
+        for _, name, form in comment_dunders(source, module):
+            # A comment's form pins its own module, so it adds none to ``only_in``.
+            used.setdefault(name, (set(), set()))[0].add(form)
     return used
 
 
@@ -223,6 +229,8 @@ def test_the_allow_list_holds_exactly_what_src_uses() -> None:
     for name, entry in ALLOWED.items():
         forms, modules = used[name]
         assert entry.forms == forms, name
+        if not modules:  # only in comments: ``only_in`` is the comments' modules
+            modules = {f.split(":")[1] for f in forms if f.startswith(COMMENT)}
         if entry.only_in is not None:
             assert entry.only_in == modules, name
         else:

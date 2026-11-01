@@ -31,12 +31,19 @@ annotations included:
   inspect.getdoc(h))``, ``linecache.getline(path, 3)``). ``importlib.util`` likewise
   (``find_spec(...).origin`` finds a module's file): refused except ``import importlib.util``
   and the one call ``importlib.util.find_spec('uvloop')`` in ``egress/hook.py``;
-- the module ``ownvitals.context`` as the attribute ``context`` of a looked-up module
-  (``importlib.import_module("ownvitals").context``, ``sys.modules["ownvitals"].context``),
-  ``"context"`` as a ``getattr``/``hasattr``/``setattr`` name, a subscript key or a ``.get``
-  argument (``vars(o)["context"]``), the bare ``"ownvitals"`` as a lookup argument
-  (``import_module``, ``resolve_name``, ``locate``, ``find_spec``, ``sys.modules[...]``,
-  ``.get``), and relative module names ending in ``context`` (``"..context"``);
+- the module ``ownvitals.context`` reached from its package (the twelfth #115 review):
+  - the package name (``import ownvitals``, or the root bound by ``import ownvitals.db``) loaded
+    other than as the root of an attribute chain whose next part isn't ``context``: bound to a
+    name (``o = ownvitals``), passed (``vars(ownvitals)``, ``dir``, ``getattr``), subscripted;
+  - the attribute ``context`` on anything but ``self`` (``import_module(".", "ownvitals")
+    .context``, ``p.context``), outside type annotations;
+  - any string, docstrings and comments aside, with ``context`` as an identifier segment
+    (``attrgetter("context")``, ``getattr(o, "context")``, ``k == "context"``,
+    ``"..context"``);
+  - the bare ``"ownvitals"`` as any argument of a lookup (``import_module``, ``resolve_name``,
+    ``locate``, ``find_spec``, ``.get``/``.pop``/``.setdefault``, ``package=`` included) or a
+    subscript key (``sys.modules["ownvitals"]``);
+  - ``import_module`` with a relative name (a leading ``.``), even a literal one;
 - ``copyreg`` as an import, a name, an attribute or a string: ``copyreg.__newobj__(K)`` makes a
   blank context without the token.
 
@@ -53,7 +60,8 @@ with code review, RLS and the role checks (ADR 0002 section 1).
 """
 
 import ast
-import re
+
+from user_context_dunders import SEGMENT, strings
 
 CONTEXT_MODULE = "ownvitals.context"
 PACKAGE = "ownvitals"
@@ -77,10 +85,8 @@ PACKAGE_LOOKUPS = {
     "pop",
     "setdefault",
 }
-# The attribute and module names that reach the context module from its package.
+# The attribute name that reaches the context module from its package.
 CONTEXT_ATTRIBUTE = "context"
-ATTRIBUTE_NAMES = {"getattr", "hasattr", "setattr", "delattr"}
-RELATIVE_CONTEXT = re.compile(r"^\.+context(\.|$)")
 # ``sys.modules`` methods that take a module name.
 MODULES_LOOKUPS = {"get", "pop", "setdefault"}
 # ``importlib.import_module`` under any spelling: only with a literal module name.
@@ -224,8 +230,8 @@ def _literal_imports(tree: ast.AST, names: set[str]) -> set[int]:
         ):
             given = node.args[0] if node.args else None
             given = next((k.value for k in node.keywords if k.arg == "name"), given)
-            if not _computed(given):
-                ids.add(id(func))
+            if not _computed(given) and not str(getattr(given, "value", "")).startswith("."):
+                ids.add(id(func))  # a literal, absolute module name
     return ids
 
 
@@ -263,47 +269,50 @@ def _importlib_util_findings(tree: ast.AST, module: str | None) -> list[tuple[in
     return found
 
 
-def _first_argument(node: ast.Call) -> ast.AST | None:
-    return node.args[0] if node.args else next((k.value for k in node.keywords), None)
-
-
 def _is_string(node: ast.AST | None, value: str) -> bool:
     return isinstance(node, ast.Constant) and node.value == value
 
 
-def _package_findings(tree: ast.AST) -> list[tuple[int, str]]:
-    """The context module reached from its package: ``<looked-up module>.context``,
-    ``"context"`` as an attribute name, key or ``.get`` argument, the bare ``"ownvitals"`` as a
-    lookup argument, and relative names ending in ``context``."""
+def _package_findings(
+    tree: ast.AST, package: set[str], annotation_nodes: set[int]
+) -> list[tuple[int, str]]:
+    """The context module reached from its package (see the module docstring). ``package``
+    holds the local names bound to the package; annotations may name
+    ``ownvitals.context.UserContext``."""
     found: list[tuple[int, str]] = []
+    chain_roots = {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr != CONTEXT_ATTRIBUTE
+    }
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
+        if id(node) in annotation_nodes:
+            continue
         if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and node.id in package
+            and id(node) not in chain_roots
+        ):
+            found.append((line, "the package ownvitals as a value"))
+        elif (
             isinstance(node, ast.Attribute)
             and node.attr == CONTEXT_ATTRIBUTE
-            and isinstance(node.value, ast.Call | ast.Subscript)
+            and not (isinstance(node.value, ast.Name) and node.value.id == "self")
         ):
-            found.append((line, "the attribute context of a looked-up module"))
-        elif isinstance(node, ast.Subscript) and (
-            _is_string(node.slice, CONTEXT_ATTRIBUTE) or _is_string(node.slice, PACKAGE)
-        ):
-            found.append((line, "a lookup of the package or its attribute context"))
+            found.append((line, "the attribute context"))
+        elif isinstance(node, ast.Subscript) and _is_string(node.slice, PACKAGE):
+            found.append((line, "the package looked up by its name"))
         elif isinstance(node, ast.Call):
             func = node.func
             called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-            if called in ATTRIBUTE_NAMES and len(node.args) >= 2:
-                if _is_string(node.args[1], CONTEXT_ATTRIBUTE):
-                    found.append((line, f"{called} of the attribute context"))
-            elif called in PACKAGE_LOOKUPS:
-                first = _first_argument(node)
-                if _is_string(first, PACKAGE) or _is_string(first, CONTEXT_ATTRIBUTE):
-                    found.append((line, f"{called} of the package or its attribute context"))
-        elif (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and RELATIVE_CONTEXT.match(node.value)
-        ):
-            found.append((line, "a relative module name ending in context"))
+            given = [*node.args, *(k.value for k in node.keywords)]
+            if called in PACKAGE_LOOKUPS and any(_is_string(arg, PACKAGE) for arg in given):
+                found.append((line, f"{called} of the package"))
+    for node, text in strings(tree):  # docstrings and comments aside
+        if CONTEXT_ATTRIBUTE in SEGMENT.findall(text):
+            found.append((getattr(node, "lineno", 0), "a string naming context"))
     return found
 
 
@@ -316,7 +325,7 @@ def findings(
     ``module`` is the path under ``src`` (``importlib.util``'s one use is in ``hook.py``)."""
     found: list[tuple[int, str]] = [
         *_importlib_util_findings(tree, module),
-        *_package_findings(tree),
+        *_package_findings(tree, _package_names(tree), annotation_nodes),
     ]
     package = _package_names(tree)
     builtins = _builtins_names(tree)

@@ -162,7 +162,7 @@ NEAR_MISSES = {
     "the audit comparison": AUDIT,
     "the uvloop check": "import importlib.util\nx = importlib.util.find_spec('uvloop')\n",
     "an allowed docstring dunder in its module": "def h():\n    '''Has ``__str__``.'''\n",
-    "a comment with a dunder": "x = 1  # no __context__ here\n",
+    "a comment without a dunder": "x = 1  # no context here\n",
     "a comment naming another module": "x = 1  # see ownvitals.db\n",
     "a plain import of the module": "import ownvitals.context\n",
     "another object's context": body("return self.context.wrap_socket(s)"),

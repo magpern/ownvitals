@@ -21,6 +21,8 @@ attribute, a module global or a builtin. Each place is a **form**:
 - ``docstring``: a segment of a string that is a whole statement: it never runs, but ``open``
   can read source text back, so it needs its own row. Docstrings and comments (``tokenize``) are
   also judged for the token's names and the context module (``comment_findings``);
+- ``comment:<module>:<text>``: a segment of one exact comment in one module (``traceback`` and
+  ``warnings`` read a comment back); it pins its own module, so ``only_in`` doesn't apply;
 - ``parameter``: a parameter's name; ``define`` also covers an ``except ... as`` or ``match``
   capture;
 - ``keyword``: a keyword argument; ``match``: a ``match`` class-pattern keyword (``case
@@ -56,6 +58,7 @@ SEGMENT = re.compile(r"\w+")
 # another name.
 CONTEXT_PATH = re.compile(r"\bownvitals[.:]context\b")
 WRITE = "write"
+COMMENT = "comment:"
 ATTRIBUTE_SETTERS = {"setattr", "delattr"}
 ATTRIBUTE_GETTERS = {"getattr", "hasattr"}
 
@@ -75,6 +78,11 @@ def _modules(*modules: str) -> frozenset[str]:
     return frozenset(f"ownvitals/{module}" for module in modules)
 
 
+def _comment(module: str, text: str) -> str:
+    """The form of one exact comment in one module."""
+    return f"comment:ownvitals/{module}:{text}"
+
+
 LOG = _modules("log.py")
 ALLOWED: dict[str, Allowed] = {
     "__name__": Allowed(
@@ -92,11 +100,61 @@ ALLOWED: dict[str, Allowed] = {
     "__aiter__": Allowed(
         "delegating `async for` to a wrapped stream", _forms("read"), _modules("egress/clients.py")
     ),
-    "__cause__": Allowed("walking an exception chain", _forms("read", "docstring"), LOG),
-    "__context__": Allowed("walking an exception chain", _forms("read", "docstring"), LOG),
+    "__cause__": Allowed(
+        "walking an exception chain",
+        _forms(
+            "read",
+            "docstring",
+            _comment(
+                "log.py", "# hidden on purpose, so it is not followed. __cause__ still is, so a"
+            ),
+            _comment(
+                "mail.py",
+                "# Raised after the except block: no __cause__ and no __context__"
+                " to carry the text.",
+            ),
+        ),
+        LOG,
+    ),
+    "__context__": Allowed(
+        "walking an exception chain",
+        _forms(
+            "read",
+            "docstring",
+            _comment(
+                "crypto/envelope.py",
+                "# Raised after the block, so DecryptFailed carries no __context__.",
+            ),
+            _comment(
+                "egress/core.py",
+                "# Outside the except block: no __context__"
+                " (the ValueError's text holds URL parts).",
+            ),
+            _comment(
+                "mail.py",
+                "# Raised after the except block: no __cause__ and no __context__"
+                " to carry the text.",
+            ),
+        ),
+        LOG,
+    ),
+    "__call__": Allowed(
+        "a comment on a settings source",
+        _forms(_comment("config.py", "# unused: __call__ reads the files directly")),
+        _modules("config.py"),
+    ),
     "__str__": Allowed("a docstring naming the method", _forms("docstring"), LOG),
     "__suppress_context__": Allowed(
-        "`raise ... from` hides the context on purpose", _forms("read"), LOG
+        "`raise ... from` hides the context on purpose",
+        _forms(
+            "read",
+            _comment(
+                "log.py",
+                "# ``raise ... from None`` (or ``from x``) sets __suppress_context__:"
+                " the context was",
+            ),
+        ),
+        LOG,
     ),
     "__dict__": Allowed("a log record's extra fields", _forms("read"), LOG),
     "__version__": Allowed(
@@ -194,6 +252,13 @@ def _own_parameter_comparisons(tree: ast.AST) -> dict[int, str]:
         nodes = _own_nodes(function)
         if any(_binds(node, first) for node in nodes):
             continue
+        if len(function.args.defaults) >= len(positional):
+            continue  # a default: the function can run on an object written next to it
+        if any(
+            isinstance(node, ast.Nonlocal | ast.Global) and first in node.names
+            for node in ast.walk(function)
+        ):
+            continue  # rebound from a nested function or class
         for node in nodes:
             operands = [node.left, *node.comparators] if isinstance(node, ast.Compare) else []
             if operands and all(
@@ -316,12 +381,14 @@ def named_dunders(tree: ast.AST) -> list[tuple[int, str, str]]:
 
 
 def allowed_in(name: str, form: str, module: str | None) -> bool:
+    """A comment's form names its module and text (``comment:<module>:<text>``), so it pins the
+    module itself; every other form is checked against ``only_in``."""
     entry = ALLOWED.get(name)
     return (
         form != WRITE
         and entry is not None
         and form in entry.forms
-        and (entry.only_in is None or module in entry.only_in)
+        and (entry.only_in is None or module in entry.only_in or form.startswith(COMMENT))
     )
 
 
@@ -353,21 +420,45 @@ def string_findings(tree: ast.AST, token_names: set[str]) -> list[tuple[int, str
     return found
 
 
-def comment_findings(source: str, token_names: set[str]) -> list[tuple[int, str]]:
-    """Comments (``tokenize``) naming the issuer token or the module ``ownvitals.context``:
-    ``linecache`` or ``open`` reads a comment back as a value."""
-    found: list[tuple[int, str]] = []
+def _comments(source: str) -> list[tuple[int, str]] | None:
+    """Each comment with its line, or None when ``tokenize`` refuses the source."""
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
     except (tokenize.TokenError, SyntaxError):
+        return None
+    return [(t.start[0], t.string) for t in tokens if t.type == tokenize.COMMENT]
+
+
+def comment_dunders(source: str, module: str | None) -> list[tuple[int, str, str]]:
+    """Every dunder a comment names, with its line and its form ``comment:<module>:<text>``:
+    ``traceback``, ``warnings`` or ``linecache`` read a comment back as a value."""
+    return [
+        (line, segment, f"{COMMENT}{module}:{text}")
+        for line, text in _comments(source) or []
+        for segment in SEGMENT.findall(text)
+        if is_dunder(segment)
+    ]
+
+
+def comment_findings(
+    source: str, token_names: set[str], module: str | None = None
+) -> list[tuple[int, str]]:
+    """Comments (``tokenize``) naming the issuer token, the module ``ownvitals.context``, or a
+    dunder outside its one pinned comment."""
+    comments = _comments(source)
+    if comments is None:
         return [(0, "source that tokenize refuses")]
-    for token in tokens:
-        if token.type != tokenize.COMMENT:
-            continue
-        if any(segment in token_names for segment in SEGMENT.findall(token.string)):
-            found.append((token.start[0], "a comment naming the issuer token"))
-        if CONTEXT_PATH.search(token.string):
-            found.append((token.start[0], "a comment naming ownvitals.context"))
+    found: list[tuple[int, str]] = []
+    for line, text in comments:
+        if any(segment in token_names for segment in SEGMENT.findall(text)):
+            found.append((line, "a comment naming the issuer token"))
+        if CONTEXT_PATH.search(text):
+            found.append((line, "a comment naming ownvitals.context"))
+    found += [
+        (line, f"the dunder {name} in a comment (not allow-listed)")
+        for line, name, form in comment_dunders(source, module)
+        if not allowed_in(name, form, module)
+    ]
     return found
 
 

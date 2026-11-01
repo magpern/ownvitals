@@ -252,8 +252,10 @@ builtin with it:
   standard-library calls look a dotted or colon path up themselves:
   `string.Formatter().get_field("0.__globals__", ...)`, `"{0.__module__}".format(x)`,
   `operator.attrgetter("f.__globals__")`, `getattr(f, b"__globals__".decode())`;
-- a docstring (a string that is a whole statement): it never runs, but source text can be read
-  back, so a dunder in one needs a `docstring` row in the table like any other use. The readers
+- a docstring (a string that is a whole statement) or a comment: neither runs, but source text
+  can be read back (`traceback.extract_stack()[-1].line`, `warnings.formatwarning`, `open`), so
+  a dunder in one needs a row in the table like any other use: `docstring` for a docstring, and
+  for a comment its exact module and text (`comment:<module>:<text>`). The readers
   of source text are refused outright: `inspect`, `pydoc`, `linecache` and `tokenize` (any
   import form, name, attribute, or the module's name as a string), `__doc__`, and
   `importlib.util` (`find_spec(...).origin` finds a module's file), which is allowed only as
@@ -265,29 +267,41 @@ builtin with it:
 - an imported name (`from ownvitals import __version__`).
 
 The same segments are checked against the issuer token's names and the module, in every
-string, docstrings and comments included (comments through `tokenize`; a dunder in a comment is
-not judged): a string with a segment `_ISSUER` or `issuer_token`, or naming the
+string, docstrings and comments included (comments through `tokenize`): a string with a segment `_ISSUER` or `issuer_token`, or naming the
 module `ownvitals.context` with `.` or `:` on either side (`"ownvitals.context"`,
 `"ownvitals:context"`, `"ownvitals.context:_ISSUER"`), is refused
 (`pkgutil.resolve_name("ownvitals:context")`, `pydoc.locate("ownvitals.context._ISSUER")`). A
 dotted logger name such as `"ownvitals.db.engine"`, another name (`"ownvitals.contexts"`) or SQL
 text stays allowed.
 
-The module is refused as an attribute of its package too, however the package is reached:
-`importlib.import_module("ownvitals").context`, `pkgutil.resolve_name("ownvitals").context`,
-`sys.modules["ownvitals"].context` (the attribute `context` of a looked-up module), the bare
-`"ownvitals"` as a lookup argument (`import_module`, `resolve_name`, `locate`, `find_spec`,
-`sys.modules[...]`, `.get`), `"context"` as a `getattr`/`hasattr`/`setattr`/`delattr` name, a
-subscript key or a `.get` argument (`getattr(o, "context")`, `vars(o)["context"]`), and a
-relative module name ending in `context` (`"..context"`). A plain `import ownvitals.context`
-stays allowed, and so does another object's `context` (`self.context.wrap_socket`).
+The module is refused as an attribute of its package too, however the package is reached
+(#89, the eleventh and twelfth #115 reviews):
+
+- the name of the package (`import ownvitals`, or the root that `import ownvitals.db` binds) may
+  be loaded only as the root of an attribute chain whose next part isn't `context`
+  (`ownvitals.db.engine`). Bound to another name (`o = ownvitals`), passed (`vars(ownvitals)`,
+  `dir(ownvitals)`, `getattr(ownvitals, ...)`) or subscripted, it is refused;
+- the attribute `context` is refused on anything but `self` (`self.context.wrap_socket` in
+  `mail.py`), outside type annotations: `importlib.import_module(".", "ownvitals").context`,
+  `p.context`, `sys.modules[...].context`;
+- a string, docstrings and comments aside, with `context` as an identifier segment is refused:
+  `operator.attrgetter("context")`, `getattr(o, "context")`, `k == "context"`, `"..context"`.
+  `src` has none;
+- the bare `"ownvitals"` is refused as any argument of a lookup (`import_module`,
+  `resolve_name`, `locate`, `find_spec`, `.get`, `.pop`, `.setdefault`, `package=` included)
+  and as a subscript key (`sys.modules["ownvitals"]`); `version("ownvitals")` stays allowed;
+- `import_module` with a relative name (a leading `.`) is refused, even a literal one.
+
+A plain `import ownvitals.context` stays allowed for annotations
+(`c: ownvitals.context.UserContext`).
 
 **A dunder inside a string is pinned to its exact use.** A string's form is its syntactic
 position: the name argument of one exact `getattr` call, a direct operand of one exact comparison,
 the value of one assignment (the SQL placeholders' `QUEUE_QUERY = ...`), or anywhere else. A
 comparison whose other operand is its function's own first parameter, never rebound there, is
 pinned to that function too: `"socket.__new__"` is allowed only as `event == "socket.__new__"` in
-`_audit(event, args)`, so an object written next to the string (a recording `__eq__`, a
+`_audit(event, args)`, with no default and not rebound from a nested function or class
+(`nonlocal event`), so an object written next to the string (a recording `__eq__`, a
 `MagicMock`) can't receive it. The table allows each such dunder in one position, once per
 module, so the same constant passed on, sliced, partitioned
 (`"socket.__new__".partition(".")[2]` fed to `setattr`) or compared a second time is refused.
@@ -320,8 +334,9 @@ aside, which are not scanned); a name used in one module is allowed only there.
 | `__all__` | definition | everywhere | a package's public names |
 | `__init__` | attribute read | everywhere | `super().__init__(...)`; the hook rule above refuses any other use |
 | `__aiter__` | attribute read | `egress/clients.py` | delegating `async for` to a wrapped stream |
-| `__cause__`, `__context__`, `__suppress_context__` | attribute read (the first two also docstring) | `log.py` | walking an exception chain |
+| `__cause__`, `__context__`, `__suppress_context__` | attribute read (the first two also docstring); the exact comments that name them in `log.py`, `mail.py`, `crypto/envelope.py` and `egress/core.py` | `log.py` (comments: their own modules) | walking an exception chain |
 | `__str__` | docstring | `log.py` | a docstring naming the method |
+| `__call__` | the one comment `# unused: __call__ reads the files directly` | `config.py` | a comment on a settings source |
 | `__dict__` | attribute read | `log.py` | a log record's extra fields |
 | `__version__` | definition, import, name read | `__init__.py`, `web.py` | the package version |
 | `__code__` | `getattr(socket.socketpair, "__code__", None)` only | `egress/hook.py` | recognising `socket.socketpair`'s own code |
@@ -423,8 +438,8 @@ leaves to the review gate. Known limits:
   `_audit` in `egress/hook.py` with a recording object or a mock as `event` hands it
   `"socket.__new__"` without writing the name. Scope (b);
 - reading source text from disk through an allowed file API: `open` on a module's own file
-  (found without `importlib.util`), then slicing a line that holds an allowed docstring dunder.
-  Scope (c);
+  (found without `importlib.util`), then slicing a line that holds an allowed dunder in a comment
+  or a docstring. Scope (c);
 - the module reached through the package object without a written name: `getattr(ownvitals,
   "con" + "text")`, walking `vars(ownvitals)`. With the module, `vars(m)` gives the token, and
   it can't be refused outright: other code uses it (`m.__dict__` is a dunder, allowed only in

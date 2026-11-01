@@ -413,7 +413,7 @@ def scan_source(source: str, module: str | None = None) -> list[tuple[int, str]]
 
     found += _depends_findings(tree, aliases)
     found += token_route_findings(tree, annotation_nodes, module)
-    found += comment_findings(source, TOKEN_NAMES)
+    found += comment_findings(source, TOKEN_NAMES, module)
     found += dunder_findings(tree, module)
     found += string_findings(tree, TOKEN_NAMES)
     found += splice_refused
