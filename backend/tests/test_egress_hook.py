@@ -264,9 +264,13 @@ def test_the_worker_installs_the_hook_and_refuses_another_loop(
     async def run(settings: Settings) -> None:
         seen.append(installed_kind())
 
+    def no_engine(*_: object) -> None:
+        raise AssertionError("the worker went on past the loop check")
+
     monkeypatch.setattr(worker_main, "_run", run)
     assert worker_main.main() == 0
     assert seen == ["worker"]  # installed before the loop ran anything
+    monkeypatch.setattr(worker_main, "create_worker_engine", no_engine)
     with pytest.raises(RuntimeError, match="refusing to run on"):
         asyncio.run(original(Settings()), loop_factory=ForeignLoop)  # before any connection
 

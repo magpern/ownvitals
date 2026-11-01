@@ -3,9 +3,9 @@ thread, and whether the caller's context variables are visible there. Run by
 ``test_egress_loop_probe.py`` in a fresh interpreter (an audit hook cannot be removed), or by hand
 before any change of event loop: ``python tests/egress_loop_probe.py [asyncio|uvloop]``.
 
-Loopback only: every connection goes to a listener on ``127.0.0.1``, by its numeric address, so
-no name is looked up outside the process. It prints one JSON object per scenario: the events
-seen, each with ``main_thread`` and ``context_visible``.
+Loopback only: every connection goes to a listener on ``127.0.0.1``; the one name looked up is
+``localhost`` (the hosts file), so no query leaves the machine. It prints one JSON object: per
+scenario the events seen, each with ``main_thread`` and ``context_visible``.
 """
 
 import asyncio
@@ -50,7 +50,8 @@ def listener() -> int:
 
 async def open_connection(port: int) -> None:
     MARK.set("set")
-    _, writer = await asyncio.open_connection("127.0.0.1", port)
+    # By name: asyncio skips the lookup for a numeric address.
+    _, writer = await asyncio.open_connection("localhost", port, family=socket.AF_INET)
     writer.close()
 
 
