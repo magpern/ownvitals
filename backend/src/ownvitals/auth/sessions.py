@@ -69,11 +69,18 @@ class SessionInfo:
 
     @property
     def pending_expired(self) -> bool:
-        """A session that is not full and whose latest proof is older than ten minutes."""
+        """A session that is not full and has no proof inside the ten-minute window.
+
+        Only a ``reauth_at`` or ``stepup_at`` whose age is inside ``[0, PENDING_WINDOW]``
+        counts. A timestamp after ``now`` is not a recent proof, so it cannot hold the
+        session open.
+        """
         if self.full:
             return False
-        proofs = [moment for moment in (self.reauth_at, self.stepup_at) if moment is not None]
-        return not proofs or self.now - max(proofs) > PENDING_WINDOW
+        return not (
+            _within(self.reauth_at, self.now, PENDING_WINDOW)
+            or _within(self.stepup_at, self.now, PENDING_WINDOW)
+        )
 
     @property
     def role(self) -> Literal["user", "admin"]:
