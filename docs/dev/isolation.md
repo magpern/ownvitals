@@ -159,6 +159,15 @@ or a string that sets `app.user_id`. Relative imports are resolved to absolute n
 package is refused. A package or module joins a list in its own PR, with the reason in
 `session_scan.py`'s docstring and the pinning test updated (#12 flags and admin are expected).
 
+**Threat model of guard 5 (Architect, #89).** The scan stops the plausible, review-visible ways
+of forging a `UserContext`: mistakes, shortcuts and copied snippets. It is not a sandbox against
+adversarial code in the process: a static scan can't prove that Python code running in the same
+process can't reach the token (reflection, `gc` and `ctypes` always can). Adversarial code is
+covered by code review of every PR, by RLS (the database enforces `owner_id` whatever context
+Python builds) and by the role checks. A further route of the same kind (reflection reaching the
+token in process) goes under "Known limits" below, not into a new rule, unless it is a plain
+import or a call that code review could miss.
+
 Only `ownvitals/context.py`, `ownvitals/auth/deps.py` (#10) and `ownvitals/jobs/issuer.py` (#9)
 may build a `UserContext` (`user_context_scan.py`); handlers get it through the auth dependency,
 never from a path, query, body or header. The same scan refuses, in every module:
@@ -183,15 +192,18 @@ never from a path, query, body or header. The same scan refuses, in every module
 - the obvious routes to the issuer token (#89, `user_context_rules.py`). A function's globals and
   the module's namespace are the same dict, and it holds the token: with it, `K = type(ctx);
   K(uid, "admin", issuer=tok)` builds an admin context. So the scan refuses:
-  - `__globals__` and `__module__` as an attribute, a name or a string
-    (`require_context.__globals__`, `sys.modules[f.__module__]`);
+  - `__globals__`, `__module__`, `__kwdefaults__` and `__defaults__` as an attribute, a name or
+    a string (`require_context.__globals__`, `sys.modules[f.__module__]`,
+    `K.__init__.__kwdefaults__["issuer"] = tok`);
   - every import that binds the module object `ownvitals.context` (`import ownvitals.context as
     c`, `from ownvitals import context`, `from .. import context`), `ownvitals.context` as an
     attribute of the package outside a type annotation, and the strings `"ownvitals.context"`
     and `".context"` (`sys.modules[...]`, `sys.modules.get(...)`, `importlib.import_module`,
     `__import__`). Names imported from the module (`from ownvitals.context import
     require_context`) stay allowed, and so does a plain `import ownvitals.context` for an
-    annotation: it binds only the package, as `import ownvitals.db` does, and each use is judged;
+    annotation: it binds only the package, as `import ownvitals.db` does, and each use is judged.
+    A star import from `ownvitals` or any of its packages, relative ones included, is refused:
+    `ownvitals` has no `__all__`, so `from ownvitals import *` binds the module `context`;
   - an `issuer=` keyword in any call, and a `**` argument that spells `"issuer"` anywhere
     (`**{"issuer": t}`, `**dict(issuer=t)`, `**{k: t for k in ["issuer"]}`,
     `**dict([("issuer", t)])`, `**({} | {"issuer": t})`). Only the issuer modules pass the token,
@@ -199,7 +211,17 @@ never from a path, query, body or header. The same scan refuses, in every module
     `issuer=`, say) needs the Architect;
 - `copyreg` as an import, a name, an attribute or a string (`importlib.import_module("copyreg")`):
   `copyreg.__newobj__(type(ctx))` and `copyreg._reconstructor` make a blank context without the
-  token (#89).
+  token (#89);
+- code inside an annotation (#89): parameter, return and variable annotations run when the
+  `def` or the statement runs on Python 3.12, so `def f(t: require_context.__globals__["_ISSUER"])`
+  puts the token in `f.__annotations__`. Every rule above applies inside annotations too (a
+  type may still name the module: `ownvitals.context.UserContext`), and an annotation may hold
+  only a type: names, attribute chains, a subscript of a type name (a generic), `|`, literals,
+  and tuples or lists of these. Refused inside one: a call (except in `Annotated`'s metadata,
+  where `Depends(...)` lives, under any alias), a subscript of anything else, an attribute
+  starting with `_`, the token's names (also as strings), and lambdas, comprehensions and the
+  like. A whole-string annotation is parsed and checked the same way (`typing.get_type_hints`
+  evaluates it).
 
 The guard reads "anywhere" with one exception (Architect, 2026-10-31): the frozen-dataclass idiom
 `object.__setattr__(self, "field", value)` written directly in a class's undecorated
@@ -218,16 +240,19 @@ leaves to the review gate. Known limits:
 - a name built at run time: `getattr(K, "__post_" + "init__")`,
   `getattr(super(type(ctx), ctx), "__SETATTR__".lower())`, `b"__setattr__".decode()`, or a
   module name built the same way for `importlib` or `sys.modules`;
-- the module reached without its name: through the package (`getattr(ownvitals, "con" +
-  "text")`, `vars(sys.modules["ownvitals"])`), by searching `sys.modules` or `gc` for it, or
-  from an object it defines through `inspect`. With the module, `vars(m)` and `m.__dict__` give
-  the token, and neither can be refused outright: other code (`ownvitals/log.py`) uses both;
+- the module reached through the package object, literally or not: `getattr(ownvitals,
+  "context")`, `vars(ownvitals)["context"]`, `sys.modules["ownvitals"].context`,
+  `vars(sys.modules["ownvitals"])`, `getattr(ownvitals, "con" + "text")`. With the module,
+  `vars(m)` and `m.__dict__` give the token, and neither can be refused outright: other code
+  (`ownvitals/log.py`) uses both;
+- the general class, reflection in the process: walking package or module objects, searching
+  `sys.modules`, `gc.get_referrers`/`gc.get_objects`, `inspect` (`inspect.getmodule(K)`, a
+  function's closure or frame), and `ctypes`;
 - a keyword dict bound to a name first: `kw = {"issuer": tok}`, then `K(..., **kw)`;
 - class-level patching: `type(ctx).role = property(...)` changes what every context reads
   (accepted by the Architect);
 - a hook reached without its name, as above, when it sets a field that isn't one of the context's:
   harmless to a context, which has only those slots;
-- `inspect`, and other ways into a function's closure or frame.
 
 ## Guards (ADR 0002 §7)
 

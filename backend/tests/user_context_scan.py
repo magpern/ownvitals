@@ -60,7 +60,7 @@ review gate. ``docs/dev/isolation.md`` lists these limits.
 
 import ast
 
-from user_context_rules import CONTEXT_FIELDS
+from user_context_rules import CONTEXT_FIELDS, annotation_findings
 from user_context_rules import findings as token_route_findings
 
 NAME = "UserContext"
@@ -376,9 +376,11 @@ def _forging_call(node: ast.Call) -> str | None:
 def scan_source(source: str) -> list[tuple[int, str]]:
     tree = ast.parse(source)
     annotation_nodes: set[int] = set()
+    annotations: list[ast.AST] = []
 
     def mark(annotation: ast.AST | None) -> None:
         if annotation is not None:
+            annotations.append(annotation)
             annotation_nodes.update(id(n) for n in ast.walk(annotation))
 
     for node in ast.walk(tree):
@@ -401,6 +403,7 @@ def scan_source(source: str) -> list[tuple[int, str]]:
 
     found += _depends_findings(tree, aliases)
     found += token_route_findings(tree, annotation_nodes)
+    found += annotation_findings(annotations, TOKEN_NAMES, _Spellings(tree).annotated)
     refused = _spellings(tree, ALWAYS_REFUSED) | (
         _spellings(tree, REFUSED_WITH_CONTEXT) if NAME in source else set()
     )

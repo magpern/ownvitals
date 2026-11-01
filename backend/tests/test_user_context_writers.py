@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from ctx import make_context
-from ownvitals.context import UserContext, require_context
+from ownvitals.context import UserContext, issuer_token, require_context
 from user_context_scan import CONTEXT_FIELDS, scan_source
 
 
@@ -362,3 +362,93 @@ def test_the_scan_refuses_the_module_namespace_routes(forgery: str, _: str) -> N
 @pytest.mark.parametrize(("_", "near_miss"), MODULE_ROUTES.values(), ids=MODULE_ROUTES.keys())
 def test_their_near_misses_stay_allowed(_: str, near_miss: str) -> None:
     assert scan_source(near_miss) == []
+
+
+# The second #115 review (#89): annotations run at import time on Python 3.12, so the token
+# routes are refused inside them too, and an annotation may only name a type.
+TOKEN_KEY = "_ISSUER"  # a name, so the linter doesn't read the string as a forward reference
+
+
+def annotation_reaches_the_token() -> object:
+    def f(t: require_context.__globals__[TOKEN_KEY]) -> None: ...  # pyright: ignore
+
+    return f.__annotations__["t"]
+
+
+def test_an_annotation_can_reach_the_token_at_run_time() -> None:
+    assert annotation_reaches_the_token() is issuer_token()
+
+
+ANNOTATION_ROUTES: dict[str, tuple[str, str]] = {
+    "__globals__ in a parameter annotation": (
+        "from ownvitals.context import require_context\n"
+        "def f(t: require_context.__globals__['_ISSUER']) -> None: ...\n",
+        "from ownvitals.context import require_context\ndef f(t: dict[str, object]) -> None: ...\n",
+    ),
+    "the token through a plain import": (
+        "import ownvitals.context\ndef f(t: ownvitals.context._ISSUER) -> None: ...\n",
+        "import ownvitals.context\ndef f(t: ownvitals.context.UserContext) -> None: ...\n",
+    ),
+    "issuer_token() in a variable annotation": (
+        "import ownvitals.context\ntok: ownvitals.context.issuer_token() = None\n",
+        "import ownvitals.context\nctx: ownvitals.context.UserContext | None = None\n",
+    ),
+    "issuer= in a return annotation": (
+        "def f(c, t) -> (lambda: K(1, 'admin', issuer=t)): ...\n",
+        "def f(c, t) -> Callable[[int], K]: ...\n",
+    ),
+    "**{'issuer': ...} in a variable annotation": (
+        "v: K(1, 'a', **{'issuer': t}) = 1\n",
+        "v: Annotated[K, Field(alias='a')] = 1\n",
+    ),
+    "a call": ("def f(x: make()) -> None: ...\n", "def f(x: make) -> None: ...\n"),
+    "a subscript of a non-type": (
+        "def f(x: [int][0]) -> None: ...\n",
+        "def f(x: tuple[int, ...]) -> None: ...\n",
+    ),
+    "an attribute starting with _": (
+        "def f(x: m._hidden) -> None: ...\n",
+        "def f(x: m.Visible) -> None: ...\n",
+    ),
+    "a lambda": ("def f(x: (lambda: int)) -> None: ...\n", "def f(x: int | None) -> None: ...\n"),
+    "the token's name as a string": (
+        "x: '_ISSUER' = None\n",
+        "x: Literal['user', 'admin'] = 'user'\n",
+    ),
+    "the token's name in Literal": (
+        "x: Literal['_ISSUER'] = None\n",
+        "x: Literal['_user'] = None\n",
+    ),
+    "issuer= in Annotated's metadata": (
+        "def f(x: Annotated[int, Field(issuer=t)]): ...\n",
+        "def f(x: Annotated[int, Field(alias='a')]): ...\n",
+    ),
+    "a whole-string annotation": (
+        "def f(x: 'require_context.__globals__[\"_ISSUER\"]') -> None: ...\n",
+        "def f(x: 'dict[str, UserContext]') -> None: ...\n",
+    ),
+    "Annotated's metadata under an alias": (
+        "from typing import Annotated as A\ndef f(x: A[int, Depends(issuer_token)]): ...\n",
+        "from typing import Annotated as A\nfrom fastapi import Depends\n"
+        "def f(x: A[int, Depends(get)]): ...\n",
+    ),
+    "a star import from ownvitals": ("from ownvitals import *\n", "from os.path import *\n"),
+    "a star import from a subpackage": (
+        "from ownvitals.db import *\n",
+        "from ownvitals.db import x\n",
+    ),
+    "a relative star import": ("from .. import *\n", "from .. import db\n"),
+    "a relative star import, one level": ("from .jobs import *\n", "from .jobs import run\n"),
+    "__kwdefaults__": (body("f.__kwdefaults__['issuer'] = t"), body("return f.__doc__")),
+    "__defaults__": (body("f.__defaults__ = (t,)"), body("return f.defaults")),
+}
+
+
+@pytest.mark.parametrize(("route", "_"), ANNOTATION_ROUTES.values(), ids=ANNOTATION_ROUTES.keys())
+def test_the_scan_refuses_the_annotation_and_star_import_routes(route: str, _: str) -> None:
+    assert scan_source(route) != []
+
+
+@pytest.mark.parametrize(("_", "near"), ANNOTATION_ROUTES.values(), ids=ANNOTATION_ROUTES.keys())
+def test_the_annotation_and_star_import_near_misses_stay_allowed(_: str, near: str) -> None:
+    assert scan_source(near) == []
