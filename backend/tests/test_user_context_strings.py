@@ -125,7 +125,7 @@ NEAR_MISSES = {
     "a format field": body("return '{0.name}'.format(x)"),
     "an attrgetter path": body("import operator", "return operator.attrgetter('a.b')(x)"),
     "bytes": body("return b'abc.def'"),
-    "a docstring": "def f():\n    '''Reads ``x.__globals__``, ``ownvitals.context._ISSUER``.'''\n",
+    "a docstring with a dunder": "def f():\n    '''Reads ``x.__globals__``.'''\n",
     "an allowed read": body("return f.__name__"),
     "defining __all__": "__all__ = ['f']\n",
     "a name like the module's": body("return locate('ownvitals.contexts.other')"),

@@ -238,23 +238,35 @@ builtin with it:
   standard-library calls look a dotted or colon path up themselves:
   `string.Formatter().get_field("0.__globals__", ...)`, `"{0.__module__}".format(x)`,
   `operator.attrgetter("f.__globals__")`, `getattr(f, b"__globals__".decode())`. A string that
-  is a whole statement (a docstring) does nothing and is not judged;
+  is a whole statement (a docstring) is not judged for dunders: it never runs, and nothing in
+  `src` may read it back, since `inspect` and `pydoc` (any import form, name, attribute or the
+  module's name as a string) and `__doc__` are refused. `inspect.getdoc` and
+  `inspect.getcomments` would otherwise hand a docstring or a comment back as a value;
 - a keyword argument, and a `match` class-pattern keyword: `case object(__globals__=g)` reads
   the attribute and binds it;
 - an imported name (`from ownvitals import __version__`).
 
-The same segments are checked against the issuer token's names and the module: a string
-with a segment `_ISSUER` or `issuer_token`, or with `ownvitals.context` followed by `.` or `:`,
-is refused (`pkgutil.resolve_name("ownvitals.context:_ISSUER")`,
-`pydoc.locate("ownvitals.context._ISSUER")`). A dotted logger name such as
-`"ownvitals.db.engine"` or SQL text stays allowed.
+The same segments are checked against the issuer token's names and the module, in every
+string, docstrings included: a string with a segment `_ISSUER` or `issuer_token`, or naming the
+module `ownvitals.context` with `.` or `:` on either side (`"ownvitals.context"`,
+`"ownvitals:context"`, `"ownvitals.context:_ISSUER"`), is refused
+(`pkgutil.resolve_name("ownvitals:context")`, `pydoc.locate("ownvitals.context._ISSUER")`). A
+dotted logger name such as `"ownvitals.db.engine"`, another name (`"ownvitals.contexts"`) or SQL
+text stays allowed.
+
+**A dunder inside a string is pinned to its exact use.** A string's form is its syntactic
+position: the name argument of one exact `getattr` call, a direct operand of one exact comparison
+(`event == "socket.__new__"`, `__name__ == "__main__"`), the value of one assignment (the SQL
+placeholders' `QUEUE_QUERY = ...`), or anywhere else. The table allows each such dunder in one
+position only, so the same constant passed on, sliced or partitioned
+(`"socket.__new__".partition(".")[2]` fed to `setattr`) is refused.
 
 **An allowed dunder is read, never written.** Assigning, augmenting or deleting one as an
 attribute (`require_context.__code__ = (lambda c: c).__code__` makes `require_context` accept
 anything), deleting it as a name, and naming it as the name argument of `setattr` or `delattr`
 are refused whatever the table says. Each entry also lists the forms it may take (an attribute
-read, a name read, a module-level definition such as `__all__ = [...]`, a string segment, an
-import), and `__code__` is allowed only as the one call `getattr(socket.socketpair, "__code__",
+read, a name read, a module-level definition such as `__all__ = [...]`, a string in its one
+position, an import), and `__code__` is allowed only as the one call `getattr(socket.socketpair, "__code__",
 None)` in `egress/hook.py`. `super().__init__(...)` and the `object.__setattr__` idiom are
 reads of the attribute, judged by the rules above.
 
@@ -272,7 +284,7 @@ aside, which are not scanned); a name used in one module is allowed only there.
 | Name | Forms | Where | Why |
 |---|---|---|---|
 | `__name__` | attribute and name read | everywhere | a module's or a function's name, for loggers and `__main__` checks |
-| `__main__` | string | everywhere | the `if __name__ == "__main__"` entry points |
+| `__main__` | the comparison `__name__ == "__main__"` | everywhere | the `if __name__ == "__main__"` entry points |
 | `__all__` | definition | everywhere | a package's public names |
 | `__init__` | attribute read | everywhere | `super().__init__(...)`; the hook rule above refuses any other use |
 | `__aiter__` | attribute read | `egress/clients.py` | delegating `async for` to a wrapped stream |
@@ -280,9 +292,9 @@ aside, which are not scanned); a name used in one module is allowed only there.
 | `__dict__` | attribute read | `log.py` | a log record's extra fields |
 | `__version__` | definition, import, name read | `__init__.py`, `web.py` | the package version |
 | `__code__` | `getattr(socket.socketpair, "__code__", None)` only | `egress/hook.py` | recognising `socket.socketpair`'s own code |
-| `__new__` | string | `egress/hook.py` | the audit event name `"socket.__new__"` |
+| `__new__` | the comparison `event == "socket.__new__"` | `egress/hook.py` | the audit event name `"socket.__new__"` |
 | `__setattr__` | attribute read | `analysis/methods/series.py`, `analysis/quality.py` | the frozen-dataclass idiom in `__post_init__`; the idiom rule above refuses any other use |
-| `__NAMES__`, `__SQL_TEXT_BUILTINS__` | string | `db/queue_check.py` | placeholders in SQL text, replaced before the query runs |
+| `__NAMES__`, `__SQL_TEXT_BUILTINS__` | the assignment `QUEUE_QUERY = ...` | `db/queue_check.py` | placeholders in SQL text, replaced before the query runs |
 
 An exception lifts only this rule: the rules above still judge the same name. A new use of a
 dunder in `src` needs the Architect and a new row. Because `__module__` is not on the list,
@@ -366,12 +378,17 @@ What the scan catches is accidental misuse and the obvious forgeries, as listed:
 text, so it sees only names written out. It does not stop deliberate code, which ADR 0002 §1
 leaves to the review gate. Known limits:
 
-- a name built at run time: `getattr(K, "__post_" + "init__")`,
-  `getattr(super(type(ctx), ctx), "__SETATTR__".lower())`, `b"__setattr__".decode()`, or a
-  module name built the same way for `sys.modules` bound to another name or copied
+- a name that exists only at run time, built by a string operation (concatenation,
+  formatting, slicing, `partition`, encoding) from pieces that are each allowed on their own:
+  `getattr(K, "__post_" + "init__")`, `getattr(super(type(ctx), ctx), "__SETATTR__".lower())`,
+  `"__%s__" % "globals"`, `"__{}__".format("globals")`, an f-string split around the name
+  (`f"__glo{''}bals__"`), bytes in another encoding decoded at run time (`utf-16`), or a module
+  name built the same way for `sys.modules` bound to another name or copied
   (`mods = sys.modules; mods[name]`, `dict(sys.modules)[name]`, `sys.modules.__getitem__` is a
-  dunder and refused). Under the bound set with the dunder allow-list, a route through
-  reflection or a run-time namespace change that writes no dunder and no token name goes here;
+  dunder and refused). The bound (Architect, the tenth #115 review): such a name is reflection,
+  non-blocking and listed here; a dunder, a token name or a path to the context module written
+  whole in source, in any string, docstring or comment that code can read, is refused. Reading a
+  source file and slicing it (`open`, `linecache`) is reflection too;
 - the module reached through the package object, literally or not: `getattr(ownvitals,
   "context")`, `vars(ownvitals)["context"]`, `sys.modules["ownvitals"].context`,
   `vars(sys.modules["ownvitals"])`, `getattr(ownvitals, "con" + "text")`. With the module,

@@ -8,13 +8,16 @@ attribute, a module global or a builtin. Each place is a **form**:
   assigned, augmented or deleted (``f.__code__ = c``, ``del f.__name__``);
 - ``name``: a name read (``__name__``); ``define``: a name bound (``__all__ = [...]``);
   ``write``: a name deleted;
-- ``string``: an identifier-shaped segment of any ``str`` or ``bytes`` constant, f-string text
-  included (``"0.__globals__"``, ``"f.__globals__"``, ``b"__globals__"``): standard-library
-  calls (``string.Formatter().get_field``, ``operator.attrgetter``, ``pkgutil.resolve_name``,
-  ``pydoc.locate``) look dotted and colon paths up themselves. As the name argument of
-  ``setattr`` or ``delattr`` a segment is a ``write``; as that of ``getattr`` or ``hasattr`` its
-  form is ``getattr:<the call>``, so an entry can allow exactly one call. A string that is a whole
-  statement (a docstring) is inert and not judged;
+- an identifier-shaped segment of any ``str`` or ``bytes`` constant, f-string text included
+  (``"0.__globals__"``, ``"f.__globals__"``, ``b"__globals__"``): standard-library calls
+  (``string.Formatter().get_field``, ``operator.attrgetter``, ``pkgutil.resolve_name``,
+  ``pydoc.locate``) look dotted and colon paths up themselves. Its form is its exact position
+  (``_string_forms``): ``write`` as the name argument of ``setattr``/``delattr``,
+  ``getattr:<the call>``, ``compare:<the comparison>``, ``assign:<the targets>``, or ``string``
+  anywhere else; so an entry allows one exact constant in one place, and the same constant passed
+  on, sliced or partitioned is refused. A string that is a whole statement (a docstring) is not
+  judged for dunders: nothing in ``src`` may read it back (``inspect``, ``pydoc`` and ``__doc__``
+  are refused), and it is still judged for the token's names and the context module;
 - ``keyword``: a keyword argument; ``match``: a ``match`` class-pattern keyword (``case
   object(__globals__=g)`` reads the attribute); ``import``: a part of an imported name or its
   ``as`` name; ``global``: a ``global`` or ``nonlocal`` declaration.
@@ -41,8 +44,10 @@ from dataclasses import dataclass
 
 DUNDER = re.compile(r"__\w+__")
 SEGMENT = re.compile(r"\w+")
-# ``ownvitals.context`` followed by an attribute path (``.``) or ``pkgutil``'s ``:``.
-CONTEXT_PATH = re.compile(r"\bownvitals\.context[.:]")
+# The module ``ownvitals.context`` in any string, ``pkgutil``'s colon spellings included
+# (``"ownvitals:context"``, ``"ownvitals.context:_ISSUER"``); ``"ownvitals.contexts"`` is
+# another name.
+CONTEXT_PATH = re.compile(r"\bownvitals[.:]context\b")
 WRITE = "write"
 ATTRIBUTE_SETTERS = {"setattr", "delattr"}
 ATTRIBUTE_GETTERS = {"getattr", "hasattr"}
@@ -69,7 +74,9 @@ ALLOWED: dict[str, Allowed] = {
         "a module's or a function's name, for loggers and `__main__` checks",
         _forms("read", "name"),
     ),
-    "__main__": Allowed("the `if __name__ == '__main__'` entry points", _forms("string")),
+    "__main__": Allowed(
+        "the `if __name__ == '__main__'` entry points", _forms("compare:__name__ == '__main__'")
+    ),
     "__all__": Allowed("a package's public names", _forms("define")),
     "__init__": Allowed(
         "`super().__init__(...)`; guard 5's hook rule refuses every other use", _forms("read")
@@ -92,7 +99,9 @@ ALLOWED: dict[str, Allowed] = {
         _modules("egress/hook.py"),
     ),
     "__new__": Allowed(
-        "the audit event name `socket.__new__`", _forms("string"), _modules("egress/hook.py")
+        "the audit event name `socket.__new__`",
+        _forms("compare:event == 'socket.__new__'"),
+        _modules("egress/hook.py"),
     ),
     "__setattr__": Allowed(
         "`object.__setattr__(self, ...)` in a frozen dataclass's `__post_init__`; guard 5's "
@@ -102,12 +111,12 @@ ALLOWED: dict[str, Allowed] = {
     ),
     "__NAMES__": Allowed(
         "a placeholder in SQL text, replaced before the query runs",
-        _forms("string"),
+        _forms("assign:QUEUE_QUERY"),
         _modules("db/queue_check.py"),
     ),
     "__SQL_TEXT_BUILTINS__": Allowed(
         "a placeholder in SQL text, replaced before the query runs",
-        _forms("string"),
+        _forms("assign:QUEUE_QUERY"),
         _modules("db/queue_check.py"),
     ),
 }
@@ -128,10 +137,25 @@ def _text(node: ast.AST) -> str | None:
 
 
 def _string_forms(tree: ast.AST) -> tuple[set[int], dict[int, str]]:
-    """The ids of the inert strings (a whole statement), and the form of each string that is
-    the name argument of ``setattr``/``delattr`` (``write``) or ``getattr``/``hasattr``."""
+    """The ids of the inert strings (a whole statement), and the form of every other string:
+
+    - ``write``: the name argument of ``setattr``/``delattr``;
+    - ``getattr:<the call>``: the name argument of ``getattr``/``hasattr``;
+    - ``compare:<the comparison>``: a direct operand of a comparison (``event ==
+      "socket.__new__"``);
+    - ``assign:<the targets>``: anywhere in the value of an assignment (``_SQL = "..."``);
+    - ``string``: anywhere else (passed on, sliced, partitioned).
+
+    So an entry pins a string to one exact constant in one syntactic position."""
     inert: set[int] = set()
     forms: dict[int, str] = {}
+
+    def mark(root: ast.AST, form: str) -> None:
+        for sub in ast.walk(root):
+            if _text(sub) is not None:
+                forms.setdefault(id(sub), form)
+
+    # The most specific position first: ``setdefault`` keeps the first form a string gets.
     for node in ast.walk(tree):
         if isinstance(node, ast.Expr) and _text(node.value) is not None:
             inert.add(id(node.value))
@@ -141,17 +165,25 @@ def _string_forms(tree: ast.AST) -> tuple[set[int], dict[int, str]]:
             if called in ATTRIBUTE_SETTERS:
                 forms[id(node.args[1])] = WRITE
             elif called in ATTRIBUTE_GETTERS:
-                forms[id(node.args[1])] = f"getattr:{ast.unparse(node)}"
+                forms.setdefault(id(node.args[1]), f"getattr:{ast.unparse(node)}")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare):
+            for operand in (node.left, *node.comparators):
+                if _text(operand) is not None:
+                    forms.setdefault(id(operand), f"compare:{ast.unparse(node)}")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            mark(node.value, f"assign:{' = '.join(ast.unparse(t) for t in node.targets)}")
     return inert, forms
 
 
-def strings(tree: ast.AST) -> Iterator[tuple[ast.AST, str]]:
-    """Every judged ``str``/``bytes`` constant with its text (docstrings and other inert
-    statement strings aside)."""
+def strings(tree: ast.AST, *, inert_too: bool = False) -> Iterator[tuple[ast.AST, str]]:
+    """Every ``str``/``bytes`` constant with its text; docstrings and other strings that are a
+    whole statement only with ``inert_too``."""
     inert, _ = _string_forms(tree)
     for node in ast.walk(tree):
         text = _text(node)
-        if text is not None and id(node) not in inert:
+        if text is not None and (inert_too or id(node) not in inert):
             yield node, text
 
 
@@ -214,10 +246,11 @@ def dunder_findings(tree: ast.AST, module: str | None) -> list[tuple[int, str]]:
 
 
 def string_findings(tree: ast.AST, token_names: set[str]) -> list[tuple[int, str]]:
-    """Strings with a segment that is one of the token's names, or a path into
-    ``ownvitals.context`` (``"ownvitals.context:_ISSUER"``, ``"ownvitals.context.require"``)."""
+    """Strings, docstrings included (``inspect`` reads them back), with a segment that is one of
+    the token's names, or naming the module ``ownvitals.context`` (``"ownvitals:context"``,
+    ``"ownvitals.context:_ISSUER"``)."""
     found: list[tuple[int, str]] = []
-    for node, text in strings(tree):
+    for node, text in strings(tree, inert_too=True):
         line = getattr(node, "lineno", 0)
         if any(segment in token_names for segment in SEGMENT.findall(text)):
             found.append((line, "a string naming the issuer token"))

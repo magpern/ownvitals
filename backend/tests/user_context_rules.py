@@ -25,6 +25,10 @@ annotations included:
 - an ``issuer=`` keyword in any call, and a ``**`` argument that spells ``"issuer"`` anywhere in
   it (``**{"issuer": t}``, ``**{k: t for k in ["issuer"]}``, ``**dict([("issuer", t)])``,
   ``**({} | {"issuer": t})``): only the issuer modules pass the token;
+- ``inspect`` and ``pydoc`` as an import (any alias or ``from`` form), a name, an attribute or a
+  string (``importlib.import_module("inspect")``): ``inspect.getdoc``, ``inspect.getcomments``
+  and ``pydoc.getdoc`` turn a docstring or a comment into a value, so a dunder or a path written
+  there would run (``pkgutil.resolve_name(inspect.getdoc(h))``);
 - ``copyreg`` as an import, a name, an attribute or a string: ``copyreg.__newobj__(K)`` makes a
   blank context without the token.
 
@@ -47,7 +51,9 @@ PACKAGE = "ownvitals"
 # Never named: ``__globals__`` leads to the token; ``__kwdefaults__`` and
 # ``__defaults__`` would make it a default (``K.__init__.__kwdefaults__["issuer"] = tok``);
 # ``copyreg`` builds a blank instance without calling ``__init__``.
-NEVER_NAMED = {"__globals__", "__kwdefaults__", "__defaults__", "copyreg"}
+# ``inspect`` and ``pydoc`` read docstrings and comments back as values.
+SOURCE_READERS = {"inspect", "pydoc"}
+NEVER_NAMED = {"__globals__", "__kwdefaults__", "__defaults__", "copyreg", *SOURCE_READERS}
 # ``sys.modules`` methods that take a module name.
 MODULES_LOOKUPS = {"get", "pop", "setdefault"}
 # ``importlib.import_module`` under any spelling: only with a literal module name.
@@ -86,11 +92,15 @@ def _import_finding(node: ast.Import | ast.ImportFrom) -> str | None:
         for alias in node.names:
             if _within(alias.name, "copyreg"):
                 return "import of copyreg"
+            if any(_within(alias.name, module) for module in SOURCE_READERS):
+                return f"import of {alias.name}"
             if _within(alias.name, CONTEXT_MODULE) and alias.asname:
                 return f"import of the module {CONTEXT_MODULE}"
         return None
     if _within(node.module, "copyreg"):
         return "import of copyreg"
+    if any(_within(node.module, module) for module in SOURCE_READERS):
+        return f"import from {node.module}"
     if node.module == "builtins" and any(a.name in CODE_BUILTINS for a in node.names):
         return "import of eval, exec or compile"
     if any(a.name == "*" for a in node.names) and (node.level > 0 or _within(node.module, PACKAGE)):
