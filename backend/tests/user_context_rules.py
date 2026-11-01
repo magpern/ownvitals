@@ -6,10 +6,14 @@ annotations included:
 - the attribute, name or string ``__globals__``, ``__kwdefaults__`` and ``__defaults__``: a
   function's globals hold the issuer token (``require_context.__globals__``), and a default can
   pass it;
-- ``sys.modules`` looked up by a computed key (``sys.modules[f.__module__]``,
-  ``sys.modules.get(name)``): ``f.__module__`` names the module that holds the token. A literal
-  key is judged by the string rules (``"ownvitals.context"`` is refused). ``__module__`` itself
-  stays allowed: ``egress.hook`` compares an event loop's module by it;
+- ``__module__`` as an attribute, a name or a string, except an attribute that is a direct
+  operand of a comparison (``==``, ``!=``, ``in``, ``not in``, ``is``, ``is not``):
+  ``f.__module__`` names the module that holds the token, and ``importlib.import_module``,
+  ``__import__`` or ``sys.modules`` turn the name into the module. A comparison only yields a
+  bool (``egress.hook`` checks an event loop's module with ``in``);
+- ``sys.modules`` looked up by a computed key (``sys.modules[name]``,
+  ``sys.modules.get(name)``): a second line against a module name built some other way. A literal
+  key is judged by the string rules (``"ownvitals.context"`` is refused);
 - the module object ``ownvitals.context``: every import that binds it (``import
   ownvitals.context as c``, ``from ownvitals import context``, a relative ``from .. import
   context``), ``ownvitals.context`` reached as an attribute of the package outside a type
@@ -48,6 +52,9 @@ PACKAGE = "ownvitals"
 NEVER_NAMED = {"__globals__", "__kwdefaults__", "__defaults__", "copyreg"}
 # ``sys.modules`` methods that take a module name.
 MODULES_LOOKUPS = {"get", "pop", "setdefault"}
+# Read only as a direct comparison operand: it names the module that holds the token.
+MODULE_NAME = "__module__"
+COMPARISONS = (ast.Eq, ast.NotEq, ast.In, ast.NotIn, ast.Is, ast.IsNot)
 # Builtins that run code given as a string.
 CODE_BUILTINS = {"eval", "exec", "compile"}
 BUILTINS_MODULES = {"builtins", "__builtins__"}
@@ -159,6 +166,16 @@ def _modules_by_computed_key(node: ast.AST, modules: set[str]) -> bool:
     )
 
 
+def _compared(tree: ast.AST) -> set[int]:
+    """The ids of the direct operands of comparisons whose operators are all equality,
+    membership or identity tests."""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare) and all(isinstance(op, COMPARISONS) for op in node.ops):
+            ids |= {id(operand) for operand in (node.left, *node.comparators)}
+    return ids
+
+
 def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]:
     """What these rules refuse in ``tree``, annotations included (they run on 3.12).
     ``annotation_nodes`` are the ids of the nodes inside type annotations, where the package
@@ -167,6 +184,7 @@ def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]
     package = _package_names(tree)
     builtins = _builtins_names(tree)
     modules = _sys_modules_names(tree)
+    compared = _compared(tree)
     for node in ast.walk(tree):
         if _modules_by_computed_key(node, modules):
             found.append((getattr(node, "lineno", 0), "sys.modules looked up by a computed key"))
@@ -184,6 +202,14 @@ def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]
                 found.append((node.lineno, why))
         elif isinstance(node, ast.Call) and passes_issuer(node):
             found.append((node.lineno, "an issuer= keyword outside the issuer modules"))
+        elif isinstance(node, ast.Name) and node.id == MODULE_NAME:
+            found.append((node.lineno, f"use of {MODULE_NAME}"))
+        elif (
+            isinstance(node, ast.Attribute)
+            and node.attr == MODULE_NAME
+            and id(node) not in compared
+        ):
+            found.append((node.lineno, f"use of {MODULE_NAME} outside a comparison"))
         elif isinstance(node, ast.Name) and node.id in NEVER_NAMED:
             found.append((node.lineno, f"use of {node.id}"))
         elif isinstance(node, ast.Attribute) and node.attr in NEVER_NAMED:
@@ -197,7 +223,7 @@ def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]
         ):
             found.append((node.lineno, f"use of the module {CONTEXT_MODULE}"))
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if node.value in NEVER_NAMED:
+            if node.value in NEVER_NAMED or node.value == MODULE_NAME:
                 found.append((node.lineno, f"string {node.value!r}"))
             elif node.value in MODULE_STRINGS:
                 found.append((node.lineno, f"string naming the module {CONTEXT_MODULE}"))

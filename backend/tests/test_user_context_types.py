@@ -8,14 +8,18 @@ each refused case has a near miss of the same shape that stays allowed."""
 import ast
 import symtable
 import typing
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import pytest
 
 from ctx import make_context
 from ownvitals.context import require_context
 from user_context_scan import scan_source
-from user_context_types import _binding_sites, _rebound_in_a_scope  # pyright: ignore[reportPrivateUsage]
+from user_context_types import (  # pyright: ignore[reportPrivateUsage]
+    _binding_sites,
+    _rebound_in_a_scope,
+    typing_names,
+)
 
 
 # The review's two forgeries: a string nested in a generic is evaluated by get_type_hints.
@@ -295,6 +299,16 @@ BINDINGS: dict[str, tuple[str, str]] = {
         TYPING + f'def g(x: Annotated["{SETTER}", 1]): ...\n',
         TYPING + 'def g(x: Annotated["int", 1]): ...\n',
     ),
+    # A star import binds names neither symtable nor the AST sees (a synthetic module exporting
+    # ``Literal = list`` or ``t``), so after one no spelling of typing's names is trusted.
+    "a star import after typing's Literal": (
+        L + 'from synthetic_lib import *\ndef g(x: Literal["a"]): ...\n',
+        L + 'from typing import *\ndef g(x: Literal["a"]): ...\n',
+    ),
+    "a star import after the typing alias": (
+        'import typing as t\nfrom synthetic_lib import *\ndef g(x: t.Literal["a"]): ...\n',
+        'import typing as t\nfrom typing_extensions import *\ndef g(x: t.Literal["a"]): ...\n',
+    ),
     "the token's name in typing's Literal": (
         TYPING + "x: Literal['_ISSUER'] = None\n",
         TYPING + "x: Literal['_user'] = None\n",
@@ -310,6 +324,21 @@ def test_a_rebound_or_unresolved_literal_or_annotated_is_refused(refused: str, _
 @pytest.mark.parametrize(("_", "near"), BINDINGS.values(), ids=BINDINGS.keys())
 def test_typing_literal_and_annotated_stay_allowed(_: str, near: str) -> None:
     assert scan_source(near) == []
+
+
+@pytest.mark.parametrize(
+    ("star", "trusted"),
+    [
+        ("from synthetic_lib import *\n", set[str]()),
+        ("from .typing import *\n", set[str]()),  # the scan refuses it anyway (a relative star)
+        ("from typing import *\n", {"Literal"}),
+        ("from typing_extensions import *\n", {"Literal"}),
+    ],
+)
+def test_a_star_import_from_elsewhere_binds_every_name(star: str, trusted: set[str]) -> None:
+    source = "from typing import Literal\n" + star
+    table = symtable.symtable(source, "<test>", "exec")
+    assert typing_names(ast.parse(source), table, "Literal") == trusted
 
 
 def test_the_typing_alias_imported_again_from_another_module_is_not_typing() -> None:
@@ -328,6 +357,8 @@ REBINDINGS = {
     "a PEP 695 parameter": "def f[Literal](): ...\n",
     "del": "del Literal\n",
     "a def": "def Literal(): ...\n",
+    "a class": "class Literal: ...\n",
+    "a nested def": "def f():\n    def Literal(): ...\n",
 }
 
 
@@ -347,6 +378,36 @@ def test_symtable_sees_each_rebinding(rebinding: str) -> None:
 def test_the_ast_sees_each_rebinding(rebinding: str) -> None:
     sites = _binding_sites(ast.parse("from typing import Literal\n" + rebinding))
     assert len(sites["Literal"]) >= 2  # the import and the rebinding
+
+
+class _Symbol:
+    """A symbol that is only a namespace (``def``/``class``): CPython also marks those
+    assigned, so this pins that ``_rebound_in_a_scope`` asks for namespaces on its own."""
+
+    def is_parameter(self) -> bool:
+        return False
+
+    def is_assigned(self) -> bool:
+        return False
+
+    def is_namespace(self) -> bool:
+        return True
+
+
+class _Table:
+    def get_children(self) -> list["_Table"]:
+        return []
+
+    def lookup(self, name: str) -> _Symbol:
+        if name != "Literal":
+            raise KeyError(name)
+        return _Symbol()
+
+
+def test_a_namespace_alone_is_a_rebinding() -> None:
+    table = cast(symtable.SymbolTable, _Table())
+    assert _rebound_in_a_scope(table, "Literal")
+    assert not _rebound_in_a_scope(table, "other")
 
 
 def test_an_import_alone_is_no_rebinding() -> None:

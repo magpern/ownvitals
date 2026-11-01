@@ -194,10 +194,16 @@ never from a path, query, body or header. The same scan refuses, in every module
   K(uid, "admin", issuer=tok)` builds an admin context. So the scan refuses:
   - `__globals__`, `__kwdefaults__` and `__defaults__` as an attribute, a name or a string
     (`require_context.__globals__`, `K.__init__.__kwdefaults__["issuer"] = tok`);
-  - `sys.modules` looked up by a computed key (`sys.modules[f.__module__]`,
-    `sys.modules.get(name)`, any alias of `sys` or `modules`): `f.__module__` names the module
-    that holds the token. A literal key is judged by the string rules. `__module__` itself is
-    allowed (`egress.hook` checks an event loop's module by it);
+  - `__module__` as an attribute, a name or a string, except an attribute that is a direct
+    operand of `==`, `!=`, `in`, `not in`, `is` or `is not`. `require_context.__module__` (or
+    `ctx.__class__.__module__`) names the module that holds the token, and
+    `importlib.import_module`, `__import__`, `sys.modules` under any name, `__getitem__` or a
+    copy (`dict(sys.modules)[...]`) turn it into the module. A comparison yields only a bool, so
+    `egress.hook`'s `type(loop).__module__ not in (...)` stays allowed; an f-string, an
+    assignment or an ordering comparison does not;
+  - `sys.modules` looked up by a computed key (`sys.modules[name]`, `sys.modules.get(name)`,
+    any alias of `sys` or `modules`), against a module name built some other way. A literal key
+    is judged by the string rules;
   - every import that binds the module object `ownvitals.context` (`import ownvitals.context as
     c`, `from ownvitals import context`, `from .. import context`), `ownvitals.context` as an
     attribute of the package outside a type annotation, and the strings `"ownvitals.context"`
@@ -258,7 +264,10 @@ library type (`mod._Hidden`) is too; if `src` ever needs one, it goes to the Arc
   lambda parameter, assignment, deletion, `except ... as`, `match` capture, walrus, PEP 695 type
   parameter, `global` assignment, `def` or `class` in any scope) and the AST's binding sites
   (the same forms plus comprehension variables, which 3.12's `symtable` folds away, any other
-  import, and `global`/`nonlocal` declarations).
+  import, and `global`/`nonlocal` declarations). A star import from any module other than
+  `typing` or `typing_extensions` (relative ones included) binds names neither view sees, so it
+  counts as a binding of every name: after `from somelib import *` no spelling of `Literal`,
+  `Annotated` or `TypeAlias` resolves.
 - **A misread exemption fails closed** (#89, the sixth #115 review): a subscript named `Literal`
   or `Annotated`, by its last name part or as an imported alias of either, that doesn't resolve
   to `typing`'s as above is refused, never read as a plain generic. A `def make(Literal):` whose
@@ -308,7 +317,9 @@ leaves to the review gate. Known limits:
   the like are reflection under the threat model. Among them:
   - a plain string alias used as a type: `S = "getattr(...)"` (or `S = list["..."]`) without a
     `TypeAlias` annotation, then `def g(x: list[S])`; also `TypeVar("T", bound="...")` and
-    `NewType("N", "...")`. The string is written outside an annotation position;
+    `NewType("N", "...")`, and a `ForwardRef` built outside an annotation (`F =
+    typing.ForwardRef("...")`, then `def g(x: Literal[F])`: `get_type_hints` evaluates `F`
+    inside the `Literal`). The string is written outside an annotation position;
   - `eval`, `exec` and `compile` reached without their names: `getattr(builtins, "eval")`,
     `vars(builtins)["eval"]`, `builtins.__dict__["eval"]`, `sys.modules["builtins"].eval`,
     `importlib.import_module("builtins")`, `__import__("builtins")`, and other evaluators of

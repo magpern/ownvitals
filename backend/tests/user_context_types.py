@@ -105,12 +105,27 @@ def _rebound_in_a_scope(table: symtable.SymbolTable, name: str) -> bool:
     return False
 
 
+def _foreign_star_import(tree: ast.AST) -> bool:
+    """``from <module> import *`` from a module other than ``typing`` or
+    ``typing_extensions``."""
+    return any(
+        isinstance(node, ast.ImportFrom)
+        and any(alias.name == "*" for alias in node.names)
+        and (node.level > 0 or node.module not in TYPING_MODULES)
+        for node in ast.walk(tree)
+    )
+
+
 def typing_names(tree: ast.AST, table: symtable.SymbolTable, name: str) -> set[str]:
     """The module's spellings of ``typing.<name>``: imported from ``typing`` or
     ``typing_extensions`` under any alias (``from typing import Annotated as A``; ``import typing
     as t`` gives ``t.Annotated``). A spelling counts only if every binding of its root, in every
     scope, is that import: ``symtable`` (parameters, assignments, ``def``/``class``) and the
-    AST's binding sites (every form, comprehension variables and ``global`` included) agree."""
+    AST's binding sites (every form, comprehension variables and ``global`` included) agree.
+    A star import from any other module binds names neither view sees, so it counts as a
+    binding of every name: the module then has no spelling of ``typing.<name>``."""
+    if _foreign_star_import(tree):
+        return set()
     sites = _binding_sites(tree)
     found: set[str] = set()
 

@@ -221,9 +221,46 @@ RULES: dict[str, tuple[dict[str, str], dict[str, str]]] = {
             "the word as a value": body("return config['issuer']"),
         },
     ),
+    # The seventh #115 review's routes: each turns the name of the module that holds the token
+    # into the module. A comparison only yields a bool.
+    "__module__ outside a comparison": (
+        {
+            "import_module": body(
+                "import importlib",
+                "m = importlib.import_module(require_context.__module__)",
+                "return [v for v in vars(m).values() if type(v) is object]",
+            ),
+            "__import__": body("return __import__(require_context.__module__, fromlist=['x'])"),
+            "sys.modules bound to a name": body(
+                "import sys", "mods = sys.modules", "return mods[require_context.__module__]"
+            ),
+            "sys.modules.__getitem__": body(
+                "import sys", "return sys.modules.__getitem__(require_context.__module__)"
+            ),
+            "a copy of sys.modules": body(
+                "import sys", "return dict(sys.modules)[require_context.__module__]"
+            ),
+            "the context's class": body(
+                "import importlib", "return importlib.import_module(ctx.__class__.__module__)"
+            ),
+            "bound to a name": body("name = K.__module__", "return name"),
+            "in an f-string": body("return f'{K.__module__}'"),
+            "an ordering comparison": body("return K.__module__ < 'p'"),
+            "getattr with the string": body("return getattr(K, '__module__')"),
+            "the class-body name": "class C:\n    where = __module__\n",
+        },
+        {
+            "==": body("return type(loop).__module__ == 'asyncio'"),
+            "!=": body("return type(loop).__module__ != 'asyncio'"),
+            "in a set": body("return x.__module__ in {'asyncio', 'uvloop'}"),
+            "not in": body("return type(loop).__module__ not in MODULES"),
+            "is": body("return x.__module__ is None"),
+            "is not, on the right": body("return None is not x.__module__"),
+        },
+    ),
     "sys.modules by a computed key": (
         {
-            "__module__ as the key": body("import sys", "return sys.modules[f.__module__]"),
+            "a name as the key": body("import sys", "return sys.modules[name]"),
             "get with a name": body("import sys", "return sys.modules.get(name)"),
             "an aliased sys": body("import sys as s", "return s.modules[name]"),
             "from sys import modules": body("from sys import modules as m", "return m.pop(name)"),
