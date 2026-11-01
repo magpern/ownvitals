@@ -60,7 +60,7 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md`, `docs/dev/deploy.md` | #124 |
 | `backend/src/ownvitals/connections/**`, `backend/src/ownvitals/keys_cli.py`, `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/web.py`, `backend/src/ownvitals/auth/owners.py`, `docs/dev/connections.md`, migration `0007` | #13 |
 | `e2e/**`, `compose.e2e.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `scripts/ci-gate.sh`, `scripts/test-ci-gate.sh`, `.github/dependabot.yml`, `docs/dev/e2e.md` | #14 |
-| `docs/status.md`, `docs/status/completed.md`, `docs/status/decisions-log.md` | the status reconcile after #147 |
+| `docs/status.md`, `docs/status/completed.md`, `docs/status/decisions-log.md` | #148 |
 | `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | — (#129 released them). #13 holds `web.py` for the connections install |
 | `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md`, `docs/adr/README.md` | — (#139 released them) |
 | `.codex/**` | — (#131 released it) |
