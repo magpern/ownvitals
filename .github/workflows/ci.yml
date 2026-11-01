@@ -285,8 +285,12 @@ jobs:
           uv run alembic upgrade head
           pgpass="$RUNNER_TEMP/pgpass"
           (umask 077 && printf '127.0.0.1:5432:ownvitals:postgres:%s\n' "$PGPASSWORD" > "$pgpass")
+          # The runner refuses every PG* variable but PGPASSFILE: the step's (and the runner
+          # image's, if any) are dropped for it.
+          mapfile -t no_pg < <(compgen -e | grep '^PG' | sed 's/^/-u/')
           for _ in 1 2; do
-            env -u PGPASSWORD PGPASSFILE="$pgpass" uv run python -m ownvitals.db.install_functions \
+            env "${no_pg[@]}" PGPASSFILE="$pgpass" \
+              uv run python -m ownvitals.db.install_functions \
               "host=127.0.0.1 port=5432 dbname=ownvitals user=postgres" \
               ../docker/postgres/queue/20-queue.sql
           done
