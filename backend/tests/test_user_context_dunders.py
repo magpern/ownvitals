@@ -205,6 +205,21 @@ def test_only_in_is_honoured() -> None:
     assert scan_source(source, "ownvitals/web.py") != []
 
 
+def test_slots_are_a_class_body_definition_only_in_admin_db() -> None:
+    """``__slots__`` is a Store in ``admin/db.py``. Another module, or a load of the name, fails."""
+    defined = "class Actor:\n    __slots__ = ('email',)\n"
+    assert scan_source(defined, "ownvitals/admin/db.py") == []
+    elsewhere = scan_source(defined, "ownvitals/web.py")
+    assert elsewhere != []
+    assert beyond_the_allow_list(elsewhere) == []
+    loaded = scan_source("value = __slots__\n", "ownvitals/admin/db.py")
+    assert loaded != []
+    assert beyond_the_allow_list(loaded) == []
+    read = scan_source("value = Actor.__slots__\n", "ownvitals/admin/db.py")
+    assert read != []
+    assert beyond_the_allow_list(read) == []
+
+
 def _src_dunders() -> dict[str, tuple[set[str], set[str]]]:
     """Each dunder ``src`` names (issuer modules aside): its forms, and the modules naming it."""
     used: dict[str, tuple[set[str], set[str]]] = {}

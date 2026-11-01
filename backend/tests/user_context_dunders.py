@@ -188,6 +188,11 @@ ALLOWED: dict[str, Allowed] = {
         _forms("read"),
         _modules("analysis/methods/series.py", "analysis/quality.py"),
     ),
+    "__slots__": Allowed(
+        "a class declares its fields",
+        _forms("define"),
+        _modules("admin/db.py"),
+    ),
     "__NAMES__": Allowed(
         "a placeholder in SQL text, replaced before the query runs",
         _forms("assign:QUEUE_QUERY"),

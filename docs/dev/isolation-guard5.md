@@ -102,7 +102,10 @@ A comparison is no exception: `x.__module__ == r` calls `r.__eq__` with the name
 returns `NotImplemented`, and `x.__module__ in r` calls `r.__contains__` (a list compares each
 element), so the other operand receives the value. Defining a dunder method or parameter
 (`def __eq__(self, other)`) names no attribute and stays allowed; assigning one in a class body
-(`__eq__ = list.append`) does not.
+(`__eq__ = list.append`) does not. `__slots__` is the one class-body assignment on the list:
+the define form (a Store of that name), and only in `admin/db.py`, because a class declares
+its fields. Defining it in another module, loading it as a name, or reading it as an attribute
+is refused.
 
 The exceptions, each with its reason, are exactly what `src` uses today (the issuer modules
 aside, which are not scanned); a name used in one module is allowed only there.
@@ -124,6 +127,7 @@ aside, which are not scanned); a name used in one module is allowed only there.
 | `__code__` | `getattr(socket.socketpair, "__code__", None)` only | `egress/hook.py` | recognising `socket.socketpair`'s own code |
 | `__new__` | the comparison `event == "socket.__new__"` in `_audit(event, ...)`; docstring | `egress/hook.py` | the audit event name `"socket.__new__"` |
 | `__setattr__` | attribute read | `analysis/methods/series.py`, `analysis/quality.py` | the frozen-dataclass idiom in `__post_init__`; the idiom rule in isolation.md refuses any other use |
+| `__slots__` | definition (a class-body Store of the name) | `admin/db.py` | a class declares its fields |
 | `__NAMES__`, `__SQL_TEXT_BUILTINS__` | the assignment `QUEUE_QUERY = ...` | `db/queue_check.py` | placeholders in SQL text, replaced before the query runs |
 
 An exception lifts only this rule: the rules in [isolation.md](isolation.md) still judge the same name. A new use of a
