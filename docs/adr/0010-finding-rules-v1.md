@@ -1,6 +1,6 @@
 # ADR 0010: v1 finding rules: parameters, definitions, confidence
 
-Status: Proposed (#110). Architect's decisions of 2026-11-01 on the first pass are recorded in the
+Status: Accepted (2026-11-01, #112; proposed in #110). Architect's decisions of 2026-11-01 on the first pass are recorded in the
 issue and applied here. The test specification is
 [0010-finding-rules-v1-tests.md](0010-finding-rules-v1-tests.md), part of this ADR; the sources
 are listed at its end. Roadmap Amendment 3 (`findings.tier` gains `system`) has this ADR as its ADR.
@@ -81,8 +81,9 @@ Both bands use the **median** and the **scaled MAD**, `scale = max(1.4826 · MAD
   ratio 0.35 %, muscle mass 0.3 kg, visceral fat index 0.5, heart pulse 2 bpm. Every other metric
   uses one display step (our choice): 0.1 kg for fat-free mass and body water; 1 for metabolic
   and vascular age (years), QTc and QRS (ms), the nerve scores and ESC (µS). On integer-valued
-  metrics with a constant window, a step of one display unit then already crosses the finding
-  threshold (*w* is the floor of both), a consequence of using one *w*.
+  metrics with a constant window, "above" is strict: one unit above the median reaches the finding
+  threshold (the finding band's edge) without exceeding it, and two units fire. The displayed band
+  and the finding band then coincide (*w* is the floor of both), a consequence of using one *w*.
 - **A finding value is always outside the displayed band**: same median, same *w*, larger k, so
   the finding half-width is never smaller.
 
@@ -131,7 +132,7 @@ values (one-sided), and on about 3 % with heavy tails.
   fires while one is active updates it: `window` grows to the new window's end, `evidence`,
   `confidence`, `data_quality`, provenance and `last_seen` are the latest firing's; its reference
   day and band (§2) stay. The first evaluation of the subject that doesn't fire (or is
-  insufficient data) **ends** it (`status` ended); a later firing opens a new episode. A recompute
+  insufficient data; for a trend-test rule see the persistence rule below) **ends** it (`status` ended); a later firing opens a new episode. A recompute
   after a data revision (PLAN §5) re-derives episodes; one with the same rule, subject and
   reference day keeps its `first_seen` and origin.
 - **Origin** is a pure function `origin(window_end, today)`: `live` if
@@ -149,7 +150,9 @@ values (one-sided), and on about 3 % with heavy tails.
   this one, those days span **at least 21 calendar days** (first and last included), and there
   were **at least 6 evaluations**. A day without data neither counts nor breaks the run; a day
   with insufficient data breaks it. An open episode **ends** after **7 calendar days** in which
-  every evaluation failed (at least one evaluation in them). The episode's window starts at the
+  every evaluation failed (at least one evaluation in them). An evaluation with insufficient data,
+  while deciding whether to end an open episode, counts as failed, consistent with "insufficient
+  data breaks the run". The episode's window starts at the
   window start of the run's first evaluation, and its origin is computed when it opens. Why 21:
   with 14 the false-episode rate at φ 0.6 was 15 % of years, over the Architect's 10 % bound; 21
   gives 6 to 9 % with daily data (Consequences). For daily measurers the calendar count equals 21
@@ -236,14 +239,16 @@ the flag.
 | Rule | Tier | Inputs | Method and parameters | Threshold source | Confidence | Severity |
 |---|---|---|---|---|---|---|
 | C1 | trend | `heart_pulse` (11), daily value | A run (§3) ending at *d* where each day's value is **≥ median + 10 bpm** and **above the display high**, median and band over the 90 days before the run's first day (BASELINE policy). Wording: "10 bpm or more above your usual level, the middle of your typical range" (the mock-up's) | PLAN §7.2, own history | D, R | attention |
-| C1x | experimental | same | A run (§3) where each day's value is **below 50 bpm** or each is **above 100 bpm** (one direction per episode) | sinus bradycardia < 50 bpm (Kusumoto et al. 2019, ACC/AHA/HRS 2018); sinus tachycardia > 100 bpm (Page et al. 2016, ACC/AHA/HRS 2015, confirmed through the ACC's published summary of it; the primary full text was not reviewed). Defined on the ECG sinus rate at rest; here applied to a reported pulse, one reason it stays experimental | R | attention |
+| C1x | experimental | same | A run (§3) where each day's value is **below 50 bpm** or each is **above 100 bpm** (one direction per episode) | sinus bradycardia < 50 bpm (Kusumoto et al. 2019, ACC/AHA/HRS 2018); sinus tachycardia > 100 bpm (Page et al. 2016, ACC/AHA/HRS 2015, confirmed through two published summaries of it: the AHA's, https://professional.heart.org/en/science-news/guideline-for-the-management-of-adult-patients-with-supraventricular-tachycardia/top-things-to-know, which reads "> 100 bpm at rest", and the ACC's, whose page blocks automated fetches; the primary full text was not reviewed). Defined on the ECG sinus rate at rest; here applied to a reported pulse, one reason it stays experimental | R | attention |
 | C2 | trend | `vascular_age` (155) | "rising" (§3) on y = VA − (day − 1970-01-01)/365.25: vascular age minus age rising. The birth year only shifts y by a constant, so it is not needed. The score-card part is not in v1 (§8) | own history | D, T | attention |
 
 `C1x` is the `rule_id` of C1's experimental part, so the two tiers are separate findings. Its
 > 100 bpm bound is **the one exception** to the rule that an experimental threshold without a
-verified primary source is not in v1 (Architect, 2026-11-01): it is confirmed by the guideline's
-co-publishing society's summary, and a rate above 100 bpm is the standard bound of sinus
-tachycardia, as the bradycardia guideline (Kusumoto et al. 2019) also uses it.
+verified primary source is not in v1 (Architect, 2026-11-01): it is confirmed by the summaries of
+the guideline's co-publishing societies (the AHA's and the ACC's), and a rate above 100 bpm is the
+standard bound of sinus tachycardia. (Kusumoto et al. 2019 uses 100 bpm only as an atrial-rate
+bound in its heart-block definitions; it does not define sinus tachycardia and is not a source for
+this bound.)
 
 **System** (tier `system`, roadmap Amendment 3)
 
@@ -295,7 +300,7 @@ tachycardia, as the bradycardia guideline (Kusumoto et al. 2019) also uses it.
   window evaluated daily for 365 days, no change, 300 years per row): about 2 % of evaluations
   call a rise, and without persistence **59 to 66 % of years have at least one false "rising"
   episode** per metric and direction. With the persistence rule of §4 (21 consecutive
-  evaluations) it is **4.3 % at φ 0 and 6.3 % at φ 0.6**; 14 would have given 11 % and 15 %.
+  evaluations, which equals §4's 21-calendar-day rule only for daily data) it is **4.3 % at φ 0 and 6.3 % at φ 0.6**; 14 would have given 11 % and 15 %.
   The calendar-day form of §4 (a second run, 200 years per row, its own seeds) gives 4.5 % and
   8.5 % with daily data (the same rule, within the Monte Carlo error of about 2 points), 2.5 %
   and 7.5 % with data on 70 % of days. For a **weekly** nerve cadence (N3: the 90- or 180-day
