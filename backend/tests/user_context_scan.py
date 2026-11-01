@@ -27,10 +27,10 @@
   ``type(ctx).__mro__[-1].__setattr__``, and a slot descriptor's ``__set__`` or ``__delete__``
   (``type(ctx).role.__set__(ctx, "admin")``, also after ``d = K.role``) writes a field directly.
 
-- (#89) the attribute, name or string ``__globals__`` (a function's globals hold the issuer
-  token); an ``issuer=`` keyword, also as a ``**{"issuer": ...}`` literal (only the issuer
-  modules, which are not scanned, pass the token); and ``copyreg`` as an import, a name, an
-  attribute or a string (``copyreg.__newobj__(K)`` makes a blank context without the token).
+- (#89, ``user_context_rules``) ``__globals__``, ``__module__``, the module object
+  ``ownvitals.context`` (imports, the package attribute, the strings for ``sys.modules`` and
+  ``importlib``), an ``issuer=`` keyword or a ``**`` argument spelling ``"issuer"``, and
+  ``copyreg``: the other routes to the issuer token or to a blank instance.
 
 One exception (Architect, 2026-10-31): the frozen-dataclass idiom ``object.__setattr__(self,
 "field", value)`` written directly in the undecorated ``__post_init__(self, ...)`` method of a
@@ -60,6 +60,9 @@ review gate. ``docs/dev/isolation.md`` lists these limits.
 
 import ast
 
+from user_context_rules import CONTEXT_FIELDS
+from user_context_rules import findings as token_route_findings
+
 NAME = "UserContext"
 TOKEN_NAMES = {"issuer_token", "_ISSUER"}
 CONTEXT_MODULE = "ownvitals.context"
@@ -78,15 +81,7 @@ HOOKS = {"__init__", "__post_init__"}
 SUPER_ONLY = {*HOOKS, "__new__"}
 # Never named: each writes or deletes a field past the frozen class's own ``__setattr__``.
 WRITERS = {"__setattr__", "__delattr__", "__set__", "__delete__"}
-# Never named (#89): a function's globals reach the issuer token; ``copyreg`` builds a blank
-# instance without calling ``__init__``.
-NEVER_NAMED = {"__globals__", "copyreg"}
-REFUSED_STRINGS = {"__class__", *SUPER_ONLY, *WRITERS, *NEVER_NAMED}
-# The issuer token's keyword (``UserContext(..., issuer=...)``): only the issuer modules pass it.
-ISSUER_KEYWORD = "issuer"
-# ``UserContext``'s fields: the frozen-dataclass idiom never sets one of these names (#89).
-# ``test_user_context_writers.py`` pins this set to the class.
-CONTEXT_FIELDS = {"user_id", "role", "connections"}
+REFUSED_STRINGS = {"__class__", *SUPER_ONLY, *WRITERS}
 
 
 def _dotted(node: ast.AST) -> str | None:
@@ -364,30 +359,7 @@ def _super_hook_calls(tree: ast.AST) -> set[int]:
     return allowed
 
 
-def _passes_issuer(node: ast.Call) -> bool:
-    """``f(..., issuer=x)`` or ``f(..., **{"issuer": x})``."""
-    for keyword in node.keywords:
-        if keyword.arg == ISSUER_KEYWORD:
-            return True
-        if keyword.arg is None and isinstance(keyword.value, ast.Dict):
-            keys = keyword.value.keys
-            if any(isinstance(k, ast.Constant) and k.value == ISSUER_KEYWORD for k in keys):
-                return True
-    return False
-
-
-def _imports(node: ast.Import | ast.ImportFrom, module: str) -> bool:
-    """``import module``, ``import module.x``, ``from module import ...`` (any alias)."""
-    if isinstance(node, ast.Import):
-        return any(a.name == module or a.name.startswith(f"{module}.") for a in node.names)
-    return node.module is not None and (
-        node.module == module or node.module.startswith(f"{module}.")
-    )
-
-
 def _forging_call(node: ast.Call) -> str | None:
-    if _passes_issuer(node):
-        return "an issuer= keyword outside the issuer modules"
     func = node.func
     if isinstance(func, ast.Attribute) and func.attr == "__class__":
         return "call of x.__class__(...)"
@@ -428,6 +400,7 @@ def scan_source(source: str) -> list[tuple[int, str]]:
                     found.append((node.lineno, f"import of {alias.name}"))
 
     found += _depends_findings(tree, aliases)
+    found += token_route_findings(tree, annotation_nodes)
     refused = _spellings(tree, ALWAYS_REFUSED) | (
         _spellings(tree, REFUSED_WITH_CONTEXT) if NAME in source else set()
     )
@@ -448,13 +421,7 @@ def scan_source(source: str) -> list[tuple[int, str]]:
     for node in ast.walk(tree):
         if id(node) in annotation_nodes:
             continue
-        if isinstance(node, ast.Import | ast.ImportFrom) and _imports(node, "copyreg"):
-            found.append((node.lineno, "import of copyreg"))
-        elif isinstance(node, ast.Name) and node.id in NEVER_NAMED:
-            found.append((node.lineno, f"use of {node.id}"))
-        elif isinstance(node, ast.Attribute) and node.attr in NEVER_NAMED:
-            found.append((node.lineno, f"use of {node.attr}"))
-        elif isinstance(node, ast.Name) and (node.id in aliases or node.id in TOKEN_NAMES):
+        if isinstance(node, ast.Name) and (node.id in aliases or node.id in TOKEN_NAMES):
             found.append((node.lineno, f"reference to {node.id}"))
         elif isinstance(node, ast.Attribute) and (node.attr == NAME or node.attr in TOKEN_NAMES):
             found.append((node.lineno, f"reference to {_dotted(node) or node.attr}"))

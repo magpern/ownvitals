@@ -1,14 +1,18 @@
 """Guard 6 of ADR 0002 section 7, continued (#89): a login the database refuses stops startup.
 
 Postgres refuses some logins outright at connect: a wrong password, a role that may not log in,
-no CONNECT privilege, or a connection option the role may not set. A non-superuser login with
+no CONNECT privilege, a connection option the role may not set, or a database name that does
+not exist. A non-superuser login with
 ``-c session_authorization=...`` in ``options`` or ``PGOPTIONS`` (the #81 review's N3) gets
 ``FATAL: permission denied to set session authorization`` (SQLSTATE 42501). Each of these is a
 configuration error: web, the queue check and the key ring refuse to start (``DatabaseRoleError``,
 or the key ring's ``OperationalError``) instead of reading it as a database that is down. Only a
 real connection failure (refused, a timeout, DNS, a server that is starting up) keeps the
-"unreachable, checked on first connection" path."""
+"unreachable, checked on first connection" path; a ``FATAL:`` answer the classifier doesn't
+recognise (a server that is starting up, or a refusal in another language) logs one warning
+without the message text."""
 
+import logging
 import secrets
 from collections.abc import Callable, Iterator
 
@@ -95,6 +99,10 @@ def role_option(url: str) -> str:
     return with_options(url, f"-c role={APP_ROLE}")
 
 
+def missing_database(url: str) -> str:
+    return make_url(url).set(database="guard_missing_" + PASSWORD).render_as_string(False)
+
+
 def wrong_password(url: str) -> str:
     return url_for(url, LOGIN, "wrong-" + PASSWORD)
 
@@ -108,6 +116,7 @@ REFUSALS: dict[str, tuple[tuple[str, ...], Callable[[str], str], str | None]] = 
     "no CONNECT privilege": (("REVOKE CONNECT ON DATABASE {db} FROM {login}",), no_options, None),
     "a role that may not log in": (("ALTER ROLE {login} NOLOGIN",), no_options, None),
     "a wrong password": ((), wrong_password, None),
+    "a database that does not exist": ((), missing_database, None),
 }
 
 
@@ -185,6 +194,7 @@ REFUSED_MESSAGES = {
     "pg_hba.conf": AT + 'FATAL:  no pg_hba.conf entry for host "127.0.0.1", user "x"',
     "pg_hba.conf reject": AT + 'FATAL:  pg_hba.conf rejects connection for host "127.0.0.1"',
     "no password": AT + "fe_sendauth: no password supplied",
+    "no such database": AT + 'FATAL:  database "ownvitals" does not exist',
 }
 UNREACHABLE_MESSAGES = {
     "connection refused": AT + "Connection refused (0x0000274D/10061)",
@@ -193,7 +203,6 @@ UNREACHABLE_MESSAGES = {
     "starting up": AT + "FATAL:  the database system is starting up",
     "shutting down": AT + "FATAL:  the database system is shutting down",
     "too many clients": AT + "FATAL:  sorry, too many clients already",
-    "no such database": AT + 'FATAL:  database "ownvitals" does not exist',
     "a socket's permissions": 'connection to server on socket "/run/postgresql/.s.PGSQL.5432" '
     "failed: Permission denied",
 }
@@ -204,7 +213,7 @@ def test_every_login_the_server_refuses_is_classified_as_refused(message: str) -
     assert is_authentication_failure(failure(message))
 
 
-@pytest.mark.parametrize("sqlstate", ["28000", "28P01", "42501"])
+@pytest.mark.parametrize("sqlstate", ["28000", "28P01", "42501", "3D000"])
 def test_a_refusal_sqlstate_is_classified_as_refused(sqlstate: str) -> None:
     assert is_authentication_failure(failure("refused", sqlstate))
 
@@ -213,3 +222,62 @@ def test_a_refusal_sqlstate_is_classified_as_refused(sqlstate: str) -> None:
 def test_a_real_connection_failure_stays_unreachable(message: str) -> None:
     assert not is_authentication_failure(failure(message))
     assert not is_authentication_failure(failure(message, "08006"))
+
+
+class FailingEngine:
+    """Stands in for an engine whose connect fails with ``message``."""
+
+    def __init__(self, message: str, sqlstate: str | None = None) -> None:
+        self.error = failure(message, sqlstate)
+
+    def connect(self) -> "FailingEngine":
+        return self
+
+    async def __aenter__(self) -> None:
+        raise self.error
+
+    async def __aexit__(self, *_: object) -> None:
+        return None
+
+
+async def deferral_records(
+    caplog: pytest.LogCaptureFixture, message: str, sqlstate: str | None = None
+) -> list[logging.LogRecord]:
+    """``verify_database_role`` defers (returns) on ``message``; the records it logged."""
+    with caplog.at_level(logging.DEBUG, logger="ownvitals.db.role_check"):
+        await verify_database_role(FailingEngine(message, sqlstate))  # pyright: ignore[reportArgumentType]
+    return [r for r in caplog.records if r.name == "ownvitals.db.role_check"]
+
+
+UNRECOGNISED_FATAL = {
+    "starting up": (UNREACHABLE_MESSAGES["starting up"], None, "unknown"),
+    "too many clients, with a SQLSTATE": (UNREACHABLE_MESSAGES["too many clients"], "53300", "53"),
+    "a refusal in German": (
+        AT + "FATAL:  Passwort-Authentifizierung für Benutzer »x« fehlgeschlagen",
+        None,
+        "unknown",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("message", "sqlstate", "klass"), UNRECOGNISED_FATAL.values(), ids=UNRECOGNISED_FATAL.keys()
+)
+async def test_an_unrecognised_fatal_answer_defers_with_one_warning_without_its_text(
+    caplog: pytest.LogCaptureFixture, message: str, sqlstate: str | None, klass: str
+) -> None:
+    records = await deferral_records(caplog, message, sqlstate)
+    assert [r.levelno for r in records] == [logging.WARNING]
+    line = records[0].getMessage()
+    assert f"SQLSTATE class {klass})" in line
+    assert "lc_messages" in line
+    assert message.split("FATAL:")[1].strip() not in line
+    assert "127.0.0.1" not in line
+
+
+@pytest.mark.parametrize("name", ["connection refused", "timeout", "DNS"])
+async def test_a_connection_failure_defers_at_debug_level_only(
+    caplog: pytest.LogCaptureFixture, name: str
+) -> None:
+    records = await deferral_records(caplog, UNREACHABLE_MESSAGES[name])
+    assert [r.levelno for r in records] == [logging.DEBUG]

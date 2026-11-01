@@ -209,12 +209,53 @@ RULES: dict[str, tuple[dict[str, str], dict[str, str]]] = {
             "functools.partial": body("import functools", "functools.partial(K, issuer=t)"),
             "a ** literal": body("return K(ctx.user_id, 'admin', **{'issuer': t})"),
             "dict(issuer=...)": body("return K(ctx.user_id, 'admin', **dict(issuer=t))"),
+            "a dict comprehension": body("return K(1, 'admin', **{k: t for k in ['issuer']})"),
+            "dict([...])": body("return K(1, 'admin', **dict([('issuer', t)]))"),
+            "a dict union": body("return K(1, 'admin', **({} | {'issuer': t}))"),
         },
         {
             "another keyword": body("return f(issuer_url=1, iss=2)"),
             "a ** literal without it": body("return f(**{'iss': 1})"),
             "a ** name": body("return f(**options)"),
+            "a ** comprehension without it": body("return f(**{k: 1 for k in ['iss']})"),
             "the word as a value": body("return config['issuer']"),
+        },
+    ),
+    "__module__": (
+        {
+            "the attribute": body("import sys", "return sys.modules[f.__module__]"),
+            "a string": body("return getattr(f, '__module__')"),
+        },
+        {"__name__": body("return f.__name__"), "a similar name": body("return f.__modules")},
+    ),
+    "the module ownvitals.context": (
+        {
+            "import as": "import ownvitals.context as c\n",
+            "from the package": "from ownvitals import context\n",
+            "from the package, aliased": "from ownvitals import context as c\n",
+            "relative": "from .. import context\n",
+            "relative, one level": "from . import context as c\n",
+            "the package attribute": "import ownvitals.db\nm = ownvitals.context\n",
+            "the package aliased": "import ownvitals as o\nm = o.context\n",
+            "sys.modules": body("import sys", "return sys.modules['ownvitals.context']"),
+            "sys.modules.get": body("import sys", "return sys.modules.get('ownvitals.context')"),
+            "import_module": body(
+                "import importlib", "return importlib.import_module('ownvitals.context')"
+            ),
+            "import_module, relative": body(
+                "import importlib", "return importlib.import_module('.context', 'ownvitals')"
+            ),
+            "__import__": body("return __import__('ownvitals.context')"),
+        },
+        {
+            "names from the module": "from ownvitals.context import require_context\n",
+            "relative names": "from ..context import require_context\n",
+            "a plain import for annotations": "import ownvitals.context\n"
+            "def f(ctx: ownvitals.context.UserContext): ...\n",
+            "another module of the package": "from ownvitals import db\nimport ownvitals.db\n"
+            "x = ownvitals.db\n",
+            "another object's context": body("return request.context"),
+            "a similar string": body("return 'ownvitals.contexts'"),
         },
     ),
     "the idiom on a context field": (
@@ -260,3 +301,64 @@ def test_each_new_rule_refuses_its_spellings(source: str) -> None:
 @pytest.mark.parametrize("source", ALLOWED_BY_RULE.values(), ids=ALLOWED_BY_RULE.keys())
 def test_each_new_rule_leaves_its_near_misses_alone(source: str) -> None:
     assert scan_source(source) == []
+
+
+# The #115 review's forgery (B1) and its variants: the token through the module's namespace,
+# each with a near miss of the same shape that reaches no token.
+def escalate(ctx: Any) -> Any:
+    from ownvitals import context as c
+
+    tok = next(v for v in vars(c).values() if type(v) is object)
+    kw = {"issuer": tok}
+    K = type(ctx)
+    return c.require_context(K(ctx.user_id, "admin", **kw))
+
+
+FORGERY = textwrap.dedent(inspect.getsource(escalate))
+NEAR_MISS = """\
+from ownvitals.context import require_context
+
+
+def harmless(ctx, options, obj):
+    first = next(v for v in vars(obj).values() if type(v) is object)
+    kw = {"iss": first}
+    return require_context(make(ctx.user_id, **kw))
+"""
+SYS_MODULES = ("vars(c)", "vars(sys.modules['ownvitals.context'])")
+MODULE_ROUTES = {
+    "from ownvitals import context": (FORGERY, NEAR_MISS),
+    "module.__dict__": (
+        FORGERY.replace("vars(c)", "c.__dict__"),
+        NEAR_MISS.replace("vars(obj)", "obj.__dict__"),
+    ),
+    "sys.modules": (
+        FORGERY.replace("from ownvitals import context as c", "import sys")
+        .replace(*SYS_MODULES)
+        .replace("c.require_context", "require_context"),
+        NEAR_MISS.replace("vars(obj)", "vars(sys.modules['ownvitals.db'])"),
+    ),
+    "a dict comprehension": (
+        FORGERY.replace("**kw", "**{k: tok for k in ['issuer']}"),
+        NEAR_MISS.replace("**kw", "**{k: first for k in ['iss']}"),
+    ),
+    "dict([...])": (
+        FORGERY.replace("**kw", "**dict([('issuer', tok)])"),
+        NEAR_MISS.replace("**kw", "**dict([('iss', first)])"),
+    ),
+}
+
+
+def test_the_review_forgery_builds_an_admin_context_at_run_time() -> None:
+    forged = escalate(make_context(role="user"))
+    assert require_context(forged) is forged
+    assert forged.role == "admin"
+
+
+@pytest.mark.parametrize(("forgery", "_"), MODULE_ROUTES.values(), ids=MODULE_ROUTES.keys())
+def test_the_scan_refuses_the_module_namespace_routes(forgery: str, _: str) -> None:
+    assert scan_source(forgery) != []
+
+
+@pytest.mark.parametrize(("_", "near_miss"), MODULE_ROUTES.values(), ids=MODULE_ROUTES.keys())
+def test_their_near_misses_stay_allowed(_: str, near_miss: str) -> None:
+    assert scan_source(near_miss) == []

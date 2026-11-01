@@ -81,6 +81,7 @@ EXPECTED_ROLE_SETTINGS = {
 SETTINGS_PROBLEM = "has role settings other than the expected three timeouts"
 FLAG_COUNT = 10
 INSUFFICIENT_PRIVILEGE = "42501"
+INVALID_CATALOG_NAME = "3D000"  # the database does not exist
 CHECKOUT_QUERY = "SELECT current_setting('app.user_id', true)"
 SETTINGS_MS_QUERY = (
     "SELECT name, setting FROM pg_settings WHERE name IN "
@@ -167,19 +168,23 @@ def refuse_privileged_roles(engine: AsyncEngine) -> None:
         _raise_if_unsafe(row)
 
 
-# A login the server answered and refused: SQLSTATE class 28 (invalid authorization) or 42501
-# (insufficient privilege). libpq hands psycopg no SQLSTATE for an error at connect, so the
-# server's message is matched too: a wrong password or role, a role that may not log in, no
-# ``pg_hba.conf`` entry, no CONNECT privilege, or a connection option the role may not set
-# (``-c session_authorization=...`` or ``-c role=...`` in ``options`` or ``PGOPTIONS``). The
-# server's own refusals are matched only after its ``FATAL:``, so a client-side "permission
-# denied" (a socket) stays a connection failure. Anything else at connect (refused, a timeout,
-# DNS, a server that is starting up or full) is a database that is unreachable for now.
+# A login the server answered and refused: SQLSTATE class 28 (invalid authorization), 42501
+# (insufficient privilege) or 3D000 (the database does not exist). libpq hands psycopg no
+# SQLSTATE for an error at connect, so the server's message is matched too: a wrong password or
+# role, a role that may not log in, no ``pg_hba.conf`` entry, no CONNECT privilege, a connection
+# option the role may not set (``-c session_authorization=...`` or ``-c role=...`` in
+# ``options`` or ``PGOPTIONS``), or a database name that does not exist. The server's own
+# refusals are matched only after its ``FATAL:``, so a client-side "permission denied" (a
+# socket) stays a connection failure. The messages are the server's English ones (``lc_messages``
+# ``en_US`` or ``C``, the Postgres default; docs/dev/backend.md). Anything else at connect
+# (refused, a timeout, DNS, a server that is starting up or full) is a database that is
+# unreachable for now; a ``FATAL:`` answer among those is logged as a warning.
 REFUSED_LOGIN = re.compile(
     r"authentication failed|no password supplied|password required"
     r'|fatal:\s+(?:permission denied|role "[^"]*" (?:does not exist|is not permitted to log in)'
-    r"|no pg_hba\.conf entry|pg_hba\.conf rejects connection)"
+    r'|database "[^"]*" does not exist|no pg_hba\.conf entry|pg_hba\.conf rejects connection)'
 )
+REFUSED_SQLSTATES = {INSUFFICIENT_PRIVILEGE, INVALID_CATALOG_NAME}
 
 
 def is_authentication_failure(exc: OperationalError) -> bool:
@@ -188,9 +193,28 @@ def is_authentication_failure(exc: OperationalError) -> bool:
     sqlstate = getattr(exc.orig, "sqlstate", None) or ""
     return (
         sqlstate.startswith("28")
-        or sqlstate == INSUFFICIENT_PRIVILEGE
+        or sqlstate in REFUSED_SQLSTATES
         or REFUSED_LOGIN.search(str(exc.orig).lower()) is not None
     )
+
+
+def log_deferral(exc: OperationalError, what: str) -> None:
+    """Log a check deferred because the database was unreachable at startup. A ``FATAL:`` answer
+    from the server that ``is_authentication_failure`` doesn't recognise is a warning: it may be
+    a server that is starting up or full, or a refusal in a language other than English. The
+    line holds the SQLSTATE class when there is one and never the message text (it can name the
+    user, host or database)."""
+    if "fatal:" in str(exc.orig).lower():
+        sqlstate = getattr(exc.orig, "sqlstate", None) or ""
+        logger.warning(
+            "the database answered FATAL at startup (SQLSTATE class %s), not recognised as a "
+            "refused login; %s checked on first connection (the server must use English "
+            "messages: lc_messages en_US or C)",
+            sqlstate[:2] or "unknown",
+            what,
+        )
+    else:
+        logger.debug("database unreachable at startup; %s checked on first connection", what)
 
 
 async def verify_database_role(engine: AsyncEngine) -> None:
@@ -208,10 +232,10 @@ async def verify_database_role(engine: AsyncEngine) -> None:
             # configuration error, not a database that is down. The message names no user, host
             # or password.
             raise DatabaseRoleError(
-                "the database refused the configured credentials or login (a wrong password or "
-                "role, no CONNECT privilege, or a connection option the role may not set); check "
-                "database_url, PGOPTIONS and the database_password secret file"
+                "the database refused the configured credentials or login (a wrong password, "
+                "role or database name, no CONNECT privilege, or a connection option the role may "
+                "not set); check database_url, PGOPTIONS and the database_password secret file"
             ) from None
-        logger.debug("database unreachable at startup; role checked on first connection")
+        log_deferral(exc, "role")
         return
     _raise_if_unsafe(row)

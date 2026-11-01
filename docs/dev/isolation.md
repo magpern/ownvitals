@@ -64,16 +64,27 @@ user of the URL, `session_user`):
 The attribute and ownership checks also cover every role the role is a member of, so a report
 names what a membership would give. The engine repeats the check on every new connection, and on
 every pool checkout checks that the connection carries no `app.user_id` and has exactly the
-role's timeouts (otherwise the pool replaces it). A login the database refuses is fatal too
-(`DatabaseRoleError`, #89): SQLSTATE class 28 or 42501, which psycopg doesn't report at connect,
-so `role_check.REFUSED_LOGIN` matches the server's message: a wrong password or role, a role
-that may not log in, no `pg_hba.conf` entry, no CONNECT privilege, or a connection option the
-role may not set (`-c session_authorization=...` or `-c role=...` in `options` or `PGOPTIONS`).
-The queue check and the key ring use the same classification. A real connection failure
-(refused, a timeout, DNS, a server that is starting up or full, a missing database) is not fatal:
-the per-connection check still applies. The match reads English server messages, the server's
-default. There is no override, not even in `dev`. Guard 2 (`role_guard.py`) checks the same on the test database, and refuses an `app.*`
-default for any role or database.
+role's timeouts (otherwise the pool replaces it).
+
+A login the database refuses is fatal too (`DatabaseRoleError`, #89): SQLSTATE class 28, 42501
+or 3D000. psycopg reports no SQLSTATE at connect, so `role_check.REFUSED_LOGIN` matches the
+server's message: a wrong password or role, a role that may not log in, no `pg_hba.conf` entry,
+no CONNECT privilege, a connection option the role may not set (`-c session_authorization=...`
+or `-c role=...` in `options` or `PGOPTIONS`), or a database that does not exist. The queue check
+and the key ring use the same classification. A real connection failure (refused, a timeout,
+DNS, a server that is starting up or full) is not fatal: the per-connection check still applies
+to every later connection, and no connection is used before it passes.
+
+**The server must report its errors in English** (`lc_messages` `en_US` or `C`, the Postgres
+default and the official image's) for these refusals to be classified. In another language a
+refusal is read as "unreachable": startup goes on, `/api/ready` answers 503 and every connection
+is still refused, so it fails closed but without the clear error. When startup defers on a
+`FATAL:` answer it doesn't recognise, the role check logs one warning with the SQLSTATE class
+(or `unknown`) and never the message text. A non-superuser can't change `lc_messages` through
+the connection options.
+
+There is no override, not even in `dev`. Guard 2 (`role_guard.py`) checks the same on the test
+database, and refuses an `app.*` default for any role or database.
 
 ## The test database
 
@@ -169,12 +180,23 @@ never from a path, query, body or header. The same scan refuses, in every module
   `type(ctx).__mro__[-1].__setattr__` reach `object.__setattr__` past the frozen class's own, and
   a slot descriptor (`type(ctx).role.__set__(ctx, "admin")`, also after `d = K.role`) writes a
   field directly. Defining these methods in a class stays allowed;
-- `__globals__` as an attribute, a name or a string: a function's globals hold the issuer token
-  (`require_context.__globals__`), and with it `K = type(ctx); K(uid, "admin", issuer=tok)`
-  builds an admin context (#89);
-- an `issuer=` keyword in any call, also as a `**{"issuer": ...}` literal or `**dict(issuer=...)`:
-  only the issuer modules pass the token, and they are not scanned. A third-party API with a
-  keyword of that name (a JWT library's `issuer=`, say) needs the Architect (#89);
+- the obvious routes to the issuer token (#89, `user_context_rules.py`). A function's globals and
+  the module's namespace are the same dict, and it holds the token: with it, `K = type(ctx);
+  K(uid, "admin", issuer=tok)` builds an admin context. So the scan refuses:
+  - `__globals__` and `__module__` as an attribute, a name or a string
+    (`require_context.__globals__`, `sys.modules[f.__module__]`);
+  - every import that binds the module object `ownvitals.context` (`import ownvitals.context as
+    c`, `from ownvitals import context`, `from .. import context`), `ownvitals.context` as an
+    attribute of the package outside a type annotation, and the strings `"ownvitals.context"`
+    and `".context"` (`sys.modules[...]`, `sys.modules.get(...)`, `importlib.import_module`,
+    `__import__`). Names imported from the module (`from ownvitals.context import
+    require_context`) stay allowed, and so does a plain `import ownvitals.context` for an
+    annotation: it binds only the package, as `import ownvitals.db` does, and each use is judged;
+  - an `issuer=` keyword in any call, and a `**` argument that spells `"issuer"` anywhere
+    (`**{"issuer": t}`, `**dict(issuer=t)`, `**{k: t for k in ["issuer"]}`,
+    `**dict([("issuer", t)])`, `**({} | {"issuer": t})`). Only the issuer modules pass the token,
+    and they are not scanned. A third-party API with a keyword of that name (a JWT library's
+    `issuer=`, say) needs the Architect;
 - `copyreg` as an import, a name, an attribute or a string (`importlib.import_module("copyreg")`):
   `copyreg.__newobj__(type(ctx))` and `copyreg._reconstructor` make a blank context without the
   token (#89).
@@ -194,8 +216,13 @@ text, so it sees only names written out. It does not stop deliberate code, which
 leaves to the review gate. Known limits:
 
 - a name built at run time: `getattr(K, "__post_" + "init__")`,
-  `getattr(super(type(ctx), ctx), "__SETATTR__".lower())`, `b"__setattr__".decode()`, a module
-  name passed to `importlib` the same way, or `**kwargs` built at run time holding `issuer`;
+  `getattr(super(type(ctx), ctx), "__SETATTR__".lower())`, `b"__setattr__".decode()`, or a
+  module name built the same way for `importlib` or `sys.modules`;
+- the module reached without its name: through the package (`getattr(ownvitals, "con" +
+  "text")`, `vars(sys.modules["ownvitals"])`), by searching `sys.modules` or `gc` for it, or
+  from an object it defines through `inspect`. With the module, `vars(m)` and `m.__dict__` give
+  the token, and neither can be refused outright: other code (`ownvitals/log.py`) uses both;
+- a keyword dict bound to a name first: `kw = {"issuer": tok}`, then `K(..., **kw)`;
 - class-level patching: `type(ctx).role = property(...)` changes what every context reads
   (accepted by the Architect);
 - a hook reached without its name, as above, when it sets a field that isn't one of the context's:
