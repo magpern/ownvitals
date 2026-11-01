@@ -108,8 +108,9 @@ counts 100 / pairs percentage points of pNN50; the **band** is the number of tru
   tolerances, or its `hrv` is null. **HR near the 220 bpm limit**: the HR assertion leaves out a
   strip with a true interval within ± 5 ms of 272.7 ms; #40 counts those strips and reports them.
 - **AF-like strips** have no HRV ground truth. On their fixed seeds: the gate as in the table, and
-  `hrv` null with `too_many_excluded` (never a display label, §9). For every strip of any
-  condition: more than 20 % excluded means `hrv` null with `too_many_excluded`.
+  `hr_bpm` null and `hrv` null, with `too_many_excluded` then `irregular_rhythm` (never display
+  labels, §9). For every strip of any condition: more than 20 % excluded means `hrv` null with
+  `too_many_excluded`, and `hr_bpm` null with `irregular_rhythm` last.
 
 RMSSD tolerance, by the generator's mean HR:
 
