@@ -3,7 +3,9 @@
 Status: Accepted (2026-10-31, #6). Decided by the Architect after the third `FAIL` on finding B1
 of PR #55, and amended before implementation on 2026-10-31 after the event-loop probe
 (PR #55, comment 6550033885). Implemented in #6 (PR #55); web's install is an acceptance
-criterion of #77.
+criterion of #77. Amended on 2026-11-01 by the Architect after `Agent review (Opus): FAIL
+e1feee9` (findings N3, N4 and N5): process creation and sockets of other families are refused,
+and the inherited scope is stated (see "Amendment, 2026-11-01").
 
 ## Context
 
@@ -93,6 +95,12 @@ in CI and pins the standard loop's rows.
      `host=/dir`). Every other family is refused.
    - A send on a connected socket (no address) is allowed: its connect was checked.
    - `bind`, `listen` and `accept` are not checked (uvicorn listens).
+   - The scope is a context variable, so work started inside it inherits it: a task created,
+     or a `to_thread` call made, inside a scope keeps the scope for as long as it runs. A
+     `threading.Thread` or a `run_in_executor` call does not. Package code never starts
+     concurrent work inside a scope: `tests/test_egress_scope.py` checks the egress package and
+     mail for it. Work that a library starts inside the send and ends there (anyio's
+     happy-eyeballs tasks inside httpx's connect) is the send itself.
    - Windows only: the standard library's `socketpair` emulation connects to its own loopback
      listener, recognised by its code object (`sys._getframe`), so a selector loop can start.
 5. **Refusals.** `EgressRefused` subclasses `PermissionError`. A refusal logs one line,
@@ -121,6 +129,15 @@ in CI and pins the standard loop's rows.
    - `ctypes`, and an attacker who already runs code in the process. The hook is a control on
      our code and our libraries, not a sandbox.
    - The network-level egress rule stays the deployment's (owner side, M2).
+
+   Two things it would not see are refused outright instead (amendment of 2026-11-01):
+   - **a child process**, which would run without the hook: the audit events
+     `subprocess.Popen`, `os.system`, `os.exec`, `os.posix_spawn`, `os.spawn`, `os.fork`,
+     `os.forkpty` and `os.startfile` are refused in every kind, since no ownvitals process starts
+     another. A refusal logs `process creation refused`;
+   - **a socket of another family** (a raw `AF_PACKET` socket's sends raise no audit event): the
+     `socket.__new__` event is refused for any family but `AF_INET`, `AF_INET6` and `AF_UNIX`,
+     before the socket exists.
 8. **The static guard's role.** It stays: closed-world for **direct** imports (a capable module
    `src/` imports or references must be classified), the per-module rules (only `mail` uses
    smtplib; only the entry points install the worker list or the hook; only `mail` opens an
@@ -162,3 +179,15 @@ in CI and pins the standard loop's rows.
   until then web relies on the static guard, the egress clients' allowlists and the deployment's
   network rule.
 - `docs/dev/egress.md` documents the hook, the guard's role and the known limits.
+
+## Amendment, 2026-11-01 (Architect, after `Agent review (Opus): FAIL e1feee9`)
+
+- **N3:** process creation is refused in every kind (Decision item 7). Nothing in `src/` starts
+  a process. A child-process test imports the three entry points and builds web's app with the
+  hook installed, and nothing at start needs one. A future need goes to the Architect first.
+- **N5:** a socket of a family other than `AF_INET`, `AF_INET6` and `AF_UNIX` cannot be created
+  (Decision item 7).
+- **N4:** the inherited scope is stated in Decision item 4, and a static test keeps package
+  code from starting concurrent work inside a scope.
+- **N2:** a second install with the same kind is a no-op that keeps the first policy, as before;
+  it is now tested.

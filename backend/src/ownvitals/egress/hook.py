@@ -2,8 +2,9 @@
 
 ``install_egress_hook(kind, settings)`` (``kind``: ``web``, ``worker`` or ``cli``) is called
 first thing in each entry point. It adds one audit hook, which cannot be removed; a second call
-with another kind raises. The hook returns at once for an event that does not start with
-``socket.``, and otherwise decides:
+with the same kind does nothing (the first policy stays), with another kind it raises. For an
+event that does not start with ``socket.`` the hook does one set lookup (process creation,
+below) and returns; otherwise it decides:
 
 - **Resolution** (the audit events ``socket.getaddrinfo`` and ``socket.gethostbyname``, which
   ``gethostbyname_ex`` raises too): only a host in the process's resolvable set: its kind's
@@ -12,6 +13,8 @@ with another kind raises. The hook returns at once for an event that does not st
   host in web and the CLI. No context is required: asyncio resolves in an executor thread,
   where context variables do not reach.
 - **Reverse lookups** (``socket.gethostbyaddr``, ``socket.getnameinfo``): always refused.
+- **Socket creation** (``socket.__new__``): only ``AF_INET``, ``AF_INET6`` and ``AF_UNIX``; a raw
+  or packet socket is refused before it exists (its sends raise no audit event).
 - **Connections** (``socket.connect``, which ``connect_ex`` raises too, ``sendto``,
   ``sendmsg``): ``AF_INET``/``AF_INET6`` only inside a connection scope, which only the
   package's transports (around a send, after their allowlist check) and ``ownvitals.mail``
@@ -20,6 +23,14 @@ with another kind raises. The hook returns at once for an event that does not st
   One exception, Windows only: the standard library's own ``socket.socketpair`` emulation
   connects to its own loopback listener (the selector loop's self-pipe), recognised by its code
   object.
+- **Process creation** (``subprocess.Popen``, ``os.system``, ``os.exec*``, ``os.posix_spawn*``,
+  ``os.spawn*``, ``os.fork``, ``os.forkpty``, ``os.startfile``): always refused. No ownvitals
+  process starts another, and a child would run without this hook.
+
+The connection scope is a context variable, so work started inside it inherits it: a task
+created or a ``to_thread`` call made inside the scope keeps it for as long as it runs (a
+``threading.Thread`` or a ``run_in_executor`` call does not). Package code never starts one
+inside a scope (the guard checks it).
 
 A refusal raises ``EgressRefused`` (a ``PermissionError``) and logs one line with the event, the
 host (or the address family) and the process kind: never a URL, a path, a query or a payload.
@@ -73,6 +84,19 @@ _CONNECT: Final = frozenset(
 )
 _INET: Final = frozenset({socket.AF_INET, socket.AF_INET6})
 _AF_UNIX: Final = getattr(socket, "AF_UNIX", None)
+_FAMILIES: Final = _INET | ({_AF_UNIX} if _AF_UNIX is not None else frozenset())
+_PROCESS: Final = frozenset(
+    {
+        "subprocess.Popen",
+        "os.system",
+        "os.exec",
+        "os.posix_spawn",
+        "os.spawn",
+        "os.fork",
+        "os.forkpty",
+        "os.startfile",
+    }
+)
 # A Python function only where the platform has no socketpair (Windows); None elsewhere.
 _SOCKETPAIR_CODE: Final = getattr(socket.socketpair, "__code__", None)
 _STANDARD_LOOP_MODULES: Final = frozenset(
@@ -231,11 +255,17 @@ def _check_connect(policy: _Policy, event: str, args: tuple[Any, ...]) -> None:
 
 def _audit(event: str, args: tuple[Any, ...]) -> None:
     if not event.startswith("socket."):
+        if event in _PROCESS and (policy := _policy) is not None:
+            _refuse(policy, event, "process creation", "process creation refused")
         return
     policy = _policy
     if policy is None:  # pragma: no cover - installed together with the policy
         return
-    if event in _RESOLVE:
+    if event == "socket.__new__":
+        family = args[1] if len(args) > 1 else None
+        if family not in _FAMILIES:
+            _refuse(policy, event, _family_name(family if isinstance(family, int) else None))
+    elif event in _RESOLVE:
         host = _normalise(args[0]) if args else None
         if host is None or policy.resolvable(host):  # None: a local address, no lookup
             return
@@ -246,12 +276,14 @@ def _audit(event: str, args: tuple[Any, ...]) -> None:
         _check_connect(policy, event, args)
 
 
-def _refuse(policy: _Policy, event: str, target: str) -> None:
+def _refuse(
+    policy: _Policy, event: str, target: str, message: str = "outbound connection refused"
+) -> None:
     if not getattr(_logging, "busy", False):  # a log handler's own socket is checked, not logged
         _logging.busy = True
         try:
             logger.warning(
-                "outbound connection refused",
+                message,
                 extra={"event": event, "target": target, "process_kind": policy.kind},
             )
         finally:

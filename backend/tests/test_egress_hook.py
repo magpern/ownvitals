@@ -7,6 +7,7 @@ import asyncio
 import importlib.util
 import json
 import os
+import socket
 import subprocess
 import sys
 import tomllib
@@ -32,6 +33,17 @@ KINDS = ("web", "worker", "cli")
 LINUX = sys.platform.startswith("linux")
 OUTSIDE = "example.invalid"
 GETADDRINFO, CONNECT = "socket.getaddrinfo", "socket.connect"
+PROCESS = "process creation"
+
+
+def _family(number: int) -> str:
+    try:
+        return socket.AddressFamily(number).name
+    except ValueError:
+        return str(number)
+
+
+OTHER_FAMILY = _family(16)  # AF_NETLINK on Linux
 
 
 @pytest.fixture(scope="module")
@@ -75,6 +87,28 @@ REFUSED_EVERYWHERE = {
     "connect_outside_scope": (CONNECT, "AF_INET"),  # to what an allowed name resolved to
     "connect_ex_outside_scope": (CONNECT, "AF_INET"),
     "udp_sendto": ("socket.sendto", "AF_INET"),
+    # B1 of the review at e1feee9: each kills one mutation of the hook.
+    "ipv6_connect_outside_scope": (CONNECT, "AF_INET6"),  # M6: IPv6 needs the scope too
+    "udp_sendmsg": ("socket.sendmsg", "AF_INET"),  # M3: sendmsg is checked
+    "other_family_connect": (CONNECT, OTHER_FAMILY),  # M1: another family is refused
+    "scope_reset_after_raise": (CONNECT, "AF_INET"),  # M2: a failed send ends its scope
+    "bytes_host": (GETADDRINFO, OUTSIDE),  # M4: a host given as bytes is checked
+    # N5: no socket of another family is created; N3: no process is started.
+    "other_family_socket": ("socket.__new__", OTHER_FAMILY),
+    "subprocess": ("subprocess.Popen", PROCESS),
+    "os_system": ("os.system", PROCESS),
+    "os_spawn": ("os.spawn", PROCESS),
+    "os_exec": ("os.exec", PROCESS),
+    **(
+        {
+            "netlink_socket": ("socket.__new__", "AF_NETLINK"),
+            "os_posix_spawn": ("os.posix_spawn", PROCESS),
+            "os_fork": ("os.fork", PROCESS),
+            "os_forkpty": ("os.forkpty", PROCESS),
+        }
+        if LINUX
+        else {}
+    ),
 }
 
 
@@ -110,6 +144,12 @@ def test_numpy_fetching_a_url_in_the_worker_stops_at_its_opener(
         ("worker", "model_host_without_ai", GETADDRINFO, "api.anthropic.com"),
         ("worker", "smtp", GETADDRINFO, "mailpit"),  # inside an SMTP session, still refused
         ("cli", "worker_host_before_probe", GETADDRINFO, "wbsapi.withings.net"),
+        ("web", "model_host", GETADDRINFO, "api.anthropic.com"),  # N1: web's set is its own
+        ("web", "withings_account_host", GETADDRINFO, "account.withings.com"),
+        # M2 through a real transport: its connect fails inside the scope, then the same task
+        # connects by hand.
+        ("web", "egress_failure_then_connect", CONNECT, "AF_INET"),
+        ("worker", "egress_failure_then_connect", CONNECT, "AF_INET"),
         *[(k, "unix_other", CONNECT, "AF_UNIX") for k in KINDS if LINUX],
     ],
 )
@@ -128,6 +168,7 @@ ALLOWED_EVERYWHERE = [
     "database_resolves_in_executor",  # asyncio's executor thread: no context needed
     "standard_loop",  # a selector loop starts (Windows: its socketpair connects)
     "second_install_same_kind",
+    "starts_the_app",  # N3: nothing at start needs a process or a connection
     *(["unix_database"] if LINUX else []),
 ]
 
@@ -176,6 +217,9 @@ def test_the_cli_resolves_worker_hosts_once_the_probe_installs_the_worker_list(
 @pytest.mark.parametrize("kind", KINDS)
 def test_the_hook_is_installed_once_per_process(runs: dict[str, dict[str, Any]], kind: str) -> None:
     assert case(runs, kind, "second_install_other_kind")["error"] == "RuntimeError"
+    # N2: the same kind again is a no-op; settings with another SMTP host change nothing.
+    again = case(runs, kind, "second_install_keeps_the_policy")
+    assert (again["error"], again["extra"]) == (None, {"unchanged": True}), again
     assert "uvloop" in (case(runs, kind, "uvloop_importable")["error"] or "")
 
 
@@ -186,7 +230,8 @@ def test_a_refusal_logs_one_redacted_line(runs: dict[str, dict[str, Any]], kind:
     log = runs[kind]["log"]
     assert all(secret not in log for secret in ("secret-path", "report", "token", "abc123"))
     lines = [json.loads(line) for line in log.splitlines() if line.strip()]
-    refusals = [line for line in lines if line.get("message") == "outbound connection refused"]
+    messages = ("outbound connection refused", "process creation refused")
+    refusals = [line for line in lines if line.get("message") in messages]
     assert len(refusals) >= len(REFUSED_EVERYWHERE)
     assert all(line["process_kind"] == kind for line in refusals)
     assert all(set(line) >= {"event", "target"} for line in refusals)
@@ -217,7 +262,10 @@ def _settings(**values: Any) -> Settings:
 def test_each_kind_resolves_its_own_hosts() -> None:
     web, worker, cli_ = (_policy_for(k, _settings()) for k in KINDS)
     database = {"db.example.test", "127.0.0.1"}  # the app's and the migrations' URLs
-    assert web.hosts == WEB_HOSTS | database | {"mail.example.org"}
+    # N1: pinned by name, not through the constants the hook itself uses.
+    google = {"oauth2.googleapis.com", "www.googleapis.com"}
+    assert web.hosts == {*google, "wbsapi.withings.net", *database, "mail.example.org"}
+    assert {*google, "wbsapi.withings.net"} == WEB_HOSTS
     assert worker.hosts == frozenset(database)  # plus the installed worker list, at run time
     assert cli_.hosts == frozenset(database | {"mail.example.org"})
     assert web.unix_paths == worker.unix_paths == frozenset({"/run/pg/.s.PGSQL.5432"})

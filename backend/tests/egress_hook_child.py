@@ -13,6 +13,7 @@ loopback listener, or the SMTP fake for ``mailpit``. Every host name here is syn
 
 import _socket
 import asyncio
+import contextlib
 import importlib
 import io
 import json
@@ -20,6 +21,7 @@ import logging
 import os
 import smtplib
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -113,6 +115,7 @@ from ownvitals.egress import (  # noqa: E402
     smtp_session,
     withings_async_client,
 )
+from ownvitals.egress.hook import _connection_scope, resolvable_hosts  # noqa: E402
 from ownvitals.log import configure_logging  # noqa: E402
 from ownvitals.mail import Mailer, MailMessage  # noqa: E402
 from smtpfake import SmtpFake  # noqa: E402
@@ -128,7 +131,7 @@ REFUSALS: list[list[str]] = []
 
 class Refusals(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
-        if record.getMessage() == "outbound connection refused":
+        if record.getMessage() in ("outbound connection refused", "process creation refused"):
             fields = ("event", "target", "process_kind")
             REFUSALS.append([str(getattr(record, name, "")) for name in fields])
 
@@ -139,10 +142,12 @@ def settings(**values: Any) -> Settings:
         maint_database_url=SecretStr(
             f"postgresql+psycopg://ownvitals_maint@/ownvitals?host={DB_SOCKET_DIR}"
         ),
-        smtp_host=SMTP,
-        smtp_tls="none",
-        public_base_url="https://vitals.example.org",
-        **values,
+        **{
+            "smtp_host": SMTP,
+            "smtp_tls": "none",
+            "public_base_url": "https://vitals.example.org",
+            **values,
+        },
     )
 
 
@@ -209,6 +214,90 @@ def numpy_loadtxt() -> None:
     np.loadtxt(f"http://{OUTSIDE}/x.csv")
 
 
+class FakeSocket:
+    """Only a family, for an audit event the platform's own sockets cannot raise."""
+
+    def __init__(self, family: int) -> None:
+        self.family = family
+
+
+OTHER_FAMILY = 16  # AF_NETLINK on Linux: neither inet nor Unix
+
+
+def raw_connect() -> None:
+    client = socket.socket()
+    try:
+        client.connect(("127.0.0.1", LISTENER.port))  # by address: no lookup
+    finally:
+        client.close()
+
+
+def ipv6_connect() -> None:
+    try:
+        client = socket.socket(socket.AF_INET6)
+    except OSError:  # no IPv6 on the machine: the hook judges the same event
+        sys.audit("socket.connect", FakeSocket(socket.AF_INET6), ("::1", LISTENER.port))
+        return
+    try:
+        client.connect(("::1", LISTENER.port, 0, 0))  # refused before the system call
+    finally:
+        client.close()
+
+
+def udp_sendmsg() -> None:
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        if hasattr(client, "sendmsg"):
+            client.sendmsg([b"x"], [], 0, ("127.0.0.1", LISTENER.port))  # pyright: ignore[reportAttributeAccessIssue]
+        else:  # Windows has no sendmsg: the hook judges the same event
+            sys.audit("socket.sendmsg", client, ("127.0.0.1", LISTENER.port))
+    finally:
+        client.close()
+
+
+def scope_reset_after_raise() -> None:
+    """A send that fails inside its scope must not leave the scope set."""
+    try:
+        with _connection_scope("test"):
+            raise ConnectionError("the send failed")
+    except ConnectionError:
+        pass
+    raw_connect()
+
+
+async def egress_failure_then_connect(client: Any, url: str) -> None:
+    with contextlib.suppress(Exception):  # httpx's ConnectError: the send failed in scope
+        await fetch(client, url)
+    raw_connect()  # the same task, after the scope
+
+
+def second_install_keeps_the_policy() -> dict[str, Any]:
+    before = sorted(resolvable_hosts())
+    install_egress_hook(KIND, settings(smtp_host="other.example.org", smtp_tls="starttls"))  # type: ignore[arg-type]
+    return {"unchanged": sorted(resolvable_hosts()) == before}
+
+
+def fork(function: Callable[[], int]) -> None:
+    pid = function()
+    if pid == 0:  # only if the hook let it through: the child leaves at once
+        os._exit(0)
+    os.waitpid(pid, 0)
+
+
+PYTHON_PASS = [sys.executable, "-c", "pass"]
+
+
+def starts_the_app() -> None:
+    """N3: what each process imports and builds at start, with the hook installed, starts no
+    process and opens no socket (web's app is built, not served)."""
+    from ownvitals.web import create_app
+
+    for module in ("ownvitals.__main__", "ownvitals.cli", "ownvitals.worker.__main__"):
+        importlib.import_module(module)  # the web entry point (uvicorn), the CLI, the worker
+
+    create_app(settings())
+
+
 def standard_loop() -> None:
     async def check() -> None:
         require_standard_event_loop()
@@ -236,6 +325,20 @@ CASES: dict[str, Callable[[], Any]] = {
         b"x", ("127.0.0.1", LISTENER.port)
     ),
     "standard_loop": standard_loop,
+    "bytes_host": lambda: socket.getaddrinfo(OUTSIDE.encode(), 80),
+    "ipv6_connect_outside_scope": ipv6_connect,
+    "udp_sendmsg": udp_sendmsg,
+    "other_family_connect": lambda: sys.audit(
+        "socket.connect", FakeSocket(OTHER_FAMILY), ("127.0.0.1", LISTENER.port)
+    ),
+    "other_family_socket": lambda: sys.audit("socket.__new__", object(), OTHER_FAMILY, 3, 0),
+    "scope_reset_after_raise": scope_reset_after_raise,
+    "subprocess": lambda: subprocess.run(PYTHON_PASS, check=False),  # noqa: S603
+    "os_system": lambda: os.system("exit 0"),  # noqa: S605, S607
+    "os_spawn": lambda: os.spawnv(os.P_WAIT, sys.executable, PYTHON_PASS),  # noqa: S606
+    "os_exec": lambda: os.execv(sys.executable, PYTHON_PASS),  # noqa: S606
+    "second_install_keeps_the_policy": second_install_keeps_the_policy,
+    "starts_the_app": starts_the_app,
     "second_install_same_kind": lambda: install_egress_hook(KIND, settings()),  # type: ignore[arg-type]
     "second_install_other_kind": lambda: install_egress_hook(OTHER_KIND, settings()),  # type: ignore[arg-type]
 }
@@ -245,13 +348,27 @@ if LINUX:
     Listener(AF_UNIX, str(DB_SOCKET_DIR / ".s.PGSQL.5432"))
     CASES["unix_other"] = lambda: unix_connect(OTHER_SOCKET)
     CASES["unix_database"] = lambda: unix_connect(DB_SOCKET_DIR / ".s.PGSQL.5432")
+    CASES["netlink_socket"] = lambda: socket.socket(OTHER_FAMILY, socket.SOCK_RAW)
+    CASES["os_posix_spawn"] = lambda: os.posix_spawn(sys.executable, PYTHON_PASS, os.environ)  # pyright: ignore[reportAttributeAccessIssue]
+    CASES["os_fork"] = lambda: fork(os.fork)  # pyright: ignore[reportAttributeAccessIssue]
+    CASES["os_forkpty"] = lambda: fork(lambda: os.forkpty()[0])  # pyright: ignore[reportAttributeAccessIssue]
 if KIND == "web":
     CASES["egress_client"] = lambda: selector(
         fetch(google_async_client(), "https://www.googleapis.com/oauth2/v3/certs")
     )
+    CASES["egress_failure_then_connect"] = lambda: selector(
+        egress_failure_then_connect(
+            google_async_client(), "https://www.googleapis.com/oauth2/v3/certs"
+        )
+    )
+    CASES["model_host"] = lambda: socket.getaddrinfo("api.anthropic.com", 443)
+    CASES["withings_account_host"] = lambda: socket.getaddrinfo("account.withings.com", 443)
 if KIND == "worker":
     CASES["egress_client"] = lambda: selector(
         fetch(withings_async_client(), "https://wbsapi.withings.net/measure")
+    )
+    CASES["egress_failure_then_connect"] = lambda: selector(
+        egress_failure_then_connect(withings_async_client(), "https://wbsapi.withings.net/measure")
     )
     CASES["urllib_opener"] = lambda: urllib.request.urlopen(
         "https://wbsapi.withings.net/measure", timeout=2

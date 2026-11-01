@@ -126,10 +126,21 @@ modules.
 | `socket.getaddrinfo`, `socket.gethostbyname` (and `_ex`) | only a host in the process's set: web: Google sign-in's hosts and `wbsapi.withings.net`; worker (and the CLI once its probe installs it): the installed worker list; every kind: the database URLs' hosts; web and CLI: `smtp_host`. No context needed: asyncio resolves in an executor thread |
 | `socket.gethostbyaddr`, `socket.getnameinfo` | always refused |
 | `socket.connect` (and `connect_ex`), `sendto`, `sendmsg` | `AF_INET`/`AF_INET6`: only inside a connection scope, set by `AllowlistTransport` and the urllib opener around a send (after their allowlist check) and by `mail` around one SMTP session. `AF_UNIX`: only a configured database socket (`<host dir>/.s.PGSQL.<port>`). Any other family: refused. A send without an address is allowed |
+| `socket.__new__` | only `AF_INET`, `AF_INET6` and `AF_UNIX`: a raw or packet socket is refused before it exists |
+| `subprocess.Popen`, `os.system`, `os.exec`, `os.posix_spawn`, `os.spawn`, `os.fork`, `os.forkpty`, `os.startfile` | always refused: no ownvitals process starts another, and a child would run without the hook. Logged as `process creation refused` |
 
 A refusal raises `EgressRefused` (a `PermissionError`) and logs `outbound connection refused`
 with `event`, `target` (host, address family or `reverse lookup`) and `process_kind`: never a
-URL, a path, a query or a payload. `bind`, `listen` and `accept` are not checked.
+URL, a path, a query or a payload. `bind`, `listen` and `accept` are not checked. A second
+install with the same kind does nothing (the first policy stays); another kind raises.
+
+**The scope is inherited.** It is a context variable: a task created, or a `to_thread` call
+made, inside a scope keeps it for as long as it runs (a `threading.Thread` or `run_in_executor`
+call does not). So package code never starts concurrent work inside a scope (`create_task`,
+`ensure_future`, `gather`, `to_thread`, `run_in_executor`, a `Thread`, a task group ...);
+`tests/test_egress_scope.py` checks the egress package and mail for it. Work a library starts
+and ends inside the send itself (anyio's happy-eyeballs tasks in httpx's connect) is part of the
+send.
 
 **The event loop.** Only the standard library's selector loop raises these events for asyncio
 sockets (the probe: `tests/egress_loop_probe.py`, pinned on Linux by
@@ -259,7 +270,8 @@ its own PR, with the reason in the guard test; it never imports the library. Non
 cd backend
 uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_closure.py tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
-  tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py
+  tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py \
+  tests/test_egress_scope.py
 ```
 
 ## Known limits
@@ -280,7 +292,8 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
     string rule (N18): indirection of this kind, refused by the hook when it connects;
   - process execution (N10): `subprocess` is capable (it imports `select`) and so refused, as
     are `asyncio.create_subprocess_*` and `anyio`; `os.system`, `os.popen`, `os.exec*` and
-    `os.spawn*` pass. The runtime image has no curl or wget;
+    `os.spawn*` pass the guard. The image has `python`, so a child could connect: the hook
+    refuses every process creation at run time instead (ADR 0009, amendment of 2026-11-01);
   - out of scope by design (N13): the database driver's host is a setting, like the SMTP host
     (`sqlalchemy.*` is by design); inbound listeners are not egress (`uvicorn` is by design;
     `socketserver`, `http.server` and `logging.config` are refused as unclassified);
