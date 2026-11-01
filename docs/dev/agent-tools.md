@@ -73,7 +73,8 @@ issue branch pushes, PR creation and review comments; authenticate gh outside th
 Start by reading AGENTS.md, CLAUDE.md, roadmap/status, open issues/PR heads/checks/verdicts,
 worktrees and running stacks. Respect the active file sets and shared-file locks before
 starting a writer. One issue, one branch, one PR, one writing agent. No two tools write to
-the same branch. scripts/worktree.sh new <issue> <slug> creates ../ownvitals-wt/<issue>-<slug>
+the same branch. `scripts/worktree.sh new <issue> <slug>` creates
+`../ownvitals-wt/<issue>-<slug>`
 with isolated ports/project/database/secrets. Do not use a hardcoded Windows path on another OS.
 
 Developers run lint/type checks and targeted tests/guards. CI runs the full suite.
@@ -104,17 +105,17 @@ codex-security-developer or cursor-security-developer.
 Only PASS with no blocking findings and green ci/pr-title on that exact SHA.
 
 Record verdicts as PR comments using the actual model:
-Agent review (GPT-6 Astra): PASS <full head SHA>
-Agent review (GPT-6.1 Sol): FAIL <full head SHA>
-Agent review (Grok 4.7): PASS <full head SHA>
-Agent review (Opus 5.5): FAIL <full head SHA>
+- `Agent review (GPT-6 Astra): PASS <full head SHA>`
+- `Agent review (GPT-6.1 Sol): FAIL <full head SHA>`
+- `Agent review (Grok 4.7): PASS <full head SHA>`
+- `Agent review (Opus 5.5): FAIL <full head SHA>`
 Never submit an approving review, write Human review:, override FAIL or claim a substituted
 model's identity. New pushes invalidate verdicts except the shared mechanical merge exception.
 
 After independent PASS, the Architect performs AGENTS.md item 7's integration review:
 issue closed by the PR, scope correct, compatible with intervening merges, status updated
 when a milestone changes, and no claim beyond IMPLEMENTED. Only then merge with:
-gh pr merge <n> --squash --match-head-commit <reviewed-sha> --delete-branch
+`gh pr merge <n> --squash --match-head-commit <reviewed-sha> --delete-branch`
 Branches must satisfy the repository's up-to-date checks. Keep the existing merge-only
 carry-forward/scoped review rules. Never --auto, --admin or ruleset changes to bypass a gate.
 
@@ -126,7 +127,7 @@ or owner decision. Agents set IMPLEMENTED only after gated merge; INTEGRATION_VE
 PRODUCTION_READY and all legal/production gates are owner-only.
 UI changes follow docs/design/ and its mockups; analysis rules keep their tier and source.
 
-PRs have scope, acceptance criteria and their validation, Closes #<issue>, Tested and Notes
+PRs have scope, acceptance criteria and their validation, `Closes #<issue>`, Tested and Notes
 for reviewer. Conventional Commits, no Co-Authored-By trailer. Footer by authoring tool:
 - Codex: 🤖 Generated with [Codex](https://developers.openai.com/codex/)
 - Cursor: 🤖 Generated with [Cursor](https://cursor.com/)
