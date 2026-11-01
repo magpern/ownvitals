@@ -61,7 +61,12 @@ NEAR_MISSES = [
     "from importlib.metadata import PackageNotFoundError, version",  # ``ownvitals/__init__.py``
     "import importlib\nimportlib.import_module('json')",
     "name = 'ctypesish'\nother = 'json'\nthird = 'multiprocessingx'",
-    "name = 'concurrent.futures'\npath = 'x.ctypes'\ntext = 'import modules'",
+    "name = 'concurrent.futures'\nother = 'process'\ntext = 'import modules'",
+    "raw = b'multiprocessingx'\nmore = b'json'",
+    # D2 near misses: ``re.compile`` is not the builtin, and a docstring may name ``ctypes``.
+    "import re\nre.compile('x')",
+    '"""This module mentions ctypes and _posixsubprocess."""\n',
+    'def f() -> None:\n    """Not ctypes: see multiprocessing.pool."""\n',
     # Forward references that hold only names (``typing.get_type_hints`` evaluates them).
     "class Node:\n    nxt: 'Node'\n",
     "def f(x: 'list[Node]') -> 'Node': ...",
@@ -96,6 +101,40 @@ FORWARD = [
     ("x: 'socket.socket'", "can reach the network"),
 ]
 # R2 of the FAIL on #123: an unresolved ``import_module`` callee is still judged.
+# D2 of the FAIL on 95ee6f6: evaluators, by any alias or ``from`` form, and strings that name a
+# refused module as an identifier segment (``str`` or ``bytes``).
+EVALUATES = "evaluates code or data the guard cannot read"
+EVALUATORS = [
+    "exec('import ctypes')",
+    "eval(\"__import__('json')\")",
+    "compile('x', 'f', 'exec')",
+    "f = exec",
+    "import builtins\nbuiltins.exec('x')",
+    "from builtins import eval as e\ne('1')",
+    "import pickle\npickle.loads(b'cctypes\\nCDLL\\n(tR.')",
+    "from pickle import loads",
+    "import _pickle",
+    "import marshal\nmarshal.loads(b'')",
+    "import shelve",
+    "import timeit\ntimeit.timeit('import ctypes', number=1)",
+    "import code\ncode.InteractiveInterpreter().runsource('x')",
+    "import codeop\ncodeop.compile_command('x')",
+    "from pydantic import ImportString, TypeAdapter\n"
+    "TypeAdapter(ImportString).validate_python('ctypes:CDLL')",
+    "import pydantic\nclass M(pydantic.BaseModel):\n    f: pydantic.ImportString = 'x'",
+    "from pydantic.types import ImportString",
+]
+STRINGS = [
+    "name = 'ctypes:CDLL'",
+    "path = 'ctypes/__init__.py'",
+    "raw = b'ctypes'",
+    "raw = 'import ctypes'.encode()",
+    "raw = b'import _posixsubprocess'",
+    "path = 'x.ctypes'",
+    "path = 'concurrent/futures/process.py'",
+    "text = f'{x} _winapi'",
+    "values = ['json', 'multiprocessing']",
+]
 UNRESOLVED = [
     ("def f(lib):\n    return lib.import_module('ctypes')", "imports ctypes"),
     ("def f(lib, n):\n    return lib.import_module(n)", "imports dynamically"),
@@ -126,6 +165,24 @@ def test_the_near_misses_pass(source: str) -> None:
 def test_a_string_annotation_holds_only_names_judged_as_code(source: str, why: str) -> None:
     found = scan_source(source, "ownvitals.web.planted")
     assert any(why in w for _, w in found), found
+
+
+@pytest.mark.parametrize("source", EVALUATORS)
+def test_an_evaluator_is_refused(source: str) -> None:
+    for module in MODULES:
+        found = scan_source(source, module)
+        assert any(EVALUATES in why for _, why in found), (module, found)
+
+
+@pytest.mark.parametrize("source", STRINGS)
+def test_a_string_naming_a_refused_module_is_refused(source: str) -> None:
+    found = scan_source(source, "ownvitals.web.planted")
+    assert any(BY_STRING in why for _, why in found), found
+
+
+def test_a_module_attr_string_is_judged_as_its_dotted_name() -> None:
+    found = scan_source("target = 'socket:create_connection'", "ownvitals.web.planted")
+    assert any("can reach the network" in why for _, why in found), found
 
 
 @pytest.mark.parametrize(("source", "why"), UNRESOLVED)

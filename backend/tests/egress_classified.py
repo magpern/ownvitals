@@ -214,6 +214,23 @@ LOADER_MODULES: tuple[str, ...] = (
     "_frozen_importlib_external",
     "_imp",
 )
+# Evaluators (the FAIL on #123, D2): they run code or load objects from text or bytes the guard
+# cannot read (``exec("import ctypes")``, ``pickle.loads(...)``, ``timeit.timeit(...)``,
+# ``ImportString`` on ``"ctypes:CDLL"``). Refused outright; ``re.compile`` is not ``compile``.
+EVALUATORS: tuple[str, ...] = (
+    "builtins.exec",
+    "builtins.eval",
+    "builtins.compile",
+    "pickle",
+    "_pickle",
+    "marshal",
+    "shelve",
+    "timeit",
+    "code",
+    "codeop",
+    "pydantic.ImportString",
+    "pydantic.types.ImportString",
+)
 
 LOOP_METHODS: frozenset[str] = frozenset(
     {

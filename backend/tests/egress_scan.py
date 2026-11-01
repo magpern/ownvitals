@@ -54,15 +54,15 @@ from egress_classified import (
     Entry,
 )
 from egress_closure import OWN, Closure, resolve_from, under
+from egress_forward import forward_references, spelled
 from egress_importers import (
     NOT_DIRECT,
     direct_imports,
     dynamic_import,
-    forward_references,
+    evaluator,
     importer,
     loader,
     names,
-    spelled,
 )
 from egress_typeonly import annotations, assignments, type_only
 from egress_typeonly import dotted as _dotted
@@ -109,6 +109,9 @@ WORKER_ROLE_MODULES: dict[str, str] = {
 INSTALL_HOOK = f"{EGRESS}.install_egress_hook"
 HOOK_INSTALLERS = frozenset({"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web"})
 SMTP_SESSION = f"{EGRESS}.smtp_session"
+# Builtins resolved where nothing rebinds them: ``__import__`` (an importer), the evaluators.
+_BUILTIN_NAMES = {n: f"builtins.{n}" for n in ("__import__", "exec", "eval", "compile")}
+_MODULE_ATTR = re.compile(r"[A-Za-z_][\w.]*:[A-Za-z_][\w.]*")  # ``"socket:create_connection"``
 _DOTTED = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+")
 _EXCEPTIONS = frozenset(
     n for n, v in vars(builtins).items() if isinstance(v, type) and issubclass(v, BaseException)
@@ -314,6 +317,8 @@ def _internal(name: str, module: str, verb: str) -> list[str]:
         found.append(f"{verb} {name}: resolves a module by name at run time")
     if loader(name, _landings):
         found.append(f"{verb} {name}: loads a module by a name the guard cannot judge")
+    if evaluator(name, _landings):
+        found.append(f"{verb} {name}: evaluates code or data the guard cannot read")
     return found
 
 
@@ -344,6 +349,7 @@ def _strings(tree: ast.AST) -> list[tuple[int, str]]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             text = node.value.removeprefix("ext://")
+            text = text.replace(":", ".", 1) if _MODULE_ATTR.fullmatch(text) else text
             if _DOTTED.fullmatch(text) and not under(text, (OWN,)):
                 found.append((node.lineno, text))
                 if text.startswith("handlers."):  # fileConfig resolves it in ``logging``
@@ -363,9 +369,10 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
     # only for type checking still counts (it could only run if rebound).
     typed = annotations(tree)
     runtime = _aliases(tree, module, skip)
-    aliases = {"__import__": "builtins.__import__"} | every | runtime
+    aliases = _BUILTIN_NAMES | every | runtime
     direct = direct_imports(tree, aliases, _landings)
-    found: list[tuple[int, str]] = assignments(tree) + names(tree)
+    refused, references, read = forward_references(tree, aliases)
+    found: list[tuple[int, str]] = assignments(tree) + names(tree, read) + refused
     imports = _imports(tree, module, skip)
     object_names = object_network_names()
     for node in ast.walk(tree):
@@ -405,12 +412,13 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
                     found.append((node.lineno, f"subclasses {name}: lists live in {EGRESS}"))
     for line, text in _strings(tree):
         found += [(line, w) for w in classify(text, module, "names", used)]
-    refused, references = forward_references(tree)
     for line, node in references:  # as bound at run time, else as spelled (``"ctypes.c_int"``)
         name = _dotted(node, runtime) or spelled(node) or ""
         found += [(line, w) for w in _internal(name, module, "names")]
         found += [(line, w) for w in classify(name, module, "names", used)]
-    return sorted(set(found + refused))
+        if name.split(".")[0] in ("__import__", "__builtins__") or importer(name, _landings):
+            found.append((line, f"names {name} in an annotation: an importer"))
+    return sorted(set(found))
 
 
 def _assigned(name: str, module: str) -> list[str]:

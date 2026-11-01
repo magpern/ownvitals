@@ -6,19 +6,24 @@
 - ``LOADER_MODULES`` (``runpy``, ``pkgutil``, ``zipimport``, ``importlib.machinery``, the
   bootstrap, ``importlib.abc``, ``_imp``) and every ``importlib`` name but ``import_module`` and
   ``importlib.metadata`` load a module by a name the guard cannot judge: refused outright.
-- ``names``: a string constant naming a native or process module (or under one), the strings
-  ``"__import__"``/``"import_module"`` and the name ``__builtins__``, the forms every other
-  importer would take (``__builtins__["__import__"]``, ``vars(builtins)["__import__"]``,
-  ``pkgutil.get_loader("ctypes")``, ``runpy.run_module("ctypes.wintypes")``).
+- ``EVALUATORS`` (``exec``, ``eval``, ``compile``, ``pickle``, ``marshal``, ``shelve``,
+  ``timeit``, ``code``, ``codeop``, pydantic's ``ImportString``) run code or load objects from
+  data the guard cannot read: refused outright, under any alias or ``from`` form.
+- ``names``: a ``str``/``bytes`` constant naming a native or process module as an identifier
+  segment (docstrings aside), the strings ``"__import__"``/``"import_module"`` and the name
+  ``__builtins__``, the forms every other importer would take (``__builtins__["__import__"]``,
+  ``vars(builtins)["__import__"]``, ``pkgutil.get_loader("ctypes")``, ``"ctypes:CDLL"``).
 
 A name built at run time (``"cty" + "pes"``) is reflection, left to review (``egress.md``).
 Each function takes ``landings``: a dotted name and where import bindings take it.
 """
 
 import ast
+import re
 from collections.abc import Callable
 
 from egress_classified import (
+    EVALUATORS,
     IMPORT_CALLS,
     LOADER_MODULES,
     NATIVE_MODULES,
@@ -33,6 +38,7 @@ NOT_DIRECT = "an importer is only called directly, with one constant name"
 _IMPORTLIB_ALLOWED = ("importlib", "importlib.import_module")
 _IMPORTER_STRINGS = frozenset({"__import__", "import_module"})
 _BUILTINS = "__builtins__"
+_SEPARATORS = re.compile(r"[^A-Za-z0-9_]+")
 
 
 def importer(name: str, landings: Landings, calls_only: bool = False) -> bool:
@@ -81,84 +87,56 @@ def dynamic_import(
     return [(node.lineno, first.value, True)]
 
 
-def _string_annotations(tree: ast.AST) -> list[ast.Constant]:
-    """The annotations that are one string (``x: "Node"``): forward references. A string nested
-    inside an annotation expression is ordinary code, evaluated at ``def`` time."""
-    roots: list[ast.expr | None] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            roots.append(node.returns)
-        elif isinstance(node, ast.arg | ast.AnnAssign):
-            roots.append(node.annotation)
-    return [r for r in roots if isinstance(r, ast.Constant) and isinstance(r.value, str)]
+def evaluator(name: str, landings: Landings) -> bool:
+    """Whether ``name`` lands on code or data evaluation (``EVALUATORS``): ``exec``, ``eval``,
+    ``compile``, ``pickle``, ``marshal``, ``shelve``, ``timeit``, ``code``, ``ImportString``."""
+    return any(under(n, EVALUATORS) for n in landings(name))
 
 
-_FORWARD_NODES = (ast.Expression, ast.Name, ast.Attribute, ast.Subscript, ast.Tuple, ast.List)
-_FORWARD_NODES += (ast.Constant, ast.Load, ast.BitOr)
+def _standalone(tree: ast.AST) -> set[int]:
+    """``id``s of the strings that are a statement of their own: docstrings and the like."""
+    return {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+    }
 
 
-def _forward(text: str, depth: int = 0) -> list[ast.expr] | None:
-    """The name nodes of a forward reference, or ``None`` when it is more than names, dotted
-    names, subscripts, tuples, lists and ``X | Y`` (a nested string is a forward reference too)."""
-    try:
-        parsed = ast.parse(text, mode="eval")
-    except SyntaxError:
-        return None
-    found: list[ast.expr] = []
-    for node in ast.walk(parsed):
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-            continue
-        if not isinstance(node, _FORWARD_NODES):
-            return None
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            inner = _forward(node.value, depth + 1) if depth < 8 else None
-            if inner is None:
-                return None
-            found += inner
-        elif isinstance(node, ast.Name | ast.Attribute):
-            found.append(node)
-    return found
+def _segments(value: str | bytes) -> list[str]:
+    text = value.decode("latin-1") if isinstance(value, bytes) else value
+    return [s for s in _SEPARATORS.split(text) if s]
 
 
-def spelled(node: ast.expr) -> str | None:
-    """A name or dotted name as written (``ctypes.c_int``), with no alias resolved."""
-    parts: list[str] = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    return ".".join([node.id, *reversed(parts)]) if isinstance(node, ast.Name) else None
+def _names_module(value: str | bytes) -> str | None:
+    """The native or process module ``value`` names as identifier segments, if any:
+    ``"ctypes:CDLL"``, ``"import ctypes"`` and ``"ctypes/__init__.py"`` do, ``"ctypesish"``
+    does not (a pickle opcode glued to a name does not either: ``pickle`` is refused by name)."""
+    segments = _segments(value)
+    for module in NATIVE_MODULES + PROCESS_MODULES:
+        parts = module.split(".")
+        for i in range(len(segments) - len(parts) + 1):
+            if segments[i : i + len(parts)] == parts:
+                return module
+    return None
 
 
-def forward_references(tree: ast.AST) -> tuple[list[tuple[int, str]], list[tuple[int, ast.expr]]]:
-    """``typing.get_type_hints`` (FastAPI, pydantic) evaluates a string annotation, so it may
-    hold only names: ``(line, why)`` for each that holds more, and ``(line, node)`` for each name
-    in the rest, which ``egress_scan`` judges like a name in code."""
-    refused: list[tuple[int, str]] = []
-    references: list[tuple[int, ast.expr]] = []
-    for root in _string_annotations(tree):
-        found = _forward(str(root.value))
-        if found is None:
-            refused.append((root.lineno, "a string annotation holds more than names: it runs"))
-        else:
-            references += [(root.lineno, node) for node in found]
-    return refused, references
-
-
-def names(tree: ast.AST) -> list[tuple[int, str]]:
-    """``(line, why)`` for each string naming a native or process module or an importer, and
-    each use of ``__builtins__``. String annotations are ``forward_references``'."""
+def names(tree: ast.AST, skip: set[int]) -> list[tuple[int, str]]:
+    """``(line, why)`` for each ``str`` or ``bytes`` constant naming a native or process module
+    as an identifier segment, the strings ``"__import__"``, ``"import_module"`` and
+    ``"__builtins__"``, and each use of ``__builtins__``. Docstrings and the strings ``skip``
+    (``egress_forward`` reads them) are not judged here."""
     found: list[tuple[int, str]] = []
-    forward = {id(r) for r in _string_annotations(tree)}
+    skip = skip | _standalone(tree)
     for node in ast.walk(tree):
-        if id(node) in forward:
+        if id(node) in skip:
             continue
         line = getattr(node, "lineno", 1)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            text = node.value
-            if under(text, NATIVE_MODULES + PROCESS_MODULES):
-                found.append((line, f"names {text!r}: a native or process module, by string"))
-            elif text in _IMPORTER_STRINGS or text == _BUILTINS:
-                found.append((line, f"names {text!r}: an importer, by string"))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str | bytes):
+            module = _names_module(node.value)
+            if module is not None:
+                found.append((line, f"names {module!r}: a native or process module, by string"))
+            elif node.value in _IMPORTER_STRINGS or node.value == _BUILTINS:
+                found.append((line, f"names {node.value!r}: an importer, by string"))
         elif isinstance(node, ast.Name) and node.id == _BUILTINS:
             found.append((line, f"uses {_BUILTINS}: reaches every importer by name"))
         elif isinstance(node, ast.Attribute) and node.attr == _BUILTINS:

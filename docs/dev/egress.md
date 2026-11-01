@@ -239,20 +239,33 @@ What else the guard refuses outside the package:
   and every `importlib` name except `import_module` (direct, literal only) and
   `importlib.metadata`. Each loads a module by a name the guard does not judge; `src` uses
   none of them, so this fails closed;
-- **names in strings** (fail closed, `tests/test_egress_importers.py`): a string constant (an
-  f-string part included) equal to or under a native or process module (`"ctypes"`,
-  `"ctypes.util"`, `"_posixsubprocess"`, `"multiprocessing.pool"` ...), the strings
-  `"__import__"`, `"import_module"` and `"__builtins__"`, and the name or attribute
-  `__builtins__`. Every importer reached by name (`__builtins__["__import__"]`,
-  `vars(builtins)["__import__"]`, `importlib.__dict__["import_module"]`) names one of them. A
-  string nested inside an annotation expression is ordinary code;
-- **string annotations** (forward references, `x: "Node"`): `typing.get_type_hints`, which
-  FastAPI and pydantic call on routes and models, evaluates them. One may hold only names,
-  dotted names, subscripts, tuples, lists, constants and `X | Y` (`ast.parse(s, mode="eval")`;
-  a nested string is a forward reference too). Anything else, a call, a lambda, a
-  comprehension, an operator or a syntax error, is refused. Each name in it is then judged as a
-  name in code, through the run-time imports or, when nothing binds it, as spelled: so
-  `"ctypes.c_int"` is refused as a reference to `ctypes`, even under a type-only import;
+- **evaluators**, under any alias or `from` form (`EVALUATORS`, `tests/egress_importers.py`):
+  the builtins `exec`, `eval` and `compile` (`re.compile` and other attributes are not
+  them), `pickle`, `marshal`, `shelve`, `timeit`, `code`, `codeop` and pydantic's
+  `ImportString`. Each runs code or loads objects from text or bytes the guard does not read;
+  `src` uses none of them, so this fails closed;
+- **names in strings** (fail closed, `tests/test_egress_importers.py`): a `str` or `bytes`
+  constant (an f-string part included) that names a native or process module as identifier
+  segments, split on every character that is not a letter, digit or `_` (`"ctypes"`,
+  `"ctypes:CDLL"`, `"import ctypes"`, `"ctypes/__init__.py"`, `b"_posixsubprocess"`,
+  `"concurrent/futures/process.py"` ...; `"ctypesish"` is not one). Docstrings and other strings
+  that are a statement of their own are not judged. Also the strings `"__import__"`,
+  `"import_module"` and `"__builtins__"`, and the name or attribute `__builtins__`. Every
+  importer reached by name (`__builtins__["__import__"]`, `vars(builtins)["__import__"]`,
+  `importlib.__dict__["import_module"]`) names one of them;
+- **strings `typing` evaluates** (`tests/egress_forward.py`, `tests/test_egress_forward.py`):
+  `typing.get_type_hints`, which FastAPI and pydantic call on routes and models (pydantic when
+  it builds the class), evaluates every string in an annotation: a whole-string annotation
+  (`x: "Node"`) and a string nested in one (`list["Node"]`, `Optional["Node"]`,
+  `Annotated["Node", ...]`). So do a string `TypeVar` bound or constraint and
+  `ForwardRef("...")`. Each may hold only names, dotted names, subscripts, tuples, lists,
+  constants and `X | Y` (`ast.parse(s, mode="eval")`; a string nested in it likewise).
+  Anything else, a call, a lambda, a comprehension, an operator or a syntax error, is refused,
+  and so is an annotation that builds a string (an f-string, `+` or any operator but `|`). A
+  `Literal[...]` argument is a value and `Annotated` metadata is not a type: neither is read.
+  Each name in such a string is then judged as a name in code, through the run-time imports or,
+  when nothing binds it, as spelled: so `"ctypes.c_int"` is refused as a reference to `ctypes`,
+  even under a type-only import, and `"__import__"`, `"__builtins__"` or an importer is refused;
 - **a module looked up by name**: any reference to `sys.modules` (a subscript, `.get(...)`, an
   `in` test, a variable holding it) and `pkgutil.resolve_name`, under any alias of `sys`, as
   `from sys import modules` and through a chain (`os.sys.modules`). `subprocess` imports
@@ -275,7 +288,7 @@ included, when its names appear only in annotations (`tests/egress_typeonly.py`,
 at run time, so it only tells the type checker what a name is. A name it binds is a run-time
 reference anywhere outside an annotation, and inside an annotation it resolves only through the
 run-time imports, so an annotation that is evaluated cannot reach the module unless a run-time
-import binds it, which the guard sees. (A string annotation is the exception: its names are
+import binds it, which the guard sees. (A string `typing` evaluates is the exception: its names are
 also judged as spelled, above, so `"ctypes.c_int"` is refused even then.) That holds only while
 the flag is really `typing`'s, so
 the block is skipped only when:
@@ -337,7 +350,7 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_closure.py tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
   tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py \
   tests/test_egress_scope.py tests/test_egress_process.py tests/test_egress_reflection.py \
-  tests/test_egress_typeonly.py tests/test_egress_importers.py
+  tests/test_egress_typeonly.py tests/test_egress_importers.py tests/test_egress_forward.py
 ```
 
 ## Known limits
@@ -362,17 +375,19 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
 - The guard is static; the hook covers at run time what it cannot see, and the review gate the
   rest:
   - deliberate indirection (N9): a computed `getattr`, `vars(sys)`, `sys.__dict__`, a module
-    an expression returns (`importlib.import_module("sys").modules`), `exec`/`eval`, the
-    module's own `__loader__` and `__spec__.loader` (bound to its own file), and a module or
-    flag name **built at run time**: `"cty" + "pes"`, `"TYPE_" + "CHECKING"`,
-    `"".join(map(chr, ...))`, `"type_checking".upper()`, `b"...".decode()`, an f-string with a
-    variable part. Every route that names its target as a constant is refused (above). The
-    cheap partial closes are in: a rebound or named `TYPE_CHECKING`, dynamic imports and stored
-    importers, module loaders, names of refused modules and importers in strings,
+    an expression returns (`importlib.import_module("sys").modules`), the module's own
+    `__loader__` and `__spec__.loader` (bound to its own file), and a module or flag name
+    **built at run time**: `"cty" + "pes"`, `"TYPE_" + "CHECKING"`, `"".join(map(chr, ...))`,
+    `"type_checking".upper()`, `b"...".decode()`, an f-string with a variable part. Every route
+    that names its target as a constant is refused (above). `sys.path_hooks`,
+    `types.ModuleType(...)` and a code object load nothing without `exec` (or a file on disk),
+    and `exec`, `eval`, `compile` and `marshal` are refused. The cheap partial closes are in: a
+    rebound or named `TYPE_CHECKING`, dynamic imports and stored importers, module loaders,
+    evaluators, names of refused modules and importers in strings, strings `typing` evaluates,
     `__builtins__`, `find_spec`/`spec_from_*`, `sys.modules`, `pkgutil`, `ctypes`, constant
-    `getattr`, and `_socket`/`_ssl` as seeds. The `module:attr`
-    string form (pydantic's `ImportString`, `"socket:create_connection"`) is not read by the
-    string rule (N18): indirection of this kind, refused by the hook when it connects;
+    `getattr`, and `_socket`/`_ssl` as seeds. A `module:attr` string
+    (`"socket:create_connection"`) is read as `module.attr` by the string rule (N18), and
+    pydantic's `ImportString`, which resolves one, is refused;
   - process execution (N10): `subprocess` is capable (it imports `select`) and so refused, as
     are `asyncio.create_subprocess_*` and `anyio`; `os.system`, `os.popen`, `os.exec*` and
     `os.spawn*` pass the guard. The image has `python`, so a child could connect: the hook
