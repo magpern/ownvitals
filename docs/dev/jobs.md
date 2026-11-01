@@ -41,19 +41,57 @@ exactly, pinned by digest, in the PR that adds it.
 
 ### db-functions
 
-Compose runs `db-functions` (image `postgres:17.11`, `restart: "no"`) after `migrate`; `web` and
-`worker` wait for it to complete. It runs `20-queue.sql` as the superuser in one transaction on
-every start: the script is idempotent and repairs what it manages (attributes, memberships,
-settings, privileges, overloads, owner, ACL, comment). What it must not repair (an object the
-queue role owns besides the functions, default privileges, foreign user code) stops it with a
-message naming the object. It is the only service besides `db` with the `postgres_password`
-secret, which it writes to a `PGPASSFILE` on a tmpfs at run time (never the environment or a
-command line). Its image and entrypoint are pinned and tested (`test_compose_roles.py`).
+Compose runs `db-functions` (`restart: "no"`) after `migrate`; `web` and `worker` wait for it to
+complete. It runs `20-queue.sql` as the superuser in one transaction on every start: the script
+is idempotent and repairs what it manages (attributes, memberships, settings, privileges,
+overloads, owner, ACL, comment). What it must not repair (an object the queue role owns besides
+the functions, default privileges, foreign user code) stops it with a message naming the object.
+
+It runs the **application image**, which carries `20-queue.sql` and the entrypoint
+`db-functions.sh` under `/app/db-functions` (`Dockerfile`; root-owned, mode 0555). Nothing is
+mounted from the host, so the functions installed are always those of the image's release: on
+the server the deploy pins `db-functions` to the release digest with the other app services, and
+a rollback re-installs the previous release's functions ([deploy.md](deploy.md), "Database
+functions"). The entrypoint writes the `postgres_password` secret (it is the only service besides
+`db` holding it) to a `PGPASSFILE` on a tmpfs, escaping `\` and then `:` as libpq's `.pgpass`
+format requires, and refuses an empty secret or one with a line break. Then
+`python -m ownvitals.db.install_functions` (`backend/src/ownvitals/db/install_functions.py`)
+sends the SQL to `db` in one transaction with psycopg: no psql in the image. The runner refuses a
+connection string with a password or anything but host, port, database, user, `connect_timeout`
+and `sslmode`, every `PG*` environment variable but `PGPASSFILE` (`PGPASSWORD`, `PGSERVICE`,
+`PGOPTIONS`, ..., which libpq would read), and a missing `PGPASSFILE`; the password never
+reaches the environment, a command line, the output or `docker inspect`. It also refuses, before
+connecting, SQL that controls its own transaction (a top-level `BEGIN`, `START`, `COMMIT`, `END`,
+`ROLLBACK`, `ABORT`, `SAVEPOINT`, `RELEASE` or `PREPARE`; the scan skips comments, literals and
+dollar-quoted bodies, so PL/pgSQL's `BEGIN ... END` passes): such a file could commit part of the
+work before a later error.
+
+Tests: `test_compose_roles.py` pins the service (image, entrypoint, the tmpfs as its only mount,
+no volume, environment or user); `test_compose_host_sql.py` checks that no service reads SQL from
+a host path but `db`'s first-start init directory ([stack.md](stack.md)); `test_db_functions_script.py` runs the
+entrypoint on passwords with `\` and `:` and checks the line against libpq's `.pgpass` rules,
+signs in through libpq with it, and runs the runner (one transaction, rolled back on an error);
+`test_install_functions_sql.py` covers the transaction-control scan. The host-SQL check parses the
+compose YAML ([stack.md](stack.md)). The deploy refuses a production `db-functions` that could
+read a host file: volumes, configs, `develop` (or an `extends` that brings them), or any secret but `postgres_password`
+([deploy.md](deploy.md), check 11).
+
+### The Postgres image
+
+`db` runs `postgres:17.11@sha256:31ba9c94a03ada9988f2bb493a22a75eef3a185884533e5cdbcd498ea835b08f`,
+and CI's `backend` service the same reference: the expected function digests depend on how that
+image renders the functions, and `test_compose_roles.py` fails when the two differ. The digest is
+the tag's **multi-arch image index** on Docker Hub (the registry's index, not a platform
+manifest), read with `docker buildx imagetools inspect postgres:17.11` (the `Digest:` line).
+Dependabot's `docker-compose` entry bumps the tag and digest in `compose.yaml`; that PR must set
+the same reference in `ci.yml` (Dependabot does not see a service image there) and regenerate
+`queue_digests.py` if the rendering changed. On the server, pull the database image by that
+digest before a deploy (the deploy runs compose with `--pull never`).
 
 ### Changing a function
 
 1. Edit `20-queue.sql`, keep it idempotent, and bump the version comment if the contract changes.
-2. Against a database at head with the script run (the test superuser, `postgres:17.11`):
+2. Against a database at head with the script run (the test superuser, the pinned `postgres:17.11`):
    `uv run python tests/queue_digests.py --write`.
 3. CI's `backend` job migrates, runs the script twice and runs `--check`: a stale
    `queue_digests.py` fails there.

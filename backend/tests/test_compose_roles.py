@@ -1,9 +1,12 @@
 """The local stack connects with the roles of ADR 0002 section 5: migrate as the owner, web and the
 worker as the app role, and no service but db and db-functions holds the superuser's password.
 Only db runs the roles script; db-functions runs the job queue's script (ADR 0005 section 3), a
-one-shot whose image and command are pinned here.
+one-shot whose image, command and (absent) mounts are pinned here. No service reads SQL from a
+host path but db's first-start init directory (test_compose_host_sql.py), and db runs postgres by
+the digest CI runs.
 
-Reads compose.yaml at the repository root as text, like ``test_image.py``."""
+Reads compose.yaml (and the Dockerfile and ci.yml) at the repository root as text, like
+``test_image.py``."""
 
 import re
 
@@ -91,28 +94,84 @@ def test_the_password_check_fails_on_a_wrong_mount(compose: str, service: str, s
         check_database_passwords(_add_secret(compose, service, secret))
 
 
-def test_db_functions_is_a_pinned_one_shot_after_the_migrations(compose: str) -> None:
-    """A change to the one-shot's image or command would run as the superuser: both are pinned.
-    It runs once per start, after the migrations only; web and the worker wait for it, since
-    their queue check refuses to start without the queue's functions."""
+def app_image(compose: str) -> str:
+    shared = compose[compose.index("x-app: &app") : compose.index("\nservices:")]
+    found = re.search(r"^  image: (\S+)$", shared, re.MULTILINE)
+    assert found is not None
+    return found.group(1)
+
+
+def check_db_functions(compose: str) -> None:
+    """The one-shot runs the application image (on the server, the deployed release's digest),
+    with its entrypoint from the image and nothing mounted: no volume of any kind, no environment,
+    no port, no other user than the image's."""
     one_shot = block(compose, "db-functions")
-    image = re.search(r"^    image: (\S+)$", one_shot, re.MULTILINE)
-    assert image is not None
-    assert image.group(1) == "postgres:17.11"
-    assert f"    image: {image.group(1)}\n" in block(compose, "db")  # the database's own image
+    keys = re.findall(r"^    (\w[\w-]*):", one_shot, re.MULTILINE)
+    assert keys == ["build", "image", "restart", "entrypoint", "secrets", "tmpfs", "depends_on"]
+    assert "    build: .\n" in one_shot
+    assert f"    image: {app_image(compose)}\n" in one_shot
     assert '    restart: "no"\n' in one_shot
-    assert "    user: postgres\n" in one_shot
-    assert '    entrypoint: ["sh", "/queue/db-functions.sh"]\n' in one_shot
-    for absent in ("command:", "environment:", "ports:", "<<:"):
-        assert absent not in one_shot, absent
-    assert "      - ./docker/postgres/queue:/queue:ro\n" in one_shot
+    assert '    entrypoint: ["sh", "/app/db-functions/db-functions.sh"]\n' in one_shot
+    # The tmpfs is the only mount besides the secret, private to the image's user (uid 10001).
+    tmpfs = one_shot.split("    tmpfs:\n")[1].split("    depends_on:\n")[0]
+    assert tmpfs == "      - /run/pgpass:mode=0700,uid=10001,gid=10001\n"
     depends = one_shot.split("    depends_on:\n")[1]
     assert re.findall(r"^      (\S+):$", depends, re.MULTILINE) == ["migrate"]
+    assert "        condition: service_completed_successfully\n" in depends
+
+
+def test_db_functions_is_a_pinned_one_shot_after_the_migrations(compose: str) -> None:
+    """A change to the one-shot's image, command or mounts would run as the superuser: all are
+    pinned. It runs once per start, after the migrations only; web and the worker wait for it,
+    since their queue check refuses to start without the queue's functions."""
+    check_db_functions(compose)
     for waiting in ("web", "worker"):
         assert re.search(
             r"depends_on:\n      db-functions:\n        condition: service_completed_successfully",
             block(compose, waiting),
         ), waiting
+
+
+def _insert_after_tmpfs(compose: str, lines: str) -> str:
+    body = block(compose, "db-functions")
+    anchor = "      - /run/pgpass:mode=0700,uid=10001,gid=10001\n"
+    changed = body.replace(anchor, anchor + lines, 1)
+    assert changed != body
+    return compose.replace(body, changed, 1)
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        "    volumes:\n      - ./secrets:/run/more:ro\n",
+        "    volumes:\n      - ./docker/postgres/queue:/app/db-functions:ro\n",
+        "    volumes:\n      - /var/run/postgresql:/var/run/postgresql\n",
+        "    volumes:\n      - db-data:/data:ro\n",
+        "    environment:\n      PGPASSFILE: /run/pgpass/pgpass\n",
+        "    user: root\n",
+        '    command: ["x"]\n',
+        "      - /tmp\n",
+    ],
+)
+def test_the_one_shot_check_fails_on_any_added_mount_or_setting(compose: str, lines: str) -> None:
+    with pytest.raises(AssertionError):
+        check_db_functions(_insert_after_tmpfs(compose, lines))
+
+
+POSTGRES_PIN = re.compile(r"postgres:17\.11@(sha256:[0-9a-f]{64})")
+
+
+def test_the_database_image_is_pinned_by_the_same_digest_as_ci(compose: str) -> None:
+    """`db` runs postgres:17.11 by its multi-arch index digest, the one CI's backend service
+    runs (the queue digests depend on how that image renders the functions; docs/dev/jobs.md)."""
+    db = re.search(r"^    image: (\S+)$", block(compose, "db"), re.MULTILINE)
+    assert db is not None
+    pinned = POSTGRES_PIN.fullmatch(db.group(1))
+    assert pinned is not None, db.group(1)
+    images = re.findall(r"^\s+image: (\S*postgres\S*)$", compose, re.MULTILINE)
+    assert images == [db.group(1)]  # no other service runs a postgres image
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert re.findall(r"^\s+image: (postgres\S*)$", ci, re.MULTILINE) == [db.group(1)]
 
 
 def test_the_superuser_password_never_reaches_the_environment_or_a_command_line(
@@ -122,8 +181,6 @@ def test_the_superuser_password_never_reaches_the_environment_or_a_command_line(
     command_lines = re.findall(r"^\s+(?:environment|command|entrypoint):.*$", compose, re.M)
     assert command_lines
     assert all("postgres_password" not in line for line in command_lines)
-    # A tmpfs for the PGPASSFILE, private to the postgres user (uid 999 in the image).
-    assert "      - /run/pgpass:mode=0700,uid=999,gid=999\n" in block(compose, "db-functions")
     script = DB_FUNCTIONS_SCRIPT.read_text(encoding="utf-8")
     assert "PGPASSWORD" not in script
     assert "postgres@" not in script  # by host, user and PGPASSFILE, never a URL
@@ -131,8 +188,17 @@ def test_the_superuser_password_never_reaches_the_environment_or_a_command_line(
     assert "pgpass=/run/pgpass/pgpass" in script
     assert script.index("umask 077") < script.index('> "$pgpass"')  # the file is mode 0600
     assert 'export PGPASSFILE="$pgpass"' in script
-    assert "--single-transaction -v ON_ERROR_STOP=1" in script
-    assert "-h db -U postgres -d ownvitals -f /queue/20-queue.sql" in script
+
+
+def test_the_image_carries_the_functions_and_their_entrypoint() -> None:
+    """The release image holds the SQL and the entrypoint db-functions runs, owned by root."""
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    copies = re.findall(r"^COPY .*db-functions.*$", dockerfile, re.MULTILINE)
+    assert copies == [
+        "COPY --chmod=0555 docker/postgres/queue/20-queue.sql "
+        "docker/postgres/queue/db-functions.sh /app/db-functions/"
+    ]
+    assert dockerfile.index(copies[0]) < dockerfile.index("\nUSER ownvitals\n")
 
 
 def test_the_database_creates_the_roles_from_the_password_files(compose: str) -> None:
