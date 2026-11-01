@@ -224,11 +224,14 @@ odd padding makes a step (amended 2026-10-31, #40).
 ### 8. RR intervals, artefact handling, HR and HRV (PLAN §7.3 step 4)
 
 - **RR** = differences of consecutive refined R-peaks inside the beat span, in ms.
-- **Exclusions**, in order (amended 2026-10-31, #40): (0) the interval across a dropped beat (§6) →
-  `unconfirmed_beat`; (a) outside 272.7–2,000 ms (30–220 bpm) → `rr_out_of_range`; (c) touching a
-  distorted beat (§7) → `distorted_beat`; (b) more than 20 % from the last accepted interval (the
-  rule attributed to Malik 1989), the reference starting at the median of the span's first five
-  intervals that are not (0) or (c) → `rr_deviation`. Excluded intervals are **deleted, not
+- **Exclusions**, in order (amended 2026-10-31 and 2026-11-01, #40): (0) the interval across a
+  dropped beat (§6) → `unconfirmed_beat`; (a) outside 272.7–2,000 ms (30–220 bpm) →
+  `rr_out_of_range`; (d) at least 1.75 times the median of its up to eight neighbouring intervals
+  (four each side, (0) left out), on a strip whose other exclusions are at most 20 % → `missed_beat`
+  (a beat the detector missed; a compensatory pause is 1.2–1.4 times); (c) touching a distorted
+  beat (§7) → `distorted_beat`; (b) more than 20 % from the last accepted interval (the rule
+  attributed to Malik 1989), the reference starting at the median of the span's first five
+  intervals that are not (0), (d) or (c) → `rr_deviation`. Excluded intervals are **deleted, not
   interpolated** (Lippman 1994; Peltola 2012). Version 1 doesn't say whether an excluded interval
   is ectopic or an artefact: that would be interpretation (§12).
 - **Limits of the 20 % rule.** With breathing at 0.25 Hz and HR below about 55 bpm, strong
@@ -237,7 +240,7 @@ odd padding makes a step (amended 2026-10-31, #40).
   five span most of a breath. While the excluded fraction stays ≤ 20 %, HRV is computed without
   them and reads low; beyond that, or under the minimums below, HRV is null ("insufficient").
   §13 tests this; V2 reports how often it happens on the owner's data.
-- **HR** = 60,000 / mean of the intervals left after (0) and (a): ectopic and distorted beats stay.
+- **HR** = 60,000 / mean of the intervals left after (0), (a) and (d): ectopic, distorted beats stay.
 - **HRV** on the accepted (NN) intervals with the Task Force (1996) definitions and two
   conventions of ours (the common Kubios-style ones): SDNN = standard deviation with n − 1, which
   the Task Force leaves open; RMSSD = √(mean ΔNN²) over adjacent NN pairs only (both accepted,
@@ -484,9 +487,7 @@ interpretation, and the E5 index is deferred (§12).
 
 ## References
 
-The sources cited here and in the test specification are listed at the end of
-[0006-ecg-subsystem-tests.md](0006-ecg-subsystem-tests.md#references) (amended 2026-10-31, #88):
-they were moved there verbatim.
+Listed at the end of [the test specification](0006-ecg-subsystem-tests.md#references) (moved, #88).
 
 ## Amendments
 
@@ -494,7 +495,6 @@ they were moved there verbatim.
 
 Moved verbatim to the test specification's Amendments (line limit); no decision changed.
 
-### 2026-10-31 (#40): unreachable assertions and generator corrections
+### 2026-10-31 and 2026-11-01 (#40): unreachable assertions, generator corrections
 
-Edits in place, marked "amended 2026-10-31, #40": §6, §7, §8 and Consequences. The decisions, the
-evidence and the changes to the test specification are in its Amendments.
+Edits in place ("amended ... #40"): §6, §7, §8, Consequences. Evidence: the test specification.

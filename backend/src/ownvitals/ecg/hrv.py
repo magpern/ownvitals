@@ -9,9 +9,14 @@ Input: the refined R-peaks of the beat span that passed the gate, as sample posi
   distorted beat (the gate finds those: a beat whose correlation with the median beat of its
   window is below 0.85), ``distorted_beat``; (b) more than 20 % from the last accepted interval,
   ``rr_deviation``, the reference starting at the median of the first five intervals that are
-  neither (0) nor (c). Excluded intervals are deleted, not interpolated.
-* HR = 60,000 / the mean of the intervals left after (0) and (a), ectopic beats and distorted
-  beats included: (c) leaves the NN intervals only.
+  neither (0), (c) nor (d). Excluded intervals are deleted, not interpolated.
+  (d) ``missed_beat``, after (a) and before (c): an interval of at least 1.75 times the median
+  of its up to eight neighbouring intervals (four each side, bridging intervals left out) is a
+  beat the detector missed, not a pause. It applies only to a strip that is not AF-like, that
+  is, one whose other exclusions are at most 20 % of the intervals (an irregular rhythm has no
+  neighbouring rhythm to compare with). A compensatory pause is 1.2-1.4 times its neighbours.
+* HR = 60,000 / the mean of the intervals left after (0), (a) and (d), ectopic beats and
+  distorted beats included: (c) leaves the NN intervals only.
 * HRV on the accepted (NN) intervals: SDNN with n - 1; RMSSD over adjacent NN pairs only (both
   accepted, sharing a beat); pNN50 = 100 * (pairs with |dNN| > 50 ms) / pairs.
 * HRV needs at least 15 NN intervals, 10 pairs and an excluded fraction of at most 20 %.
@@ -30,11 +35,14 @@ from typing import NamedTuple
 import numpy as np
 from numpy.typing import NDArray
 
-ALGO_VERSION = "3.0.0"
+ALGO_VERSION = "4.0.0"
 
 RR_MIN_MS = 60_000.0 / 220.0
 RR_MAX_MS = 2_000.0
 MAX_DEVIATION = 0.20
+MISSED_RATIO = 1.75
+MISSED_NEIGHBOURS = 4  # each side
+MISSED_MIN_NEIGHBOURS = 3
 REFERENCE_INTERVALS = 5
 MIN_NN, MIN_PAIRS = 15, 10
 MAX_EXCLUDED_FRACTION = 0.20
@@ -45,7 +53,8 @@ class Excluded(NamedTuple):
     """Interval ``i`` runs from R-peak ``i`` to R-peak ``i + 1`` of the span."""
 
     i: int
-    reason: str  # "unconfirmed_beat", "rr_out_of_range", "distorted_beat" or "rr_deviation"
+    reason: str  # "unconfirmed_beat", "rr_out_of_range", "missed_beat", "distorted_beat" or
+    # "rr_deviation"
 
 
 @dataclass(frozen=True)
@@ -74,16 +83,19 @@ def classify(
     rr_ms: NDArray[np.float64],
     unconfirmed: frozenset[int] = frozenset(),
     distorted: frozenset[int] = frozenset(),
+    missed: frozenset[int] = frozenset(),
 ) -> list[str | None]:
     """The exclusion reason of each interval, ``None`` for an accepted (NN) interval."""
     reasons: list[str | None] = [None] * rr_ms.shape[0]
-    usable = [float(rr) for i, rr in enumerate(rr_ms) if i not in unconfirmed | distorted]
+    usable = [float(rr) for i, rr in enumerate(rr_ms) if i not in unconfirmed | distorted | missed]
     reference = float(np.median(usable[:REFERENCE_INTERVALS])) if usable else 0.0
     for i, rr in enumerate(rr_ms):
         if i in unconfirmed:
             reasons[i] = "unconfirmed_beat"
         elif not RR_MIN_MS <= rr <= RR_MAX_MS:
             reasons[i] = "rr_out_of_range"
+        elif i in missed:
+            reasons[i] = "missed_beat"
         elif i in distorted:
             reasons[i] = "distorted_beat"
         elif abs(rr - reference) > MAX_DEVIATION * reference:
@@ -91,6 +103,24 @@ def classify(
         else:
             reference = float(rr)
     return reasons
+
+
+def missed_beats(rr_ms: NDArray[np.float64], unconfirmed: frozenset[int]) -> frozenset[int]:
+    """The intervals that are at least ``MISSED_RATIO`` times the median of their neighbours."""
+    found: set[int] = set()
+    for i, rr in enumerate(rr_ms):
+        if i in unconfirmed or not RR_MIN_MS <= rr <= RR_MAX_MS:
+            continue
+        near = [
+            float(rr_ms[j])
+            for j in range(
+                max(i - MISSED_NEIGHBOURS, 0), min(i + MISSED_NEIGHBOURS + 1, len(rr_ms))
+            )
+            if j != i and j not in unconfirmed
+        ]
+        if len(near) >= MISSED_MIN_NEIGHBOURS and rr >= MISSED_RATIO * float(np.median(near)):
+            found.add(i)
+    return frozenset(found)
 
 
 def hrv_metrics(
@@ -138,8 +168,13 @@ def analyse(
         i for beat in distorted for i in (beat - 1, beat) if 0 <= i < rr_ms.shape[0]
     )
     reasons = classify(rr_ms, bridging, touching)
+    missed: frozenset[int] = frozenset()
+    if rr_ms.shape[0] and sum(r is not None for r in reasons) <= MAX_EXCLUDED_FRACTION * len(rr_ms):
+        missed = missed_beats(rr_ms, bridging)
+        if missed:
+            reasons = classify(rr_ms, bridging, touching, missed)
     in_range = (rr_ms >= RR_MIN_MS) & (rr_ms <= RR_MAX_MS)
-    in_range[sorted(bridging)] = False
+    in_range[sorted(bridging | missed)] = False
     hr = round(60_000.0 / float(np.mean(rr_ms[in_range])), 1) if in_range.any() else None
     hrv, hrv_reasons = hrv_metrics(rr_ms, reasons)
     return RrAnalysis(

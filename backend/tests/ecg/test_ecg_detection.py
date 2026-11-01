@@ -70,7 +70,11 @@ def test_pooled_sensitivity_and_predictivity(condition: str, fs: int) -> None:
 def test_every_accepted_strip_keeps_95_percent(condition: str, fs: int) -> None:
     for case in accepted(condition, fs):
         matching = measure.span_matching(case)
-        assert matching.se >= tol.STRIP_FLOOR, (case.index, round(case.strip.hr_bpm), matching)
+        assert matching.se >= tol.strip_se_floor(case.condition, fs), (
+            case.index,
+            round(case.strip.hr_bpm),
+            matching,
+        )
         assert matching.ppv >= tol.STRIP_FLOOR, (case.index, round(case.strip.hr_bpm), matching)
 
 

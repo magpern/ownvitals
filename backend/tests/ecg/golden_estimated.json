@@ -9,11 +9,21 @@
     "rpeaks": "2.0.0",
     "sqi": "3.0.0"
    }
+  },
+  "ecg-4.0.0": {
+   "digest": "3735599ec792b5a156c03d6e535214d6bc4fc7d72f0e6ee7cf67c19feb703e92",
+   "modules": {
+    "filters": "1.0.0",
+    "hrv": "4.0.0",
+    "input": "1.0.0",
+    "rpeaks": "2.0.0",
+    "sqi": "3.0.0"
+   }
   }
  },
  "strips": {
   "af_120_300": {
-   "algo_version": "ecg-3.0.0",
+   "algo_version": "ecg-4.0.0",
    "excluded": [
     {
      "i": 4,
@@ -158,7 +168,7 @@
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "3.0.0",
+    "hrv": "4.0.0",
     "input": "1.0.0",
     "rpeaks": "2.0.0",
     "sqi": "3.0.0"
@@ -310,13 +320,13 @@
    }
   },
   "dropout_middle_300": {
-   "algo_version": "ecg-3.0.0",
+   "algo_version": "ecg-4.0.0",
    "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
    "input_revision": 1,
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "3.0.0",
+    "hrv": "4.0.0",
     "input": "1.0.0",
     "rpeaks": "2.0.0",
     "sqi": "3.0.0"
@@ -422,7 +432,7 @@
    }
   },
   "ectopic_75_500": {
-   "algo_version": "ecg-3.0.0",
+   "algo_version": "ecg-4.0.0",
    "excluded": [
     {
      "i": 19,
@@ -448,7 +458,7 @@
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "3.0.0",
+    "hrv": "4.0.0",
     "input": "1.0.0",
     "rpeaks": "2.0.0",
     "sqi": "3.0.0"
@@ -577,13 +587,13 @@
    }
   },
   "motion_half_300": {
-   "algo_version": "ecg-3.0.0",
+   "algo_version": "ecg-4.0.0",
    "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
    "input_revision": 1,
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "3.0.0",
+    "hrv": "4.0.0",
     "input": "1.0.0",
     "rpeaks": "2.0.0",
     "sqi": "3.0.0"
@@ -691,7 +701,7 @@
    }
   },
   "respiratory_45_300": {
-   "algo_version": "ecg-3.0.0",
+   "algo_version": "ecg-4.0.0",
    "excluded": [
     {
      "i": 2,
@@ -733,7 +743,7 @@
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "3.0.0",
+    "hrv": "4.0.0",
     "input": "1.0.0",
     "rpeaks": "2.0.0",
     "sqi": "3.0.0"
@@ -847,7 +857,7 @@
    }
   },
   "sinus_140_500": {
-   "algo_version": "ecg-3.0.0",
+   "algo_version": "ecg-4.0.0",
    "excluded": [],
    "hr_bpm": 139.9,
    "hrv": {
@@ -864,7 +874,7 @@
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "3.0.0",
+    "hrv": "4.0.0",
     "input": "1.0.0",
     "rpeaks": "2.0.0",
     "sqi": "3.0.0"
@@ -1026,7 +1036,7 @@
    }
   },
   "sinus_60_300": {
-   "algo_version": "ecg-3.0.0",
+   "algo_version": "ecg-4.0.0",
    "excluded": [],
    "hr_bpm": 60.1,
    "hrv": {
@@ -1043,7 +1053,7 @@
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "3.0.0",
+    "hrv": "4.0.0",
     "input": "1.0.0",
     "rpeaks": "2.0.0",
     "sqi": "3.0.0"
@@ -1165,13 +1175,13 @@
    }
   },
   "white6_300": {
-   "algo_version": "ecg-3.0.0",
+   "algo_version": "ecg-4.0.0",
    "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
    "input_revision": 1,
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "3.0.0",
+    "hrv": "4.0.0",
     "input": "1.0.0",
     "rpeaks": "2.0.0",
     "sqi": "3.0.0"

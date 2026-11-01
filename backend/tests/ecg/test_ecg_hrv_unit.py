@@ -161,13 +161,13 @@ def test_a_distorted_interval_does_not_move_the_reference_of_the_20_percent_rule
     """Section 8's rule (b) compares an interval with the last accepted one, and the reference
     starts at the median of the first five that are neither dropped nor distorted."""
     rr = [800.0] * 12
-    rr[0] = 1500.0  # touches the distorted beat 1: it must not start the reference
-    rr[1] = 1500.0
+    rr[0] = 1300.0  # touches the distorted beat 1: it must not start the reference
+    rr[1] = 1300.0
     result = hrv.analyse(peaks(rr), FS, distorted=[1])
     assert reasons_of(result) == {0: "distorted_beat", 1: "distorted_beat"}  # not rr_deviation
-    after = hrv.analyse(peaks([800.0, 800.0, 1500.0] + [800.0] * 9), FS, distorted=[3])
+    after = hrv.analyse(peaks([800.0, 800.0, 1300.0] + [800.0] * 9), FS, distorted=[3])
     assert reasons_of(after) == {2: "distorted_beat", 3: "distorted_beat"}
-    assert 4 not in reasons_of(after)  # 800 ms after a distorted 1500: the reference stayed 800
+    assert 4 not in reasons_of(after)  # 800 ms after a distorted 1300: the reference stayed 800
 
 
 def test_out_of_range_comes_before_distorted_and_both_count_toward_the_excluded_fraction() -> None:
@@ -188,3 +188,47 @@ def test_an_unconfirmed_interval_is_not_also_a_distorted_one() -> None:
     result = hrv.analyse(peaks([800.0] * 30), FS, unconfirmed=[5], distorted=[5])
     assert reasons_of(result)[5] == "unconfirmed_beat"
     assert reasons_of(result)[4] == "distorted_beat"
+
+
+# --- missed beats (section 8, rule (d), amended 2026-11-01 for #40) ------------------------------
+
+
+def test_an_interval_of_1_75_times_its_neighbours_is_a_missed_beat_and_leaves_hr_and_nn() -> None:
+    rr = [800.0] * 14 + [1400.0] + [800.0] * 14  # 1400 = 1.75 * 800
+    result = hrv.analyse(peaks(rr), FS)
+    assert [(e.i, e.reason) for e in result.excluded] == [(14, "missed_beat")]
+    assert result.hr_bpm == 75.0  # the 1,400 ms interval is not in the mean
+    assert result.hrv is not None
+    assert result.hrv.n_nn == 28
+    assert result.hrv.excluded_fraction == round(1 / 29, 4)
+
+
+def test_an_interval_just_under_1_75_times_its_neighbours_is_not_a_missed_beat() -> None:
+    result = hrv.analyse(peaks([800.0] * 14 + [1399.0] + [800.0] * 14), FS)
+    assert [e.reason for e in result.excluded] == ["rr_deviation"]  # section 8 (b) only
+    assert result.hr_bpm is not None
+    assert result.hr_bpm < 75.0  # HR keeps it
+
+
+def test_a_compensatory_pause_is_not_a_missed_beat() -> None:
+    rr = [800.0] * 10 + [520.0, 1080.0] + [800.0] * 10  # 65 % coupling, pause to 2 x 800
+    result = hrv.analyse(peaks(rr), FS)
+    assert "missed_beat" not in [e.reason for e in result.excluded]
+
+
+def test_the_rule_is_off_on_an_irregular_rhythm() -> None:
+    rr = [600.0, 900.0, 520.0, 1100.0, 700.0, 1300.0, 560.0, 980.0] * 4
+    result = hrv.analyse(peaks(rr), FS)
+    assert "missed_beat" not in [e.reason for e in result.excluded]
+    assert result.hrv is None
+    assert result.hr_bpm == round(60_000 / float(np.mean(rr)), 1)  # HR keeps every interval
+
+
+def test_a_bridging_interval_is_not_also_a_missed_beat() -> None:
+    result = hrv.analyse(peaks([800.0] * 14 + [1600.0] + [800.0] * 14), FS, unconfirmed=[14])
+    assert [e.reason for e in result.excluded] == ["unconfirmed_beat"]
+
+
+def test_a_missed_interval_does_not_move_the_reference_of_the_20_percent_rule() -> None:
+    result = hrv.analyse(peaks([1500.0] + [800.0] * 8 + [1500.0] + [800.0] * 8), FS)
+    assert [e.reason for e in result.excluded] == ["missed_beat", "missed_beat"]

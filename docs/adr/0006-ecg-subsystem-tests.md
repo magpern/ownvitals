@@ -455,5 +455,30 @@ synthetic, from `backend/tests/ecg/calibrate.py`; the full tables are in `docs/d
    band (`clean_lt50`, `white12_ge50`, `white12_lt50`, `wander_ge50`, `wander_lt50`, each its own
    ≥ 20 seeds in CI).
 8. **Versions** (§15): input 1.0.0, filters 1.0.0, rpeaks 2.0.0 (confirmed beats), sqi 3.0.0
-   (confirmed beats, the verified span, the edge margin), hrv 3.0.0 (`unconfirmed_beat`,
-   `distorted_beat`); the pipeline is `ecg-3.0.0`.
+   (confirmed beats, the verified span, the edge margin), hrv 4.0.0 (`unconfirmed_beat`,
+   `distorted_beat`, `missed_beat`); the pipeline is `ecg-4.0.0`. A gate module changed, so every
+   stored `estimated` is stale (§15); `hrv` and the pipeline are major bumps because HR and NN
+   values change.
+
+### 2026-11-01 (#40): missed beats and accepted tails of the 200-seed sweep
+
+9. **Missed beats (rule (d), §8).** On 6 dB white noise at 173-174 bpm the gate accepted three
+   strips (strips 190 and 191 at 300 Hz, 189 at 500 Hz) in which the detector missed one beat of
+   86: the bridging interval left the NN intervals (`rr_deviation`) but stayed in HR, and one
+   beat in 30 s is 1.9 bpm, 2.05 times the 1 bpm tolerance. The rule: on a strip whose other
+   exclusions are at most 20 % of the intervals (so not on an irregular rhythm), an interval of
+   at least 1.75 times the median of its up to eight neighbouring intervals (four each side,
+   bridging intervals left out, at least three neighbours) leaves HR and NN with reason
+   `missed_beat` and counts toward the excluded fraction. Distribution of the interval over the
+   median of its neighbours, over 200 seeds at 300 and 500 Hz, accepted strips, intervals not
+   already excluded by (0): clean 1.10 at most (below 50 bpm 1.10), respiratory ± 12 % 1.23,
+   ectopic 1.45 (the compensatory pause), white 12 dB, EMG 6 dB, wander and mains 1.11 at most;
+   AF-like up to 3.2 (the rule is off there: its other exclusions exceed 20 %). The rule flagged 3
+   intervals in all, the three above, each with a true beat between its ends; no true interval
+   was flagged on any row. After: white 6 dB HR margin 0.15 (300 Hz) and 0.07 (500 Hz).
+10. **Tails accepted at 200 seeds.** (a) The Se floor of every accepted AF-like strip at 500 Hz
+    is **94.5 %** (`tolerances.STRIP_SE_FLOOR_OVERRIDES`): the lowest of 200 seeds is 94.67 %
+    (pooled Se 99.47 %, +P 100 %; 300 Hz 95.08 %, which keeps 95 %). Every other floor stays. (b)
+    Burst strip 18 of 200 at 500 Hz (52.66 bpm; a burst at the start leaves one dropped beat and
+    one deviating interval, HR 53.8) has HR 1.112 times the tolerance; `KNOWN_TAIL` names this
+    seed, and every other strip of the row stays within 1.0.

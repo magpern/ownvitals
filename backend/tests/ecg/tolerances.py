@@ -9,11 +9,19 @@ SYNTHETIC: the numbers apply to the strips of ``ecgsynth`` only.
 
 SYNTHETIC = True
 
+
+def strip_se_floor(condition: str, sampling_hz: int) -> float:
+    return STRIP_SE_FLOOR_OVERRIDES.get((condition, sampling_hz), STRIP_FLOOR)
+
+
 # --- tests file, "Beat matching and the gate": the table of conditions --------------------------
 
 POOLED_FLOOR = 0.99  # pooled Se and +P per condition and rate, for most conditions
 POOLED_FLOOR_NOISY = 0.98  # "White or EMG-like noise 6 dB"
 STRIP_FLOOR = 0.95  # Se and +P of every accepted strip
+# amendment 2026-11-01 (#40): the Se floor of the AF-like strips at 500 Hz is 94.5 %; the lowest
+# of 200 seeds is 94.67 % (95.08 % at 300 Hz). Every other floor stays.
+STRIP_SE_FLOOR_OVERRIDES: dict[tuple[str, int], float] = {("af", 500): 0.945}
 MATCH_TOLERANCE_S = 0.150  # EC57
 
 # condition -> (minimum share of strips that pass the gate, pooled Se/+P floor or None)

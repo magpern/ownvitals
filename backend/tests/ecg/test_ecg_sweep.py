@@ -14,9 +14,13 @@ file, "HR and HRV"); ``KNOWN_TAIL`` lists the ones that are, with the number all
 import os
 
 import calibrate
+import measure
 import pytest
+import scenarios
 import tolerances as tol
 from scenarios import RATES
+
+from ownvitals.ecg.pipeline import Analysed
 
 SYNTHETIC = True
 
@@ -27,19 +31,12 @@ pytestmark = pytest.mark.skipif(
 
 SEEDS = 200
 
-# (condition, sampling rate) -> metric -> highest margin accepted for the tail cases reported in
-# docs/dev/ecg.md. Empty unless the sweep found a tail miss.
-KNOWN_TAIL: dict[tuple[str, int], dict[str, float]] = {
-    # 6 dB white noise at 173-174 bpm: one missed beat in 30 s moves HR by 1.9 bpm (2.05 times
-    # the 1 bpm tolerance): strips 190 and 191 at 300 Hz, strip 189 at 500 Hz of 200 seeds.
-    ("white6", 300): {"HR": 2.06},
-    ("white6", 500): {"HR": 2.06},
-    # one burst strip at 500 Hz (53 bpm): HR 1.11 times the tolerance.
-    ("motion_edge", 500): {"HR": 1.12},
+# (condition, sampling rate) -> {strip index: highest margin accepted}: the tail strips reported
+# in docs/dev/ecg.md, named one by one. Every other strip of the row stays within its tolerance.
+KNOWN_TAIL: dict[tuple[str, int], dict[int, float]] = {
+    # burst at the start, 52.66 bpm, HR 53.8 against 52.7 true: 1.112 times the 1 bpm tolerance
+    ("motion_edge", 500): {18: 1.12},
 }
-
-# AF-like strips: the lowest per-strip Se of 200 seeds (95 % required), reported in docs/dev/ecg.md.
-KNOWN_STRIP_SE: dict[tuple[str, int], float] = {("af", 500): 0.946}
 
 ROWS = sorted(set(tol.GATE_PASS_MIN) | set(tol.POOLED_MIN))
 
@@ -69,8 +66,7 @@ def test_the_sweep_meets_the_gate_and_accuracy_rows(
         assert row.se >= floor, ("Se", row.tp, row.fn)
         assert row.ppv is not None
         assert row.ppv >= floor, ("+P", row.tp, row.fp)
-        strip_floor = KNOWN_STRIP_SE.get((condition, fs), tol.STRIP_FLOOR)
-        assert row.min_se >= strip_floor, ("strip Se", row.min_se)
+        assert row.min_se >= tol.strip_se_floor(condition, fs), ("strip Se", row.min_se)
         assert row.min_ppv >= tol.STRIP_FLOOR, ("strip +P", row.min_ppv)
     elif condition in tol.POOLED_MIN:
         assert condition in tol.MAY_FAIL, f"no {condition} strip passed: the statistics are vacuous"
@@ -89,8 +85,15 @@ def test_the_sweep_keeps_hr_and_hrv_within_the_tolerances(
     rows: dict[tuple[str, int], calibrate.Row], condition: str, fs: int
 ) -> None:
     row = survey(rows, condition, fs)
-    allowed = KNOWN_TAIL.get((condition, fs), {})
-    for metric, margin in row.margins.items():
-        assert margin <= max(1.0, allowed.get(metric, 1.0)), (metric, margin, row)
+    named = KNOWN_TAIL.get((condition, fs), {})
+    if not named:
+        for metric, margin in row.margins.items():
+            assert margin <= 1.0, (metric, margin, row)
+    for case in scenarios.cases(condition, fs, SEEDS) if named else ():
+        error = measure.hrv_error(case) if isinstance(case.result, Analysed) else None
+        if error is None:
+            continue
+        worst = max(error.hr_margin, error.sdnn_margin, error.rmssd_margin, error.pnn50_margin)
+        assert worst <= named.get(case.index, 1.0), (case.index, worst)
     if tol.group_of(condition) == "clean":
         assert row.max_rr_rms_ms <= tol.RR_ERROR_RMS_MS, row.max_rr_rms_ms

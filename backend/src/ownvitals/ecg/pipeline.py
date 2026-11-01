@@ -25,7 +25,7 @@ from ownvitals.ecg import input as ecg_input
 from ownvitals.ecg.input import NotAnalysed
 from ownvitals.ecg.sqi import QualityRejected, WindowIndices
 
-PIPELINE_VERSION = "ecg-3.0.0"
+PIPELINE_VERSION = "ecg-4.0.0"
 
 MODULES = {
     "input": ecg_input.ALGO_VERSION,
