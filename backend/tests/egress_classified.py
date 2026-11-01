@@ -230,12 +230,20 @@ EVALUATORS: tuple[str, ...] = (
     "codeop",
     "pydantic.ImportString",
     "pydantic.types.ImportString",
+    # The fifth FAIL on #123 (F4): they run a string as code (``cProfile.run``, ``profile.run``,
+    # ``trace.Trace().run``, ``pdb.run``, ``bdb.Bdb.run``) or the code in docstrings (``doctest``).
+    "cProfile",
+    "profile",
+    "trace",
+    "doctest",
+    "pdb",
+    "bdb",
 )
 # Source readers (the FAIL on #123, E2): they hand back docstrings, comments or source text,
 # which a string rule never sees. Refused outright, with the name ``__doc__``.
-SOURCE_READERS: tuple[str, ...] = ("inspect", "pydoc", "linecache", "tokenize")
+SOURCE_READERS: tuple[str, ...] = ("inspect", "pydoc", "linecache", "tokenize", "traceback")
 # Words that make a string code (the FAIL on #123, E1a): an importer, evaluator or reflection
-# name as an identifier segment of any string ``src`` writes (docstrings aside).
+# name as an identifier segment of any string ``src`` writes (docstrings and comments too).
 CODE_WORDS: frozenset[str] = frozenset(
     {
         "__import__",
@@ -251,13 +259,41 @@ CODE_WORDS: frozenset[str] = frozenset(
         "globals",
     }
 )
-# Strings refused by E1 (a code word, or a parse that runs code) and reviewed as harmless: exact
-# text, by module. ``test_egress_importers.py`` pins each to ``src``.
+# Strings refused by the string rules and reviewed as harmless: an exact string, or an exact line
+# of a docstring or comment (stripped), by module. ``test_egress_strings.py`` pins each to ``src``.
 CODE_STRINGS: frozenset[tuple[str, str]] = frozenset(
     {
         ("ownvitals.mail", "MailMessage(...)"),  # MailMessage.__repr__: never evaluated
         ("ownvitals.mail", "Mailer(...)"),  # Mailer.__repr__: never evaluated
-        # A key of the ECG record (the analysis modules and their versions): data, not a lookup.
+        # Docstring and comment lines (prose, never read back: __doc__ and the readers are refused).
+        ("ownvitals.analysis.methods.baseline", "max(MAD_SCALE * mad, min_scale)"),  # a formula
+        ("ownvitals.analysis.methods.changepoint", "F(t)"),  # a formula
+        ("ownvitals.analysis.methods.trend", "S / (n(n-1)/2)"),  # a formula
+        (
+            "ownvitals.config",
+            "Wraps the environment source and drops the secret fields: env vars never set secrets.",
+        ),
+        (
+            "ownvitals.context",
+            "slot descriptors, ctypes) is out of scope for runtime checks; "
+            "the review gate catches it.",
+        ),
+        (
+            "ownvitals.db.session",
+            "the modules on the allowlist of ``tests/session_scan.py`` may open either. "
+            "What this does and",
+        ),
+        (
+            "ownvitals.headers",
+            "everything from our own origin only, with no exception. No inline or ``eval`` "
+            "script, no inline",
+        ),
+    }
+)
+# A dict-display key refused by the string rules and reviewed as data: it passes only as a key.
+DICT_KEY_STRINGS: frozenset[tuple[str, str]] = frozenset(
+    {
+        # The ECG record's key for its analysis modules and versions (``ecg/pipeline.py``).
         ("ownvitals.ecg.pipeline", "modules"),
     }
 )

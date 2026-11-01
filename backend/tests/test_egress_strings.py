@@ -5,6 +5,8 @@ f-string); source text is never read back (``__doc__``, ``inspect``, ``pydoc``, 
 """
 
 import ast
+import io
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -86,7 +88,7 @@ NEAR_MISSES = [
     "e = 'smtp_host is not configured'",  # a comparison: reads names only
     "c = 'utf-8'\nd = 'no-store'\nr = 'postgresql+psycopg'",
     'j = \'{"level": "ERROR", "message": "x"}\'',  # a dict of constants
-    'def f() -> None:\n    """Do not eval anything, nor read vars."""\n',  # a docstring
+    'def f() -> None:\n    """Do nothing, and read nothing back."""\n',  # a docstring
     "g = 'globally'\nb = 'evaluation'\nmods = 'module'",  # look-alike words
 ]
 # M6, M7 of the fourth FAIL: only ``typing``'s ``Literal`` and ``Annotated`` are skipped.
@@ -132,8 +134,16 @@ def test_a_local_literal_or_annotated_is_read(source: str) -> None:
 def test_each_reviewed_string_is_in_src_and_passes_only_there(module: str, text: str) -> None:
     path = SRC / Path(*module.split("."))
     path = path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    assert any(isinstance(n, ast.Constant) and n.value == text for n in ast.walk(tree)), text
+    source = path.read_text(encoding="utf-8")
+    texts = {
+        t
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+        for t in (n.value, *(line.strip() for line in n.value.splitlines()))
+    }
+    tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+    texts |= {t.string.lstrip("#").strip() for t in tokens if t.type == tokenize.COMMENT}
+    assert text in texts, text  # a string, a docstring line or a comment of that module
     source = f"s = {text!r}"
     assert scan_source(source, module) == []
     assert scan_source(source, M) != []

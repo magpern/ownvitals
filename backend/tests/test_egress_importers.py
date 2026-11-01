@@ -63,10 +63,10 @@ NEAR_MISSES = [
     "name = 'ctypesish'\nother = 'json'\nthird = 'multiprocessingx'",
     "name = 'concurrent.futures'\nother = 'process'\ntext = 'import json'",
     "raw = b'multiprocessingx'\nmore = b'json'",
-    # D2 near misses: ``re.compile`` is not the builtin, and a docstring may name ``ctypes``.
+    # D2 near misses: ``re.compile`` is not the builtin. (Docstrings naming ``ctypes`` are
+    # refused since the fifth FAIL: ``test_egress_prose.py``.)
     "import re\nre.compile('x')",
-    '"""This module mentions ctypes and _posixsubprocess."""\n',
-    'def f() -> None:\n    """Not ctypes: see multiprocessing.pool."""\n',
+    '"""This module mentions nothing refused."""\n',
     # Forward references that hold only names (``typing.get_type_hints`` evaluates them).
     "class Node:\n    nxt: 'Node'\n",
     "def f(x: 'list[Node]') -> 'Node': ...",

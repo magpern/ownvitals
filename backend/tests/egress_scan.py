@@ -375,7 +375,7 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
     aliases = _BUILTIN_NAMES | every | runtime
     direct = direct_imports(tree, aliases, _landings)
     refused, references, read = forward_references(tree, aliases)
-    found: list[tuple[int, str]] = assignments(tree) + names(tree, read, module) + refused
+    found: list[tuple[int, str]] = assignments(tree) + names(tree, read, module, source) + refused
     imports = _imports(tree, module, skip)
     object_names = object_network_names()
     for node in ast.walk(tree):

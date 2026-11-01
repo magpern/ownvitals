@@ -10,26 +10,30 @@
   ``timeit``, ``code``, ``codeop``, pydantic's ``ImportString``) run code or load objects from
   data the guard cannot read: refused outright, under any alias or ``from`` form.
 - ``names``: a ``str``/``bytes`` constant naming a native or process module as an identifier
-  segment (docstrings aside), the strings ``"__import__"``/``"import_module"`` and the name
-  ``__builtins__``, the forms every other importer would take (``__builtins__["__import__"]``,
-  ``vars(builtins)["__import__"]``, ``pkgutil.get_loader("ctypes")``, ``"ctypes:CDLL"``).
+  segment (docstrings and comments too), the strings ``"__import__"``/``"import_module"`` and
+  the name ``__builtins__``, the forms every other importer would take
+  (``__builtins__["__import__"]``, ``vars(builtins)["__import__"]``, ``"ctypes:CDLL"``).
 
 A name built at run time (``"cty" + "pes"``) is reflection, left to review (``egress.md``).
 Each function takes ``landings``: a dotted name and where import bindings take it.
 """
 
 import ast
+import io
 import re
+import tokenize
 from collections.abc import Callable
 
 from egress_classified import (
     CODE_STRINGS,
     CODE_WORDS,
+    DICT_KEY_STRINGS,
     EVALUATORS,
     IMPORT_CALLS,
     LOADER_MODULES,
     NATIVE_MODULES,
     PROCESS_MODULES,
+    PROCESS_NAMES,
     SOURCE_READERS,
     SPEC_FINDERS,
 )
@@ -47,6 +51,11 @@ _READ_BACK = {
     "__doc__": "reads a docstring back as a string",
 }
 _SEPARATORS = re.compile(r"[^A-Za-z0-9_]+")
+# What the string rule refuses as segments: the modules, and each process name by its last
+# segment, which covers it whole too (``ProcessPoolExecutor``: ``concurrent.futures`` imports
+# ``concurrent.futures.process`` lazily when it is read).
+_NAMED = NATIVE_MODULES + PROCESS_MODULES
+_NAMED += tuple(sorted({n.rpartition(".")[2] for n in PROCESS_NAMES}))
 
 
 def importer(name: str, landings: Landings, calls_only: bool = False) -> bool:
@@ -121,11 +130,12 @@ def _segments(value: str | bytes) -> list[str]:
 
 
 def _names_module(value: str | bytes) -> str | None:
-    """The native or process module ``value`` names as identifier segments, if any:
-    ``"ctypes:CDLL"``, ``"import ctypes"`` and ``"ctypes/__init__.py"`` do, ``"ctypesish"``
-    does not (a pickle opcode glued to a name does not either: ``pickle`` is refused by name)."""
+    """The native or process module (or process name) ``value`` names as identifier segments,
+    if any: ``"ctypes:CDLL"``, ``"import ctypes"``, ``"ctypes/__init__.py"`` and
+    ``"ProcessPoolExecutor"`` do, ``"ctypesish"`` does not (a pickle opcode glued to a name does
+    not either: ``pickle`` is refused by name)."""
     segments = _segments(value)
-    for module in NATIVE_MODULES + PROCESS_MODULES:
+    for module in _NAMED:
         parts = module.split(".")
         for i in range(len(segments) - len(parts) + 1):
             if segments[i : i + len(parts)] == parts:
@@ -134,14 +144,14 @@ def _names_module(value: str | bytes) -> str | None:
 
 
 def _string(value: str | bytes, module: str) -> str | None:
-    """Why a ``str``/``bytes`` constant is refused: it names a native or process module or a
-    code word as identifier segments, or (a ``str``) parses as more than names (``holds_code``),
-    unless ``CODE_STRINGS`` lists it for ``module``."""
+    """Why a ``str``/``bytes`` constant (or a line of prose) is refused: it names a native or
+    process module or a code word as identifier segments, or (a ``str``) parses as code that
+    runs (``holds_code``), unless ``CODE_STRINGS`` lists it for ``module``."""
+    if isinstance(value, str) and (module, value) in CODE_STRINGS:
+        return None
     named = _names_module(value)
     if named is not None:
         return f"names {named!r}: a native or process module, by string"
-    if isinstance(value, str) and (module, value) in CODE_STRINGS:
-        return None
     words = sorted(CODE_WORDS.intersection(_segments(value)))
     if words or value in _IMPORTER_STRINGS:
         return f"names {words[0] if words else value!r}: an importer or evaluator, by string"
@@ -150,17 +160,54 @@ def _string(value: str | bytes, module: str) -> str | None:
     return None
 
 
-def names(tree: ast.AST, skip: set[int], module: str) -> list[tuple[int, str]]:
-    """``(line, why)`` for each refused ``str`` or ``bytes`` constant (``_string``), and each use
-    of ``__builtins__`` or ``__doc__``. Docstrings and the strings ``skip`` (``egress_forward``
-    reads them) are not judged here; ``__doc__`` and ``SOURCE_READERS`` keep them unread."""
+def _prose(text: str, module: str, first: int) -> list[tuple[int, str]]:
+    """A docstring or comment, judged line by line (``CODE_STRINGS`` lists reviewed lines, each
+    stripped), and as a whole for what spans lines (a call or a dotted module name)."""
     found: list[tuple[int, str]] = []
-    skip = skip | _standalone(tree)
+    for offset, line in enumerate(text.splitlines()):
+        why = _string(line.strip(), module)
+        if why is not None:
+            found.append((first + offset, why))
+    kept = [
+        s for s in (line.strip() for line in text.splitlines()) if (module, s) not in CODE_STRINGS
+    ]
+    rest = "\n".join(kept)  # the reviewed lines aside
+    if not found and len(kept) > 1 and (_names_module(" ".join(kept)) or holds_code(rest)):
+        found.append((first, "prose that spans lines names a refused name or parses as code"))
+    return found
+
+
+def _comments(source: str, module: str) -> list[tuple[int, str]]:
+    """Every comment, judged as prose: ``traceback`` or ``linecache`` hand them back."""
+    found: list[tuple[int, str]] = []
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, SyntaxError):  # ``ast.parse`` accepted it; be safe anyway
+        return [(1, "source that does not tokenize: comments cannot be judged")]
+    for token in tokens:
+        if token.type == tokenize.COMMENT:
+            found += _prose(token.string.lstrip("#").strip(), module, token.start[0])
+    return found
+
+
+def names(tree: ast.AST, skip: set[int], module: str, source: str) -> list[tuple[int, str]]:
+    """``(line, why)`` for each refused ``str`` or ``bytes`` constant (``_string``), docstring or
+    comment (``_prose``), and each use of ``__builtins__`` or ``__doc__``. The strings ``skip``
+    (``egress_forward`` reads them) are judged there. A dict key in ``DICT_KEY_STRINGS`` passes
+    only as a key of a dict display."""
+    found: list[tuple[int, str]] = _comments(source, module)
+    standalone = _standalone(tree)
+    keys = {id(k) for n in ast.walk(tree) if isinstance(n, ast.Dict) for k in n.keys if k}
     for node in ast.walk(tree):
         if id(node) in skip:
             continue
         line = getattr(node, "lineno", 1)
         if isinstance(node, ast.Constant) and isinstance(node.value, str | bytes):
+            if id(node) in standalone and isinstance(node.value, str):
+                found += _prose(node.value, module, line)
+                continue
+            if id(node) in keys and (module, node.value) in DICT_KEY_STRINGS:
+                continue
             why = _string(node.value, module)
             if why is not None:
                 found.append((line, why))

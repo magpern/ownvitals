@@ -241,40 +241,53 @@ What else the guard refuses outside the package:
   none of them, so this fails closed;
 - **evaluators**, under any alias or `from` form (`EVALUATORS`, `tests/egress_importers.py`):
   the builtins `exec`, `eval` and `compile` (`re.compile` and other attributes are not
-  them), `pickle`, `marshal`, `shelve`, `timeit`, `code`, `codeop` and pydantic's
-  `ImportString`. Each runs code or loads objects from text or bytes the guard does not read;
-  `src` uses none of them, so this fails closed;
-- **names in strings** (fail closed, `tests/test_egress_importers.py`): a `str` or `bytes`
-  constant (an f-string part included) that names a native or process module as identifier
-  segments, split on every character that is not a letter, digit or `_` (`"ctypes"`,
-  `"ctypes:CDLL"`, `"import ctypes"`, `"ctypes/__init__.py"`, `b"_posixsubprocess"`,
-  `"concurrent/futures/process.py"` ...; `"ctypesish"` is not one). Docstrings and other strings
-  that are a statement of their own are not judged; nothing may read them back (below). Also
-  the name or attribute `__builtins__`. Every importer reached by name
-  (`__builtins__["__import__"]`, `vars(builtins)["__import__"]`,
+  them), `pickle`, `marshal`, `shelve`, `timeit`, `code`, `codeop`, pydantic's `ImportString`,
+  and `cProfile`, `profile`, `trace`, `pdb`, `bdb` (each runs a string as code) and `doctest`
+  (it runs the code in docstrings). Each runs code or loads objects from text or bytes the guard
+  does not read; `src` uses none of them, so this fails closed;
+- **names in strings** (fail closed, `tests/test_egress_importers.py`,
+  `tests/test_egress_prose.py`): a `str` or `bytes` constant (an f-string part included) that
+  names a native or process module, or a process name (`concurrent.futures.ProcessPoolExecutor`,
+  and `ProcessPoolExecutor` as a word), as identifier segments, split on every character that is
+  not a letter, digit or `_` (`"ctypes"`, `"ctypes:CDLL"`, `"import ctypes"`,
+  `"ctypes/__init__.py"`, `b"_posixsubprocess"`, `"concurrent/futures/process.py"` ...;
+  `"ctypesish"` is not one). Also the name or attribute `__builtins__`. Every importer reached
+  by name (`__builtins__["__import__"]`, `vars(builtins)["__import__"]`,
   `importlib.__dict__["import_module"]`) names one of them;
-- **strings that are code** (`tests/test_egress_strings.py`), for every other `str` (and, for
-  the words, `bytes`) constant. `typing` and pydantic evaluate a string that reaches a type
-  position as a value, not only in annotation syntax (`T = "..."` then `x: T`, `TypedDict`,
-  `NamedTuple`, `TypeAdapter("...")`, `NewType`, `make_dataclass`, `__annotations__`), so:
+- **strings that are code** (`tests/test_egress_strings.py`), for every `str` (and, for the
+  words, `bytes`) constant. `typing` and pydantic evaluate a string that reaches a type position
+  as a value, not only in annotation syntax (`T = "..."` then `x: T`, `TypedDict`, `NamedTuple`,
+  `TypeAdapter("...")`, `NewType`, `make_dataclass`, `__annotations__`), so:
   - **code words**: refused if an identifier segment is `__import__`, `import_module`, `exec`,
     `eval`, `compile`, `__builtins__`, `builtins`, `modules`, `getattr`, `vars` or `globals`
     (`CODE_WORDS`);
   - **code that runs**: refused if it parses (`ast.parse(s, mode="eval")`) to anything holding a
     call, a lambda, a comprehension or generator, a walrus, `await`/`yield` or an f-string (a
-    nested string likewise). Every import needs a call. An evaluated string with no call can't
-    import or execute anything new: it can only read names and run operator or subscript
-    dunders of objects the module defines, which the guard already scans. So operators,
-    comparisons and conditionals on names pass, which keeps ordinary text out of the table:
-    header names (`"X-Content-Type-Options"`), MIME types (`"text/event-stream"`), algo version
-    ids (`"daily/1"`), `"utf-8"`, `"smtp_host is not configured"`. Text that does not parse
-    (prose, SQL, log messages) passes;
-  - the reviewed exceptions are exact strings by module (`CODE_STRINGS`): the two `mail.py`
-    reprs `"MailMessage(...)"` and `"Mailer(...)"`, and the ECG record key `"modules"` in
-    `ownvitals.ecg.pipeline`. A test pins each to `src` and shows it refused elsewhere;
+    nested string likewise). Every import statement or function needs a call. An evaluated
+    string with no call can still trigger a lazy import: reading `concurrent.futures.X` runs the
+    package's module `__getattr__`, which imports `concurrent.futures.process` (and
+    `multiprocessing`). That is why the module and process names are refused in strings (above),
+    whatever else the string holds. Otherwise a string with no call only reads names and runs
+    operator or subscript dunders of objects the module defines, which the guard already scans.
+    So operators, comparisons and conditionals on names pass, which keeps ordinary text out of
+    the table: header names (`"X-Content-Type-Options"`), MIME types (`"text/event-stream"`),
+    algo version ids (`"daily/1"`), `"utf-8"`, `"smtp_host is not configured"`. Text that does
+    not parse (prose, SQL, log messages) passes;
+- **docstrings and comments** are judged by the same rules (`tests/test_egress_prose.py`), with
+  no exemption for text that "never runs": whatever reads it back (`__doc__`, `__dict__`,
+  `globals()`, `co_consts`, `traceback`, `linecache` ...), the text itself names nothing refused.
+  Each line is judged (stripped); a docstring is also judged as a whole for what spans lines (a
+  dotted module name or a call broken over lines). Comments are read with `tokenize`;
+- **reviewed exceptions**: exact text by module (`CODE_STRINGS`): the two `mail.py` reprs
+  `"MailMessage(...)"` and `"Mailer(...)"`, three formula comments in `analysis.methods`
+  (`max(MAD_SCALE * mad, min_scale)`, `F(t)`, `S / (n(n-1)/2)`) and four docstring lines of prose
+  in `config`, `context`, `db.session` and `headers` (`vars`, `ctypes`, `modules`, `eval` as
+  words). `DICT_KEY_STRINGS` holds the ECG record key `"modules"` in `ownvitals.ecg.pipeline`,
+  which passes only as a key of a dict display there. A test pins each entry to `src` and shows
+  it refused elsewhere;
 - **reading source text back**: the name or attribute `__doc__`, and `inspect`, `pydoc`,
-  `linecache` and `tokenize` under any alias, `from` form or chain (`SOURCE_READERS`). They hand
-  back docstrings, comments or source, which the string rules never see; `src` uses none;
+  `linecache`, `tokenize` and `traceback` under any alias, `from` form or chain
+  (`SOURCE_READERS`); `src` uses none;
 - **strings `typing` evaluates** (`tests/egress_forward.py`, `tests/test_egress_forward.py`):
   `typing.get_type_hints`, which FastAPI and pydantic call on routes and models (pydantic when
   it builds the class), evaluates every string in an annotation: a whole-string annotation
@@ -373,7 +386,7 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py \
   tests/test_egress_scope.py tests/test_egress_process.py tests/test_egress_reflection.py \
   tests/test_egress_typeonly.py tests/test_egress_importers.py tests/test_egress_forward.py \
-  tests/test_egress_strings.py
+  tests/test_egress_strings.py tests/test_egress_prose.py
 ```
 
 **The guard's scope** (the bound its reviews apply, as for #115):
@@ -407,8 +420,9 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   rest:
   - deliberate indirection (N9): a computed `getattr`, `vars(sys)`, `sys.__dict__`, a module
     an expression returns (`importlib.import_module("sys").modules`), the module's own
-    `__loader__` and `__spec__.loader` (bound to its own file), and a module or flag name
-    **built at run time**: `"cty" + "pes"`, `"TYPE_" + "CHECKING"`, `"".join(map(chr, ...))`,
+    `__loader__`, `__loader__.get_source(...)` and `__spec__.loader` (bound to its own file),
+    reads of `co_consts` and `sys._getframe()` (the docstrings they hand back are judged), and a
+    module or flag name **built at run time**: `"cty" + "pes"`, `"TYPE_" + "CHECKING"`, `"".join(map(chr, ...))`,
     `"type_checking".upper()`, `b"...".decode()`, an f-string with a variable part. Every route
     that names its target as a constant is refused (above). `sys.path_hooks`,
     `types.ModuleType(...)` and a code object load nothing without `exec` (or a file on disk),
