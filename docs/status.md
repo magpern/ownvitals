@@ -23,13 +23,13 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #12 | Admin, audit log and stored flags | Opus | #129 | Opus PASS on `b6d69c3` (`ci` and `pr-title` green on that SHA). `main` has since moved through #132; the branch conflicts in `backend/tests/auth_tables_scan.py` and calls auth modules #132 changed, so the update needs the decided five-minute `stepup_within` switch and a fresh Opus review before merge. Owns migration `0006_admin`. The PASS non-blocking items wait for follow-ups after merge |
-| #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews | Opus | #115 | latest Opus FAIL `d2891d9`; head `d21fdb2` (fix round 15: code and tests pushed; docs, the full backend suite and the PR-body section outstanding; `ci` is red on that SHA) has no verdict |
-| #122 | Static egress guard: refuse `sys.modules` lookups and `ctypes` in `src` | Opus | #123 | latest Opus FAIL `ea76498`; head `5787e19` (fix round 10: the docstring-and-comment word rule pushed; `ci` and `pr-title` green on that SHA; docs, mutation runs and the PR-body section outstanding) has no verdict |
+| #12 | Admin, audit log and stored flags | Grok 4.7 | #129 | Opus PASS on `b6d69c3` (`ci` and `pr-title` green on that SHA) stays valid for that SHA. `main` has since moved through #132; the branch conflicts in `backend/tests/auth_tables_scan.py` and calls auth modules #132 changed, so the update needs the decided five-minute `stepup_within` switch and a fresh Grok 4.7 high security review before merge. Owns migration `0006_admin`. The PASS non-blocking items wait for follow-ups after merge |
+| #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews | Grok 4.7 | #115 | latest Opus FAIL `d2891d9`; head `d21fdb2` (fix round 15: code and tests pushed; docs, the full backend suite and the PR-body section outstanding; `ci` is red on that SHA) has no verdict. The next security review is Grok 4.7 high |
+| #122 | Static egress guard: refuse `sys.modules` lookups and `ctypes` in `src` | Grok 4.7 | #123 | latest Opus FAIL `ea76498`; head `5787e19` (fix round 10: the docstring-and-comment word rule pushed; `ci` and `pr-title` green on that SHA; docs, mutation runs and the PR-body section outstanding) has no verdict. The next security review is Grok 4.7 high |
 
-Merged since the last reconcile: #131, #137 and #136 are on `main` at `0d84886`, after #134,
-#132, #128, #125, #118 and #55. On GitHub #77 and #13–#30 still carry `blocked-deps`; that
-re-check waits until #129, #115 and #123 are through. At most five Developers work on issues at
+Merged since the last reconcile: #138 is on `main` at `f7f7c99`, after #131, #137 and #136.
+On GitHub #77 and the open issues #13–#16, #18 and #21–#30 still carry `blocked-deps`
+(#17, #19 and #20 do not). The dependency re-check waits until #129, #115 and #123 are through. At most five Developers work on issues at
 once; a fix round on an open PR may run while five are busy, and no new issue starts until fewer
 than five are.
 
@@ -56,7 +56,8 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/src/ownvitals/db/engine.py`, `db/role_check.py`, `egress/hook.py`, `backend/tests/user_context_*.py`, `backend/tests/conftest.py`, `docs/dev/backend.md`, `docs/dev/isolation.md`, `docs/dev/isolation-guard5.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | #89 (#115), with `test_role_check*.py`, `test_user_context_*.py`, `test_egress_hook.py` |
 | `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md` | #122 (#123); `backend/tests/egress_classified.py` is also in #12 (#129), additive hunks in each, and the second to merge updates from `main` |
 | `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `backend/src/ownvitals/web.py`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | #12 (#129) |
-| `docs/roadmap.md`, `.codex/**`, `.cursor/**`, `docs/dev/agent-tools.md` | — (#131 released them) |
+| `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md` | the Cursor model amendment (Grok 4.7 high for security roles) |
+| `.codex/**` | — (#131 released it) |
 | `backend/src/ownvitals/db/queue_check.py` | — (#77 next) |
 | `backend/src/ownvitals/config.py`, `backend/tests/dbtools.py`, `test_web.py`, `rls_guard.py`, `test_config_milestone.py` | — (#8, #82 and #11 released them) |
 | `scripts/ci-uv-version.sh`, `.trivyignore`, `scripts/ci-gate.sh` | — (#106 released them) |

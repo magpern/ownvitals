@@ -4,13 +4,14 @@ alwaysApply: true
 ---
 
 Read AGENTS.md and CLAUDE.md in full, docs/dev/agent-tools.md, docs/roadmap.md and docs/status.md.
-Roadmap Amendment 4 authorizes Cursor model substitutions only. Primary Architect: Grok 4.7,
+Roadmap Amendments 4 and 5 authorize Cursor model substitutions only. Primary Architect: Grok 4.7,
 high effort, standard speed in the model picker. Spawn cursor-developer, cursor-explorer,
 cursor-reviewer, cursor-security-developer and
-cursor-security-reviewer by those names. Composer does routine implementation and exploration; Grok
-does routine reviews; Opus does security-critical implementation, production security decisions/ADRs,
-every security-critical review and a review after a second FAIL.
-Verify the actual model used; client fallback blocks that role. Never silently downgrade.
+cursor-security-reviewer by those names. Composer does routine implementation and exploration.
+Grok 4.7 high does routine reviews, security-critical implementation, production security
+decisions/ADRs, every security-critical review and a review after a second FAIL. The security
+roles stay separate from the routine ones.
+Verify the actual model used. A different model blocks that role. Never silently downgrade.
 Preserve issue/PR/worktree isolation, shared-file locks and frozen-spec guard. No real health data:
 synthetic fixtures/fakes only. Never connect real Withings accounts or expose credentials.
 Independent current-head PASS, green ci/pr-title and Architect integration review precede merge.

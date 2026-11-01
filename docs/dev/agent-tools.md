@@ -1,8 +1,8 @@
 # Developing OwnVitals with Codex or Cursor
 
 These optional profiles implement the owner's request for alternatives to Claude Code.
-They change development tools only. Roadmap Amendment 4 authorizes the model names and PR
-attribution; AGENTS.md, CLAUDE.md, the frozen specification and all safety gates still apply.
+They change development tools only. Roadmap Amendments 4 and 5 authorize the model names and
+PR attribution; AGENTS.md, CLAUDE.md, the frozen specification and all safety gates still apply.
 Nothing here enables an application AI provider, sends health data to a model or changes egress.
 
 ## Models and roles
@@ -13,20 +13,23 @@ Nothing here enables an application AI provider, sends health data to a model or
 | Routine Developer | GPT-6.1 Sol, high | Composer 2.5, standard speed |
 | Explorer | GPT-6 Luna, medium | Composer 2.5, standard speed |
 | Routine Reviewer | GPT-6.1 Sol, high | Grok 4.7, high, standard speed |
-| Security-critical Developer / decisions | GPT-6 Astra, high | Claude Opus 5.5, high |
-| Security-critical Reviewer; review after second FAIL | GPT-6 Astra, high | Claude Opus 5.5, high |
+| Security-critical Developer / decisions | GPT-6 Astra, high | Grok 4.7, high |
+| Security-critical Reviewer; review after second FAIL | GPT-6 Astra, high | Grok 4.7, high |
 
 Risk classification is OwnVitals' own list, not Classbeat's: vault/rotation, OAuth state,
 webhooks, RLS/roles/definer functions, jobs/leases/rate limiter, auth/session/TOTP/step-up/
 passkeys/QR login, export/delete, deployment and trusted attestations, AI egress and keys.
-When uncertain, use the security role. The Cursor Grok Architect schedules security work;
-its production security decisions and ADRs go to Opus and a separate Opus Reviewer.
-Both profiles deliberately use the security reviewer even for tests/docs-only deltas on a
-security-critical PR, a stricter choice than the shared gate permits.
+When uncertain, use the security role. The Cursor Grok Architect schedules security work.
+Production security decisions and ADRs go to cursor-security-developer, and a separate
+cursor-security-reviewer reviews them. On Cursor both of those roles are Grok 4.7 high.
+Codex still uses Astra for them. Both profiles deliberately use the security reviewer even
+for tests/docs-only deltas on a security-critical PR, a stricter choice than the shared gate
+permits.
 
-This is a starting mapping, not a demonstrated quality equivalence. Evaluate routine PRs by
-acceptance-criterion coverage, findings, fix rounds and total usage before expanding roles.
-Keep explicit model selections; an unavailable or substituted model blocks that role.
+Amendment 4 called the mapping a starting point, not a demonstrated quality equivalence.
+Amendment 5 assigns the Cursor security roles to Grok 4.7 high because Opus 5.5 is not
+available in Cursor. Keep explicit model selections; an unavailable model, or a model other
+than the one named for that role, blocks the role.
 
 ## Codex setup
 
@@ -50,16 +53,15 @@ Keep explicit model selections; an unavailable or substituted model blocks that 
   The always-applied .cursor/rules/ownvitals.mdc directs sessions to this guide.
 - Confirm all five cursor-* agents in .cursor/agents/ are visible and invoke them by name.
   Cursor also discovers Claude/Codex agents, so these names are deliberately unique.
-- Composer is pinned with composer-2.5[fast=false]; Grok reviews use
-  grok-4.7[reasoning_effort=high,fast=false]. Standard speed is deliberate: Fast consumes more usage.
-  Opus roles use claude-opus-5-5[effort=high]. Parameter names are model-specific:
-  Grok 4.7 uses reasoning_effort; Opus 5.5 uses effort.
+- Composer is pinned with `composer-2.5[fast=false]`. Architect, routine Reviewer and both
+  security roles are pinned with `grok-4.7-high` (Grok 4.7, high effort). The bracket form
+  `grok-4.7[reasoning_effort=high,fast=false]` is not a model id this client can select.
+  Standard speed is deliberate: Fast consumes more usage. Cursor does not use Opus.
 - Check the actual model on each task card/usage row. Cursor may substitute models because
   of plan limits, admin restrictions or legacy Max Mode settings. A fallback is not authority
-  to continue as the intended role, especially a security-critical role.
-- The complete profile requires access to third-party Opus. Included model allowances are
-  finite; Opus draws from third-party usage. Check current pricing/limits in the client.
-  Changing a paid plan/service still requires specific owner authorization.
+  to continue as the intended role. Grok 4.7 high on a security role is the assigned model,
+  not a fallback.
+- Changing a paid plan/service still requires specific owner authorization.
 
 ## Environment and handoff
 
@@ -99,7 +101,7 @@ Use all of AGENTS.md's checks, including units/time zones, forced RLS across exe
 log redaction, synthetic data, rule tiers/sources, experimental flags and design screenshots.
 Run targeted tests and about eight risk-based mutations, not the full suite. Review deltas
 and verify previous findings. Security-critical reviews, their deltas and a review after a second FAIL go to
-codex-security-reviewer (Astra) or cursor-security-reviewer (Opus). A routine reviewer hands that
+codex-security-reviewer (Astra) or cursor-security-reviewer (Grok 4.7 high). A routine reviewer hands that
 work to that agent and does not PASS it. Security-critical implementation goes to
 codex-security-developer or cursor-security-developer.
 Only PASS with no blocking findings and green ci/pr-title on that exact SHA.
@@ -108,7 +110,8 @@ Record verdicts as PR comments using the actual model:
 - `Agent review (GPT-6 Astra): PASS <full head SHA>`
 - `Agent review (GPT-6.1 Sol): FAIL <full head SHA>`
 - `Agent review (Grok 4.7): PASS <full head SHA>`
-- `Agent review (Opus 5.5): FAIL <full head SHA>`
+- `Agent review (Opus 5.5): FAIL <full head SHA>` for a Claude Code review. Cursor security
+  reviews use the Grok 4.7 line. A past Opus verdict stays valid for the SHA it names.
 Never submit an approving review, write Human review:, override FAIL or claim a substituted
 model's identity. New pushes invalidate verdicts except the shared mechanical merge exception.
 
