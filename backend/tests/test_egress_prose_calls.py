@@ -1,7 +1,8 @@
 """The sixth FAIL on #123: ``logging``, ``warnings`` and ``tracemalloc`` hand source lines to an
 evaluator (B1), so a docstring line or comment that parses as a call to an evaluator, importer or
 reflection name is refused; ``help`` and ``breakpoint`` import by a computed name (B2).
-``PROSE_LINES`` pass only as prose in their own module (Q3).
+``PROSE_LINES`` pass only as prose in their own module (Q3). Since the seventh FAIL the boundary
+is the word rule (``test_egress_prose_words.py``); the call rule is a second layer.
 """
 
 import ast
@@ -17,6 +18,7 @@ from egress_scan import scan_source
 M = "ownvitals.web.planted"
 SRC = Path(__file__).resolve().parent.parent / "src"
 CALLS = "in prose: a reader could hand it to pydantic"
+PROSE_EXEC = "names 'exec': an evaluator or importer, in prose"
 EVALUATES = "evaluates code or data the guard cannot read"
 WORD = "an importer or evaluator, by string"
 PAYLOAD = "# exec('import cty'+'pes', {}) or int"
@@ -62,9 +64,9 @@ PROSE_NEAR_MISSES = [
     "x = 1  # max(MAD_SCALE * mad, min_scale)",  # the formula comments in ``src``
     "x = 1  # F(t)",
     "x = 1  # S / (n(n-1)/2)",
-    "x = 1  # exec is never called here",
+    "x = 1  # open is never called here",
     "x = 1  # see the open issues",
-    'def f():\n    """Calls eval once, on F(t)."""',  # prose that does not parse
+    'def f():\n    """Calls open once, on F(t)."""',  # prose that does not parse
     "x = 1  # len(items) - 1",
 ]
 # B2: ``help`` and ``breakpoint``.
@@ -89,13 +91,13 @@ ARGPARSE = (
 @pytest.mark.parametrize("source", READER_ROUTES)
 def test_a_reader_route_is_refused_by_its_payload(source: str) -> None:
     found = [why for _, why in scan_source(source, M)]
-    assert any(f"calls exec {CALLS}" in why for why in found), found
+    assert any(PROSE_EXEC in why for why in found), found
 
 
 @pytest.mark.parametrize("source", PROSE_CALLS)
 def test_a_call_to_an_evaluator_in_prose_is_refused(source: str) -> None:
     found = [why for _, why in scan_source(source, M)]
-    assert any(CALLS in why for why in found), found
+    assert any("in prose" in why for why in found), found
 
 
 @pytest.mark.parametrize("source", [*PROSE_NEAR_MISSES, ARGPARSE])

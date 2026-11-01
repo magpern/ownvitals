@@ -22,6 +22,7 @@ import ast
 import io
 import re
 import tokenize
+import unicodedata
 from collections.abc import Callable
 
 from egress_classified import (
@@ -34,6 +35,8 @@ from egress_classified import (
     NATIVE_MODULES,
     PROCESS_MODULES,
     PROCESS_NAMES,
+    PROSE_COMMON_WORDS,
+    PROSE_IMPORTER_WORDS,
     PROSE_LINES,
     SOURCE_READERS,
     SPEC_FINDERS,
@@ -46,9 +49,16 @@ Landings = Callable[[str], frozenset[str]]
 NOT_DIRECT = "an importer is only called directly, with one constant name"
 _IMPORTLIB_ALLOWED = ("importlib", "importlib.import_module")
 _IMPORTER_STRINGS = frozenset({"__import__", "import_module"})
-# The code words a docstring or comment may not hold (the others are common English).
-PROSE_WORDS = frozenset({"__import__", "import_module", "__builtins__"})
-# Calls refused in prose (the sixth FAIL on #123): evaluators, importers and reflection.
+# The words a docstring or comment may not hold, as whole identifiers (the seventh FAIL on #123):
+# the last segment of every evaluator, importer, spec finder and loader, and the importer words.
+PROSE_WORDS = (
+    frozenset(
+        n.rpartition(".")[2] for n in (*EVALUATORS, *IMPORT_CALLS, *SPEC_FINDERS, *LOADER_MODULES)
+    )
+    | PROSE_IMPORTER_WORDS
+) - PROSE_COMMON_WORDS
+_PROSE_WORD = re.compile(r"\b(?:" + "|".join(sorted(map(re.escape, PROSE_WORDS))) + r")\b")
+# Calls refused in prose (the sixth FAIL on #123), a second layer: reflection by a call.
 PROSE_CALLS = frozenset(
     {"exec", "eval", "compile", "__import__", "import_module", "getattr", "setattr", "vars"}
     | {"globals", "locals", "breakpoint", "help", "open", "run_module", "run_path"}
@@ -186,19 +196,25 @@ def _prose_call(line: str) -> str | None:
     return None
 
 
+def _prose_word(text: str) -> str | None:
+    """The first ``PROSE_WORDS`` name ``text`` holds as a whole identifier, before any stripping
+    or parsing (``#: exec(``, ``[exec][0]``), after NFKC as Python reads identifiers."""
+    found = _PROSE_WORD.search(unicodedata.normalize("NFKC", text))
+    return found.group() if found else None
+
+
 def _prose_line(line: str, module: str) -> str | None:
-    """Why a line of a docstring or comment is refused: it names a native or process module or
-    an importer (``PROSE_WORDS``), or calls an evaluator, importer or reflection name
-    (``_prose_call``), unless ``PROSE_LINES`` lists it for ``module``. Common-English words
-    (``exec``, ``modules``) and other calls in prose pass."""
-    if (module, line) in PROSE_LINES:
+    """Why a line of a docstring or comment is refused: it names a native or process module, or
+    an evaluator or importer as a whole identifier (``PROSE_WORDS``), or calls a reflection name
+    (``_prose_call``), unless ``PROSE_LINES`` lists the exact stripped line for ``module``."""
+    if (module, line.strip()) in PROSE_LINES:
         return None
     named = _names_module(line)
     if named is not None:
         return f"names {named!r}: a native or process module, by string"
-    words = sorted(PROSE_WORDS.intersection(_segments(line)))
-    if words:
-        return f"names {words[0]!r}: an importer, in prose"
+    word = _prose_word(line)
+    if word is not None:
+        return f"names {word!r}: an evaluator or importer, in prose"
     called = _prose_call(line)
     return f"calls {called} in prose: a reader could hand it to pydantic" if called else None
 
@@ -208,14 +224,15 @@ def _prose(text: str, module: str, first: int) -> list[tuple[int, str]]:
     stripped), and as a whole for a dotted module name broken over lines."""
     found: list[tuple[int, str]] = []
     for offset, line in enumerate(text.splitlines()):
-        why = _prose_line(line.strip(), module)
+        why = _prose_line(line, module)
         if why is not None:
             found.append((first + offset, why))
     kept = [
         s for s in (line.strip() for line in text.splitlines()) if (module, s) not in PROSE_LINES
     ]
-    if not found and len(kept) > 1 and _names_module(" ".join(kept)):
-        found.append((first, "prose that spans lines names a native or process module"))
+    whole = " ".join(kept)
+    if not found and len(kept) > 1 and (_names_module(whole) or _prose_word(whole)):
+        found.append((first, "prose that spans lines names a refused module or word"))
     return found
 
 
@@ -228,7 +245,7 @@ def _comments(source: str, module: str) -> list[tuple[int, str]]:
         return [(1, "source that does not tokenize: comments cannot be judged")]
     for token in tokens:
         if token.type == tokenize.COMMENT:
-            found += _prose(token.string.lstrip("#").strip(), module, token.start[0])
+            found += _prose(token.string.lstrip("#"), module, token.start[0])
     return found
 
 

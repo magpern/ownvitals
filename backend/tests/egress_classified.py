@@ -265,6 +265,10 @@ EVALUATORS: tuple[str, ...] = (
     "builtins.help",
     "builtins.breakpoint",
     "sys.breakpointhook",
+    # The seventh FAIL on #123 (B2): the same importer under its saved name, and the class behind
+    # the ``help`` builtin (``_sitebuiltins._Helper()("x")`` imports ``x`` through ``pydoc``).
+    "sys.__breakpointhook__",
+    "_sitebuiltins",
     # The fifth FAIL on #123 (F4): they run a string as code (``cProfile.run``, ``profile.run``,
     # ``trace.Trace().run``, ``pdb.run``, ``bdb.Bdb.run``) or the code in docstrings (``doctest``).
     "cProfile",
@@ -293,6 +297,11 @@ CODE_WORDS: frozenset[str] = frozenset(
         "vars",
         "globals",
         "PYTHONBREAKPOINT",  # the variable ``sys.breakpointhook`` imports by name (B2)
+        # The seventh FAIL on #123 (B2): ``vars(builtins)["help"]`` and the like.
+        "help",
+        "breakpoint",
+        "breakpointhook",
+        "__breakpointhook__",
     }
 )
 # Strings refused by the string rules and reviewed as harmless: an exact string, or an exact line
@@ -320,8 +329,29 @@ PROSE_LINES: frozenset[tuple[str, str]] = frozenset(
             "re-export table (PEP 562, ``import_module`` with a computed name) is not ported, "
             "because the",
         ),
+        # The seventh FAIL on #123 (B1): prose naming an evaluator as a word.
+        (  # the operator command, run through docker compose
+            "ownvitals.cli",
+            "``docker compose exec web python -m ownvitals admin grant owner@example.com``.",
+        ),
+        (  # the CSP forbids eval
+            "ownvitals.headers",
+            "everything from our own origin only, with no exception. No inline or ``eval`` script, "
+            "no inline",
+        ),
     }
 )
+# Prose words (the seventh FAIL on #123, B1), besides the last segment of every evaluator,
+# importer, spec finder and loader: the module and method names an evaluated line could reach an
+# importer through. ``code``, ``profile``, ``trace`` and ``abc`` are common English and are
+# modules a string cannot reach without an importer, so they are not words.
+PROSE_IMPORTER_WORDS: frozenset[str] = frozenset(
+    {"__builtins__", "importlib", "pydoc", "_Helper", "_find_and_load", "find_module"}
+    | {"find_loader", "load_module", "exec_module", "module_from_spec", "_gcd_import"}
+    | {"run_module", "run_path", "resolve_name", "get_loader", "__loader__", "__spec__"}
+    | {"meta_path", "path_hooks", "path_importer_cache", "PYTHONBREAKPOINT"}
+)
+PROSE_COMMON_WORDS: frozenset[str] = frozenset({"code", "profile", "trace", "abc"})
 # A dict-display key refused by the string rules and reviewed as data: it passes only as a key.
 DICT_KEY_STRINGS: frozenset[tuple[str, str]] = frozenset(
     {

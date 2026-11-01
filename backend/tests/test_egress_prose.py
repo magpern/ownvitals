@@ -28,10 +28,9 @@ COMMENT_ROUTE = (
     "import traceback\n"
     "T = traceback.extract_stack()[-1].line.rpartition('# ')[2]  # __import__('ctypes') and int"
 )
-# Prose (Architect decision on the fifth FAIL): a native or process module, or an importer
-# (``__import__``, ``import_module``, ``__builtins__``), is refused; the other code words and
-# the parse rule are not applied, as every reader and evaluator of prose is refused.
-PROSE_IMPORTER = "an importer, in prose"
+# Prose: a native or process module, or an evaluator or importer as a whole identifier
+# (``PROSE_WORDS``, the seventh FAIL on #123), is refused; the other code words are not applied.
+PROSE_IMPORTER = "an evaluator or importer, in prose"
 PROSE = [
     ('"""See ctypes for details."""', NATIVE),
     ('"""First line.\n\n    Uses multiprocessing.pool here."""', NATIVE),
@@ -40,18 +39,21 @@ PROSE = [
     ("x = 1  # see import_module", PROSE_IMPORTER),
     ('def f():\n    """Reads __builtins__."""', PROSE_IMPORTER),
     ('"""concurrent.futures.\nprocess"""', SPANS),  # a module name split over lines
+    # The seventh FAIL on #123: evaluator words, whatever the line parses to.
+    ("x = 1  # docker compose exec web", PROSE_IMPORTER),
+    ("x = 1  # no eval script", PROSE_IMPORTER),
+    ("x = 1  # compile the regex once", PROSE_IMPORTER),
+    ('def f():\n    """Calls eval once, on F(t)."""', PROSE_IMPORTER),
 ]
 PROSE_NEAR_MISSES = [
-    "x = 1  # docker compose exec web",
-    "x = 1  # no eval script",
-    "x = 1  # compile the regex once",
     "x = 1  # the analysis modules",
     "x = 1  # env vars never set secrets",
     "x = 1  # getattr is not used",
     "x = 1  # no globals here",
     "x = 1  # builtins only",
-    "x = 1  # max(MAD_SCALE * mad, min_scale)",  # a formula: the parse rule is not applied
-    'def f():\n    """Calls eval once, on F(t)."""',
+    "x = 1  # max(MAD_SCALE * mad, min_scale)",  # a formula: no refused call
+    "x = 1  # the executor and the evaluation",  # not whole identifiers
+    "x = 1  # the source code, a trace, a profile",  # common English, not words (PROSE_WORDS)
 ]
 # F1: the process names as strings (``concurrent.futures`` imports ``process`` lazily).
 PROCESS_NAMES = [
