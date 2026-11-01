@@ -10,6 +10,7 @@ from authtools import (  # noqa: F401 - fixtures
 )
 from jobtools import admin_url, install_queue, uninstall_queue
 from ownvitals.auth.purge import purge_expired
+from ownvitals.auth.sessions import list_sessions
 from ownvitals.worker.loop import run_worker
 
 
@@ -98,6 +99,61 @@ async def test_purge_twice_is_a_no_op(env: Env) -> None:
     await purge_expired(env.factory, env.settings)
     again = await purge_expired(env.factory, env.settings)
     assert set(again.values()) == {0}
+
+
+# created_at is outside the ten minutes; last_seen and expires_at are not. The labels are
+# constants, never request data. 'none' falls through to NULL.
+_SET_PROOF = (
+    "UPDATE sessions SET created_at = now() - interval '11 minutes', "
+    "last_seen_at = now(), expires_at = now() + interval '1 day', mfa_at = NULL, "
+    "reauth_at = CASE :reauth "
+    "WHEN 'future' THEN now() + interval '1 hour' "
+    "WHEN 'stale' THEN now() - interval '11 minutes' "
+    "WHEN 'fresh' THEN now() ELSE NULL END, "
+    "stepup_at = CASE :stepup "
+    "WHEN 'future' THEN now() + interval '1 hour' "
+    "WHEN 'stale' THEN now() - interval '11 minutes' "
+    "WHEN 'fresh' THEN now() ELSE NULL END "
+    "WHERE id = :i"
+)
+
+
+async def test_a_future_proof_does_not_keep_a_non_full_session(env: Env) -> None:
+    """Purge and the session list ignore a timestamp after now.
+
+    Each dropped row is not full, not idle and not absolute-expired, and ``created_at`` is
+    outside the ten minutes. One of ``reauth_at`` or ``stepup_at`` is in the future and the
+    other is missing or already outside the ten minutes. A mutant that keeps
+    ``GREATEST(reauth_at, stepup_at)`` with no lower bound leaves the row, because the future
+    timestamp wins. A proof at now still counts when the other timestamp is in the future.
+    """
+    user_id = await env.user()
+    full = await env.full_login(user_id)
+    dropped = []
+    for reauth, stepup in (
+        ("future", "none"),
+        ("none", "future"),
+        ("future", "stale"),
+        ("stale", "future"),
+    ):
+        issued = await env.login(user_id)
+        dropped.append(issued.id)
+        await env.run(_SET_PROOF, reauth=reauth, stepup=stepup, i=issued.id)
+    kept = []
+    for reauth, stepup in (("fresh", "future"), ("future", "fresh")):
+        issued = await env.login(user_id)
+        kept.append(issued.id)
+        await env.run(_SET_PROOF, reauth=reauth, stepup=stepup, i=issued.id)
+
+    live = {full.id, *kept}
+    async with env.db() as db:
+        listed = {row.id for row in await list_sessions(db, env.settings, user_id)}
+    assert listed == live
+
+    removed = await purge_expired(env.factory, env.settings)
+    assert removed["sessions"] == len(dropped)
+    left = await env.scalar("SELECT string_agg(id::text, ',' ORDER BY id::text) FROM sessions")
+    assert set(str(left).split(",")) == {str(session_id) for session_id in live}
 
 
 async def test_the_worker_runs_the_purge_on_its_interval(env: Env) -> None:

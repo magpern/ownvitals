@@ -3,7 +3,7 @@
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import and_, delete, func, or_, update
+from sqlalchemy import and_, case, delete, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.tables import (
@@ -32,13 +32,28 @@ def _ago(days: int) -> Any:
     return func.now() - timedelta(days=days)
 
 
+def _proof_at_or_before(now: Any) -> Any:
+    """The later of ``reauth_at`` and ``stepup_at`` that is not after ``now``.
+
+    A timestamp after ``now`` is not a proof: the same fail-closed lower bound as
+    ``sessions._within``. ``GREATEST`` ignores nulls, so a future value dropped by ``CASE``
+    leaves the other timestamp, and both missing is null (the caller uses ``created_at``).
+    The same expression is in ``sessions.list_sessions``.
+    """
+    return func.greatest(
+        case((sessions.c.reauth_at <= now, sessions.c.reauth_at)),
+        case((sessions.c.stepup_at <= now, sessions.c.stepup_at)),
+    )
+
+
 async def purge_expired(
     factory: async_sessionmaker[AsyncSession], settings: Settings
 ) -> dict[str, int]:
     """Delete what is expired or used; returns the number of rows removed per table.
 
     - ``sessions``: past their absolute expiry, idle longer than the idle limit, or without a
-      second factor ten minutes after their latest proof; their ``ip`` is cleared after 30 days;
+      second factor ten minutes after their latest proof (a ``reauth_at`` or ``stepup_at``
+      after now is not a proof); their ``ip`` is cleared after 30 days;
     - ``pending_signups``, ``auth_tokens`` (also used ones), ``oauth_flows``: expired;
     - ``rate_limits``: windows over two hours old;
     - ``invites``: used or expired more than 30 days ago;
@@ -52,13 +67,11 @@ async def purge_expired(
             or_(
                 sessions.c.expires_at <= now,
                 sessions.c.last_seen_at <= now - idle,
-                # never passed its second factor, ten minutes after its latest proof
+                # never passed its second factor, ten minutes after its latest proof.
+                # A timestamp after now does not count.
                 and_(
                     sessions.c.mfa_at.is_(None),
-                    func.coalesce(
-                        func.greatest(sessions.c.reauth_at, sessions.c.stepup_at),
-                        sessions.c.created_at,
-                    )
+                    func.coalesce(_proof_at_or_before(now), sessions.c.created_at)
                     <= now - PENDING_WINDOW,
                 ),
             )
