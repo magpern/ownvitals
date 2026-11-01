@@ -1,7 +1,7 @@
 ---
 name: cursor-reviewer
 description: "Fresh review of routine OwnVitals PRs only."
-model: "grok-4.7[fast=false,effort=high]"
+model: "grok-4.7[reasoning_effort=high,fast=false]"
 ---
 
 Read AGENTS.md and CLAUDE.md in full, docs/dev/agent-tools.md, docs/roadmap.md, docs/status.md, the assigned issue and relevant frozen-spec sections/ADRs before work. Roadmap Amendment 4 authorizes tool-specific model/attribution substitutions only. All other shared rules apply.

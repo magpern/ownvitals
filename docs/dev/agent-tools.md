@@ -51,8 +51,9 @@ Keep explicit model selections; an unavailable or substituted model blocks that 
 - Confirm all five cursor-* agents in .cursor/agents/ are visible and invoke them by name.
   Cursor also discovers Claude/Codex agents, so these names are deliberately unique.
 - Composer is pinned with composer-2.5[fast=false]; Grok reviews use
-  grok-4.7[fast=false,effort=high]. Standard speed is deliberate: Fast consumes more usage.
-  Opus roles use claude-opus-5-5[effort=high].
+  grok-4.7[reasoning_effort=high,fast=false]. Standard speed is deliberate: Fast consumes more usage.
+  Opus roles use claude-opus-5-5[effort=high]. Parameter names are model-specific:
+  Grok 4.7 uses reasoning_effort; Opus 5.5 uses effort.
 - Check the actual model on each task card/usage row. Cursor may substitute models because
   of plan limits, admin restrictions or legacy Max Mode settings. A fallback is not authority
   to continue as the intended role, especially a security-critical role.
