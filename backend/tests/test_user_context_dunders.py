@@ -19,7 +19,13 @@ import pytest
 from ctx import make_context
 from ownvitals.context import require_context
 from test_user_context_writers import body
-from user_context_dunders import ALLOWED, beyond_the_allow_list, is_dunder, named_dunders
+from user_context_dunders import (
+    ALLOWED,
+    WRITE,
+    beyond_the_allow_list,
+    is_dunder,
+    named_dunders,
+)
 from user_context_scan import ISSUER_MODULES, scan_source
 
 SRC = Path(__file__).resolve().parent.parent / "src"
@@ -197,15 +203,17 @@ def test_only_in_is_honoured() -> None:
     assert scan_source(source, "ownvitals/web.py") != []
 
 
-def _src_dunders() -> dict[str, set[str]]:
-    """Each dunder ``src`` names (issuer modules aside), with the modules that name it."""
-    used: dict[str, set[str]] = {}
+def _src_dunders() -> dict[str, tuple[set[str], set[str]]]:
+    """Each dunder ``src`` names (issuer modules aside): its forms, and the modules naming it."""
+    used: dict[str, tuple[set[str], set[str]]] = {}
     for path in sorted((SRC / "ownvitals").rglob("*.py")):
         module = path.relative_to(SRC).as_posix()
         if module in ISSUER_MODULES:
             continue
-        for _, name in named_dunders(ast.parse(path.read_text("utf-8"))):
-            used.setdefault(name, set()).add(module)
+        for _, name, form in named_dunders(ast.parse(path.read_text("utf-8"))):
+            forms, modules = used.setdefault(name, (set(), set()))
+            forms.add(form)
+            modules.add(module)
     return used
 
 
@@ -213,10 +221,16 @@ def test_the_allow_list_holds_exactly_what_src_uses() -> None:
     used = _src_dunders()
     assert set(ALLOWED) == set(used)
     for name, entry in ALLOWED.items():
+        forms, modules = used[name]
+        assert entry.forms == forms, name
         if entry.only_in is not None:
-            assert entry.only_in == used[name], name
+            assert entry.only_in == modules, name
         else:
-            assert len(used[name]) > 1, f"{name} is used in one module: give it only_in"
+            assert len(modules) > 1, f"{name} is used in one module: give it only_in"
+
+
+def test_no_entry_allows_a_write() -> None:
+    assert all(WRITE not in entry.forms for entry in ALLOWED.values())
 
 
 def test_a_dunder_is_two_underscores_each_side() -> None:

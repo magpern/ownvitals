@@ -223,8 +223,8 @@ never from a path, query, body or header. The same scan refuses, in every module
   any alias, or as an attribute of `builtins` or `__builtins__`. Code in a string runs unseen.
   `re.compile`, `ast.literal_eval` and other objects' methods of those names stay allowed.
 
-**Dunder names follow an allow-list: guard 5's attribute rule** (#89, Architect's decision on
-the eighth #115 review, `tests/user_context_dunders.py`). Every route the reviews found to the
+**Dunder names follow an allow-list: guard 5's attribute rule** (#89, Architect's decisions on
+the eighth and ninth #115 reviews, `tests/user_context_dunders.py`). Every route the reviews found to the
 token's module, class or setter named a dunder (`__globals__`, `__module__`, `__setattr__`,
 `__dict__`), and refusing them one spelling at a time let each new syntax reopen them. So a name
 of the form `__x__` is refused wherever the source can name an attribute, a module global or a
@@ -233,11 +233,30 @@ builtin with it:
 - an attribute (`f.__globals__`), an f-string's included;
 - a name (`__import__`, `__builtins__`, `__module__` in a class body), and a `global` or
   `nonlocal` declaration;
-- a string constant, so the name argument of `getattr`, `setattr`, `hasattr` and `delattr`,
-  `vars(K)["__init__"]` and `operator.attrgetter("__dict__")`, and f-string text;
+- every identifier-shaped segment of every `str` and `bytes` constant (split on `.`, `:`, `/`
+  and any other character that can't be in an identifier), f-string text included. Several
+  standard-library calls look a dotted or colon path up themselves:
+  `string.Formatter().get_field("0.__globals__", ...)`, `"{0.__module__}".format(x)`,
+  `operator.attrgetter("f.__globals__")`, `getattr(f, b"__globals__".decode())`. A string that
+  is a whole statement (a docstring) does nothing and is not judged;
 - a keyword argument, and a `match` class-pattern keyword: `case object(__globals__=g)` reads
   the attribute and binds it;
 - an imported name (`from ownvitals import __version__`).
+
+The same segments are checked against the issuer token's names and the module: a string
+with a segment `_ISSUER` or `issuer_token`, or with `ownvitals.context` followed by `.` or `:`,
+is refused (`pkgutil.resolve_name("ownvitals.context:_ISSUER")`,
+`pydoc.locate("ownvitals.context._ISSUER")`). A dotted logger name such as
+`"ownvitals.db.engine"` or SQL text stays allowed.
+
+**An allowed dunder is read, never written.** Assigning, augmenting or deleting one as an
+attribute (`require_context.__code__ = (lambda c: c).__code__` makes `require_context` accept
+anything), deleting it as a name, and naming it as the name argument of `setattr` or `delattr`
+are refused whatever the table says. Each entry also lists the forms it may take (an attribute
+read, a name read, a module-level definition such as `__all__ = [...]`, a string segment, an
+import), and `__code__` is allowed only as the one call `getattr(socket.socketpair, "__code__",
+None)` in `egress/hook.py`. `super().__init__(...)` and the `object.__setattr__` idiom are
+reads of the attribute, judged by the rules above.
 
 A comparison is no exception: `x.__module__ == r` calls `r.__eq__` with the name when `str`'s
 returns `NotImplemented`, and `x.__module__ in r` calls `r.__contains__` (a list compares each
@@ -247,21 +266,23 @@ element), so the other operand receives the value. Defining a dunder method or p
 
 The exceptions, each with its reason, are exactly what `src` uses today (the issuer modules
 aside, which are not scanned); a name used in one module is allowed only there.
-`test_user_context_dunders.py` fails if an entry is unused or `src` uses one elsewhere:
+`test_user_context_dunders.py` fails if an entry is unused, takes a form `src` doesn't use, or
+`src` uses one elsewhere:
 
-| Name | Where | Why |
-|---|---|---|
-| `__name__` | everywhere | a module's or a function's name, for loggers and `__main__` checks |
-| `__main__` | everywhere | the `if __name__ == "__main__"` entry points |
-| `__all__` | everywhere | a package's public names |
-| `__init__` | everywhere | `super().__init__(...)`; the hook rule above refuses any other use |
-| `__aiter__` | `egress/clients.py` | delegating `async for` to a wrapped stream |
-| `__cause__`, `__context__`, `__suppress_context__` | `log.py` | walking an exception chain |
-| `__dict__` | `log.py` | a log record's extra fields |
-| `__version__` | `__init__.py`, `web.py` | the package version |
-| `__code__` | `egress/hook.py` | recognising `socket.socketpair`'s own code |
-| `__setattr__` | `analysis/methods/series.py`, `analysis/quality.py` | the frozen-dataclass idiom in `__post_init__`; the idiom rule above refuses any other use |
-| `__NAMES__`, `__SQL_TEXT_BUILTINS__` | `db/queue_check.py` | placeholders in SQL text, replaced before the query runs |
+| Name | Forms | Where | Why |
+|---|---|---|---|
+| `__name__` | attribute and name read | everywhere | a module's or a function's name, for loggers and `__main__` checks |
+| `__main__` | string | everywhere | the `if __name__ == "__main__"` entry points |
+| `__all__` | definition | everywhere | a package's public names |
+| `__init__` | attribute read | everywhere | `super().__init__(...)`; the hook rule above refuses any other use |
+| `__aiter__` | attribute read | `egress/clients.py` | delegating `async for` to a wrapped stream |
+| `__cause__`, `__context__`, `__suppress_context__` | attribute read | `log.py` | walking an exception chain |
+| `__dict__` | attribute read | `log.py` | a log record's extra fields |
+| `__version__` | definition, import, name read | `__init__.py`, `web.py` | the package version |
+| `__code__` | `getattr(socket.socketpair, "__code__", None)` only | `egress/hook.py` | recognising `socket.socketpair`'s own code |
+| `__new__` | string | `egress/hook.py` | the audit event name `"socket.__new__"` |
+| `__setattr__` | attribute read | `analysis/methods/series.py`, `analysis/quality.py` | the frozen-dataclass idiom in `__post_init__`; the idiom rule above refuses any other use |
+| `__NAMES__`, `__SQL_TEXT_BUILTINS__` | string | `db/queue_check.py` | placeholders in SQL text, replaced before the query runs |
 
 An exception lifts only this rule: the rules above still judge the same name. A new use of a
 dunder in `src` needs the Architect and a new row. Because `__module__` is not on the list,
@@ -362,7 +383,8 @@ leaves to the review gate. Known limits:
 - a keyword dict bound to a name first: `kw = {"issuer": tok}`, then `K(..., **kw)`;
 - code evaluated from a string outside annotations, other than through `eval`, `exec` and
   `compile`: `typing.get_type_hints` on a string built at run time, `pickle`, `pydoc.locate` and
-  the like are reflection under the threat model. Among them:
+  the like are reflection under the threat model, as long as the string names no dunder, no
+  token name and no path into `ownvitals.context` (those are refused above). Among them:
   - a plain string alias used as a type: `S = "getattr(...)"` (or `S = list["..."]`) without a
     `TypeAlias` annotation, then `def g(x: list[S])`; also `TypeVar("T", bound="...")` and
     `NewType("N", "...")`, and a `ForwardRef` built outside an annotation (`F =

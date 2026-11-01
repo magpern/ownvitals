@@ -93,8 +93,9 @@ ROUTES: dict[str, tuple[str, str]] = {
     ),
     "strings nested too deep": (nested(9), nested(3)),
     "Literal not from typing is parsed": (
-        f'def g(x: Literal["{SETTER}"]): ...\n',
-        TYPING + f'def g(x: Literal["{SETTER}", "user"]): ...\n',
+        'def g(x: Literal["vars(obj)"]): ...\n',
+        # A call in a string: refused if parsed (a dunder in any string is refused anyway).
+        TYPING + 'def g(x: Literal["vars(obj)", "user"]): ...\n',
     ),
     "a non-constant in Literal": (
         TYPING + "def g(x: Literal[make()]): ...\n",

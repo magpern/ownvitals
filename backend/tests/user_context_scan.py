@@ -34,9 +34,11 @@
   ``exec`` and ``compile``. Annotations follow the allow-list type grammar of
   ``user_context_types`` (strings in type positions parsed into the tree first).
 - (#89, ``user_context_dunders``) every dunder name outside an allow-list of what ``src`` uses,
-  wherever it can name an attribute: attribute, name, string, keyword argument, ``match``
-  class-pattern keyword, imported name. ``scan_source(source, module)`` takes the module's path
-  under ``src`` for the list's ``only_in``.
+  wherever it can name an attribute: attribute, name, every segment of a ``str`` or ``bytes``
+  constant, keyword argument, ``match`` class-pattern keyword, imported name; an allowed one is
+  never written. The same string segments may not name the issuer token or a path into
+  ``ownvitals.context``. ``scan_source(source, module)`` takes the module's path under ``src``
+  for the list's ``only_in``.
 
 One exception (Architect, 2026-10-31): the frozen-dataclass idiom ``object.__setattr__(self,
 "field", value)`` written directly in the undecorated ``__post_init__(self, ...)`` method of a
@@ -66,7 +68,7 @@ review gate. ``docs/dev/isolation.md`` lists these limits.
 
 import ast
 
-from user_context_dunders import dunder_findings
+from user_context_dunders import dunder_findings, string_findings
 from user_context_rules import CONTEXT_FIELDS, MODULE_STRINGS, NEVER_NAMED
 from user_context_rules import findings as token_route_findings
 from user_context_types import Spellings, metadata, splice_strings, type_findings
@@ -412,6 +414,7 @@ def scan_source(source: str, module: str | None = None) -> list[tuple[int, str]]
     found += _depends_findings(tree, aliases)
     found += token_route_findings(tree, annotation_nodes)
     found += dunder_findings(tree, module)
+    found += string_findings(tree, TOKEN_NAMES)
     found += splice_refused
     for line, value in type_strings:  # the string rules, on each string as written
         if value in REFUSED_STRINGS | TOKEN_NAMES | NEVER_NAMED | MODULE_STRINGS:
