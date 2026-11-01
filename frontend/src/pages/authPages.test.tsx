@@ -2,10 +2,9 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { goToProvider } from '../lib/navigation'
 import {
-  MFA_OFF,
-  MFA_ON,
   SIGNED_IN,
   SIGNED_IN_NO_CODE,
+  SIGNED_IN_NO_TOTP,
   fakeApi,
   json,
   reason,
@@ -26,11 +25,10 @@ beforeEach(() => {
 
 describe('sign-in with a password', () => {
   /** Signed out until the login call, then signed in as `after`. */
-  function loginRoutes(after: object, mfa: object) {
+  function loginRoutes(after: object) {
     let signedIn = false
     return {
       'GET /api/auth/session': () => (signedIn ? after : { authenticated: false, csrf_token: 'a' }),
-      'GET /api/auth/mfa': mfa,
       'POST /api/auth/login': () => {
         signedIn = true
         return { id: 'u1', email: 'ann@example.test', role: 'user' }
@@ -45,7 +43,7 @@ describe('sign-in with a password', () => {
   }
 
   it('posts the credentials and lands on the home page when the second factor is done', async () => {
-    const api = fakeApi(loginRoutes(SIGNED_IN, MFA_ON))
+    const api = fakeApi(loginRoutes(SIGNED_IN))
     renderAt('/signin')
     await screen.findByLabelText('Email')
     signIn()
@@ -58,7 +56,7 @@ describe('sign-in with a password', () => {
   })
 
   it('goes on to the page the user came from', async () => {
-    fakeApi(loginRoutes(SIGNED_IN, MFA_ON))
+    fakeApi(loginRoutes(SIGNED_IN))
     renderAt('/signin?return_to=%2Fmetrics')
     await screen.findByLabelText('Email')
     signIn()
@@ -68,16 +66,16 @@ describe('sign-in with a password', () => {
   })
 
   it('goes to enrolment when the account has no authenticator app yet', async () => {
-    fakeApi(loginRoutes(SIGNED_IN_NO_CODE, MFA_OFF))
+    fakeApi(loginRoutes(SIGNED_IN_NO_TOTP))
     renderAt('/signin')
     await screen.findByLabelText('Email')
     signIn()
-    expect(await screen.findByRole('heading', { name: 'Set up two-factor' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Set up your authenticator app' })).toBeInTheDocument()
     expect(here()).toBe('/two-factor/setup')
   })
 
   it('goes to the code prompt when the account has an authenticator app', async () => {
-    fakeApi(loginRoutes(SIGNED_IN_NO_CODE, MFA_ON))
+    fakeApi(loginRoutes(SIGNED_IN_NO_CODE))
     renderAt('/signin')
     await screen.findByLabelText('Email')
     signIn()

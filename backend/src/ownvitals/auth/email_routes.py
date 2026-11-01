@@ -1,6 +1,6 @@
 """Email change and account deletion (ADR 0003 sections 5 and 6).
 
-The change request needs recent authentication (and step-up with a confirmed TOTP) and answers
+The change request needs recent authentication and a step-up and answers
 the same whether or not the new address is in use; only the mail differs. The confirmation needs
 a signed-in session of the user the token was issued to, so a victim clicking a link from
 someone else's account changes nothing. Deleting the account deletes the ``users`` row; the
@@ -18,7 +18,7 @@ from ownvitals.auth import mails
 from ownvitals.auth.accounts import find_user
 from ownvitals.auth.clientip import bucket_ip
 from ownvitals.auth.cookies import clear_session_cookie
-from ownvitals.auth.deps import current_session, request_ip, require_recent_auth, require_user
+from ownvitals.auth.deps import current_session, request_ip, require_sensitive, require_user
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import EmailAddress, factory, mailer, reserve
 from ownvitals.auth.ratelimit import MAIL_ACCOUNT, MAIL_IP, MAIL_PAIR, SIGN_IN_IP, Bucket
@@ -65,7 +65,7 @@ async def request_email_change(
     body: ChangeEmailIn,
     request: Request,
     background: BackgroundTasks,
-    ctx: Annotated[UserContext, Depends(require_recent_auth)],
+    ctx: Annotated[UserContext, Depends(require_sensitive)],
 ) -> Accepted:
     settings = request.app.state.settings
     normalized, ip = normalize_email(body.new_email), bucket_ip(request_ip(request))
@@ -153,9 +153,9 @@ async def confirm_email_change(
 async def delete_account(
     request: Request,
     response: Response,
-    ctx: Annotated[UserContext, Depends(require_recent_auth)],
+    ctx: Annotated[UserContext, Depends(require_sensitive)],
 ) -> None:
-    """Delete the user (recent auth, and step-up with a confirmed TOTP); rows cascade."""
+    """Delete the user (recent auth and a step-up); rows cascade."""
     async with system_session(factory(request)) as db:
         await record_event(db, "account_deleted", ip=request_ip(request))
         await db.execute(delete(users).where(users.c.id == ctx.user_id))

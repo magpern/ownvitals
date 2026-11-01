@@ -17,14 +17,14 @@ async def seed(env: Env) -> None:
     """One expired and one live row in every purged table."""
     user = await env.user("keep@example.com")
     sql = [
-        # sessions: absolute-expired, idle-expired, live (with an old ip)
-        "INSERT INTO sessions (user_id, token_hash, expires_at) "
-        "SELECT id, 'a', now() - interval '1 day' FROM users",
-        "INSERT INTO sessions (user_id, token_hash, expires_at, last_seen_at) "
-        "SELECT id, 'b', now() + interval '1 day', now() - interval '8 days' FROM users",
-        "INSERT INTO sessions (user_id, token_hash, expires_at, ip, created_at) "
-        "SELECT id, 'c', now() + interval '1 day', '203.0.113.1', now() - interval '31 days' "
-        "FROM users",
+        # sessions: absolute-expired, idle-expired, live and full (with an old ip)
+        "INSERT INTO sessions (user_id, token_hash, expires_at, mfa_at) "
+        "SELECT id, 'a', now() - interval '1 day', now() FROM users",
+        "INSERT INTO sessions (user_id, token_hash, expires_at, last_seen_at, mfa_at) "
+        "SELECT id, 'b', now() + interval '1 day', now() - interval '8 days', now() FROM users",
+        "INSERT INTO sessions (user_id, token_hash, expires_at, ip, created_at, mfa_at) "
+        "SELECT id, 'c', now() + interval '1 day', '203.0.113.1', now() - interval '31 days', "
+        "now() FROM users",
         "INSERT INTO pending_signups (expires_at) VALUES (now() - interval '1 minute')",
         "INSERT INTO pending_signups (expires_at) VALUES (now() + interval '1 hour')",
         "INSERT INTO auth_tokens (purpose, token_hash, user_id, expires_at) "

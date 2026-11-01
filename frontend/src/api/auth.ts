@@ -1,5 +1,5 @@
-import { ApiError, TWO_FACTOR_REQUIRED, fetchSessionJson, get, post } from './client'
-import { count, flag, list, object, optionalText, strings, text } from './decode'
+import { ApiError, del, fetchSessionJson, get, post } from './client'
+import { DecodeError, count, flag, list, object, optionalText, strings, text } from './decode'
 
 // The auth endpoints (backend/src/ownvitals/auth/*_routes.py, ported from classbeat). Every
 // answer is decoded and checked here, so pages only see typed values.
@@ -11,9 +11,10 @@ export interface SessionUser {
 }
 
 export interface SessionDetails {
+  id: string
   expiresAt: string
   recentAuth: boolean
-  /** The second factor was passed in this session (and its window has not lapsed). */
+  /** The session passed its second factor (TOTP is mandatory, ADR 0003 section 2). */
   mfa: boolean
   stepup: boolean
 }
@@ -39,21 +40,6 @@ export async function getMfaStatus(signal?: AbortSignal): Promise<MfaStatus> {
   }
 }
 
-/**
- * Whether the signed-in account has TOTP. A session without a second factor may be refused
- * everything but enrolment (`two_factor_required`): that answer means "not set up".
- */
-async function hasTotp(signal?: AbortSignal): Promise<boolean> {
-  try {
-    return (await getMfaStatus(signal)).totpEnabled
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 403 && error.reason === TWO_FACTOR_REQUIRED) {
-      return false
-    }
-    throw error
-  }
-}
-
 export async function getSession(signal?: AbortSignal): Promise<SessionState> {
   const body = await fetchSessionJson(signal)
   const authenticated = flag(body, 'authenticated')
@@ -64,12 +50,15 @@ export async function getSession(signal?: AbortSignal): Promise<SessionState> {
     authenticated,
     user: { id: text(user, 'id'), email: text(user, 'email'), role: text(user, 'role') },
     session: {
+      id: text(session, 'id'),
       expiresAt: text(session, 'expires_at'),
       recentAuth: flag(session, 'recent_auth'),
       mfa: flag(session, 'mfa'),
       stepup: flag(session, 'stepup'),
     },
-    totpEnabled: await hasTotp(signal),
+    // In the session answer itself (#11), so a session without its second factor, which the
+    // server refuses everything else, is routed without another call.
+    totpEnabled: flag(session, 'totp_enabled'),
   }
 }
 
@@ -192,13 +181,103 @@ export async function startTotp(): Promise<Enrollment> {
   }
 }
 
+export interface Confirmed {
+  /** Shown once: the server never shows them again. */
+  recoveryCodes: string[]
+  /**
+   * The enrolment is saved, but the session was signed out meanwhile (401): the codes still
+   * came back, and the user signs in again after saving them.
+   */
+  signedOut: boolean
+}
+
 /** Confirms the enrolment with the first code; the recovery codes come back once. */
-export async function confirmTotp(pending: string, code: string): Promise<string[]> {
-  const body = object(await post('/api/auth/mfa/totp/confirm', { pending, code }), 'confirm')
-  return strings(body, 'recovery_codes')
+export async function confirmTotp(pending: string, code: string): Promise<Confirmed> {
+  try {
+    const body = object(await post('/api/auth/mfa/totp/confirm', { pending, code }), 'confirm')
+    return { recoveryCodes: strings(body, 'recovery_codes'), signedOut: false }
+  } catch (error) {
+    // A 401 that still carries the codes: the enrolment went through. Never lose them.
+    if (error instanceof ApiError && error.status === 401) {
+      const body = error.body
+      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
+        const codes = (body as Record<string, unknown>).recovery_codes
+        if (Array.isArray(codes) && codes.length > 0 && codes.every((c) => typeof c === 'string')) {
+          return { recoveryCodes: codes, signedOut: true }
+        }
+      }
+    }
+    throw error
+  }
 }
 
 /** The second step after sign-in: a TOTP or recovery code. */
 export async function verifyMfa(code: string): Promise<void> {
   await post('/api/auth/mfa/verify', { code })
+}
+
+/** Step-up: a TOTP or recovery code, good for 10 minutes of protected actions. */
+export async function stepUp(code: string): Promise<void> {
+  await post('/api/auth/mfa/stepup', { code })
+}
+
+/** Re-authentication with the password, for the actions that also need it. */
+export async function reauthenticate(password: string): Promise<void> {
+  await post('/api/auth/reauth', { password })
+}
+
+/** The authorization URL of a Google re-authentication; the browser comes back to `returnTo`. */
+export async function startOAuthReauth(provider: string, returnTo: string): Promise<string> {
+  const body = object(
+    await post(`/api/auth/oauth/${encodeURIComponent(provider)}/start`, {
+      purpose: 'reauth',
+      invite_code: null,
+      return_to: returnTo,
+    }),
+    'oauth start',
+  )
+  return text(body, 'authorization_url')
+}
+
+/** The providers linked to the signed-in account (`google`), and whether it has a password. */
+export async function getLinkedProviders(signal?: AbortSignal): Promise<string[]> {
+  const body = object(await get('/api/auth/identities', signal), 'identities')
+  return list(body, 'identities').map((row) => text(object(row, 'identity'), 'provider'))
+}
+
+// --- sessions ------------------------------------------------------------------------------
+
+export interface SessionItem {
+  id: string
+  createdAt: string
+  lastSeenAt: string
+  userAgent: string | null
+  ip: string | null
+  current: boolean
+}
+
+export async function listSessions(signal?: AbortSignal): Promise<SessionItem[]> {
+  const rows = await get('/api/auth/sessions', signal)
+  if (!Array.isArray(rows)) throw new DecodeError('sessions')
+  return rows.map((row) => {
+    const item = object(row, 'session')
+    return {
+      id: text(item, 'id'),
+      createdAt: text(item, 'created_at'),
+      lastSeenAt: text(item, 'last_seen_at'),
+      userAgent: optionalText(item, 'user_agent'),
+      ip: optionalText(item, 'ip'),
+      current: flag(item, 'current'),
+    }
+  })
+}
+
+/** Signs out one of the user's own sessions. */
+export async function revokeSession(id: string): Promise<void> {
+  await del(`/api/auth/sessions/${encodeURIComponent(id)}`)
+}
+
+/** Signs out every session of the user, this one included (step-up first). */
+export async function logoutEverywhere(): Promise<void> {
+  await post('/api/auth/logout-all')
 }

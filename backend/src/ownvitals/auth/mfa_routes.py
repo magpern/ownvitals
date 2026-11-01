@@ -1,6 +1,10 @@
 """``/api/auth/mfa`` and ``/api/auth/reauth/totp``: TOTP, step-up and recovery codes.
 
-ADR 0003 sections 6 and 7. Every code attempt first takes its rate-limit slots (5 per 5 minutes
+ADR 0003 sections 6 and 7, and ownvitals ADR 0003 sections 2 and 4: TOTP is mandatory, so a
+session that has not passed it reaches only ``verify`` (with a confirmed TOTP) or the first
+enrolment (without one); the gate in the middleware enforces that, and ``require_session`` lets
+those routes see such a session. Replacing or removing the TOTP and new recovery codes need
+step-up. Every code attempt first takes its rate-limit slots (5 per 5 minutes
 per account and IP, section 9) and is refused above the limit before any code is checked. A
 wrong or replayed code writes ``mfa_failed``; the fifth in an hour mails the user. Each success
 rotates the session. Wrong codes answer 400 ``invalid_code`` (403 stays reserved for "you lack
@@ -19,7 +23,7 @@ from ownvitals.auth.cookies import set_session_cookie
 from ownvitals.auth.deps import (
     current_session,
     request_ip,
-    require_recent_auth,
+    require_session,
     require_stepup,
     require_user,
 )
@@ -30,7 +34,6 @@ from ownvitals.auth.ratelimit import RateLimited, RateLimiter, mfa_buckets
 from ownvitals.auth.sessions import (
     SessionGone,
     SessionInfo,
-    clear_mfa,
     revoke_user_sessions,
     rotate_session,
 )
@@ -45,6 +48,7 @@ CODE_MAX = 64
 PENDING_MAX = 512
 
 Info = Annotated[SessionInfo | None, Depends(current_session)]
+AnySession = Annotated[SessionInfo, Depends(require_session)]
 
 
 class CodeIn(BaseModel):
@@ -104,6 +108,18 @@ def _invalid_code(background: BackgroundTasks) -> JSONResponse:
 def _need_totp(info: SessionInfo) -> None:
     if not info.totp_enabled:
         raise _refuse(409, "totp_not_enabled")
+
+
+def _may_enrol(info: SessionInfo) -> None:
+    """Replacing a confirmed TOTP needs a full session and a step-up; a first enrolment (no
+    factor to step up with) needs the fresh sign-in of the session, within ten minutes."""
+    if info.totp_enabled:
+        if not info.full:
+            raise _refuse(403, "two_factor_required")
+        if not info.recent_stepup:
+            raise _refuse(403, "step_up_required")
+    elif not (info.recent_auth or info.recent_stepup):
+        raise _refuse(403, "reauth_required")
 
 
 async def _reserve(request: Request, info: SessionInfo):
@@ -166,20 +182,19 @@ async def status(
 
 
 @router.post("/mfa/totp/start")
-async def start_enrollment(
-    request: Request, ctx: Annotated[UserContext, Depends(require_recent_auth)], info: Info
-) -> EnrollmentStart:
-    """Recent auth (and step-up when a TOTP already exists, which this would replace). Nothing
-    is stored until ``confirm``."""
+async def start_enrollment(request: Request, session: AnySession) -> EnrollmentStart:
+    """A first enrolment, or (with step-up) a replacement. Nothing is stored until
+    ``confirm``."""
+    _may_enrol(session)
     secret = totp.new_secret()
-    uri = totp.provisioning_uri(secret, _session(info).email)
+    uri = totp.provisioning_uri(secret, session.email)
     async with system_session(_factory(request)) as db:
-        generation = await mfa.current_generation(db, ctx.user_id)
+        generation = await mfa.current_generation(db, session.user_id)
     return EnrollmentStart(
         secret=secret,
         otpauth_uri=uri,
         qr_svg=totp.qr_svg(uri),
-        pending=mfa.seal_pending(_keys(request), ctx.user_id, secret, generation),
+        pending=mfa.seal_pending(_keys(request), session.user_id, secret, generation),
     )
 
 
@@ -189,14 +204,14 @@ async def confirm_enrollment(
     request: Request,
     response: Response,
     background: BackgroundTasks,
-    ctx: Annotated[UserContext, Depends(require_recent_auth)],
-    info: Info,
+    session: AnySession,
 ) -> RecoveryCodes | JSONResponse:
     """One valid code for the new secret confirms it. Shows the recovery codes once, mails the
-    user, and the session counts as having passed TOTP and step-up."""
-    session = _session(info)
+    user, and the session becomes full: it counts as having passed TOTP and step-up."""
+    _may_enrol(session)
+    user_id = session.user_id
     attempt = await _reserve(request, session)
-    pending = mfa.open_pending(_keys(request), ctx.user_id, body.pending)
+    pending = mfa.open_pending(_keys(request), user_id, body.pending)
     codes: list[str] | None = None
     mail = False
     async with system_session(_factory(request)) as db:
@@ -208,15 +223,15 @@ async def confirm_enrollment(
                 raise _refuse(409, "totp_changed")
             try:
                 codes = await mfa.confirm_enrollment(
-                    db, _keys(request), _ring(request), ctx.user_id, secret, generation, body.code
+                    db, _keys(request), _ring(request), user_id, secret, generation, body.code
                 )
             except mfa.EnrollmentConflict:
                 raise _refuse(409, "totp_changed") from None
         if codes is None:
-            mail = await mfa.record_failure(db, ctx.user_id, request_ip(request), "enroll")
+            mail = await mfa.record_failure(db, user_id, request_ip(request), "enroll")
         else:
             kind = "totp_replaced" if session.totp_enabled else "totp_enrolled"
-            await record_event(db, kind, user_id=ctx.user_id, ip=request_ip(request))
+            await record_event(db, kind, user_id=user_id, ip=request_ip(request))
     if codes is None:
         if mail:
             background.add_task(notify_mfa_failures, session.user_id, session.email)
@@ -243,16 +258,31 @@ async def confirm_enrollment(
 
 @router.delete("/mfa/totp", status_code=204)
 async def remove_totp(
-    request: Request, ctx: Annotated[UserContext, Depends(require_stepup)], info: Info
+    request: Request,
+    response: Response,
+    ctx: Annotated[UserContext, Depends(require_stepup)],
+    info: Info,
 ) -> None:
-    """Removing TOTP needs step-up: a password-only re-auth is not enough."""
+    """Remove (or reset) the TOTP: step-up first. Every other session is revoked, and this one
+    is rotated without its second factor, so it goes straight to enrolment (ownvitals ADR 0003
+    section 4: there is never a full session without TOTP)."""
     session = _session(info)
     _need_totp(session)
     async with system_session(_factory(request)) as db:
         await mfa.remove_totp(db, ctx.user_id)
-        await clear_mfa(db, session.id)
         await revoke_user_sessions(db, ctx.user_id, except_id=session.id)
         await record_event(db, "totp_removed", user_id=ctx.user_id, ip=request_ip(request))
+        try:
+            issued = await rotate_session(
+                db,
+                session,
+                drop_mfa=True,
+                user_agent=request.headers.get("user-agent"),
+                ip=request_ip(request),
+            )
+        except SessionGone:
+            raise _refuse(401, "not_authenticated") from None
+    set_session_cookie(response, issued)
 
 
 @router.post("/mfa/recovery-codes")
@@ -277,8 +307,11 @@ async def _second_factor_endpoint(
     background: BackgroundTasks,
     info: SessionInfo | None,
     purpose: str,
+    event: str,
     **flags: bool,
 ) -> dict[str, Any] | JSONResponse:
+    """Check the code, rotate the session with ``flags`` and write ``event`` (a failure writes
+    ``mfa_failed`` with ``purpose``)."""
     session = _session(info)
     if (
         refused := await _verify_code(request, background, session, body.code, purpose)
@@ -288,6 +321,8 @@ async def _second_factor_endpoint(
         await _rotate(request, response, session, **flags)
     except SessionGone:
         raise _refuse(401, "not_authenticated") from None
+    async with system_session(_factory(request)) as db:
+        await record_event(db, event, user_id=session.user_id, ip=request_ip(request))
     return {"ok": True}
 
 
@@ -297,13 +332,20 @@ async def verify(
     request: Request,
     response: Response,
     background: BackgroundTasks,
-    _: Annotated[UserContext, Depends(require_user)],
-    info: Info,
+    session: AnySession,
 ) -> dict[str, Any] | JSONResponse:
-    """The second step after sign-in: TOTP (or recovery) code. Sets the 12 h admin window and,
-    as the same code, the step-up."""
+    """The second step after sign-in: TOTP (or recovery) code. Makes the session full, sets the
+    12 h admin window and, as the same code, the step-up."""
     return await _second_factor_endpoint(
-        body, request, response, background, info, "verify", mfa=True, stepup=True
+        body,
+        request,
+        response,
+        background,
+        session,
+        "verify",
+        "mfa_verified",
+        mfa=True,
+        stepup=True,
     )
 
 
@@ -316,9 +358,9 @@ async def stepup(
     _: Annotated[UserContext, Depends(require_user)],
     info: Info,
 ) -> dict[str, Any] | JSONResponse:
-    """Step-up: a TOTP or recovery code, good for 5 minutes."""
+    """Step-up: a TOTP or recovery code, good for the step-up window (10 minutes)."""
     return await _second_factor_endpoint(
-        body, request, response, background, info, "stepup", stepup=True
+        body, request, response, background, info, "stepup", "step_up", stepup=True
     )
 
 
@@ -336,5 +378,14 @@ async def reauth_with_totp(
     if _session(info).stored_role != "admin":
         raise _refuse(403, "forbidden")
     return await _second_factor_endpoint(
-        body, request, response, background, info, "reauth", reauth=True, mfa=True, stepup=True
+        body,
+        request,
+        response,
+        background,
+        info,
+        "reauth",
+        "reauth_totp",
+        reauth=True,
+        mfa=True,
+        stepup=True,
     )

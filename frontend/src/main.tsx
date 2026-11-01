@@ -7,6 +7,7 @@ import './styles/tokens.css'
 import './styles/app.css'
 import './styles/primitives.css'
 import './styles/shell.css'
+import './styles/auth.css'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Missing #root element in index.html')
