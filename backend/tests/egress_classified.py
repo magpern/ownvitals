@@ -171,6 +171,17 @@ NATIVE_MODULES: tuple[str, ...] = ("ctypes", "_ctypes")
 # Reflection by name: ``sys.modules`` hands out any loaded module past every rule that reads
 # names (``_posixsubprocess`` is always loaded: ``subprocess`` imports it). Refused in ``src/``.
 REFLECTION_NAMES: tuple[str, ...] = ("sys.modules", "pkgutil.resolve_name")
+# Importers (the FAIL on #123, B1): ``IMPORT_CALLS`` only as a direct call with one constant name,
+# which is then judged as an import; a stored, aliased-and-stored or ``getattr`` reference would
+# hide the name. ``SPEC_FINDERS`` (``find_spec``, ``spec_from_*``) are refused outright.
+IMPORT_CALLS: frozenset[str] = frozenset(
+    {"importlib.import_module", "importlib.__import__", "builtins.__import__"}
+)
+SPEC_FINDERS: tuple[str, ...] = (
+    "importlib.util.find_spec",
+    "importlib.util.spec_from_file_location",
+    "importlib.util.spec_from_loader",
+)
 
 LOOP_METHODS: frozenset[str] = frozenset(
     {

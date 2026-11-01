@@ -1,6 +1,7 @@
 """Issue #122: an ``if TYPE_CHECKING:`` block is skipped only when its flag is ``typing``'s (or
 ``typing_extensions``') and never rebound; otherwise it is scanned as the code it is. Any write
-to ``TYPE_CHECKING`` is refused (``egress_typeonly``).
+to ``TYPE_CHECKING``, and the flag named as a string or a keyword, is refused
+(``egress_typeonly``).
 
 Each planted block imports ``ctypes``: when the block is scanned the native rule refuses it.
 """
@@ -12,6 +13,7 @@ from egress_scan import scan_source
 M = "ownvitals.web.planted"
 NATIVE = "calls native code the egress hook cannot see"
 ASSIGNS = "assigns TYPE_CHECKING"
+NAMES = "names TYPE_CHECKING as a string or keyword"
 BLOCK = "if TYPE_CHECKING:\n    import ctypes\n"
 DOTTED = "if typing.TYPE_CHECKING:\n    import ctypes\n"
 FROM = "from typing import TYPE_CHECKING\n"
@@ -23,6 +25,7 @@ WRITTEN = [
     FROM + "TYPE_CHECKING: bool = True\n" + BLOCK,
     FROM + "TYPE_CHECKING |= True\n" + BLOCK,
     FROM + "del TYPE_CHECKING\nTYPE_CHECKING = 1\n" + BLOCK,
+    FROM + "del TYPE_CHECKING\n" + BLOCK,  # X1: ``del`` alone
     FROM + "(TYPE_CHECKING := True)\n" + BLOCK,
     FROM + "for TYPE_CHECKING in [True]:\n    pass\n" + BLOCK,
     FROM + "with open('x') as TYPE_CHECKING:\n    pass\n" + BLOCK,
@@ -32,9 +35,27 @@ WRITTEN = [
     FROM + "class TYPE_CHECKING:\n    pass\n" + BLOCK,
     FROM + "def TYPE_CHECKING():\n    pass\n" + BLOCK,
     FROM + "match 1:\n    case TYPE_CHECKING:\n        pass\n" + BLOCK,
+    FROM + "match {}:\n    case {**TYPE_CHECKING}:\n        pass\n" + BLOCK,  # X2
+    FROM + "def f[TYPE_CHECKING]() -> None: ...\n" + BLOCK,  # type parameters
+    FROM + "class C[TYPE_CHECKING]: ...\n" + BLOCK,
+    FROM + "def f[**TYPE_CHECKING]() -> None: ...\n" + BLOCK,
+    FROM + "def f[*TYPE_CHECKING]() -> None: ...\n" + BLOCK,
     "import typing\ntyping.TYPE_CHECKING = True\n" + DOTTED,
-    "import typing\nsetattr(typing, 'TYPE_CHECKING', True)\n" + DOTTED,
     "import typing as t\nt.TYPE_CHECKING = True\nif t.TYPE_CHECKING:\n    import ctypes\n",
+]
+# The flag named as a string or a keyword (B2 of the FAIL on #123): refused, the block scanned.
+NAMED = [
+    FROM + "globals()['TYPE_CHECKING'] = True\n" + BLOCK,
+    FROM + "globals().update(TYPE_CHECKING=True)\n" + BLOCK,
+    "import typing\nvars(typing)['TYPE_CHECKING'] = True\n" + DOTTED,
+    "import typing\ntyping.__dict__['TYPE_CHECKING'] = True\n" + DOTTED,
+    "import builtins, typing\nbuiltins.setattr(typing, 'TYPE_CHECKING', True)\n" + DOTTED,
+    "import typing\nfrom builtins import setattr as s\ns(typing, 'TYPE_CHECKING', True)\n" + DOTTED,
+    "import typing\ntyping.__setattr__('TYPE_CHECKING', True)\n" + DOTTED,
+    "import typing\nobject.__setattr__(typing, 'TYPE_CHECKING', True)\n" + DOTTED,
+    "import typing\nsetattr(typing, 'TYPE_CHECKING', True)\n" + DOTTED,
+    "import typing\ndelattr(typing, 'TYPE_CHECKING')\n" + DOTTED,
+    FROM + "flag = f'TYPE_CHECKING'\n" + BLOCK,
 ]
 # The flag is not ``typing``'s, or its module name is rebound: the block is scanned.
 NOT_TYPING = [
@@ -47,6 +68,10 @@ NOT_TYPING = [
     FROM + "def f():\n    from os import TYPE_CHECKING\n" + BLOCK,
     "import typing\ndef f(typing):\n    pass\n" + DOTTED,
     BLOCK,  # never imported
+    "import typing\nif typing.Any:\n    import ctypes\n",  # X3: another attribute of typing
+    "from .typing import TYPE_CHECKING\n" + BLOCK,  # X4: a relative import is never typing's
+    "from . import typing\n" + DOTTED,
+    "import typing as TYPE_CHECKING\n" + BLOCK,  # X7: the module, not its flag
 ]
 NEAR_MISSES = [
     FROM + BLOCK + "def f(x: 'ctypes.c_int') -> None: ...",
@@ -58,7 +83,11 @@ NEAR_MISSES = [
     "import typing_extensions\nif typing_extensions.TYPE_CHECKING:\n    import ctypes\n",
     FROM + "import typing\n" + BLOCK + DOTTED,
     FROM + BLOCK + "type_checking = True\nTYPE_CHECKING_MODE = 1\n",  # look-alike names
+    FROM + BLOCK + "flag = 'TYPE_CHECKING_X'\ndict(type_checking=True)\n",
     FROM + BLOCK + "def f() -> bool:\n    return TYPE_CHECKING\n",  # read, not written
+    # ``ownvitals.jobs.kinds``: its real import and block.
+    "from typing import TYPE_CHECKING, Any\n\nif TYPE_CHECKING:\n"
+    "    from ownvitals.jobs.run import JobRun\n\nx: 'JobRun | Any' = None\n",
 ]
 
 
@@ -66,6 +95,13 @@ NEAR_MISSES = [
 def test_a_write_to_the_flag_is_refused_and_the_block_scanned(source: str) -> None:
     found = [why for _, why in scan_source(source, M)]
     assert any(ASSIGNS in why for why in found), found
+    assert any(NATIVE in why for why in found), found
+
+
+@pytest.mark.parametrize("source", NAMED)
+def test_the_flag_as_a_string_or_keyword_is_refused_and_the_block_scanned(source: str) -> None:
+    found = [why for _, why in scan_source(source, M)]
+    assert any(NAMES in why for why in found), found
     assert any(NATIVE in why for why in found), found
 
 

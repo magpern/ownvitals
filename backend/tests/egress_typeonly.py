@@ -2,11 +2,12 @@
 
 An ``if TYPE_CHECKING:`` block is treated as never running only when its test is ``typing``'s or
 ``typing_extensions``'s flag (``TYPE_CHECKING`` imported from either, by any alias, or the dotted
-``typing.TYPE_CHECKING``) and nothing in the module rebinds it. A name rebound anywhere, by any
-binding ``symtable`` sees (assignment, ``del``, parameter, ``global``, walrus, loop or ``with``
-target, ``except ... as``, a nested import ...), or bound by an import from elsewhere, makes the
+``typing.TYPE_CHECKING``) and nothing in the module rebinds it. A name rebound by any binding
+``symtable`` records in a scope of the module (assignment, ``del``, parameter, walrus, loop or
+``with`` target, ``except ... as`` ...), or bound by an import from elsewhere, makes the
 block ordinary code, scanned as such. Independently, ``assignments`` refuses any write to a name
-or attribute ``TYPE_CHECKING``.
+or attribute ``TYPE_CHECKING`` and the string ``"TYPE_CHECKING"`` or keyword ``TYPE_CHECKING=``
+(``globals()``, ``vars()``, ``setattr`` by any spelling); any of them trusts no block.
 
 Inside a type-only block an import binds names that may appear only in annotations
 (``annotations``); ``egress_scan`` resolves those through the run-time imports alone.
@@ -103,22 +104,31 @@ def _bound(node: ast.AST) -> list[str]:
         return [node.name]
     if isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar):
         return [node.name or ""]
+    if isinstance(node, ast.TypeVar | ast.ParamSpec | ast.TypeVarTuple):
+        return [node.name]
     if isinstance(node, ast.MatchMapping):
         return [node.rest or ""]
     if isinstance(node, ast.Global | ast.Nonlocal):
         return node.names
-    if isinstance(node, ast.Call) and getattr(node.func, "id", None) in ("setattr", "delattr"):
-        attr = node.args[1] if len(node.args) >= 2 else None
-        return (
-            [attr.value] if isinstance(attr, ast.Constant) and isinstance(attr.value, str) else []
-        )
     return []
 
 
+def _named(node: ast.AST) -> bool:
+    """The flag as a string or a keyword: how ``globals()``, ``vars()``, ``__dict__`` and every
+    ``setattr`` spelling would write it (the FAIL on #123, B2)."""
+    if isinstance(node, ast.Constant):
+        return node.value == FLAG
+    return isinstance(node, ast.keyword) and node.arg == FLAG
+
+
 def assignments(tree: ast.AST) -> list[tuple[int, str]]:
-    """``(line, why)`` for every write to a name or attribute ``TYPE_CHECKING``."""
-    return [
-        (getattr(node, "lineno", 1), f"assigns {FLAG}: a type-only block must never run")
-        for node in ast.walk(tree)
-        if FLAG in _bound(node)
-    ]
+    """``(line, why)`` for every write to a name or attribute ``TYPE_CHECKING``, and every use of
+    it as a string or a keyword."""
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 1)
+        if FLAG in _bound(node):
+            found.append((line, f"assigns {FLAG}: a type-only block must never run"))
+        elif _named(node):
+            found.append((line, f"names {FLAG} as a string or keyword: it could write the flag"))
+    return found

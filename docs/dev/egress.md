@@ -227,7 +227,12 @@ What else the guard refuses outside the package:
 - an import that does **not resolve** in the locked environment ("not in the locked
   environment"), except inside `if TYPE_CHECKING:`;
 - **dynamic imports** with a computed name, a `package` or a `fromlist` (a constant name is an
-  ordinary import). `getattr(x, "name")` is the reference `x.name`;
+  ordinary import, judged by every rule above). An importer (`importlib.import_module`,
+  `importlib.__import__`, `builtins.__import__`, bare `__import__`, by any alias, `from` form
+  or chain) may only be called directly with one string literal: any other reference (stored
+  in a variable or a list, passed to `partial`, taken through `getattr`) is refused, so the
+  name it imports is always visible. `importlib.util.find_spec` and `spec_from_*` are refused
+  outright (`IMPORT_CALLS`, `SPEC_FINDERS`). `getattr(x, "name")` is the reference `x.name`;
 - **a module looked up by name**: any reference to `sys.modules` (a subscript, `.get(...)`, an
   `in` test, a variable holding it) and `pkgutil.resolve_name`, under any alias of `sys`, as
   `from sys import modules` and through a chain (`os.sys.modules`). `subprocess` imports
@@ -255,14 +260,26 @@ the block is skipped only when:
 
 - its test is `TYPE_CHECKING` imported from `typing` or `typing_extensions` (by any alias), or
   `typing.TYPE_CHECKING` with `typing` (or `typing_extensions`) imported by any alias;
-- every import that binds that name binds it to one of those, and nothing else in the module
-  rebinds it: `symtable` sees every binding in every scope (assignment, `del`, a parameter,
-  `global`/`nonlocal`, the walrus, a loop, `with` or `except` target, a nested import);
-- nothing in the module writes to a name or attribute `TYPE_CHECKING`.
+- every import that binds that name (a relative import never counts) binds it to one of
+  those, and no other binding of it is recorded in any `symtable` scope of the module
+  (assignment, `del`, a parameter, the walrus, a loop, `with` or `except` target; a
+  `global`/`nonlocal` write is an assignment in its own scope). A 3.12 comprehension variable
+  is recorded only in the comprehension, which is right: it does not rebind the module's name;
+- nothing in the module writes to a name or attribute `TYPE_CHECKING`, or names it as a string
+  or a keyword.
 
-Otherwise the block is ordinary code and is scanned as such. Separately, any write to a name or
-attribute `TYPE_CHECKING` (`TYPE_CHECKING = True`, `typing.TYPE_CHECKING = True`, `setattr`,
-`del`, a parameter, a definition) is refused in `src/`. An `else:` branch runs and is scanned.
+Otherwise the block is ordinary code and is scanned as such. Separately, these are refused in
+`src/`:
+
+- any write to a name or attribute `TYPE_CHECKING`: `TYPE_CHECKING = True`,
+  `typing.TYPE_CHECKING = True`, `del`, a parameter or type parameter, a definition, a `match`
+  capture;
+- the string `"TYPE_CHECKING"` and the keyword `TYPE_CHECKING=` anywhere. Every other way to
+  write the flag names it like that: `globals()[...]`, `globals().update(...)`, `vars(...)`,
+  `__dict__`, and `setattr`, `__setattr__` or `object.__setattr__` by any spelling. `src` only
+  imports the flag and tests it, so this fails closed.
+
+An `else:` branch runs and is scanned.
 
 **Adding a dependency or an import.** The guard names the path to the network
 (`x can reach the network (x -> y -> socket); not classified`). The PR adds a table entry with
@@ -323,8 +340,9 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   rest:
   - deliberate indirection (N9): a computed `getattr`, `vars(sys)`, `sys.__dict__`, a module
     an expression returns (`importlib.import_module("sys").modules`), `exec`/`eval`,
-    `importlib.util` loaders. The cheap partial closes are in: a rebound `TYPE_CHECKING`,
-    dynamic imports, `sys.modules`, `pkgutil.resolve_name`, `ctypes`, constant `getattr`, and
+    `importlib.util.module_from_spec` and loaders, a flag name built at run time
+    (`"TYPE_" + "CHECKING"`). The cheap partial closes are in: a rebound or named
+    `TYPE_CHECKING`, dynamic imports and stored importers, `find_spec`/`spec_from_*`, `sys.modules`, `pkgutil.resolve_name`, `ctypes`, constant `getattr`, and
     `_socket`/`_ssl` as seeds. The `module:attr`
     string form (pydantic's `ImportString`, `"socket:create_connection"`) is not read by the
     string rule (N18): indirection of this kind, refused by the hook when it connects;

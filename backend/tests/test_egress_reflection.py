@@ -53,8 +53,34 @@ CTYPES = [
     "def f():\n    import ctypes\n    return ctypes.pythonapi",
     "try:\n    import ctypes\nexcept ImportError:\n    pass",
     "import typing\nif not typing.TYPE_CHECKING:\n    import ctypes",
+    # B1 of the FAIL on #123: a direct call through an alias is judged as an import.
+    "from importlib import import_module as load\nload('ctypes')",
+    "import importlib as il\nil.import_module('ctypes.util')",
+    "import builtins\nbuiltins.__import__('_ctypes')",
+    "import importlib\nimportlib.__import__('ctypes')",
+]
+# B1 of the FAIL on #123: an importer referenced other than by a direct call, and the spec
+# finders, are refused whatever the name (``{m}``).
+IMPORTER = "an importer is only called directly"
+STORED = [
+    "import importlib\ni = importlib.import_module\ni({m!r})",
+    "i = __import__\ni({m!r})",
+    "import importlib\ngetattr(importlib, 'import_module')({m!r})",
+    "import builtins\ngetattr(builtins, '__import__')({m!r})",
+    "import builtins\nb = builtins.__import__\nb({m!r})",
+    "from importlib import __import__ as f\nrun = f\nrun({m!r})",
+    "import importlib\nrun = [importlib.import_module]\nrun[0]({m!r})",
+    "import functools\nfrom importlib import import_module as im\nfunctools.partial(im, {m!r})()",
+    "import pkgutil\npkgutil.importlib.import_module  # through a chain; {m}",
+    "import importlib.util\nimportlib.util.find_spec({m!r})",
+    "from importlib.util import spec_from_file_location as s\ns({m!r}, '/x.py')",
+    "from importlib import util\nutil.spec_from_loader({m!r}, None)",
 ]
 NEAR_MISSES = [
+    "from importlib import import_module\nimport_module('json')",
+    "from importlib import import_module as load\nload('json')",
+    "__import__('json')",
+    "import builtins\nbuiltins.__import__('json')",
     "import sys\nsys.argv",
     "import sys\nsys.exit(0)",
     "import sys\nsys.stdout.write('x')",
@@ -82,6 +108,14 @@ def test_the_guard_refuses_ctypes(source: str) -> None:
     for module in MODULES:
         found = scan_source(source, module)
         assert any(NATIVE in why for _, why in found), (module, found)
+
+
+@pytest.mark.parametrize("source", STORED)
+@pytest.mark.parametrize("target", ["ctypes", "json"])
+def test_an_importer_is_only_called_directly(source: str, target: str) -> None:
+    for module in MODULES:
+        found = scan_source(source.format(m=target), module)
+        assert any(IMPORTER in why for _, why in found), (module, found)
 
 
 @pytest.mark.parametrize("source", NEAR_MISSES)
