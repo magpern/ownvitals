@@ -97,7 +97,7 @@ REFUSED_EVERYWHERE = {
     "other_family_socket": ("socket.__new__", OTHER_FAMILY),
     "subprocess": ("subprocess.Popen", PROCESS),
     "os_system": ("os.system", PROCESS),
-    "os_spawn": ("os.spawn", PROCESS),
+    "os_spawn": ("os.fork" if LINUX else "os.spawn", PROCESS),  # POSIX spawnv is fork and exec
     "os_exec": ("os.exec", PROCESS),
     **(
         {
