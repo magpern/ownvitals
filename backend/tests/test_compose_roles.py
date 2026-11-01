@@ -8,8 +8,10 @@ Reads compose.yaml (and the Dockerfile and ci.yml) at the repository root as tex
 ``test_image.py``."""
 
 import re
+from typing import Any
 
 import pytest
+import yaml
 
 from dbtools import BACKEND_DIR
 
@@ -161,14 +163,16 @@ def test_the_one_shot_check_fails_on_any_added_mount_or_setting(compose: str, li
 # on the first start of an empty volume. It creates the roles, not the definer functions a deploy
 # updates (docs/dev/stack.md, "Where the database's SQL comes from").
 ALLOWED_SQL_MOUNTS = {("db", "./docker/postgres/init:/docker-entrypoint-initdb.d:ro")}
-HOST_PATH = re.compile(r"^(?:\.{1,2}(?:/|$)|/|~|\$|[A-Za-z]:[\\/])")
+WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
+# Service keys that can bring host files in besides volumes: refused outright.
+REFUSED_SERVICE_KEYS = ("volumes_from", "configs")
 
 
 def _holds_sql(source: str) -> bool:
     """True when the host path is an SQL file or a directory with one anywhere below it. A path
     that can't be inspected (absolute, a variable, the home directory, outside the repository)
     counts as holding SQL: the check fails closed."""
-    if not source.startswith("."):
+    if not source.startswith(".") or "$" in source:
         return True
     path = (ROOT / source).resolve()
     if not path.is_relative_to(ROOT.resolve()):
@@ -178,58 +182,173 @@ def _holds_sql(source: str) -> bool:
     return path.suffix.lower() == ".sql"
 
 
+def _is_host_path(source: str) -> bool:
+    """Compose reads a short-syntax source as a host path when it starts with ``.``, ``/`` or
+    ``~`` (or a drive letter); anything else is a named volume. A variable can be either: host."""
+    return source.startswith((".", "/", "~", "$")) or bool(WINDOWS_DRIVE.match(source))
+
+
+def _short_source(entry: str) -> str | None:
+    """The host path of a short-syntax entry, or None for a named or anonymous volume."""
+    if WINDOWS_DRIVE.match(entry):
+        return entry  # C:\\x:/y: the whole entry is a host path; it can't be inspected
+    if ":" not in entry:
+        # An anonymous volume at a container path (``/data``); a relative path alone is refused.
+        return None if entry.startswith("/") else entry
+    source = entry.split(":", 1)[0]
+    return source if _is_host_path(source) else None
+
+
+def _long_source(entry: dict[str, Any], named: set[str]) -> str | None:
+    kind = entry.get("type")
+    if kind == "bind":
+        return str(entry.get("source", ""))
+    if kind == "volume":
+        assert entry.get("source") in named, f"unknown named volume {entry.get('source')!r}"
+        return None
+    assert kind == "tmpfs", f"volume type {kind!r} is not allowed"
+    return None
+
+
+def load_compose(text: str) -> dict[str, Any]:
+    loaded = yaml.safe_load(text)  # merge keys (<<: *app) are resolved
+    assert isinstance(loaded, dict)
+    return loaded
+
+
 def sql_mounts(compose: str) -> set[tuple[str, str]]:
-    """Every (service, mount) whose host path holds SQL. The long volume syntax, a mount in the
-    shared x-app block, `configs:` and a named volume backed by a host path are refused outright,
-    since the short syntax below is all this reads."""
-    assert not re.search(r"^\s+- type:", compose, re.MULTILINE), "long volume syntax"
-    assert not re.search(r"^\s*configs:", compose, re.MULTILINE), "configs"
-    shared = compose[compose.index("x-app: &app") : compose.index("\nservices:")]
-    assert "volumes:" not in shared
-    top = compose[compose.index("\nvolumes:\n") :]
-    assert top == "\nvolumes:\n  db-data:\n", "named volumes carry no driver options"
-    found = set()
-    for service in services(compose):
-        section = re.search(r"^    volumes:\n((?:      .*\n)+)", block(compose, service), re.M)
-        if section is None:
-            continue
-        for mount in re.findall(r"^      - (\S+)$", section.group(1), re.MULTILINE):
-            source = mount.split(":", 1)[0]
-            if HOST_PATH.match(source) and _holds_sql(source):
-                found.add((service, mount))
-    for source in re.findall(r"^    file: (\S+)$", compose[compose.index("\nsecrets:\n") :], re.M):
-        if _holds_sql(source):
-            found.add(("secrets", source))
+    """Every (service, mount) whose host path holds SQL, read from the parsed YAML: short
+    entries (plain, quoted, in a block or a flow list) and long ones (``type: bind``). Whatever
+    this does not understand is refused: another volume type, ``volumes_from``, ``configs``, a
+    named volume with driver options, a volumes value that is not a list."""
+    loaded = load_compose(compose)
+    assert "configs" not in loaded, "configs"
+    named_volumes = loaded.get("volumes") or {}
+    assert isinstance(named_volumes, dict)
+    for name, spec in named_volumes.items():
+        assert not spec, f"named volume {name} carries options"
+    named = set(named_volumes)
+    found: set[tuple[str, str]] = set()
+    for service, spec in (loaded.get("services") or {}).items():
+        assert isinstance(spec, dict), service
+        for key in REFUSED_SERVICE_KEYS:
+            assert key not in spec, f"{service}: {key}"
+        volumes = spec.get("volumes", [])
+        assert isinstance(volumes, list), f"{service}: volumes is not a list"
+        for entry in volumes:
+            if isinstance(entry, str):
+                source, shown = _short_source(entry), entry
+            else:
+                assert isinstance(entry, dict), f"{service}: {entry!r}"
+                source, shown = _long_source(entry, named), repr(entry)
+            if source is not None and _holds_sql(source):
+                found.add((service, shown))
+    for name, secret in (loaded.get("secrets") or {}).items():
+        assert isinstance(secret, dict), name
+        if "file" in secret and _holds_sql(str(secret["file"])):
+            found.add(("secrets", str(secret["file"])))
     return found
+
+
+def passes(compose: str) -> bool:
+    try:
+        return sql_mounts(compose) == ALLOWED_SQL_MOUNTS
+    except AssertionError:
+        return False
 
 
 def test_no_service_reads_sql_from_a_host_path(compose: str) -> None:
     """The database's functions come from the release image, never from the host: a deploy then
-    installs the release's functions and a rollback the previous release's (docs/dev/deploy.md)."""
+    installs the release's functions and a rollback the previous release's (docs/dev/deploy.md).
+    Every compose file at the repository root is read."""
     assert sql_mounts(compose) == ALLOWED_SQL_MOUNTS
+    for other in sorted(ROOT.glob("compose*.y*ml")):
+        if other.name != "compose.yaml":
+            assert sql_mounts(other.read_text(encoding="utf-8")) <= ALLOWED_SQL_MOUNTS, other
 
 
-@pytest.mark.parametrize(
-    ("service", "mount"),
-    [
-        ("db-functions", "./docker/postgres/queue:/app/db-functions:ro"),
-        ("db-functions", "./docker/postgres/queue/20-queue.sql:/app/db-functions/20-queue.sql:ro"),
-        ("db-functions", "./docker:/x:ro"),
-        ("worker", "/srv/sql:/sql:ro"),
-        ("db", "./docker/postgres/queue:/docker-entrypoint-initdb.d/q:ro"),
-    ],
-)
-def test_the_host_sql_check_fails_on_a_planted_mount(
-    compose: str, service: str, mount: str
-) -> None:
+def plant(compose: str, service: str, lines: str) -> str:
+    """``lines`` (service keys, indented four spaces) appended to ``service``."""
     body = block(compose, service)
-    if "    volumes:\n" in body:
-        changed = body.replace("    volumes:\n", f"    volumes:\n      - {mount}\n", 1)
-    else:
-        changed = body.rstrip("\n") + f"\n    volumes:\n      - {mount}\n\n"
-    planted = compose.replace(body, changed, 1)
+    planted = compose.replace(body, body.rstrip("\n") + "\n" + lines + "\n", 1)
     assert planted != compose
-    assert sql_mounts(planted) != ALLOWED_SQL_MOUNTS
+    load_compose(planted)  # still valid YAML
+    return planted
+
+
+QUEUE = "./docker/postgres/queue"
+LONG = "    volumes:\n      - type: {kind}\n        source: {source}\n        target: /q\n"
+LONG_BIND = LONG.replace("{kind}", "bind")
+
+REFUSED_PLANTS = {
+    "bare": f"    volumes:\n      - {QUEUE}:/q:ro\n",
+    "double-quoted": f'    volumes:\n      - "{QUEUE}:/q:ro"\n',
+    "single-quoted": f"    volumes:\n      - '{QUEUE}:/q:ro'\n",
+    "flow list": f'    volumes: ["{QUEUE}:/q:ro"]\n',
+    "flow list, bare": f"    volumes: [{QUEUE}:/q]\n",
+    "long bind": LONG_BIND.format(source=QUEUE),
+    "long bind, quoted": LONG_BIND.format(source=f'"{QUEUE}"'),
+    "long bind, one file": LONG_BIND.format(source=f"{QUEUE}/20-queue.sql"),
+    "long bind, flow mapping": f"    volumes: [{{type: bind, source: {QUEUE}, target: /q}}]\n",
+    "a parent directory": "    volumes:\n      - ./docker:/x:ro\n",
+    "an absolute path": "    volumes:\n      - /srv/sql:/sql:ro\n",
+    "a variable": "    volumes:\n      - ${SQL_DIR}:/sql:ro\n",
+    "a home path": "    volumes:\n      - ~/sql:/sql:ro\n",
+    "a relative path alone": "    volumes:\n      - ./docker/postgres/queue\n",
+    "an unknown volume type": LONG.format(kind="image", source="x"),
+    "an unknown named volume": LONG.format(kind="volume", source="other"),
+    "volumes as a string": f"    volumes: {QUEUE}:/q\n",
+    "volumes_from": "    volumes_from:\n      - db\n",
+    "configs": "    configs:\n      - x\n",
+}
+# The same spellings without SQL behind them: the check reads them and lets them through.
+NEAR_MISSES = {
+    "quoted, no SQL": '    volumes:\n      - "./frontend:/f:ro"\n',
+    "flow list, no SQL": '    volumes: ["./frontend:/f:ro"]\n',
+    "long bind, no SQL": LONG_BIND.format(source="./frontend"),
+    "named volume, short": "    volumes:\n      - db-data:/d:ro\n",
+    "named volume, long": LONG.format(kind="volume", source="db-data"),
+    "anonymous volume": "    volumes:\n      - /data\n",
+    "tmpfs, long": "    volumes:\n      - type: tmpfs\n        target: /t\n",
+}
+
+
+@pytest.mark.parametrize("lines", REFUSED_PLANTS.values(), ids=REFUSED_PLANTS.keys())
+@pytest.mark.parametrize("service", ["worker", "db-functions", "db"])
+def test_the_host_sql_check_refuses_every_spelling(compose: str, service: str, lines: str) -> None:
+    if service == "db" and lines.startswith("    volumes:"):
+        # db has a volumes list already: add the entries to it instead of a second key.
+        lines = lines.removeprefix("    volumes:\n")
+        if not lines.startswith("      -"):
+            pytest.skip("only list entries can join db's existing list")
+        body = block(compose, "db")
+        planted = compose.replace(body, body.replace("    volumes:\n", "    volumes:\n" + lines, 1))
+    else:
+        planted = plant(compose, service, lines)
+    assert not passes(planted)
+
+
+@pytest.mark.parametrize("lines", NEAR_MISSES.values(), ids=NEAR_MISSES.keys())
+def test_the_host_sql_check_reads_the_same_spellings_without_sql(compose: str, lines: str) -> None:
+    assert passes(plant(compose, "worker", lines))
+
+
+def test_the_host_sql_check_refuses_a_named_volume_with_options(compose: str) -> None:
+    planted = compose.replace(
+        "\nvolumes:\n  db-data:\n",
+        "\nvolumes:\n  db-data:\n    driver_opts:\n      type: none\n      o: bind\n"
+        f"      device: {QUEUE}\n",
+    )
+    assert planted != compose
+    assert not passes(planted)
+
+
+def test_the_allowed_init_mount_is_allowed_only_as_written(compose: str) -> None:
+    """The exception is the exact short entry on db; the same mount on another service, or a
+    second SQL directory on db, is refused."""
+    entry = "./docker/postgres/init:/docker-entrypoint-initdb.d:ro"
+    assert not passes(plant(compose, "worker", f"    volumes:\n      - {entry}\n"))
+    assert not passes(compose.replace(entry, "./docker/postgres/init:/docker-entrypoint-initdb.d"))
 
 
 POSTGRES_PIN = re.compile(r"postgres:17\.11@(sha256:[0-9a-f]{64})")

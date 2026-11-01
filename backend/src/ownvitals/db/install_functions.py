@@ -10,17 +10,21 @@ The SQL files ship in the release image (``Dockerfile``), never on a host path, 
 installs that release's functions and a rollback re-installs the previous release's
 (``docs/dev/deploy.md``). The files are plain SQL (no psql meta-commands): all of them are sent in
 ONE transaction, as ``psql --single-transaction -v ON_ERROR_STOP=1`` runs them, and the first
-error rolls everything back.
+error rolls everything back. A file that controls the transaction itself (``COMMIT``,
+``ROLLBACK``, ``BEGIN``, ``END``, savepoints, ...) is refused before connecting, since it could
+commit part of the work.
 
 The password reaches libpq only through ``PGPASSFILE``, which must name a file: a connection
-string that carries a password (``password``, ``passfile``) is refused, so is a set
-``PGPASSWORD``, and the password never appears in an argument, the
-environment or the output. Imports nothing from the application but psycopg; reads no settings.
+string that carries a password (``password``, ``passfile``) is refused, and so is every other
+``PG*`` environment variable (``PGPASSWORD``, ``PGSERVICE``, ``PGOPTIONS``, ...), which libpq
+would read too. The password never appears in an argument, the environment or the output.
+Imports nothing from the application but psycopg; reads no settings.
 """
 
 import os
+import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 
 import psycopg
@@ -29,6 +33,12 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 # What the connection string may set: where to connect and as whom, never a credential.
 ALLOWED_KEYS = frozenset({"host", "port", "dbname", "user", "connect_timeout", "sslmode"})
 CONNECT_TIMEOUT_SECONDS = 10
+# The one libpq environment variable the runner accepts.
+ALLOWED_ENVIRONMENT = frozenset({"PGPASSFILE"})
+# Statements that end, open or split the transaction (first keyword of a top-level statement).
+TRANSACTION_CONTROL = frozenset(
+    {"BEGIN", "START", "COMMIT", "END", "ROLLBACK", "ABORT", "SAVEPOINT", "RELEASE", "PREPARE"}
+)
 
 
 class InstallError(Exception):
@@ -50,12 +60,101 @@ def check_conninfo(conninfo: str) -> dict[str, str]:
 
 
 def check_environment(environ: Mapping[str, str]) -> None:
-    """The password comes from a PGPASSFILE that exists, never from PGPASSWORD."""
-    if "PGPASSWORD" in environ:
-        raise InstallError("PGPASSWORD is set; the password goes in a PGPASSFILE only")
+    """The password comes from a PGPASSFILE that exists; no other PG* variable is set (libpq
+    reads them all: PGPASSWORD, a service file, options, another host)."""
+    other = sorted(
+        k for k in environ if k.upper().startswith("PG") and k not in ALLOWED_ENVIRONMENT
+    )
+    if other:
+        raise InstallError(f"{', '.join(other)} is set; only PGPASSFILE may be")
     passfile = environ.get("PGPASSFILE", "")
     if not passfile or not Path(passfile).is_file():
         raise InstallError("PGPASSFILE is not set or is not a file")
+
+
+_TOKEN = re.compile(
+    r"""
+      (?P<line>--[^\n]*)
+    | (?P<block>/\*)
+    | (?P<dollar>\$(?:[A-Za-z_\x80-￿][\w\x80-￿]*)?\$)
+    | (?P<estring>[Ee]')
+    | (?P<string>')
+    | (?P<ident>")
+    | (?P<semicolon>;)
+    | (?P<word>[A-Za-z_][\w$]*)
+    """,
+    re.VERBOSE,
+)
+
+
+def _skip_block_comment(sql: str, at: int) -> int:
+    """The index after a (nested) ``/* */`` comment that opens at ``at``."""
+    depth, i = 1, at + 2
+    while depth:
+        close, opened = sql.find("*/", i), sql.find("/*", i)
+        if close < 0:
+            raise InstallError("an SQL file has an unterminated comment")
+        if 0 <= opened < close:
+            depth, i = depth + 1, opened + 2
+        else:
+            depth, i = depth - 1, close + 2
+    return i
+
+
+def _skip_quoted(sql: str, at: int, quote: str, backslash: bool) -> int:
+    """The index after a literal or identifier whose opening quote is at ``at``; a doubled
+    quote stays inside it, and so does a backslash escape in an ``E''`` string."""
+    i = at + 1
+    while True:
+        j = sql.find(quote, i)
+        if j < 0:
+            raise InstallError("an SQL file has an unterminated quote")
+        if backslash and sql.count("\\", i, j) and _escaped(sql, i, j):
+            i = j + 1
+            continue
+        if sql.startswith(quote * 2, j):
+            i = j + 2
+            continue
+        return j + 1
+
+
+def _escaped(sql: str, start: int, j: int) -> bool:
+    """True when the quote at ``j`` follows an odd run of backslashes."""
+    run, k = 0, j - 1
+    while k >= start and sql[k] == "\\":
+        run, k = run + 1, k - 1
+    return run % 2 == 1
+
+
+def statement_keywords(sql: str) -> Iterator[str]:
+    """The first keyword of each top-level statement, upper case. Comments, string literals,
+    quoted identifiers and dollar-quoted bodies (function bodies, ``DO`` blocks) are skipped, so
+    a ``BEGIN`` or ``END`` inside PL/pgSQL is not a statement here."""
+    i, first = 0, True
+    while (match := _TOKEN.search(sql, i)) is not None:
+        kind, i = match.lastgroup, match.end()
+        if kind == "block":
+            i = _skip_block_comment(sql, match.start())
+        elif kind == "dollar":
+            close = sql.find(match.group(), i)
+            if close < 0:
+                raise InstallError("an SQL file has an unterminated dollar quote")
+            i, first = close + len(match.group()), False
+        elif kind in ("estring", "string", "ident"):
+            quote = '"' if kind == "ident" else "'"
+            i, first = _skip_quoted(sql, i - 1, quote, kind == "estring"), False
+        elif kind == "semicolon":
+            first = True
+        elif kind == "word":
+            if first:
+                yield match.group().upper()
+            first = False
+
+
+def check_no_transaction_control(sql: str) -> None:
+    found = sorted({word for word in statement_keywords(sql) if word in TRANSACTION_CONTROL})
+    if found:
+        raise InstallError(f"an SQL file controls the transaction itself ({', '.join(found)})")
 
 
 def read_scripts(paths: Sequence[str]) -> str:
@@ -67,7 +166,9 @@ def read_scripts(paths: Sequence[str]) -> str:
         if path.suffix != ".sql" or not path.is_file():
             raise InstallError(f"{name} is not an SQL file")
         parts.append(path.read_text(encoding="utf-8"))
-    return "\n".join(parts)
+    sql = "\n".join(parts)
+    check_no_transaction_control(sql)
+    return sql
 
 
 def install(conninfo: str, paths: Sequence[str]) -> None:
@@ -94,7 +195,8 @@ def main(argv: Sequence[str]) -> int:
         return 64
     except psycopg.Error as error:
         # The server's message (an object name, the script's own RAISE); never a password,
-        # which only libpq reads from the PGPASSFILE.
+        # which only libpq reads from the PGPASSFILE. Nothing is committed: the scripts hold no
+        # transaction control (refused above), and the transaction rolled back.
         print(f"db-functions: failed, nothing was changed: {error}".rstrip(), file=sys.stderr)
         return 1
     print(f"db-functions: installed {', '.join(Path(p).name for p in argv[1:])}")

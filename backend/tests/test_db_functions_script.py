@@ -228,12 +228,20 @@ def test_the_password_comes_from_a_pgpassfile_only(tmp_path: Path) -> None:
     passfile = tmp_path / "pgpass"
     passfile.write_text("h:1:d:u:p\n")
     check_environment({"PGPASSFILE": str(passfile)})
+    check_environment({"PGPASSFILE": str(passfile), "PATH": "/bin", "APP_PG": "x", "HOME": "/"})
     for environ in (
         {},
         {"PGPASSFILE": ""},
         {"PGPASSFILE": str(tmp_path / "missing")},
         {"PGPASSFILE": str(tmp_path)},
         {"PGPASSFILE": str(passfile), "PGPASSWORD": "p"},
+        # Any other libpq variable: a service file can carry a password, options or a host.
+        {"PGPASSFILE": str(passfile), "PGSERVICE": "x"},
+        {"PGPASSFILE": str(passfile), "PGSERVICEFILE": str(passfile)},
+        {"PGPASSFILE": str(passfile), "PGOPTIONS": "-c search_path=x"},
+        {"PGPASSFILE": str(passfile), "PGHOST": "elsewhere"},
+        {"PGPASSFILE": str(passfile), "PGSYSCONFDIR": str(tmp_path)},
+        {"PGPASSFILE": str(passfile), "pgservice": "x"},  # Windows names are case-insensitive
     ):
         with pytest.raises(InstallError):
             check_environment(environ)

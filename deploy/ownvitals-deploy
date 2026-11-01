@@ -367,7 +367,27 @@ prepare_compose() { # <tag> <digest>
     fi
   done <<< "$images"
   [[ $pinned == true ]] || refuse "compose: no service runs $IMAGE@$2"
+  check_db_functions_mounts
   ok "compose: ${APP_SERVICES[*]} run $IMAGE@$2; no service names the image any other way"
+}
+
+# db-functions runs SQL as the superuser: it must take it from the image only, so it mounts no
+# volume of any kind (its PGPASSFILE tmpfs is the `tmpfs:` key, not a volume). Read from the
+# normalised configuration, where every volume spelling becomes the service's `volumes:` key.
+check_db_functions_mounts() {
+  local config line section='' found=false seen=false
+  config=$(compose "$OVERRIDE_NEXT" config 2> /dev/null) \
+    || refuse "compose: the configuration with the image override is invalid"
+  while IFS= read -r line; do
+    if [[ $line =~ ^[^[:space:]] ]]; then
+      section=$line found=false
+    elif [[ $section == services: && $line =~ ^\ \ [^[:space:]] ]]; then
+      if [[ $line == '  db-functions:' ]]; then found=true seen=true; else found=false; fi
+    elif [[ $found == true && ($line == '    volumes:'* || $line == '    volumes_from:'*) ]]; then
+      refuse "compose: db-functions mounts a volume; its SQL must come from the image only"
+    fi
+  done <<< "$config"
+  [[ $seen == true ]] || refuse "compose: the configuration has no service db-functions"
 }
 
 run_migrations() {

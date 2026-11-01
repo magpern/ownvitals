@@ -178,6 +178,21 @@ def default_world() -> dict[str, Any]:
             "web": IMAGE,
             "worker": IMAGE,
         },
+        # Per service, the lines `docker compose config` prints under it besides its image, as
+        # compose v5 normalises them (every volume spelling becomes the long form).
+        "mounts": {
+            "db": [
+                "    volumes:",
+                "      - source: db-data",
+                "        target: /var/lib/postgresql/data",
+                "        type: volume",
+                "        volume: {}",
+            ],
+            "db-functions": [
+                "    tmpfs:",
+                "      - /run/pgpass:mode=0700,uid=10001,gid=10001",
+            ],
+        },
         "compose_valid": True,
         "pull_exit": 0,
         "migrate_exit": 0,

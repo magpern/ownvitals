@@ -34,6 +34,7 @@ from test_deploy_script import (
     scenario_refuses_a_state_file_it_did_not_write,
     scenario_refuses_an_unexpected_ruleset_id,
     scenario_refuses_commit_off_main,
+    scenario_refuses_db_functions_with_a_volume,
     scenario_refuses_evaluate_mode_ruleset,
     scenario_refuses_excluded_tag,
     scenario_refuses_malformed_commands,
@@ -375,6 +376,21 @@ MUTATIONS: dict[str, tuple[str, str, Scenario]] = {
         '|| refuse "compose: $COMPOSE_BASE has no service $service"',
         "|| :",
         scenario_refuses_a_missing_service,
+    ),
+    "db-functions mounts unchecked": (
+        "  check_db_functions_mounts\n",
+        "",
+        scenario_refuses_db_functions_with_a_volume,
+    ),
+    "db-functions volumes accepted": (
+        'refuse "compose: db-functions mounts a volume; its SQL must come from the image only"',
+        ":",
+        scenario_refuses_db_functions_with_a_volume,
+    ),
+    "config output shown": (
+        'config=$(compose "$OVERRIDE_NEXT" config 2> /dev/null)',
+        'config=$(compose "$OVERRIDE_NEXT" config)',
+        scenario_tool_output_is_never_shown,
     ),
     "image by tag accepted": (
         'refuse "compose: a service names $IMAGE other than by the digest $2"',

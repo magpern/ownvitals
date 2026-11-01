@@ -58,14 +58,22 @@ format requires, and refuses an empty secret or one with a line break. Then
 `python -m ownvitals.db.install_functions` (`backend/src/ownvitals/db/install_functions.py`)
 sends the SQL to `db` in one transaction with psycopg: no psql in the image. The runner refuses a
 connection string with a password or anything but host, port, database, user, `connect_timeout`
-and `sslmode`, a set `PGPASSWORD`, and a missing `PGPASSFILE`; the password never reaches the
-environment, a command line, the output or `docker inspect`.
+and `sslmode`, every `PG*` environment variable but `PGPASSFILE` (`PGPASSWORD`, `PGSERVICE`,
+`PGOPTIONS`, ..., which libpq would read), and a missing `PGPASSFILE`; the password never
+reaches the environment, a command line, the output or `docker inspect`. It also refuses, before
+connecting, SQL that controls its own transaction (a top-level `BEGIN`, `START`, `COMMIT`, `END`,
+`ROLLBACK`, `ABORT`, `SAVEPOINT`, `RELEASE` or `PREPARE`; the scan skips comments, literals and
+dollar-quoted bodies, so PL/pgSQL's `BEGIN ... END` passes): such a file could commit part of the
+work before a later error.
 
 Tests: `test_compose_roles.py` pins the service (image, entrypoint, the tmpfs as its only mount,
 no volume, environment or user) and checks that no service reads SQL from a host path but `db`'s
 first-start init directory ([stack.md](stack.md)); `test_db_functions_script.py` runs the
 entrypoint on passwords with `\` and `:` and checks the line against libpq's `.pgpass` rules,
-signs in through libpq with it, and runs the runner (one transaction, rolled back on an error).
+signs in through libpq with it, and runs the runner (one transaction, rolled back on an error);
+`test_install_functions_sql.py` covers the transaction-control scan. The host-SQL check parses the
+compose YAML: short entries (plain, quoted, block or flow lists) and long ones (`type: bind`).
+The deploy refuses a production `db-functions` with any volume ([deploy.md](deploy.md), check 11).
 
 ### The Postgres image
 

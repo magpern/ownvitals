@@ -267,6 +267,19 @@ def _block(world: dict[str, Any], step: str) -> None:
             time.sleep(0.05)
 
 
+def render_config(images: dict[str, str], mounts: dict[str, list[str]]) -> str:
+    """``docker compose config`` as compose v5 prints it: top-level sections sorted, each service
+    at two spaces with its keys at four. Only what the script reads: images and mounts."""
+    lines = ["name: ownvitals", "networks:", "  default:", "    name: ownvitals_default"]
+    lines.append("services:")
+    for name in sorted(images):
+        lines.append(f"  {name}:")
+        lines.append(f"    image: {images[name]}")
+        lines.extend(mounts.get(name, []))  # tmpfs, volumes: after image, as sorted
+    lines += ["volumes:", "  db-data:", "    name: ownvitals_db-data"]
+    return "\n".join(lines)
+
+
 def _compose(world: dict[str, Any], args: list[str], entry: dict[str, Any]) -> int:
     if len(args) < 4 or args[:3] != ["--project-name", "ownvitals", "--project-directory"]:
         return 64
@@ -296,6 +309,9 @@ def _compose(world: dict[str, Any], args: list[str], entry: dict[str, Any]) -> i
     images = {**base, **{name: s.get("image", base.get(name, "")) for name, s in override.items()}}
     if rest == ["config", "--images"]:
         print("\n".join(images.values()))
+        return 0
+    if rest == ["config"]:
+        print(render_config(images, world.get("mounts") or {}))
         return 0
     if rest == ["run", "--rm", "-T", "--pull", "never", "migrate"]:  # runs it whatever its scale
         _noise(world)

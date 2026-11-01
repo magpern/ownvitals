@@ -163,6 +163,7 @@ def scenario_deploy(host: Host) -> None:
     assert [compose_rest(c["argv"]) for c in docker[1:]] == [
         ["config", "--services"],
         ["config", "--images"],
+        ["config"],
         ["run", "--rm", "-T", "--pull", "never", "migrate"],
         ["up", "-d", "--pull", "never", "--no-build"],
     ]
@@ -305,6 +306,19 @@ def scenario_refuses_a_missing_service(host: Host) -> None:
     assert [a[0] for a in started(host)] == ["pull"]
 
 
+def scenario_refuses_db_functions_with_a_volume(host: Host) -> None:
+    """db-functions takes its SQL from the image only: a bind mount (here over /app/db-functions,
+    from the server's disk) is refused before anything runs."""
+    host.world["mounts"]["db-functions"] = [
+        "    volumes:",
+        "      - source: /opt/ownvitals/sql",
+        "        target: /app/db-functions",
+        "        type: bind",
+    ]
+    refused(deploy(host, "v1.2.0"), "compose: db-functions mounts a volume")
+    assert [a[0] for a in started(host)] == ["pull"]
+
+
 def scenario_rollback_runs_every_check(host: Host) -> None:
     """One step back through the same checks, the previous digest, and no migrations."""
     assert deploy(host, "v1.1.0").code == 0
@@ -316,7 +330,7 @@ def scenario_rollback_runs_every_check(host: Host) -> None:
     assert [c["argv"] for c in host.calls("gh")] == gh_calls("v1.1.0", COMMITS["B"])
     docker = host.calls("docker")
     assert docker[0]["argv"] == ["pull", "--quiet", f"{IMAGE}@{digest_of('v1.1.0')}"]
-    assert [compose_rest(c["argv"])[0] for c in docker[1:]] == ["config", "config", "up"]
+    assert [compose_rest(c["argv"])[0] for c in docker[1:]] == ["config", "config", "config", "up"]
     assert docker[-1]["override"] == pinned("v1.1.0")
     # up -d re-runs db-functions from v1.1.0's image: the previous release's functions return.
     assert docker[-1]["override"]["db-functions"]["image"] == f"{IMAGE}@{digest_of('v1.1.0')}"
