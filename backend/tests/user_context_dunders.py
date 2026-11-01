@@ -23,6 +23,8 @@ attribute, a module global or a builtin. Each place is a **form**:
   also judged for the token's names and the context module (``comment_findings``);
 - ``comment:<module>:<text>``: a segment of one exact comment in one module (``traceback`` and
   ``warnings`` read a comment back); it pins its own module, so ``only_in`` doesn't apply;
+- ``docstring:<module>``: a docstring segment in one module outside ``only_in`` (the dunders
+  ``withings/errors.py``'s docstring names); like a comment's form it pins its own module;
 - ``parameter``: a parameter's name; ``define`` also covers an ``except ... as`` or ``match``
   capture;
 - ``keyword``: a keyword argument; ``match``: a ``match`` class-pattern keyword (``case
@@ -59,6 +61,7 @@ SEGMENT = re.compile(r"\w+")
 CONTEXT_PATH = re.compile(r"\bownvitals[.:]context\b")
 WRITE = "write"
 COMMENT = "comment:"
+DOCSTRING = "docstring"
 ATTRIBUTE_SETTERS = {"setattr", "delattr"}
 ATTRIBUTE_GETTERS = {"getattr", "hasattr"}
 
@@ -83,7 +86,14 @@ def _comment(module: str, text: str) -> str:
     return f"comment:ownvitals/{module}:{text}"
 
 
+def _docstring(module: str) -> str:
+    """The form of a docstring segment in one module outside ``only_in``."""
+    return f"{DOCSTRING}:ownvitals/{module}"
+
+
 LOG = _modules("log.py")
+# ``errors.py``'s module docstring: "no ``__cause__``, no ``__context__``" (ADR 0004 §8).
+ERRORS_DOCSTRING = _docstring("withings/errors.py")
 ALLOWED: dict[str, Allowed] = {
     "__name__": Allowed(
         "a module's or a function's name, for loggers and `__main__` checks",
@@ -105,6 +115,7 @@ ALLOWED: dict[str, Allowed] = {
         _forms(
             "read",
             "docstring",
+            ERRORS_DOCSTRING,
             _comment(
                 "log.py", "# hidden on purpose, so it is not followed. __cause__ still is, so a"
             ),
@@ -121,6 +132,7 @@ ALLOWED: dict[str, Allowed] = {
         _forms(
             "read",
             "docstring",
+            ERRORS_DOCSTRING,
             _comment(
                 "crypto/envelope.py",
                 "# Raised after the block, so DecryptFailed carries no __context__.",
@@ -382,8 +394,11 @@ def named_dunders(tree: ast.AST) -> list[tuple[int, str, str]]:
 
 def allowed_in(name: str, form: str, module: str | None) -> bool:
     """A comment's form names its module and text (``comment:<module>:<text>``), so it pins the
-    module itself; every other form is checked against ``only_in``."""
+    module itself; a docstring is also allowed where its entry has ``docstring:<module>``; every
+    other form is checked against ``only_in``."""
     entry = ALLOWED.get(name)
+    if form == DOCSTRING and entry is not None and f"{DOCSTRING}:{module}" in entry.forms:
+        return True
     return (
         form != WRITE
         and entry is not None

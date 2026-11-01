@@ -44,6 +44,9 @@ annotations included:
     ``locate``, ``find_spec``, ``.get``/``.pop``/``.setdefault``, ``package=`` included) or a
     subscript key (``sys.modules["ownvitals"]``);
   - ``import_module`` with a relative name (a leading ``.``), even a literal one;
+  - a ``str`` or ``bytes`` constant exactly ``"ownvitals"`` (f-string parts included), outside
+    its pinned positions (``PACKAGE_STRING_PINS``, each once in its module): the package's name
+    is never written as a string (the fourteenth review). ``"ownvitals.web"`` is another string;
 - ``copyreg`` as an import, a name, an attribute or a string: ``copyreg.__newobj__(K)`` makes a
   blank context without the token.
 
@@ -89,6 +92,14 @@ PACKAGE_LOOKUPS = {
 CONTEXT_ATTRIBUTE = "context"
 # ``self.context.wrap_socket(...)`` is allowed here only (``_wrap_socket_contexts``).
 MAIL = "ownvitals/mail.py"
+# ``"ownvitals"`` as a string: only in these positions, each once in its module.
+VERSION_ARGUMENT = "the argument of version(...)"
+PACKAGE_STRING_PINS = {
+    "ownvitals/__init__.py": VERSION_ARGUMENT,
+    "ownvitals/auth/totp.py": "the value of ISSUER = ...",
+    "ownvitals/egress/code_exchange.py": "the value of a 'User-Agent' key",
+    "ownvitals/web.py": "the keyword title=",
+}
 # The issuer token's names (also in ``user_context_scan``).
 TOKEN_NAMES = {"issuer_token", "_ISSUER"}
 # ``sys.modules`` methods that take a module name.
@@ -315,6 +326,29 @@ def _wrap_socket_contexts(tree: ast.AST, module: str | None) -> set[int]:
     return allowed
 
 
+def _pinned_package_string(tree: ast.AST, module: str | None) -> set[int]:
+    """The id of the one ``"ownvitals"`` in its module's pinned position, if exactly one is."""
+    pin = PACKAGE_STRING_PINS.get(module or "")
+    found: list[ast.AST] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and pin == VERSION_ARGUMENT:
+            if isinstance(node.func, ast.Name) and node.func.id == "version" and not node.keywords:
+                found += node.args[:1] if len(node.args) == 1 else []
+        elif isinstance(node, ast.Call) and module == "ownvitals/web.py":
+            found += [k.value for k in node.keywords if k.arg == "title"]
+        elif isinstance(node, ast.Assign) and module == "ownvitals/auth/totp.py":
+            if [ast.unparse(t) for t in node.targets] == ["ISSUER"]:
+                found.append(node.value)
+        elif isinstance(node, ast.Dict) and module == "ownvitals/egress/code_exchange.py":
+            found += [
+                v
+                for k, v in zip(node.keys, node.values, strict=True)
+                if _is_string(k, "User-Agent")
+            ]
+    hits = [node for node in found if _is_string(node, PACKAGE)]
+    return {id(hits[0])} if len(hits) == 1 else set()
+
+
 def _public_continuations(tree: ast.AST) -> set[int]:
     """Ids of the attributes ``x.context`` that continue to a public name
     (``ownvitals.context.UserContext``): the one form an annotation may use."""
@@ -369,6 +403,11 @@ def _package_findings(
             given = [*node.args, *(k.value for k in node.keywords)]
             if called in PACKAGE_LOOKUPS and any(_is_string(arg, PACKAGE) for arg in given):
                 found.append((line, f"{called} of the package"))
+    pinned = _pinned_package_string(tree, module)
+    for node in ast.walk(tree):
+        value = node.value if isinstance(node, ast.Constant) else None
+        if value in (PACKAGE, PACKAGE.encode()) and id(node) not in pinned:
+            found.append((getattr(node, "lineno", 0), "the package's name as a string"))
     for node, text in strings(tree):  # docstrings and comments aside
         if CONTEXT_ATTRIBUTE in SEGMENT.findall(text):
             found.append((getattr(node, "lineno", 0), "a string naming context"))

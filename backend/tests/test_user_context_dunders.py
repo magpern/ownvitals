@@ -215,6 +215,10 @@ def _src_dunders() -> dict[str, tuple[set[str], set[str]]]:
         source = path.read_text("utf-8")
         for _, name, form in named_dunders(ast.parse(source)):
             forms, modules = used.setdefault(name, (set(), set()))
+            pinned = f"{form}:{module}"
+            if form == "docstring" and name in ALLOWED and pinned in ALLOWED[name].forms:
+                forms.add(pinned)  # ``docstring:<module>`` pins its own module
+                continue
             forms.add(form)
             modules.add(module)
         for _, name, form in comment_dunders(source, module):
