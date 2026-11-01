@@ -220,7 +220,7 @@ def require_standard_event_loop() -> None:
     loop = asyncio.get_running_loop()
     cls = type(loop)
     if cls.__module__ not in _STANDARD_LOOP_MODULES or not isinstance(loop, BaseSelectorEventLoop):
-        raise RuntimeError(f"refusing to run on {cls.__module__}.{cls.__qualname__}")
+        raise RuntimeError(f"refusing to run on {cls!r}")
 
 
 def _family(sock: Any) -> int | None:
