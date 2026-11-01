@@ -16,7 +16,7 @@ from authtools import (  # noqa: F401 - fixtures
 from flows import Browser, reason, signed_in
 from mfatools import make_actor_fixture  # noqa: F401 - fixtures
 from ownvitals.auth import mfa
-from ownvitals.auth.sessions import clear_mfa, list_sessions, resolve_session
+from ownvitals.auth.sessions import list_sessions, resolve_session
 
 SESSIONS = "/api/auth/sessions"
 
@@ -32,17 +32,17 @@ async def listed(env: Env, token: str) -> list[dict[str, Any]]:
 
 async def test_the_session_list_leaves_out_absolute_and_idle_expired_sessions(env: Env) -> None:
     user_id = await env.user()
-    mine = await env.login(user_id)
+    mine = await env.full_login(user_id)
     expired = await env.login(user_id)
     idle = await env.login(user_id)
     fresh = await env.login(user_id)
     await env.run(
         "UPDATE sessions SET expires_at = now() - interval '1 second' WHERE id = :i", i=expired.id
     )
-    days = env.settings.session_idle_days
+    hours = env.settings.session_idle_hours
     await env.run(
-        "UPDATE sessions SET last_seen_at = now() - make_interval(days => :d) WHERE id = :i",
-        d=days,
+        "UPDATE sessions SET last_seen_at = now() - make_interval(hours => :h) WHERE id = :i",
+        h=hours,
         i=idle.id,
     )
     ids = {item["id"] for item in await listed(env, mine.token)}
@@ -53,13 +53,13 @@ async def test_the_session_list_leaves_out_absolute_and_idle_expired_sessions(en
 
 async def test_a_session_just_inside_the_idle_limit_is_still_listed(env: Env) -> None:
     user_id = await env.user()
-    mine = await env.login(user_id)
+    mine = await env.full_login(user_id)
     almost = await env.login(user_id)
-    days = env.settings.session_idle_days
+    hours = env.settings.session_idle_hours
     await env.run(
-        "UPDATE sessions SET last_seen_at = now() - make_interval(days => :d) + interval '1 hour'"
+        "UPDATE sessions SET last_seen_at = now() - make_interval(hours => :h) + interval '1 hour'"
         " WHERE id = :i",
-        d=days,
+        h=hours,
         i=almost.id,
     )
     assert {item["id"] for item in await listed(env, mine.token)} == {str(mine.id), str(almost.id)}
@@ -114,27 +114,27 @@ async def test_remove_totp_without_a_totp_still_clears_stray_recovery_codes(env:
     assert await env.scalar("SELECT count(*) FROM mfa_recovery_codes") == 0
 
 
-async def test_clear_mfa_also_clears_the_step_up(env: Env) -> None:
-    user_id = await env.user()
-    session = await env.login(user_id, mfa=True)
-    await env.run("UPDATE sessions SET stepup_at = now()")
-    assert await env.scalar("SELECT mfa_at IS NOT NULL AND stepup_at IS NOT NULL FROM sessions")
-    async with env.db() as db:
-        await clear_mfa(db, session.id)
-    assert await env.scalar("SELECT mfa_at IS NULL AND stepup_at IS NULL FROM sessions") is True
-
-
-async def test_removing_totp_over_http_leaves_no_step_up_on_the_session(
+async def test_removing_totp_over_http_leaves_a_session_that_can_only_enrol(
     env: Env, make_actor: Any
 ) -> None:
+    """#11 (ownvitals ADR 0003 section 4): the session drops back to enrolment (``mfa_at``
+    cleared); the step-up it keeps only times out its ten minutes, since a session that is not
+    full reaches no step-up action (the gate)."""
     from mfatools import admin_with_totp
 
     actor, _, _, _ = await admin_with_totp(env, make_actor)
     assert await env.scalar("SELECT stepup_at IS NOT NULL FROM sessions") is True
     response = await actor.call("DELETE", "/api/auth/mfa/totp")
     assert response.status_code == 204
-    assert await env.scalar("SELECT mfa_at IS NULL AND stepup_at IS NULL FROM sessions") is True
+    assert await env.scalar("SELECT mfa_at IS NULL FROM sessions") is True
     assert await env.scalar("SELECT count(*) FROM mfa_totp") == 0
+    for method, path in (
+        ("POST", "/api/auth/mfa/recovery-codes"),
+        ("POST", "/api/auth/logout-all"),
+        ("DELETE", "/api/auth/account"),
+    ):
+        refused = await actor.call(method, path)
+        assert (refused.status_code, reason(refused)) == (403, "two_factor_required"), path
 
 
 # --- email change needs the step-up of a user with a confirmed TOTP (review of #49) -------------
@@ -143,22 +143,18 @@ async def test_removing_totp_over_http_leaves_no_step_up_on_the_session(
 async def test_email_change_answers_stepup_required_for_a_user_with_confirmed_totp(
     menv: Env,
 ) -> None:
-    browser = await signed_in(menv)
-    await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
-        "dek_nonce, confirmed_at) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
-        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'), now() FROM users"
-    )
+    browser = await signed_in(menv)  # every account has a confirmed TOTP (#11)
+    await menv.run("UPDATE sessions SET stepup_at = NULL")
     refused = await browser.post("/api/auth/email/change", {"new_email": "new@example.com"})
-    assert (refused.status_code, reason(refused)) == (403, "stepup_required")
+    assert (refused.status_code, reason(refused)) == (403, "step_up_required")
     assert await menv.scalar("SELECT count(*) FROM auth_tokens") == 0  # nothing was issued
     await menv.run("UPDATE sessions SET stepup_at = now()")
     allowed = await browser.post("/api/auth/email/change", {"new_email": "new@example.com"})
     assert allowed.status_code == 202
 
 
-async def test_email_change_without_totp_needs_no_step_up(menv: Env) -> None:
-    browser = await signed_in(menv)
+async def test_the_code_of_the_sign_in_counts_as_the_step_up(menv: Env) -> None:
+    browser = await signed_in(menv)  # #11: the sign-in's TOTP sets the step-up too
     allowed = await browser.post("/api/auth/email/change", {"new_email": "new@example.com"})
     assert allowed.status_code == 202
 

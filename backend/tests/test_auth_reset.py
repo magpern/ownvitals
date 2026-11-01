@@ -201,7 +201,7 @@ async def test_change_password_rejects_a_weak_password(menv: Env) -> None:
 
 async def test_an_oauth_only_user_can_set_a_password_after_reauth(menv: Env) -> None:
     user_id = await menv.user(EMAIL)
-    issued = await menv.login(user_id)
+    issued = await menv.full_login(user_id, stepup=True)  # #11: through TOTP, fresh step-up
     browser = Browser(menv)
     browser.cookies[SESSION_COOKIE] = issued.token
     assert (
@@ -211,27 +211,11 @@ async def test_an_oauth_only_user_can_set_a_password_after_reauth(menv: Env) -> 
 
 
 async def test_step_up_is_needed_in_addition_when_totp_is_confirmed(menv: Env) -> None:
-    browser = await signed_in(menv)
-    await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
-        "dek_nonce, confirmed_at) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
-        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'), now() FROM users"
-    )
+    browser = await signed_in(menv)  # every account has a confirmed TOTP (#11)
+    await menv.run("UPDATE sessions SET stepup_at = NULL")
     refused = await browser.post("/api/auth/password/change", {"new_password": NEW})
-    assert (refused.status_code, reason(refused)) == (403, "stepup_required")
+    assert (refused.status_code, reason(refused)) == (403, "step_up_required")
     await menv.run("UPDATE sessions SET stepup_at = now()")
-    assert (
-        await browser.post("/api/auth/password/change", {"new_password": NEW})
-    ).status_code == 200
-
-
-async def test_an_unconfirmed_totp_needs_no_step_up(menv: Env) -> None:
-    browser = await signed_in(menv)
-    await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
-        "dek_nonce) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
-        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex') FROM users"
-    )
     assert (
         await browser.post("/api/auth/password/change", {"new_password": NEW})
     ).status_code == 200
@@ -330,18 +314,14 @@ async def test_the_security_notifier_mails_totp_and_mfa_failure_notices(
 
 async def test_reauth_for_a_totp_user_sets_recent_auth_but_not_step_up(menv: Env) -> None:
     browser = await signed_in(menv)
-    await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
-        "dek_nonce, confirmed_at) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
-        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'), now() FROM users"
-    )
     await age_reauth(menv)
+    await menv.run("UPDATE sessions SET stepup_at = NULL")
     assert (await browser.post("/api/auth/reauth", {"password": PASSWORD})).status_code == 200
     session = (await browser.get("/api/auth/session")).json()["session"]
     assert session["recent_auth"] is True
     assert session["stepup"] is False
     refused = await browser.post("/api/auth/password/change", {"new_password": NEW})
-    assert (refused.status_code, reason(refused)) == (403, "stepup_required")
+    assert (refused.status_code, reason(refused)) == (403, "step_up_required")
 
 
 async def test_complete_checks_method_ownership_before_hashing(menv: Env, smtp: SmtpFake) -> None:

@@ -31,7 +31,7 @@ from ownvitals.auth.deps import (
     request_device_token,
     request_ip,
     request_session_token,
-    require_recent_auth,
+    require_sensitive,
     require_user,
 )
 from ownvitals.auth.events import record_event
@@ -94,12 +94,12 @@ async def start(
     await reserve(request, [Bucket(OAUTH_IP, bucket_ip(request_ip(request)))])
     user_id = None
     if body.purpose == "link":
-        # Recent auth (and step-up with a confirmed TOTP) before the start (section 6).
-        ctx = await require_user(await current_context(request, info))
-        await require_recent_auth(ctx, info)
+        # Recent auth and a step-up before the start (section 6).
+        ctx = await require_user(await current_context(request, info), info)
+        await require_sensitive(ctx, info)
         user_id = ctx.user_id
     elif body.purpose == "reauth":
-        ctx = await require_user(await current_context(request, info))
+        ctx = await require_user(await current_context(request, info), info)
         user_id = ctx.user_id
     invite_id: UUID | None = None
     settings = request.app.state.settings

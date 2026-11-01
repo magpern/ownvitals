@@ -17,7 +17,7 @@ from authtools import (  # noqa: F401 - fixtures
     unsafe_headers,
 )
 from ownvitals.auth.cookies import SESSION_COOKIE, set_device_cookie, set_session_cookie
-from ownvitals.auth.deps import require_admin, require_recent_auth, require_stepup, require_user
+from ownvitals.auth.deps import require_admin, require_sensitive, require_stepup, require_user
 from ownvitals.auth.keys import token_hash
 from ownvitals.auth.sessions import SessionGone, resolve_session, rotate_session, start_session
 from ownvitals.context import UserContext
@@ -34,7 +34,7 @@ def whoami(env: Env) -> None:
 
 async def test_a_valid_session_becomes_a_user_context(env: Env, whoami: None) -> None:
     user_id = await env.user()
-    issued = await env.login(user_id)
+    issued = await env.full_login(user_id)  # #11: only a full session
     response = await env.client.get("/api/test/whoami", headers=session_cookie(issued.token))
     assert response.status_code == 200
     assert response.json() == {"user_id": str(user_id), "role": "user"}
@@ -59,8 +59,8 @@ async def test_an_unknown_token_is_anonymous_and_never_clears_the_cookie(
 
 
 async def test_idle_expiry_refuses_deletes_and_clears_the_cookie(env: Env, whoami: None) -> None:
-    issued = await env.login(await env.user())
-    await env.run("UPDATE sessions SET last_seen_at = now() - make_interval(days => :days)", days=8)
+    issued = await env.full_login(await env.user())
+    await env.run("UPDATE sessions SET last_seen_at = now() - make_interval(hours => :h)", h=72)
     response = await env.client.get("/api/test/whoami", headers=session_cookie(issued.token))
     assert response.status_code == 401
     cleared = [c for c in set_cookies(response) if c.startswith(SESSION_COOKIE)]
@@ -70,8 +70,8 @@ async def test_idle_expiry_refuses_deletes_and_clears_the_cookie(env: Env, whoam
 
 
 async def test_activity_inside_the_idle_limit_keeps_the_session(env: Env, whoami: None) -> None:
-    issued = await env.login(await env.user())
-    await env.run("UPDATE sessions SET last_seen_at = now() - make_interval(days => :days)", days=6)
+    issued = await env.full_login(await env.user())
+    await env.run("UPDATE sessions SET last_seen_at = now() - make_interval(hours => :h)", h=71)
     response = await env.client.get("/api/test/whoami", headers=session_cookie(issued.token))
     assert response.status_code == 200
     # last_seen_at moved forward (at most once a minute).
@@ -146,6 +146,7 @@ async def test_cookie_attributes(env: Env) -> None:
 
 async def test_rotation_issues_a_new_token_and_keeps_expires_at(env: Env, whoami: None) -> None:
     user_id = await env.user()
+    await env.enrol(user_id)
     old = await env.login(user_id)
     resolution = await resolve_session(env.factory, env.settings, old.token)
     assert resolution.info is not None
@@ -168,7 +169,7 @@ async def test_rotation_issues_a_new_token_and_keeps_expires_at(env: Env, whoami
 
 
 async def test_rotation_carries_over_reauth_and_mfa_unless_it_sets_them(env: Env) -> None:
-    old = await env.login(await env.user(), mfa=True)
+    old = await env.full_login(await env.user())
     await env.run("UPDATE sessions SET reauth_at = now() - interval '1 hour'")
     before = await env.scalar("SELECT reauth_at FROM sessions")
     async with env.db() as db:
@@ -236,7 +237,7 @@ async def test_logout_deletes_the_row_and_clears_the_cookie(env: Env) -> None:
 async def test_logout_all_signs_out_every_session_of_the_user_only(env: Env) -> None:
     user_id = await env.user()
     other = await env.user("other@example.com")
-    mine = [await env.login(user_id) for _ in range(3)]
+    mine = [await env.full_login(user_id, stepup=True) for _ in range(3)]
     theirs = await env.login(other)
     csrf = (
         await env.client.get("/api/auth/session", headers=session_cookie(mine[0].token))
@@ -252,7 +253,7 @@ async def test_logout_all_signs_out_every_session_of_the_user_only(env: Env) -> 
 
 
 async def test_sessions_are_listed_for_the_owner_only(env: Env) -> None:
-    mine = await env.login(await env.user())
+    mine = await env.full_login(await env.user())
     await env.login(await env.user("other@example.com"), ip="198.51.100.9")
     response = await env.client.get("/api/auth/sessions", headers=session_cookie(mine.token))
     items = response.json()
@@ -264,7 +265,7 @@ async def test_sessions_are_listed_for_the_owner_only(env: Env) -> None:
 
 
 async def test_another_users_session_id_is_a_404_like_an_unknown_one(env: Env) -> None:
-    mine = await env.login(await env.user())
+    mine = await env.full_login(await env.user())
     theirs = await env.login(await env.user("other@example.com"))
     csrf = (await env.client.get("/api/auth/session", headers=session_cookie(mine.token))).json()[
         "csrf_token"
@@ -280,7 +281,7 @@ async def test_another_users_session_id_is_a_404_like_an_unknown_one(env: Env) -
 
 async def test_deleting_my_own_other_session_works(env: Env) -> None:
     user_id = await env.user()
-    mine = await env.login(user_id)
+    mine = await env.full_login(user_id)
     spare = await env.login(user_id)
     csrf = (await env.client.get("/api/auth/session", headers=session_cookie(mine.token))).json()[
         "csrf_token"
@@ -301,26 +302,29 @@ async def test_an_admin_is_admin_only_after_totp_within_12_hours(env: Env) -> No
     ) -> dict[str, str]:
         return {"role": ctx.role}
 
-    without = await env.login(user_id)
+    without = await env.login(user_id)  # #11: a session without TOTP is gated first
     refused = await env.client.get("/api/test/admin", headers=session_cookie(without.token))
     assert refused.status_code == 403
-    assert refused.json()["detail"] == {"reason": "mfa_required"}
-    with_mfa = await env.login(user_id, mfa=True)
+    assert refused.json()["detail"] == {"reason": "two_factor_required"}
+    with_mfa = await env.full_login(user_id)
     ok = await env.client.get("/api/test/admin", headers=session_cookie(with_mfa.token))
     assert ok.json() == {"role": "admin"}
     await env.run("UPDATE sessions SET mfa_at = now() - interval '13 hours'")
     stale = await env.client.get("/api/test/admin", headers=session_cookie(with_mfa.token))
     assert stale.json()["detail"] == {"reason": "mfa_required"}
-    plain = await env.login(await env.user("plain@example.com"))
+    plain = await env.full_login(await env.user("plain@example.com"))
     assert (
         await env.client.get("/api/test/admin", headers=session_cookie(plain.token))
     ).status_code == 403
 
 
 async def test_recent_auth_and_stepup_have_machine_readable_reasons(env: Env) -> None:
+    """#11: ``require_sensitive`` (recent auth, then step-up) and ``require_stepup`` (10 minutes,
+    ``step_up_required``)."""
+
     @env.app.get("/api/test/recent")
     async def recent(  # pyright: ignore[reportUnusedFunction]
-        ctx: UserContext = Depends(require_recent_auth),  # noqa: B008
+        ctx: UserContext = Depends(require_sensitive),  # noqa: B008
     ) -> dict[str, bool]:
         return {"ok": ctx is not None}
 
@@ -330,17 +334,20 @@ async def test_recent_auth_and_stepup_have_machine_readable_reasons(env: Env) ->
     ) -> dict[str, bool]:
         return {"ok": ctx is not None}
 
-    issued = await env.login(await env.user())
+    issued = await env.full_login(await env.user(), stepup=True)
     headers = session_cookie(issued.token)
     assert (await env.client.get("/api/test/recent", headers=headers)).status_code == 200
     await env.run("UPDATE sessions SET reauth_at = now() - interval '11 minutes'")
     late = await env.client.get("/api/test/recent", headers=headers)
     assert (late.status_code, late.json()["detail"]) == (403, {"reason": "reauth_required"})
+    await env.run("UPDATE sessions SET reauth_at = now(), stepup_at = NULL")
     no_stepup = await env.client.get("/api/test/stepup", headers=headers)
-    assert no_stepup.json()["detail"] == {"reason": "stepup_required"}
-    await env.run("UPDATE sessions SET stepup_at = now() - interval '4 minutes'")
+    assert no_stepup.json()["detail"] == {"reason": "step_up_required"}
+    sensitive = await env.client.get("/api/test/recent", headers=headers)
+    assert sensitive.json()["detail"] == {"reason": "step_up_required"}
+    await env.run("UPDATE sessions SET stepup_at = now() - interval '9 minutes'")
     assert (await env.client.get("/api/test/stepup", headers=headers)).status_code == 200
-    await env.run("UPDATE sessions SET stepup_at = now() - interval '6 minutes'")
+    await env.run("UPDATE sessions SET stepup_at = now() - interval '11 minutes'")
     assert (await env.client.get("/api/test/stepup", headers=headers)).status_code == 403
 
 
@@ -381,16 +388,16 @@ async def test_sign_in_inherits_nothing_from_an_old_session_that_is_no_longer_va
         await env.run("UPDATE users SET disabled_at = NULL")
 
 
-async def test_the_session_endpoint_reports_mfa_only_inside_the_12_hour_window(
-    env: Env,
-) -> None:
-    issued = await env.login(await env.user(), mfa=True)
+async def test_the_session_endpoint_reports_mfa_for_a_full_session(env: Env) -> None:
+    """#11: ``mfa`` says the session passed its second factor (it is full), however long ago;
+    only an admin's role lapses after 12 hours (``admin_pending_mfa``)."""
+    issued = await env.full_login(await env.user())
     headers = session_cookie(issued.token)
     body = (await env.client.get("/api/auth/session", headers=headers)).json()
     assert body["session"]["mfa"] is True
     await env.run("UPDATE sessions SET mfa_at = now() - interval '13 hours'")
     body = (await env.client.get("/api/auth/session", headers=headers)).json()
-    assert body["session"]["mfa"] is False
+    assert body["session"]["mfa"] is True
 
 
 async def _pending(env: Env, token: str) -> object:
@@ -408,9 +415,9 @@ async def test_the_session_flags_an_admin_whose_totp_check_is_missing_or_lapsed(
     assert body["user"]["role"] == "user"
     assert body["session"]["admin_pending_mfa"] is True
     whoami = await env.client.get("/api/admin/whoami", headers=session_cookie(never.token))
-    assert (whoami.status_code, whoami.json()["detail"]) == (403, {"reason": "mfa_required"})
+    assert (whoami.status_code, whoami.json()["detail"]) == (403, {"reason": "two_factor_required"})
 
-    passed = await env.login(admin_id, mfa=True)
+    passed = await env.full_login(admin_id)
     body = (await env.client.get("/api/auth/session", headers=session_cookie(passed.token))).json()
     assert body["user"]["role"] == "admin"
     assert body["session"]["admin_pending_mfa"] is False
@@ -432,7 +439,7 @@ async def test_the_pending_flag_is_never_set_for_a_non_admin_or_another_users_se
     user_id = await env.user("rider@example.com")
     admin = await env.login(admin_id)
     plain = await env.login(user_id)
-    plain_mfa = await env.login(user_id, mfa=True)  # a user who passed TOTP is still no admin
+    plain_mfa = await env.full_login(user_id)  # a user who passed TOTP is still no admin
     assert await _pending(env, admin.token) is True
     assert await _pending(env, plain.token) is False
     assert await _pending(env, plain_mfa.token) is False
@@ -441,7 +448,7 @@ async def test_the_pending_flag_is_never_set_for_a_non_admin_or_another_users_se
         u=user_id,
     )
     assert await _pending(env, plain_mfa.token) is False
-    whoami = await env.client.get("/api/admin/whoami", headers=session_cookie(plain.token))
+    whoami = await env.client.get("/api/admin/whoami", headers=session_cookie(plain_mfa.token))
     assert (whoami.status_code, whoami.json()["detail"]) == (403, {"reason": "forbidden"})
     # Anonymous: no session object at all, so no flag.
     anonymous = (await env.client.get("/api/auth/session")).json()

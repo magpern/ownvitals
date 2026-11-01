@@ -20,6 +20,10 @@ const REASONS: Record<string, string> = {
   no_pending_signup: 'No sign-in is waiting for an address. Start the Google sign-in again.',
   provider_disabled: 'That sign-in method is not available.',
   forbidden: 'Your account is not allowed to do that.',
+  two_factor_required: 'Enter a code from your authenticator app to continue.',
+  step_up_required: 'This needs a fresh code from your authenticator app.',
+  reauth_required: 'This needs your password again.',
+  reauth_stale: 'The sign-in at Google was not recent enough. Try again.',
   busy: 'The server is busy. Try again in a few seconds.',
 }
 
