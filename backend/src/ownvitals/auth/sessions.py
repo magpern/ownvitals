@@ -7,10 +7,10 @@ same transaction as its other writes. All times are the database's ``now()``.
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import delete, func, insert, or_, select, update
+from sqlalchemy import case, delete, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.keys import new_token, token_hash
@@ -376,6 +376,20 @@ class SessionSummary:
     ip: str | None
 
 
+def _proof_at_or_before(now: Any) -> Any:
+    """The later of ``reauth_at`` and ``stepup_at`` that is not after ``now``.
+
+    A timestamp after ``now`` is not a proof: the same fail-closed lower bound as
+    ``_within``. ``GREATEST`` ignores nulls, so a future value dropped by ``CASE`` leaves
+    the other timestamp, and both missing is null (the caller uses ``created_at``).
+    The same expression is in ``purge.purge_expired``.
+    """
+    return func.greatest(
+        case((sessions.c.reauth_at <= now, sessions.c.reauth_at)),
+        case((sessions.c.stepup_at <= now, sessions.c.stepup_at)),
+    )
+
+
 async def list_sessions(
     db: AsyncSession, settings: Settings, user_id: UUID
 ) -> list[SessionSummary]:
@@ -383,10 +397,12 @@ async def list_sessions(
 
     Absolute- and idle-expired rows, and rows that never passed their second factor and are past
     their ten minutes, that the purge has not removed yet are left out, the same rule as
-    ``resolve_session`` (a row whose ``expires_at`` has passed, or whose ``last_seen_at``
-    is ``session_idle_hours`` or more ago, is not a session).
+    ``resolve_session``. A ``reauth_at`` or ``stepup_at`` after now is not a proof, so it cannot
+    keep such a row listed. A row whose ``expires_at`` has passed, or whose ``last_seen_at``
+    is ``session_idle_hours`` or more ago, is not a session.
     """
     idle = timedelta(hours=settings.session_idle_hours)
+    now = func.now()
     rows = await db.execute(
         select(
             sessions.c.id,
@@ -398,17 +414,14 @@ async def list_sessions(
         )
         .where(
             sessions.c.user_id == user_id,
-            sessions.c.expires_at > func.now(),
-            sessions.c.last_seen_at > func.now() - idle,
+            sessions.c.expires_at > now,
+            sessions.c.last_seen_at > now - idle,
             # a session that never passed its second factor ends ten minutes after its proof
             or_(
                 sessions.c.mfa_at.is_not(None),
-                # PostgreSQL's GREATEST ignores NULLs; both NULL counts from the creation
-                func.coalesce(
-                    func.greatest(sessions.c.reauth_at, sessions.c.stepup_at),
-                    sessions.c.created_at,
-                )
-                > func.now() - PENDING_WINDOW,
+                # both proofs missing, or only after now, counts from the creation
+                func.coalesce(_proof_at_or_before(now), sessions.c.created_at)
+                > now - PENDING_WINDOW,
             ),
         )
         .order_by(sessions.c.created_at.desc())
