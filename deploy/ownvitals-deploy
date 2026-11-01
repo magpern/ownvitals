@@ -1,0 +1,498 @@
+#!/bin/bash -p
+# ownvitals-deploy: the forced command of the home server's deploy key (PLAN-operations §9.2).
+#
+#   ssh ownvitals-deploy@<host> deploy vX.Y.Z sha256:<64 hex>   checks, pull, migrate, up -d
+#   ssh ownvitals-deploy@<host> rollback                         the previous pair, same checks
+#
+# The release trust boundary (threat model T62): an image runs only when its tag is a protected
+# v* tag, the tag's commit is on main, and the image digest carries the build-provenance
+# attestation release.yml signed for that tag and commit. It is pulled by digest only.
+# docs/dev/deploy.md is the reference: each check and why, the state file, the install (the
+# owner's step) and the tests. bash -p: no functions, BASH_ENV or SHELLOPTS from the environment.
+set -euo pipefail
+export LC_ALL=C # first: ASCII ranges in every pattern, whatever locale the SSH client sent
+umask 077
+
+# --- Installation. Nothing else is configurable, and nothing but SSH_ORIGINAL_COMMAND is read
+# from the environment. The tests rewrite exactly these seven lines in a copy of this file.
+readonly SELF=/usr/local/bin/ownvitals-deploy
+readonly ROOT_UID=0
+readonly SAFE_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+readonly CONF_DIR=/etc/ownvitals-deploy
+readonly STATE_DIR=/var/lib/ownvitals-deploy
+readonly APP_DIR=/opt/ownvitals
+readonly DOCKER_HOME=/root
+# ---
+
+readonly REPO=magpern/ownvitals
+readonly IMAGE=ghcr.io/magpern/ownvitals
+readonly SIGNER=https://github.com/magpern/ownvitals/.github/workflows/release.yml
+readonly OIDC_ISSUER=https://token.actions.githubusercontent.com
+readonly PREDICATE_TYPE=https://slsa.dev/provenance/v1
+readonly PROJECT=ownvitals
+readonly -a APP_SERVICES=(migrate web worker)
+# gh has --source-ref and --source-digest since 2.68.0. 2.102.0 makes --source-ref match case
+# sensitively, and 2.93.0 stops sending the token to TUF mirrors: 2.102.0 is the minimum.
+readonly -a GH_MINIMUM=(2 102 0)
+# Seconds before a gh call or the image pull is stopped: a hung call must not hold the lock.
+readonly GH_TIMEOUT=120
+readonly PULL_TIMEOUT=600
+
+# release.yml's version core (no leading zeros), without a pre-release or build metadata.
+readonly TAG_RE='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+readonly DIGEST_RE='^sha256:[0-9a-f]{64}$'
+readonly COMMIT_RE='^[0-9a-f]{40}$'
+readonly TOKEN_RE='^[A-Za-z0-9_]{20,255}$'
+readonly MAX_COMMAND=100
+
+readonly TOKEN_FILE=$CONF_DIR/github-token
+readonly COMPOSE_BASE=$APP_DIR/compose.yaml
+readonly STATE_FILE=$STATE_DIR/state
+readonly LOCK_FILE=$STATE_DIR/lock
+readonly GH_DIR=$STATE_DIR/gh
+readonly OVERRIDE=$STATE_DIR/compose.image.yaml
+readonly OVERRIDE_NEXT=$STATE_DIR/compose.image.next.yaml
+
+# One "<field><TAB><JSON value>" line per fact of a ruleset; tojson keeps each value on its line.
+readonly RULESET_JQ='"target\t\(.target | tojson)", "enforcement\t\(.enforcement | tojson)",
+"bypass\t\(.current_user_can_bypass | tojson)",
+(.conditions.ref_name.include[]? | "include\t\(tojson)"),
+(.conditions.ref_name.exclude[]? | "exclude\t\(tojson)"), (.rules[]? | "rule\t\(.type | tojson)")'
+
+ACTION='' TAG='' DIGEST='' COMMIT='' GH_READ_TOKEN='' LOCK_FD=''
+CURRENT_TAG='' CURRENT_DIGEST='' PREVIOUS_TAG='' PREVIOUS_DIGEST=''
+HIGHEST_TAG='' HIGHEST_COMMIT='' HIGHEST_DIGEST=''
+
+ok() { printf 'ok    %s\n' "$1"; }
+
+# A check failed or the command is not allowed. Nothing has been recorded or restarted.
+refuse() {
+  printf 'FAIL  %s\n' "$1" >&2
+  printf 'refused: nothing was recorded and the running release is unchanged\n' >&2
+  exit 1
+}
+
+# Unsets every exported variable whose name is a shell identifier (what compgen -e lists), so no
+# GH_*, DOCKER_*, COMPOSE_*, BASH_ENV or locale variable reaches gh or docker. Entries whose names
+# are not identifiers (LC_a-b, BASH_FUNC_x%%) can be neither listed nor unset: they pass through to
+# every child, and no tool reads such names. compgen is a builtin; if it failed, the loop would
+# unset nothing, without a message. The hop to root bounds both: sudo resets the environment to
+# its own short list plus SSH_ORIGINAL_COMMAND (env_reset), and the root run cleans it again.
+clean_environment() {
+  local name
+  while IFS= read -r name; do
+    unset -v "$name" 2> /dev/null || true
+  done < <(compgen -e)
+  export PATH=$SAFE_PATH LC_ALL=C
+}
+
+# Exactly "deploy <tag> <digest>" (single spaces) or "rollback". The raw line is never echoed.
+parse_command() {
+  local line=$1
+  ((${#line} <= MAX_COMMAND)) || refuse "command: longer than any allowed command"
+  if [[ $line == rollback ]]; then
+    ACTION=rollback
+    return 0
+  fi
+  [[ $line =~ ^deploy\ ([^ ]+)\ ([^ ]+)$ ]] \
+    || refuse "command: allowed are exactly 'deploy <tag> <digest>' and 'rollback'"
+  TAG=${BASH_REMATCH[1]} DIGEST=${BASH_REMATCH[2]}
+  [[ $TAG =~ $TAG_RE ]] || refuse "tag: not vMAJOR.MINOR.PATCH (no pre-release, no leading zeros)"
+  [[ $DIGEST =~ $DIGEST_RE ]] || refuse "digest: not sha256: and 64 lower-case hex digits"
+  ACTION=deploy
+}
+
+take_lock() {
+  local status=0
+  exec {LOCK_FD}>> "$LOCK_FILE"
+  flock --nonblock --conflict-exit-code 75 "$LOCK_FD" || status=$?
+  case $status in
+    0) ok "lock: no other deploy or rollback is running" ;;
+    75)
+      printf 'FAIL  lock: another deploy or rollback is running; nothing was done\n' >&2
+      exit 75
+      ;;
+    *) refuse "lock: flock failed (exit $status)" ;;
+  esac
+}
+
+bad_state() {
+  refuse "state: $STATE_FILE is not a state file this script wrote (docs/dev/deploy.md)"
+}
+
+# Seven lines in a fixed order: the current pair (always set), the previous pair (or empty) and
+# the highest release ever deployed (tag, commit, digest; always set, and rollback never moves it).
+read_state() {
+  local -a keys=(current_tag current_digest previous_tag previous_digest
+    highest_tag highest_commit highest_digest) lines=() values=()
+  local i
+  if [[ ! -e $STATE_FILE ]]; then
+    ok "state: no deployment recorded yet"
+    return 0
+  fi
+  [[ -f $STATE_FILE ]] || bad_state
+  mapfile -t lines < "$STATE_FILE"
+  ((${#lines[@]} == ${#keys[@]})) || bad_state
+  for i in "${!keys[@]}"; do
+    [[ ${lines[i]} == "${keys[i]}="* ]] || bad_state
+    values[i]=${lines[i]#*=}
+  done
+  CURRENT_TAG=${values[0]} CURRENT_DIGEST=${values[1]}
+  PREVIOUS_TAG=${values[2]} PREVIOUS_DIGEST=${values[3]}
+  HIGHEST_TAG=${values[4]} HIGHEST_COMMIT=${values[5]} HIGHEST_DIGEST=${values[6]}
+  [[ $CURRENT_TAG =~ $TAG_RE && $CURRENT_DIGEST =~ $DIGEST_RE ]] || bad_state
+  if [[ -n $PREVIOUS_TAG$PREVIOUS_DIGEST ]]; then
+    [[ $PREVIOUS_TAG =~ $TAG_RE && $PREVIOUS_DIGEST =~ $DIGEST_RE ]] || bad_state
+  fi
+  [[ $HIGHEST_TAG =~ $TAG_RE && $HIGHEST_COMMIT =~ $COMMIT_RE && $HIGHEST_DIGEST =~ $DIGEST_RE ]] \
+    || bad_state
+  ok "state: deployed $CURRENT_TAG, previous ${PREVIOUS_TAG:-none}, highest $HIGHEST_TAG"
+}
+
+# The CURRENT_*, PREVIOUS_* and HIGHEST_* values, through a temporary file and one rename. It runs
+# as a condition, where set -e is off: the && chain stops at the first failure.
+write_state() {
+  printf '%s\n' "current_tag=$CURRENT_TAG" "current_digest=$CURRENT_DIGEST" \
+    "previous_tag=$PREVIOUS_TAG" "previous_digest=$PREVIOUS_DIGEST" "highest_tag=$HIGHEST_TAG" \
+    "highest_commit=$HIGHEST_COMMIT" "highest_digest=$HIGHEST_DIGEST" 2> /dev/null \
+    > "$STATE_FILE.next" && mv -fT -- "$STATE_FILE.next" "$STATE_FILE" 2> /dev/null
+}
+
+# gh with the deploy's own settings only: the read-only token from TOKEN_FILE (in the
+# environment, never in an argument), its own config directory, no prompts.
+gh_run() {
+  GH_TOKEN=$GH_READ_TOKEN GH_CONFIG_DIR=$GH_DIR HOME=$GH_DIR GH_HOST=github.com \
+    DOCKER_CONFIG=$DOCKER_HOME/.docker GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
+    GH_SPINNER_DISABLED=1 NO_COLOR=1 timeout "$GH_TIMEOUT" gh "$@"
+}
+
+gh_api() { gh_run api --method GET "$1" --jq "$2" 2> /dev/null; } # <path> <jq program>
+
+version_at_least() { # <major> <minor> <patch>: at least GH_MINIMUM
+  local -a have=("$((10#$1))" "$((10#$2))" "$((10#$3))")
+  local i
+  for i in 0 1 2; do
+    ((have[i] > GH_MINIMUM[i])) && return 0
+    ((have[i] < GH_MINIMUM[i])) && return 1
+  done
+  return 0
+}
+
+load_gh() {
+  local token version major minor patch
+  [[ -f $TOKEN_FILE && -r $TOKEN_FILE ]] || refuse "gh: the read-only token $TOKEN_FILE is missing"
+  token=$(< "$TOKEN_FILE")
+  [[ $token =~ $TOKEN_RE ]] || refuse "gh: $TOKEN_FILE does not hold a token"
+  GH_READ_TOKEN=$token
+  mkdir -p -- "$GH_DIR"
+  version=$(gh_run --version 2> /dev/null) || refuse "gh: not installed or not working"
+  version=${version%%$'\n'*}
+  [[ $version =~ ^gh\ version\ ([0-9]{1,6})\.([0-9]{1,6})\.([0-9]{1,6})(\ |$) ]] \
+    || refuse "gh: unrecognised version"
+  major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
+  version_at_least "$major" "$minor" "$patch" \
+    || refuse "gh: $major.$minor.$patch is older than $(IFS=.; echo "${GH_MINIMUM[*]}")"
+  ok "gh: $major.$minor.$patch"
+}
+
+# The tag's commit, through the full ref name: a branch of the same name is never read.
+resolve_tag() {
+  local out
+  out=$(gh_api "repos/$REPO/commits/refs/tags/$1" '.sha') || refuse "tag: refs/tags/$1 not found"
+  [[ $out =~ $COMMIT_RE ]] || refuse "tag: refs/tags/$1 did not resolve to a commit"
+  COMMIT=$out
+  ok "tag: refs/tags/$1 is commit $COMMIT"
+}
+
+# True when an exclude pattern (a JSON string) may match the ref. bash's * also crosses "/", so
+# this over-matches GitHub's patterns, and a pattern with escapes counts as matching: both refuse.
+excludes() {
+  local json=$1 ref=$2 re='^"([^"\\]*)"$'
+  [[ $json =~ $re ]] || return 0
+  [[ ${BASH_REMATCH[1]} == '~ALL' ]] && return 0
+  # shellcheck disable=SC2053 # the right-hand side is a glob on purpose
+  [[ $ref == ${BASH_REMATCH[1]} ]]
+}
+
+# A ruleset protects the tag when it targets tags, is enforced (not "evaluate" or "disabled"),
+# includes refs/tags/v* (or ~ALL), excludes nothing that may match, blocks update and deletion,
+# and the token's user may never bypass it (current_user_can_bypass: a role of the owner's on the
+# bypass list; the read-only token is not shown the list itself).
+ruleset_protects() {
+  local id=$1 ref=$2 out field value
+  local target='' enforcement='' bypass='' covered=false excluded=false update=false deletion=false
+  out=$(gh_api "repos/$REPO/rulesets/$id" "$RULESET_JQ") || refuse "tag: ruleset $id unreadable"
+  while IFS=$'\t' read -r field value; do
+    case $field in
+      target) target=$value ;;
+      enforcement) enforcement=$value ;;
+      bypass) bypass=$value ;;
+      include) if [[ $value == '"refs/tags/v*"' || $value == '"~ALL"' ]]; then covered=true; fi ;;
+      exclude) if excludes "$value" "$ref"; then excluded=true; fi ;;
+      rule)
+        case $value in
+          '"update"') update=true ;;
+          '"deletion"') deletion=true ;;
+        esac
+        ;;
+    esac
+  done <<< "$out"
+  [[ $target == '"tag"' && $enforcement == '"active"' && $covered == true && $excluded == false ]] \
+    && [[ $update == true && $deletion == true ]] && [[ $bypass == '"never"' ]]
+}
+
+# PLAN-operations §9.2 (1): a protected v* tag. It keeps the tag from moving or disappearing
+# under a recorded pair; the main and attestation checks are what stop a tag outside main (T62).
+check_tag_protected() {
+  local ref=refs/tags/$1 out id
+  local -a ids=()
+  out=$(gh_api "repos/$REPO/rulesets?includes_parents=true&targets=tag&per_page=100" '.[].id') \
+    || refuse "tag: the repository's rulesets could not be read"
+  if [[ -n $out ]]; then mapfile -t ids <<< "$out"; fi
+  for id in "${ids[@]}"; do
+    [[ $id =~ ^[0-9]{1,19}$ ]] || refuse "tag: the API returned an unexpected ruleset id"
+    if ruleset_protects "$id" "$ref"; then
+      ok "tag: $ref is protected by tag ruleset $id (active, blocks update and deletion, no bypass)"
+      return 0
+    fi
+  done
+  refuse "tag: no active tag ruleset of $REPO blocks updating and deleting $ref without a bypass"
+}
+
+# main contains the commit: the compare from it to refs/heads/main (never a bare "main", which a
+# tag could shadow) is identical or ahead.
+check_on_main() {
+  local status
+  status=$(gh_api "repos/$REPO/compare/$1...refs/heads/main?per_page=1" '.status') \
+    || refuse "main: $1 could not be compared with refs/heads/main"
+  case $status in
+    identical | ahead) ok "main: refs/heads/main contains $1 ($status)" ;;
+    *) refuse "main: refs/heads/main does not contain $1" ;;
+  esac
+}
+
+# A deploy over a recorded release: the commit is the highest release's commit or descends from
+# it (the compare from that commit to this one is identical or ahead). A higher-numbered tag on
+# an older commit of main is refused.
+check_history() {
+  local status
+  status=$(gh_api "repos/$REPO/compare/$HIGHEST_COMMIT...$1?per_page=1" '.status') \
+    || refuse "history: $1 could not be compared with $HIGHEST_TAG's commit $HIGHEST_COMMIT"
+  case $status in
+    identical | ahead) ok "history: $1 descends from $HIGHEST_TAG's commit ($status)" ;;
+    *) refuse "history: $1 does not descend from $HIGHEST_TAG's commit $HIGHEST_COMMIT" ;;
+  esac
+}
+
+# The attestation release.yml signed for exactly this tag and commit, on a GitHub-hosted runner:
+# the policy release.yml verifies its own attestation with.
+check_attestation() {
+  local tag=$1 digest=$2 commit=$3
+  if gh_run attestation verify "oci://$IMAGE@$digest" \
+    --repo "$REPO" \
+    --cert-identity "$SIGNER@refs/tags/$tag" \
+    --cert-oidc-issuer "$OIDC_ISSUER" \
+    --source-ref "refs/tags/$tag" \
+    --source-digest "$commit" \
+    --deny-self-hosted-runners \
+    --predicate-type "$PREDICATE_TYPE" > /dev/null 2>&1; then
+    ok "attestation: release.yml at refs/tags/$tag built $digest from $commit"
+  else
+    refuse "attestation: none from release.yml at refs/tags/$tag, commit $commit, for $digest"
+  fi
+}
+
+verify_release() { # <tag> <digest>
+  load_gh
+  resolve_tag "$1"
+  check_tag_protected "$1"
+  check_on_main "$COMMIT"
+  if [[ $ACTION == deploy && -n $HIGHEST_TAG ]]; then check_history "$COMMIT"; fi
+  check_attestation "$1" "$2" "$COMMIT"
+}
+
+pull_image() {
+  if HOME=$DOCKER_HOME timeout "$PULL_TIMEOUT" docker pull --quiet "$IMAGE@$1" > /dev/null 2>&1
+  then
+    ok "pull: $IMAGE@$1"
+  else
+    refuse "pull: $IMAGE@$1 could not be pulled within $PULL_TIMEOUT s"
+  fi
+}
+
+compose() { # <override file, or "" for the base file alone> <compose arguments...>
+  local -a files=(--file "$COMPOSE_BASE")
+  if [[ -n $1 ]]; then files+=(--file "$1"); fi
+  shift
+  HOME=$DOCKER_HOME docker compose --project-name "$PROJECT" --project-directory "$APP_DIR" \
+    "${files[@]}" "$@"
+}
+
+# migrate gets scale 0: up -d then neither starts it nor waits for it, even when web depends on
+# it, while run --rm migrate still runs it. Migrations run only in the deploy's own run step, so
+# a rollback runs none (verified with Docker Compose v5.5.1; docs/dev/deploy.md, install step 5).
+write_override() { # <tag> <digest>
+  local service
+  {
+    printf '# Written by ownvitals-deploy for %s. The services run the image by digest and\n' "$1"
+    printf '# never pull; up -d never starts migrate. The next deploy or rollback replaces it.\n'
+    printf 'services:\n'
+    for service in "${APP_SERVICES[@]}"; do
+      printf '  %s:\n    image: %s@%s\n    pull_policy: never\n' "$service" "$IMAGE" "$2"
+      if [[ $service == migrate ]]; then printf '    scale: 0\n'; fi
+    done
+  } > "$OVERRIDE_NEXT"
+}
+
+# Every application service exists in the base file, and with the override no service names the
+# image other than by this digest (a tag would be a pull by tag).
+prepare_compose() { # <tag> <digest>
+  local services service images image pinned=false
+  [[ -f $COMPOSE_BASE ]] || refuse "compose: $COMPOSE_BASE is missing"
+  services=$(compose '' config --services 2> /dev/null) \
+    || refuse "compose: $COMPOSE_BASE is invalid"
+  for service in "${APP_SERVICES[@]}"; do
+    [[ $'\n'$services$'\n' == *$'\n'"$service"$'\n'* ]] \
+      || refuse "compose: $COMPOSE_BASE has no service $service"
+  done
+  write_override "$1" "$2"
+  images=$(compose "$OVERRIDE_NEXT" config --images 2> /dev/null) \
+    || refuse "compose: the configuration with the image override is invalid"
+  while IFS= read -r image; do
+    image=${image,,}
+    if [[ $image == "$IMAGE@$2" ]]; then
+      pinned=true
+    elif [[ $image == "$IMAGE" || $image == "$IMAGE"[:@]* ]]; then
+      refuse "compose: a service names $IMAGE other than by the digest $2"
+    fi
+  done <<< "$images"
+  [[ $pinned == true ]] || refuse "compose: no service runs $IMAGE@$2"
+  ok "compose: ${APP_SERVICES[*]} run $IMAGE@$2; no service names the image any other way"
+}
+
+run_migrations() {
+  if compose "$OVERRIDE_NEXT" run --rm -T --pull never migrate > /dev/null 2>&1; then
+    ok "migrations: the migrate container of $TAG succeeded"
+  else
+    refuse "migrations: the migrate container of $TAG failed"
+  fi
+}
+
+# Recorded after the migrations and before up -d. Anything that fails after the record (putting the
+# override in place, or up -d) exits 2 with the new pair recorded: after a deploy, rollback returns
+# to the release that ran before, which works on the migrated schema (expand/contract).
+record() { # <what the record means now, for exit 2>
+  write_state || refuse "state: $STATE_FILE could not be written"
+  if ! mv -fT -- "$OVERRIDE_NEXT" "$OVERRIDE" 2> /dev/null; then
+    printf 'FAIL  state: the override could not be put in place, up -d did not run; %s\n' "$1" >&2
+    exit 2
+  fi
+  ok "state: recorded $CURRENT_TAG, previous ${PREVIOUS_TAG:-none}, highest $HIGHEST_TAG"
+}
+
+start_release() { # <digest> <what the record means now, for exit 2>
+  if compose "$OVERRIDE" up -d --pull never --no-build > /dev/null 2>&1; then
+    ok "up -d: the services run $IMAGE@$1"
+  else
+    printf 'FAIL  up -d: the services did not all start; %s\n' "$2" >&2
+    exit 2
+  fi
+}
+
+# True when tag $1 is a higher version than tag $2, field by field. Without leading zeros a longer
+# field is the larger number, and fields of equal length compare as strings: nothing overflows.
+version_newer() {
+  local -a a b
+  local i
+  IFS=. read -r -a a <<< "${1#v}"
+  IFS=. read -r -a b <<< "${2#v}"
+  for i in 0 1 2; do
+    if ((${#a[i]} != ${#b[i]})); then
+      ((${#a[i]} > ${#b[i]}))
+      return
+    fi
+    if [[ ${a[i]} != "${b[i]}" ]]; then
+      [[ ${a[i]} > ${b[i]} ]]
+      return
+    fi
+  done
+  return 1
+}
+
+# A deploy never goes below the highest release ever deployed, which rollback does not lower: a
+# stolen key must not install an older attested release with a known vulnerability. Only rollback
+# goes back, one step. The highest version again only with its digest (an idempotent redeploy, or
+# forward again after a rollback); the first deploy takes any release that passes the checks.
+# check_history adds that the release's commit descends from the highest release's commit.
+check_version() {
+  if [[ -z $HIGHEST_TAG ]]; then
+    ok "version: no deployment recorded; any release may be the first"
+  elif [[ $TAG == "$HIGHEST_TAG" ]]; then
+    [[ $DIGEST == "$HIGHEST_DIGEST" ]] \
+      || refuse "version: $TAG was deployed with another digest; a release is never replaced"
+    ok "version: $TAG again, with its recorded digest"
+  elif version_newer "$TAG" "$HIGHEST_TAG"; then
+    ok "version: $TAG is newer than the highest deployed $HIGHEST_TAG"
+  else
+    refuse "version: $TAG is below the highest deployed $HIGHEST_TAG; only rollback goes back"
+  fi
+}
+
+deploy_release() {
+  local recorded
+  ok "command: deploy $TAG $DIGEST"
+  check_version
+  verify_release "$TAG" "$DIGEST"
+  pull_image "$DIGEST"
+  prepare_compose "$TAG" "$DIGEST"
+  run_migrations
+  if [[ $TAG != "$CURRENT_TAG" || $DIGEST != "$CURRENT_DIGEST" ]]; then
+    PREVIOUS_TAG=$CURRENT_TAG PREVIOUS_DIGEST=$CURRENT_DIGEST # a redeploy keeps the rollback
+  fi
+  CURRENT_TAG=$TAG CURRENT_DIGEST=$DIGEST
+  HIGHEST_TAG=$TAG HIGHEST_COMMIT=$COMMIT HIGHEST_DIGEST=$DIGEST # check_version: never lower
+  recorded="$TAG is recorded (its migrations ran); rollback: ${PREVIOUS_TAG:-none}"
+  record "$recorded"
+  start_release "$DIGEST" "$recorded"
+  printf 'deployed %s %s\n' "$TAG" "$DIGEST"
+}
+
+# One step back, through every check but the version and history rules, and without migrations:
+# the previous release runs on the newer schema (expand/contract, PLAN-operations §9.2). It clears
+# the previous pair and keeps the highest, so the way forward again is the highest release.
+rollback_release() {
+  local tag=$PREVIOUS_TAG digest=$PREVIOUS_DIGEST recorded
+  ok "command: rollback"
+  [[ -n $tag ]] || refuse "rollback: no previous deployment is recorded"
+  ok "rollback: to $tag $digest"
+  verify_release "$tag" "$digest"
+  pull_image "$digest"
+  prepare_compose "$tag" "$digest"
+  CURRENT_TAG=$tag CURRENT_DIGEST=$digest PREVIOUS_TAG='' PREVIOUS_DIGEST=''
+  recorded="the rollback to $tag is recorded; deploy $HIGHEST_TAG goes forward again"
+  record "$recorded"
+  start_release "$digest" "$recorded"
+  printf 'rolled back to %s %s\n' "$tag" "$digest"
+}
+
+main() {
+  local line=${SSH_ORIGINAL_COMMAND-}
+  clean_environment
+  (($# == 0)) || refuse "arguments: none are accepted; the command comes from SSH_ORIGINAL_COMMAND"
+  parse_command "$line"
+  if ((EUID != ROOT_UID)); then
+    # The deploy user may run exactly this file as root, without arguments, keeping
+    # SSH_ORIGINAL_COMMAND (the sudoers rule in docs/dev/deploy.md). The root run starts over.
+    SSH_ORIGINAL_COMMAND=$line exec sudo -n -- "$SELF"
+  fi
+  [[ -d $STATE_DIR ]] || refuse "install: $STATE_DIR is missing"
+  take_lock
+  read_state
+  case $ACTION in
+    deploy) deploy_release ;;
+    rollback) rollback_release ;;
+    *) refuse "command: unknown action" ;;
+  esac
+}
+
+main "$@"

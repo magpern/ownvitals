@@ -17,7 +17,7 @@ out="${GITHUB_OUTPUT:-/dev/stdout}"
 
 # Path filters (extended regexes, matched against each whole path).
 re_all='^(\.github/|\.gitattributes$|scripts/(ci-changes|ci-gate|test-ci-gate)\.sh$)'
-re_backend='^(backend/|docker/postgres/)'
+re_backend='^(backend/|docker/postgres/|deploy/)'
 re_frontend='^frontend/'
 re_stack='^((backend|frontend|e2e|docker)/|scripts/worktree\.sh$|Dockerfile$|compose[^/]*\.ya?ml$|\.dockerignore$|\.env\.example$|\.trivyignore$)'
 
