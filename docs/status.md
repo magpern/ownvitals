@@ -57,7 +57,7 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md` | #122 (#123). `egress_classified.py` merged with #129; #123 updates it from `main` if that file still differs |
 | `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `backend/src/ownvitals/web.py`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | — (#129 released them). #140 may take `admin/routes.py` and the step-up test it adds |
 | `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md`, `docs/adr/README.md` | — (#139 released them) |
-| `docs/status.md`, `docs/status/completed.md` | the status reconcile after #129 |
+| `docs/status.md`, `docs/status/completed.md` | #141 |
 | `.codex/**` | — (#131 released it) |
 | `backend/src/ownvitals/db/queue_check.py` | — (#77 next) |
 | `backend/src/ownvitals/config.py`, `backend/tests/dbtools.py`, `test_web.py`, `rls_guard.py`, `test_config_milestone.py` | — (#8, #82 and #11 released them) |
