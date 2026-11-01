@@ -218,6 +218,153 @@ PROCESS_MODULES: tuple[str, ...] = (
     "concurrent.futures.process",
 )
 PROCESS_NAMES: frozenset[str] = frozenset({"concurrent.futures.ProcessPoolExecutor"})
+# Native calls (ADR 0009 item 7): ``ctypes`` reaches the C library's own process and socket
+# functions, which raise no audit event the hook sees. Refused in ``src/`` under any name.
+NATIVE_MODULES: tuple[str, ...] = ("ctypes", "_ctypes")
+# Reflection by name: ``sys.modules`` hands out any loaded module past every rule that reads
+# names (``_posixsubprocess`` is always loaded: ``subprocess`` imports it). Refused in ``src/``.
+REFLECTION_NAMES: tuple[str, ...] = ("sys.modules", "pkgutil.resolve_name")
+# Importers (the FAIL on #123, B1): ``IMPORT_CALLS`` only as a direct call with one constant name,
+# which is then judged as an import; a stored, aliased-and-stored or ``getattr`` reference would
+# hide the name. ``SPEC_FINDERS`` (``find_spec``, ``spec_from_*``) are refused outright.
+IMPORT_CALLS: frozenset[str] = frozenset(
+    {"importlib.import_module", "importlib.__import__", "builtins.__import__"}
+)
+SPEC_FINDERS: tuple[str, ...] = (
+    "importlib.util.find_spec",
+    "importlib.util.spec_from_file_location",
+    "importlib.util.spec_from_loader",
+)
+# Module loaders (the FAIL on #123, C1): each loads a module by a name the guard cannot judge
+# (``runpy.run_module``, ``pkgutil.get_loader``, ``PathFinder.find_spec``, ``_gcd_import``).
+# Refused outright, with every ``importlib`` name but ``import_module`` and ``importlib.metadata``.
+LOADER_MODULES: tuple[str, ...] = (
+    "runpy",
+    "pkgutil",
+    "zipimport",
+    "importlib.machinery",
+    "importlib.abc",
+    "importlib._bootstrap",
+    "importlib._bootstrap_external",
+    "_frozen_importlib",
+    "_frozen_importlib_external",
+    "_imp",
+)
+# Evaluators (the FAIL on #123, D2): they run code or load objects from text or bytes the guard
+# cannot read (``exec("import ctypes")``, ``pickle.loads(...)``, ``timeit.timeit(...)``,
+# ``ImportString`` on ``"ctypes:CDLL"``). Refused outright; ``re.compile`` is not ``compile``.
+EVALUATORS: tuple[str, ...] = (
+    "builtins.exec",
+    "builtins.eval",
+    "builtins.compile",
+    "pickle",
+    "_pickle",
+    "marshal",
+    "shelve",
+    "timeit",
+    "code",
+    "codeop",
+    "pydantic.ImportString",
+    "pydantic.types.ImportString",
+    # The sixth FAIL on #123 (B2): ``help("x")`` imports ``x`` through ``pydoc``, and
+    # ``breakpoint()`` imports what ``PYTHONBREAKPOINT`` names through ``sys.breakpointhook``.
+    "builtins.help",
+    "builtins.breakpoint",
+    "sys.breakpointhook",
+    # The seventh FAIL on #123 (B2): the same importer under its saved name, and the class behind
+    # the ``help`` builtin (``_sitebuiltins._Helper()("x")`` imports ``x`` through ``pydoc``).
+    "sys.__breakpointhook__",
+    "_sitebuiltins",
+    # The fifth FAIL on #123 (F4): they run a string as code (``cProfile.run``, ``profile.run``,
+    # ``trace.Trace().run``, ``pdb.run``, ``bdb.Bdb.run``) or the code in docstrings (``doctest``).
+    "cProfile",
+    "profile",
+    "trace",
+    "doctest",
+    "pdb",
+    "bdb",
+)
+# Source readers (the FAIL on #123, E2): they hand back docstrings, comments or source text,
+# which a string rule never sees. Refused outright, with the name ``__doc__``.
+SOURCE_READERS: tuple[str, ...] = ("inspect", "pydoc", "linecache", "tokenize", "traceback")
+# Words that make a string code (the FAIL on #123, E1a): an importer, evaluator or reflection
+# name as an identifier segment of any string ``src`` writes (prose: ``PROSE_WORDS`` only).
+CODE_WORDS: frozenset[str] = frozenset(
+    {
+        "__import__",
+        "import_module",
+        "exec",
+        "eval",
+        "compile",
+        "__builtins__",
+        "builtins",
+        "modules",
+        "getattr",
+        "vars",
+        "globals",
+        "PYTHONBREAKPOINT",  # the variable ``sys.breakpointhook`` imports by name (B2)
+        # The seventh FAIL on #123 (B2): ``vars(builtins)["help"]`` and the like.
+        "help",
+        "breakpoint",
+        "breakpointhook",
+        "__breakpointhook__",
+    }
+)
+# Strings refused by the string rules and reviewed as harmless: an exact string, or an exact line
+# of a docstring or comment (stripped), by module. ``test_egress_strings.py`` pins each to ``src``.
+CODE_STRINGS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("ownvitals.mail", "MailMessage(...)"),  # MailMessage.__repr__: never evaluated
+        ("ownvitals.mail", "Mailer(...)"),  # Mailer.__repr__: never evaluated
+        ("ownvitals.auth.keys", "Keys(...)"),  # Keys.__repr__: never evaluated
+        ("ownvitals.auth.tables", "gen_random_uuid()"),  # a SQL server default, sent to Postgres
+        ("ownvitals.auth.tables", "now()"),  # a SQL server default, sent to Postgres
+    }
+)
+# Docstring or comment lines refused by the prose rules and reviewed as harmless: exact stripped
+# lines, by module, passing only as prose there. ``test_egress_strings.py`` pins each to ``src``.
+PROSE_LINES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (  # names ctypes as an out-of-scope route
+            "ownvitals.context",
+            "slot descriptors, ctypes) is out of scope for runtime checks; "
+            "the review gate catches it.",
+        ),
+        (  # names import_module as what the port leaves out
+            "ownvitals.auth",
+            "re-export table (PEP 562, ``import_module`` with a computed name) is not ported, "
+            "because the",
+        ),
+        # The seventh FAIL on #123 (B1): prose naming an evaluator as a word.
+        (  # the operator command, run through docker compose
+            "ownvitals.cli",
+            "``docker compose exec web python -m ownvitals admin grant owner@example.com``.",
+        ),
+        (  # the CSP forbids eval
+            "ownvitals.headers",
+            "everything from our own origin only, with no exception. No inline or ``eval`` script, "
+            "no inline",
+        ),
+    }
+)
+# Prose words (the seventh FAIL on #123, B1), besides the last segment of every evaluator,
+# importer, spec finder and loader: the module and method names an evaluated line could reach an
+# importer through. ``code``, ``profile``, ``trace`` and ``abc`` are common English and are
+# modules a string cannot reach without an importer, so they are not words.
+PROSE_IMPORTER_WORDS: frozenset[str] = frozenset(
+    {"__builtins__", "importlib", "pydoc", "_Helper", "_find_and_load", "find_module"}
+    | {"find_loader", "load_module", "exec_module", "module_from_spec", "_gcd_import"}
+    | {"run_module", "run_path", "resolve_name", "get_loader", "__loader__", "__spec__"}
+    | {"meta_path", "path_hooks", "path_importer_cache", "PYTHONBREAKPOINT"}
+)
+PROSE_COMMON_WORDS: frozenset[str] = frozenset({"code", "profile", "trace", "abc"})
+# A dict-display key refused by the string rules and reviewed as data: it passes only as a key.
+DICT_KEY_STRINGS: frozenset[tuple[str, str]] = frozenset(
+    {
+        # The ECG record's key for its analysis modules and versions (``ecg/pipeline.py``).
+        ("ownvitals.ecg.pipeline", "modules"),
+    }
+)
 
 LOOP_METHODS: frozenset[str] = frozenset(
     {

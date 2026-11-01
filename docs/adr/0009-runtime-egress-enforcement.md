@@ -127,7 +127,9 @@ in CI and pins the standard loop's rows.
      with native networking is caught by dependency review (the locked `pyproject.toml`), not by
      the hook.
    - `ctypes`, and an attacker who already runs code in the process. The hook is a control on
-     our code and our libraries, not a sandbox.
+     our code and our libraries, not a sandbox. `ctypes` (and `_ctypes`) is refused statically
+     in `src/` under any name, as is a module lookup through `sys.modules` (#122); a
+     dependency's use is trusted code.
    - **Process creation without an audit event.** `_posixsubprocess.fork_exec` raises none; the
      `multiprocessing` `spawn` and `forkserver` start methods use it (so do uvicorn's
      `workers > 1` and `reload`), and `ctypes` can call the C library's own. A child started

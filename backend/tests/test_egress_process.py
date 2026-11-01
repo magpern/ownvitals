@@ -29,6 +29,18 @@ REFUSED = [
     "from concurrent import futures\nfutures.ProcessPoolExecutor(2)",
     "from concurrent.futures.process import ProcessPoolExecutor",
     "import concurrent.futures.process",
+    # B1 of the FAIL on #123: a direct call through an alias is judged as an import.
+    "from importlib import import_module as load\nload('_posixsubprocess')",
+    "import importlib as il\nil.import_module('multiprocessing.pool')",
+    "import builtins\nbuiltins.__import__('_posixsubprocess')",
+    "import importlib\nimportlib.__import__('_winapi')",
+]
+# ... and a stored or ``getattr`` importer is refused (``test_egress_reflection.py``).
+STORED = [
+    "import importlib\ni = importlib.import_module\ni('_posixsubprocess')",
+    "i = __import__\ni('_posixsubprocess')",
+    "import importlib\ngetattr(importlib, 'import_module')('_posixsubprocess')",
+    "import builtins\ngetattr(builtins, '__import__')('_posixsubprocess')",
 ]
 NEAR_MISSES = [
     "from concurrent.futures import ThreadPoolExecutor\nThreadPoolExecutor()",
@@ -44,6 +56,13 @@ def test_the_guard_refuses_a_process_route(source: str) -> None:
     for module in MODULES:
         found = scan_source(source, module)
         assert any(WHY in why for _, why in found), (module, found)
+
+
+@pytest.mark.parametrize("source", STORED)
+def test_a_stored_importer_is_refused(source: str) -> None:
+    for module in MODULES:
+        found = scan_source(source, module)
+        assert any("an importer is only called directly" in why for _, why in found), found
 
 
 @pytest.mark.parametrize("source", NEAR_MISSES)
