@@ -188,6 +188,17 @@ version of them behind; a function the newer release added and the older script 
 makes it stop with a message naming it (its foreign-code check), and the rollback's `up -d` fails
 (exit 2, below).
 
+#### db-functions and the egress hook
+
+`db-functions` is the one process that installs no egress hook (ADR 0009): an exemption, and why.
+It is a one-shot runner (`python -m ownvitals.db.install_functions`) that reads no settings, so it
+has no egress configuration to install; its only connection is libpq's to `db` (host, port,
+database and user from its command line, the password from its `PGPASSFILE`), which the hook
+cannot see, since libpq connects in C below Python's audit events. The static guard still scans
+it: `psycopg` and `psycopg.conninfo` are classified for that module alone and by name
+(`backend/tests/egress_classified.py`, `test_egress_db_functions.py`), so no other module may
+import psycopg and the runner may use no other psycopg name.
+
 ### A failed rollback
 
 If a rollback's `up -d` fails (exit 2), the rollback is already recorded: current is the release
