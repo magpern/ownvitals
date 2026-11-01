@@ -13,7 +13,8 @@ question open says so in an **Open questions** section and names who answers it.
   `d80605100992f85f8f02672b9b5f885ed6166214` (ADR 0001 §5). Each says what it keeps, what it
   drops and what changes for health data, and why. "classbeat ADR 0003 §5" means that section at
   the pinned commit.
-- A fresh Reviewer reviews each ADR in its PR (Opus for security content). Section references
+- A fresh Reviewer reviews each ADR in its PR (Opus for security content on Claude Code;
+  Grok 4.7 high on Cursor, roadmap Amendment 5). Section references
   such as §4.3 or D9 without a file name point into PLAN.md; §9.x and §10.x point into
   PLAN-operations.md.
 - An accepted ADR changes only through a later ADR or a dated amendment section at its end;

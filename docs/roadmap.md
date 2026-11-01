@@ -26,6 +26,23 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 5 (2026-11-01, owner): Cursor security roles use Grok 4.7 high
+
+- **Changes:** Amendment 4's Cursor security-critical Developer, production security
+  decisions and ADRs, security-critical Reviewer, and a review after a second FAIL, use
+  Grok 4.7 high. The model id is `grok-4.7-high`. The security roles stay separate from the
+  routine Developer, Explorer and Reviewer. Codex stays Astra, Sol and Luna. Claude Code
+  stays the Opus and Sonnet names in AGENTS.md.
+- **Evidence:** the owner, 2026-11-01: Opus 5.5 cannot be used in Cursor. The pin
+  `claude-opus-5-5[effort=high]` was not selectable, and a client substitution is not
+  authority to take the role. The owner assigns Grok 4.7 high instead.
+- The security classification list, fresh independent reviewer, current-head PASS, green
+  `ci` and `pr-title`, and the Architect integration review stay mandatory. A Cursor
+  security verdict is `Agent review (Grok 4.7): PASS <sha>` or `FAIL`. An unavailable
+  model, or any model other than Grok 4.7 high, still blocks that Cursor role.
+- Past Opus verdicts remain valid for the SHA they name. No application model route is
+  enabled. The frozen specification files stay unchanged.
+
 ### Amendment 4 (2026-11-01, owner): Codex and Cursor development alternatives
 
 - **Changes:** PLAN-operations §10.1–10.2's development model names and attribution gain
