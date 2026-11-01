@@ -121,10 +121,13 @@ file or a container's output.
     it by a tag (or another digest) is refused, since running it would be a pull by tag. The script
     recognises the image only when it is spelled exactly `ghcr.io/magpern/ownvitals` (in any case);
     another spelling of it (`ghcr.io:443/…`, an image id) is not recognised, so the compose file
-    must not use one (install step 5). Last, `docker compose config` (with the override) must show
-    no `volumes:` or `volumes_from:` under `db-functions`: compose normalises every volume spelling
-    to that key, so a bind mount, a named volume or a tmpfs volume there is refused (its PGPASSFILE
-    tmpfs is the `tmpfs:` key). The functions then come from the release image only.
+    must not use one (install step 5). Last, the resolved `docker compose config` (with the
+    override) must show, under `db-functions`, no `volumes`, `volumes_from`, `configs`, `develop`
+    or `extends`, and `secrets` exactly `postgres_password` at its default target
+    (`/run/secrets/postgres_password`). Compose normalises every volume spelling to `volumes:`, so a
+    bind mount, a named volume or a tmpfs volume is refused, and so is a config or a secret placed
+    at an SQL path (its PGPASSFILE tmpfs is the `tmpfs:` key). The functions then come from the
+    release image only. Checked against Compose v5.5.1's output.
 12. **Migrations:** `docker compose run --rm -T --pull never migrate` with the new override. This
     is the only step that runs migrations: `run` runs `migrate` whatever its scale, while `up -d`
     starts no service with scale 0. If it fails, nothing is recorded and the running containers
@@ -434,7 +437,8 @@ older commit (check 8), and it cannot roll back twice in a row.
 | `test_deploy_script.py` | scenarios: the full deploy (`db-functions` pinned and started with the app services), every refusal of checks 6, 7 and 9–11 (a ruleset the owner may bypass, an unexpected ruleset id), rollback through every check (its `db-functions` on the previous digest), running no migration (with a `migrate` that would fail) and refused when the previous pair no longer verifies, the state file and its modes, a failed migration and a failed `up -d`, two concurrent deploys, the sudo hop, the environment and tool output (a marker on every tool's stderr, `config` and failing `gh api` calls included) |
 | `test_deploy_versions.py` | checks 3 and 8: an older release, a release below the highest whatever the current and previous pairs, the highest version with another digest, the same pair again, a newer release, numeric not textual order, the first deploy; v1.0.0, v1.2.0, `rollback`, v1.1.0 refused and v1.2.0 (its digest) and a descending v1.3.0 accepted; a higher tag on an older commit refused; rollback not held to either rule |
 | `test_deploy_failures.py` | a hung pull stopped by its timeout, a state file that cannot be written (exit 1), an override that cannot be put in place (exit 2) |
-| `test_deploy_refusals.py` | every malformed command, tag, digest and state file, and the variants of each check (`db-functions` with a bind mount, a named volume, a tmpfs volume or `volumes_from`; the same lines on another service pass) |
+| `test_deploy_refusals.py` | every malformed command, tag, digest and state file, and the variants of each check |
+| `test_deploy_db_functions.py` | check 11's `db-functions` rule: a bind mount, a named or tmpfs volume, `volumes_from`, a config (with or without a target), `develop`, `extends`, another secret, `postgres_password` at an SQL path or with a mode, no secret; near misses (the same keys on another service, the words in a label) |
 | `test_deploy_mutations.py` | each check removed or loosened in a copy of the script, and the scenario that catches it |
 
 Run them with `uv run pytest -q tests/test_deploy_*.py` from `backend/`. Under Windows they need

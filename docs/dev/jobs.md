@@ -72,8 +72,9 @@ first-start init directory ([stack.md](stack.md)); `test_db_functions_script.py`
 entrypoint on passwords with `\` and `:` and checks the line against libpq's `.pgpass` rules,
 signs in through libpq with it, and runs the runner (one transaction, rolled back on an error);
 `test_install_functions_sql.py` covers the transaction-control scan. The host-SQL check parses the
-compose YAML: short entries (plain, quoted, block or flow lists) and long ones (`type: bind`).
-The deploy refuses a production `db-functions` with any volume ([deploy.md](deploy.md), check 11).
+compose YAML ([stack.md](stack.md)). The deploy refuses a production `db-functions` that could
+read a host file: volumes, configs, `develop`, `extends`, or any secret but `postgres_password`
+([deploy.md](deploy.md), check 11).
 
 ### The Postgres image
 

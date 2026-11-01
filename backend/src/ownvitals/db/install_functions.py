@@ -74,7 +74,7 @@ def check_environment(environ: Mapping[str, str]) -> None:
 
 _TOKEN = re.compile(
     r"""
-      (?P<line>--[^\n]*)
+      (?P<line>--[^\r\n]*)  # Postgres ends a comment at CR as well as LF
     | (?P<block>/\*)
     | (?P<dollar>\$(?:[A-Za-z_\x80-￿][\w\x80-￿]*)?\$)
     | (?P<estring>[Ee]')

@@ -189,6 +189,9 @@ def default_world() -> dict[str, Any]:
                 "        volume: {}",
             ],
             "db-functions": [
+                "    secrets:",
+                "      - source: postgres_password",
+                "        target: /run/secrets/postgres_password",
                 "    tmpfs:",
                 "      - /run/pgpass:mode=0700,uid=10001,gid=10001",
             ],

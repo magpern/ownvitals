@@ -306,19 +306,6 @@ def scenario_refuses_a_missing_service(host: Host) -> None:
     assert [a[0] for a in started(host)] == ["pull"]
 
 
-def scenario_refuses_db_functions_with_a_volume(host: Host) -> None:
-    """db-functions takes its SQL from the image only: a bind mount (here over /app/db-functions,
-    from the server's disk) is refused before anything runs."""
-    host.world["mounts"]["db-functions"] = [
-        "    volumes:",
-        "      - source: /opt/ownvitals/sql",
-        "        target: /app/db-functions",
-        "        type: bind",
-    ]
-    refused(deploy(host, "v1.2.0"), "compose: db-functions mounts a volume")
-    assert [a[0] for a in started(host)] == ["pull"]
-
-
 def scenario_rollback_runs_every_check(host: Host) -> None:
     """One step back through the same checks, the previous digest, and no migrations."""
     assert deploy(host, "v1.1.0").code == 0

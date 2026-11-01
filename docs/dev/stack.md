@@ -87,8 +87,13 @@ roles, not the definer functions a deploy updates, and it needs psql's meta-comm
 the password files), which only the postgres image has. A change to it reaches an existing
 database only by hand (or `docker compose down -v` locally). `test_compose_roles.py` fails if
 any other service, mount or secret file reads a host path that holds SQL (a path it cannot
-inspect counts as one), if a mount uses the long volume syntax, or if a named volume gets driver
-options.
+inspect counts as one). It parses every compose file at the repository root (`compose*.y*ml`,
+`docker-compose*.y*ml`) as YAML, in every volume spelling, and fails closed on what Compose could
+use to bring in another file: `include`, `extends`, `develop`, `configs`, `volumes_from`, a named
+volume with driver options, an override file Compose merges by default
+(`compose.override.y*ml`, `docker-compose.override.y*ml`) and `COMPOSE_FILE` in `.env.example`.
+The repository's compose uses none of them. A change to any of these files runs the backend job
+(`scripts/ci-changes.sh`).
 
 ## Image
 

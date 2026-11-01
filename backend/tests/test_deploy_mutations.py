@@ -12,6 +12,11 @@ from pathlib import Path
 
 import pytest
 
+from test_deploy_db_functions import (
+    scenario_refuses_db_functions_with_a_config,
+    scenario_refuses_db_functions_with_a_volume,
+    scenario_refuses_db_functions_with_another_secret,
+)
 from test_deploy_failures import (
     scenario_a_failed_state_write_records_nothing,
     scenario_a_hung_pull_is_stopped,
@@ -34,7 +39,6 @@ from test_deploy_script import (
     scenario_refuses_a_state_file_it_did_not_write,
     scenario_refuses_an_unexpected_ruleset_id,
     scenario_refuses_commit_off_main,
-    scenario_refuses_db_functions_with_a_volume,
     scenario_refuses_evaluate_mode_ruleset,
     scenario_refuses_excluded_tag,
     scenario_refuses_malformed_commands,
@@ -236,10 +240,7 @@ MUTATIONS: dict[str, tuple[str, str, Scenario]] = {
         scenario_accepts_a_newer_release,
     ),
     "versions compared as text": (
-        "    if ((${#a[i]} != ${#b[i]})); then\n"
-        "      ((${#a[i]} > ${#b[i]}))\n"
-        "      return\n"
-        "    fi\n",
+        "    if ((${#a[i]} != ${#b[i]})); then ((${#a[i]} > ${#b[i]})); return; fi\n",
         "",
         scenario_compares_versions_as_numbers,
     ),
@@ -383,9 +384,19 @@ MUTATIONS: dict[str, tuple[str, str, Scenario]] = {
         scenario_refuses_db_functions_with_a_volume,
     ),
     "db-functions volumes accepted": (
-        'refuse "compose: db-functions mounts a volume; its SQL must come from the image only"',
-        ":",
+        'refuse "compose: db-functions has $key; its SQL must come from the image only" ;;',
+        ": ;;",
         scenario_refuses_db_functions_with_a_volume,
+    ),
+    "db-functions configs accepted": (
+        "volumes | volumes_from | configs | develop | extends)",
+        "volumes | volumes_from | develop | extends)",
+        scenario_refuses_db_functions_with_a_config,
+    ),
+    "db-functions secrets unchecked": (
+        '  [[ $secrets == "$DB_FUNCTIONS_SECRETS" ]] \\\n',
+        "  true \\\n",
+        scenario_refuses_db_functions_with_another_secret,
     ),
     "config output shown": (
         'config=$(compose "$OVERRIDE_NEXT" config 2> /dev/null)',

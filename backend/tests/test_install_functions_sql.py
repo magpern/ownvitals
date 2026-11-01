@@ -37,6 +37,8 @@ REFUSED = [
     "PREPARE TRANSACTION 'x';",
     "/* a comment */ COMMIT;",
     "-- a comment\nCOMMIT;",
+    "create table t1 (); -- a note\rcommit; select 1/0;",  # a bare CR ends the comment
+    "-- a note\r\nCOMMIT;",
     "/* nested /* twice */ still */ COMMIT;",
     "SELECT 'x';COMMIT;",
     "DO $$ BEGIN PERFORM 1; END $$; COMMIT;",

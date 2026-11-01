@@ -337,47 +337,6 @@ def test_compose_must_run_the_digest_only(host: Host, change: dict[str, Any], ch
     assert host.state() is None
 
 
-TMPFS = ["    tmpfs:", "      - /run/pgpass:mode=0700,uid=10001,gid=10001"]
-BIND = [
-    "      - bind:",
-    "          create_host_path: true",
-    "        read_only: true",
-    "        source: /opt/ownvitals/docker/postgres/queue",
-    "        target: /app/db-functions",
-    "        type: bind",
-]
-DB_FUNCTIONS_MOUNTS = {
-    "a bind mount": [*TMPFS, "    volumes:", *BIND],
-    "a named volume": [
-        *TMPFS,
-        "    volumes:",
-        "      - source: db-data",
-        "        target: /app/db-functions",
-        "        type: volume",
-    ],
-    "a tmpfs volume": ["    volumes:", "      - target: /run/pgpass", "        type: tmpfs"],
-    "volumes_from": [*TMPFS, "    volumes_from:", "      - service:db"],
-}
-
-
-@pytest.mark.parametrize("lines", DB_FUNCTIONS_MOUNTS.values(), ids=DB_FUNCTIONS_MOUNTS.keys())
-def test_a_db_functions_service_with_volumes_is_refused(host: Host, lines: list[str]) -> None:
-    """Its SQL must come from the release image: a volume could put the server's disk in its
-    place, and a deploy or rollback would then not change the functions."""
-    host.world["mounts"]["db-functions"] = lines
-    refused(deploy(host, "v1.2.0"), "compose: db-functions mounts a volume")
-    assert [a[0] for a in started(host)] == ["pull"]
-    assert host.state() is None
-
-
-def test_the_mount_check_reads_only_db_functions(host: Host) -> None:
-    """Near misses: the same lines on another service, deeper in db-functions (a key that only
-    contains the word), or under a top-level section of the same name pass."""
-    host.world["mounts"]["worker"] = ["    volumes:", *BIND]
-    host.world["mounts"]["db-functions"] = [*TMPFS, "    labels:", "      volumes: x"]
-    assert deploy(host, "v1.2.0").code == 0
-
-
 def test_other_images_in_compose_are_left_alone(host: Host) -> None:
     host.world["compose"] |= {"cache": "redis:8", "tools": "ghcr.io/magpern/ownvitals-tools:1"}
     assert deploy(host, "v1.2.0").code == 0
