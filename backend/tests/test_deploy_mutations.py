@@ -389,8 +389,8 @@ MUTATIONS: dict[str, tuple[str, str, Scenario]] = {
         scenario_refuses_db_functions_with_a_volume,
     ),
     "db-functions configs accepted": (
-        "volumes | volumes_from | configs | develop | extends)",
-        "volumes | volumes_from | develop | extends)",
+        "volumes | volumes_from | configs | develop)",
+        "volumes | volumes_from | develop)",
         scenario_refuses_db_functions_with_a_config,
     ),
     "db-functions secrets unchecked": (

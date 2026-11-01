@@ -357,7 +357,8 @@ prepare_compose() { # <tag> <digest>
 
 # db-functions runs SQL as the superuser, which must come from the image only: in the resolved
 # configuration (every volume spelling normalised to `volumes:`) it has no volumes, configs,
-# develop or extends, and no secret but postgres_password at its default target. Its PGPASSFILE
+# or develop (extends is resolved before), and no secret but postgres_password at its default
+# target. Its PGPASSFILE
 # tmpfs is the `tmpfs:` key.
 check_db_functions_mounts() {
   local config line section='' found=false seen=false key='' secrets=''
@@ -370,7 +371,7 @@ check_db_functions_mounts() {
       if [[ $line == '  db-functions:' ]]; then found=true seen=true; else found=false; fi
     elif [[ $found == true && $line =~ ^\ {4}([^[:space:]][^:]*): ]]; then
       key=${BASH_REMATCH[1]}
-      case $key in volumes | volumes_from | configs | develop | extends)
+      case $key in volumes | volumes_from | configs | develop)
         refuse "compose: db-functions has $key; its SQL must come from the image only" ;;
       esac
     elif [[ $found == true && $key == secrets ]]; then

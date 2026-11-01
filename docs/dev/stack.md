@@ -85,7 +85,7 @@ The init mount is the one allowed exception, by its exact source and target. It 
 the volume is created, and never again on a deploy, a rollback or a restart; it creates the
 roles, not the definer functions a deploy updates, and it needs psql's meta-commands (it reads
 the password files), which only the postgres image has. A change to it reaches an existing
-database only by hand (or `docker compose down -v` locally). `test_compose_roles.py` fails if
+database only by hand (or `docker compose down -v` locally). `test_compose_host_sql.py` fails if
 any other service, mount or secret file reads a host path that holds SQL (a path it cannot
 inspect counts as one). It parses every compose file at the repository root (`compose*.y*ml`,
 `docker-compose*.y*ml`) as YAML, in every volume spelling, and fails closed on what Compose could

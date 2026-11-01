@@ -1,6 +1,6 @@
 """The deploy's db-functions check (``check_db_functions_mounts`` in ``deploy/ownvitals-deploy``):
 in the resolved ``docker compose config``, db-functions has no ``volumes``, ``volumes_from``,
-``configs``, ``develop`` or ``extends``, and no secret but ``postgres_password`` at its default
+``configs`` or ``develop``, and no secret but ``postgres_password`` at its default
 target. Each of those could put a file from the server's disk where the image's SQL is, and a
 deploy or rollback would then not change the functions (docs/dev/deploy.md, check 11).
 
@@ -69,7 +69,6 @@ REFUSED = {
         ["    develop:", "      watch:", "        - action: sync", *SECRET, *TMPFS],
         "has develop",
     ),
-    "extends": (["    extends:", "      service: db", *SECRET, *TMPFS], "has extends"),
     "another secret": (
         [*SECRET, "      - source: s", SQL_TARGET.replace("20-queue", "s"), *TMPFS],
         "has secrets other than postgres_password",

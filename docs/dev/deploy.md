@@ -123,7 +123,8 @@ file or a container's output.
     another spelling of it (`ghcr.io:443/…`, an image id) is not recognised, so the compose file
     must not use one (install step 5). Last, the resolved `docker compose config` (with the
     override) must show, under `db-functions`, no `volumes`, `volumes_from`, `configs`, `develop`
-    or `extends`, and `secrets` exactly `postgres_password` at its default target
+    (Compose resolves `extends` before it prints, so an extended service's volumes show as
+    `volumes`), and `secrets` exactly `postgres_password` at its default target
     (`/run/secrets/postgres_password`). Compose normalises every volume spelling to `volumes:`, so a
     bind mount, a named volume or a tmpfs volume is refused, and so is a config or a secret placed
     at an SQL path (its PGPASSFILE tmpfs is the `tmpfs:` key). The functions then come from the
@@ -438,7 +439,7 @@ older commit (check 8), and it cannot roll back twice in a row.
 | `test_deploy_versions.py` | checks 3 and 8: an older release, a release below the highest whatever the current and previous pairs, the highest version with another digest, the same pair again, a newer release, numeric not textual order, the first deploy; v1.0.0, v1.2.0, `rollback`, v1.1.0 refused and v1.2.0 (its digest) and a descending v1.3.0 accepted; a higher tag on an older commit refused; rollback not held to either rule |
 | `test_deploy_failures.py` | a hung pull stopped by its timeout, a state file that cannot be written (exit 1), an override that cannot be put in place (exit 2) |
 | `test_deploy_refusals.py` | every malformed command, tag, digest and state file, and the variants of each check |
-| `test_deploy_db_functions.py` | check 11's `db-functions` rule: a bind mount, a named or tmpfs volume, `volumes_from`, a config (with or without a target), `develop`, `extends`, another secret, `postgres_password` at an SQL path or with a mode, no secret; near misses (the same keys on another service, the words in a label) |
+| `test_deploy_db_functions.py` | check 11's `db-functions` rule: a bind mount, a named or tmpfs volume, `volumes_from`, a config (with or without a target), `develop`, another secret, `postgres_password` at an SQL path or with a mode, no secret; near misses (the same keys on another service, the words in a label) |
 | `test_deploy_mutations.py` | each check removed or loosened in a copy of the script, and the scenario that catches it |
 
 Run them with `uv run pytest -q tests/test_deploy_*.py` from `backend/`. Under Windows they need

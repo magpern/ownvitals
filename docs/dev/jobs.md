@@ -67,13 +67,13 @@ dollar-quoted bodies, so PL/pgSQL's `BEGIN ... END` passes): such a file could c
 work before a later error.
 
 Tests: `test_compose_roles.py` pins the service (image, entrypoint, the tmpfs as its only mount,
-no volume, environment or user) and checks that no service reads SQL from a host path but `db`'s
-first-start init directory ([stack.md](stack.md)); `test_db_functions_script.py` runs the
+no volume, environment or user); `test_compose_host_sql.py` checks that no service reads SQL from
+a host path but `db`'s first-start init directory ([stack.md](stack.md)); `test_db_functions_script.py` runs the
 entrypoint on passwords with `\` and `:` and checks the line against libpq's `.pgpass` rules,
 signs in through libpq with it, and runs the runner (one transaction, rolled back on an error);
 `test_install_functions_sql.py` covers the transaction-control scan. The host-SQL check parses the
 compose YAML ([stack.md](stack.md)). The deploy refuses a production `db-functions` that could
-read a host file: volumes, configs, `develop`, `extends`, or any secret but `postgres_password`
+read a host file: volumes, configs, `develop` (or an `extends` that brings them), or any secret but `postgres_password`
 ([deploy.md](deploy.md), check 11).
 
 ### The Postgres image
