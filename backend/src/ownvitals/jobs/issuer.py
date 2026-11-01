@@ -15,11 +15,11 @@ Everything else about the job is then read under RLS as the owner (``ownvitals.j
 This is also the issuer for jobs the webhook and the scheduler create (M1): how a job was created
 never changes how its context is built.
 
-**The account directory is a seam until #10 and #13** (Architect decision, 2026-10-31, #77):
-neither the account tables nor ``ownvitals.auth``'s owner check nor the connection refs exist yet.
-The shipped default, ``NO_ACCOUNTS``, fails closed: every owner is inactive (so every job fails
-``account_disabled``) and has no connection refs. #10 wires ``ownvitals.auth``'s check and #13
-``ownvitals.connections``' refs into the worker; tests pass a fake.
+**The account directory** is ``ownvitals.auth.owners.ACCOUNTS`` in the worker (#10): an owner is
+active when the account exists and is not disabled. Its connection refs stay empty until #13
+wires ``ownvitals.connections``. ``NO_ACCOUNTS`` (every owner inactive, so every job fails
+``account_disabled``) stays the fail-closed default of ``Worker`` and ``run_worker`` for callers
+that pass none; tests pass a fake.
 """
 
 from dataclasses import dataclass
@@ -54,7 +54,7 @@ class Accounts(Protocol):
     """What the issuer asks about the owner of a claimed job."""
 
     async def owner_active(self, factory: Factory, owner_id: UUID) -> bool:
-        """Whether the account exists and is not disabled (``ownvitals.auth`` from #10)."""
+        """Whether the account exists and is not disabled (``ownvitals.auth.owners``)."""
         ...
 
     async def connection_refs(self, factory: Factory, ctx: UserContext) -> Refs:
@@ -64,7 +64,7 @@ class Accounts(Protocol):
 
 
 class NoAccounts:
-    """The fail-closed default until #10 and #13: nobody is active, nobody has a connection."""
+    """The fail-closed default: nobody is active, nobody has a connection."""
 
     async def owner_active(self, factory: Factory, owner_id: UUID) -> bool:
         return False

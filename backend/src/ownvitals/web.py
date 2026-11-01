@@ -13,7 +13,8 @@ from pydantic import BaseModel
 
 from ownvitals import __version__
 from ownvitals.admin.routes import router as admin_router
-from ownvitals.auth.routes import router as auth_router
+from ownvitals.auth.setup import attach_state, detach_state
+from ownvitals.auth.setup import install as install_auth
 from ownvitals.config import Settings
 from ownvitals.connections.routes import router as connections_router
 from ownvitals.crypto.keks import load_keyring
@@ -44,9 +45,10 @@ class ReadyResponse(BaseModel):
 api = APIRouter(prefix="/api")
 
 # The routers of the feature packages. Each is empty until its issue fills it, and is included
-# here already so those issues do not edit this module to mount their routes.
+# here already so those issues do not edit this module to mount their routes. Accounts and
+# sign-in (#10) are wired by ``ownvitals.auth.setup.install``: their routers, the Origin/CSRF
+# middleware and the error handlers.
 FEATURE_ROUTERS = (
-    auth_router,
     connections_router,
     flags_router,
     jobs_router,
@@ -109,7 +111,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     The lifespan refuses to start when the database role could bypass row-level security
     (``DatabaseRoleError``, ADR 0002 section 5); the engine checks every later connection too.
     It then loads web's key ring (``KeyRingError``, ADR 0004 sections 3 and 4): the current KEK
-    is required and must match its check row, and web never holds the webhook seed.
+    is required and must match its check row, and web never holds the webhook seed. Then the
+    accounts state (``ownvitals.auth.setup.attach_state``): it refuses to start without the
+    ``app_secret_key`` secret file, from which the auth keys are derived (ADR 0003 section 1).
     """
     settings = settings if settings is not None else Settings()
 
@@ -122,8 +126,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.keyring = await load_keyring(session_factory, settings, role="web")
             app.state.engine = engine
             app.state.session_factory = session_factory
+            attach_state(app, settings, session_factory)
             yield
         finally:
+            detach_state(app)
             await engine.dispose()
 
     docs_enabled = settings.environment != "prod"
@@ -137,6 +143,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.include_router(api)
+    # Before the SPA catch-all: Google's callback (``/oauth/google/callback``) is not under /api.
+    install_auth(app)
     for router in FEATURE_ROUTERS:
         app.include_router(router)
 

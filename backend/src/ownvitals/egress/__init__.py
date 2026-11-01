@@ -21,7 +21,7 @@ library (none is needed yet).
   Withings authorization-code exchange (``exchange_withings_code``) and the configured
   SMTP server through ``ownvitals.mail``, the one module the guard lets open a connection of its
   own (its host is a setting, so it is not a list entry). Each refuses in the worker
-  (``refuse_in_worker``).
+  (``refuse_in_worker``). Web's urllib opener refuses everything (``install_web_opener``, #10).
 
 **At run time** (ADR 0009) every process installs the egress hook first thing
 (``install_egress_hook``): a PEP 578 audit hook that refuses lookups of hosts outside the
@@ -99,11 +99,13 @@ from ownvitals.egress.hook import (
 )
 from ownvitals.egress.opener import (
     REQUEST_FALLBACK_SECONDS,
+    WEB_URLLIB_ALLOWLIST,
     DeadlineHTTPSConnection,
     DeadlineHTTPSHandler,
     build_allowlist_opener,
     call_deadline,
     call_deadline_until,
+    install_web_opener,
     install_worker_allowlist,
     request_deadline,
 )
@@ -124,6 +126,7 @@ __all__ = [
     "MODEL_TIMEOUT_SECONDS",
     "MODEL_TOTAL_SECONDS",
     "REQUEST_FALLBACK_SECONDS",
+    "WEB_URLLIB_ALLOWLIST",
     "WITHINGS_ACCOUNT_HOST",
     "WITHINGS_ALLOWLIST",
     "WITHINGS_API_HOST",
@@ -152,6 +155,7 @@ __all__ = [
     "google_async_client",
     "google_oauth_client",
     "install_egress_hook",
+    "install_web_opener",
     "install_worker_allowlist",
     "installed_kind",
     "installed_worker_hosts",

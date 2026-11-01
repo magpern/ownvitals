@@ -357,6 +357,23 @@ def build_allowlist_opener(
     return opener
 
 
+# The web process's urllib list: empty. Web's own calls go through the httpx clients and the
+# mail module; no library may reach for ``urlopen`` there.
+WEB_URLLIB_ALLOWLIST: Final = Allowlist(frozenset())
+
+
+def install_web_opener() -> urllib.request.OpenerDirector:
+    """Install, in the web process, an opener that refuses every ``urllib.request.urlopen``
+    (``OutboundBlocked`` before anything is sent: no host is on its list, and it has no
+    ``http``, ``ftp``, ``file`` or ``data`` handler and no proxy). A third-party library calling
+    ``urlopen`` in web is refused at run time, not only by the static guard. Called first thing
+    by ``python -m ownvitals`` when it serves (#10); the worker installs its own list instead.
+    It records no process role: the web-only clients keep working."""
+    opener = build_allowlist_opener(WEB_URLLIB_ALLOWLIST)
+    urllib.request.install_opener(opener)
+    return opener
+
+
 def install_worker_allowlist(*, ai_enabled: bool = False) -> urllib.request.OpenerDirector:
     """Make this process the worker: record its list (Withings; the model host only when
     ``ai_enabled``, the ``ai_insights`` setting) for the worker-only clients, and install its

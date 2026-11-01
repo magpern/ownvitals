@@ -197,9 +197,9 @@ def test_migrations_url_is_validated_without_echoing_it() -> None:
 
 def test_account_settings_defaults() -> None:
     settings = Settings()
-    assert settings.public_base_url == "http://127.0.0.1:8000"
+    assert [str(n) for n in settings.trusted_proxy_networks] == ["127.0.0.0/8", "::1/128"]
     assert settings.admin_email_set == frozenset()
-    assert settings.trusted_proxy_networks == ()
+    assert settings.cf_connecting_ip_networks == ()
     assert (settings.session_idle_days, settings.session_absolute_days) == (7, 30)
     assert settings.password_hash_workers == 4
     assert settings.purge_interval_seconds == 3600
@@ -230,6 +230,7 @@ def test_trusted_proxies_and_numeric_settings_are_validated() -> None:
     assert len(settings.trusted_proxy_networks) == 3
     for name, value in (
         ("trusted_proxies", "not-an-ip"),
+        ("cf_connecting_ip_proxies", "not-an-ip"),
         ("session_idle_days", 0),
         ("session_absolute_days", 0),
         ("password_hash_workers", 0),
@@ -237,6 +238,16 @@ def test_trusted_proxies_and_numeric_settings_are_validated() -> None:
     ):
         with pytest.raises(ValidationError):
             Settings(**{name: value})  # pyright: ignore[reportArgumentType]
+
+
+def test_trusted_proxies_default_to_loopback_and_cf_header_to_nobody() -> None:
+    """ADR 0003 section 8: by default only a loopback peer is a trusted proxy, and no peer's
+    ``CF-Connecting-IP`` is believed."""
+    settings = Settings()
+    assert [str(n) for n in settings.trusted_proxy_networks] == ["127.0.0.0/8", "::1/128"]
+    assert settings.cf_connecting_ip_networks == ()
+    swag = Settings(trusted_proxies="192.168.1.151", cf_connecting_ip_proxies="192.168.1.151")
+    assert [str(n) for n in swag.cf_connecting_ip_networks] == ["192.168.1.151/32"]
 
 
 def test_default_ports_are_dropped_from_the_public_origin() -> None:

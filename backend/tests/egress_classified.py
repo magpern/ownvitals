@@ -66,6 +66,7 @@ TABLE: dict[str, Entry] = {
         "Event",  # an in-process flag (jobs, worker)
         "FIRST_COMPLETED",  # a constant of asyncio.wait (worker.loop)
         "Lock",  # an in-process lock (crypto.keks)
+        "Semaphore",  # bounds the password-hashing pool (auth.passwords, #10); no I/O of its own
         "SelectorEventLoop",  # psycopg on Windows (db.engine); its methods: LOOP_METHODS
         "Task",  # a type (jobs, worker)
         "ensure_future",  # schedules a coroutine on the running loop; no I/O of its own
@@ -158,6 +159,35 @@ TABLE: dict[str, Entry] = {
         "conninfo_to_dict",
         "make_conninfo",
         only_in=("ownvitals.db.install_functions",),
+    ),
+    # Accounts and sign-in (#10, ADR 0003). Google's JWKS and token responses are fetched through
+    # ownvitals.egress; these only parse and verify what is already in memory.
+    "joserfc.jwt": _allowed(
+        "verifies an ID token in memory (RS256 against keys already fetched); capable only "
+        "through cryptography.x509's import of email.utils, never a connection",
+        "decode",
+    ),
+    "joserfc.jwk": _allowed(
+        "builds a key set from the JWKS document ownvitals.egress fetched; it fetches nothing",
+        "KeySet",
+    ),
+    "segno": _allowed(
+        "renders the TOTP enrolment QR code as an SVG string in memory (classbeat ADR 0003 "
+        "section 7); it opens no connection",
+        "make",
+    ),
+    "fastapi.encoders": _allowed(
+        "the web framework's JSON encoder for the validation-error handler (auth.setup)",
+        "jsonable_encoder",
+    ),
+    "fastapi.exception_handlers": _allowed(
+        "the web framework's default validation-error handler, wrapped so /api/auth bodies are "
+        "never echoed (auth.setup)",
+        "request_validation_exception_handler",
+    ),
+    "fastapi.exceptions": _allowed(
+        "the web framework's validation error class (auth.setup)",
+        "RequestValidationError",
     ),
 }
 

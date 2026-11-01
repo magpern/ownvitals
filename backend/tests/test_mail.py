@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from ownvitals import mail
 from ownvitals.config import Settings
 from ownvitals.egress import OutboundBlocked, core, install_worker_allowlist, tls_client_context
-from ownvitals.mail import SMTP_TOTAL_SECONDS, Mailer, MailError, MailMessage, send_logged
+from ownvitals.mail import Mailer, MailError, MailMessage, send_logged
 from smtpfake import SmtpFake, loopback_certificate
 
 
@@ -344,8 +344,20 @@ async def test_nothing_connects_after_the_deadline() -> None:
 
 
 def test_the_total_deadline_defaults_to_20_seconds() -> None:
-    assert SMTP_TOTAL_SECONDS == 20.0
+    assert Settings().smtp_total_seconds == 20.0
     assert Mailer(settings())._total_seconds == 20.0  # pyright: ignore[reportPrivateUsage]
+
+
+def test_the_total_deadline_comes_from_the_setting() -> None:
+    mailer = Mailer(settings(smtp_total_seconds=7.5))
+    assert mailer._total_seconds == 7.5  # pyright: ignore[reportPrivateUsage]
+    assert Mailer(settings(smtp_total_seconds=7.5), total_seconds=1)._total_seconds == 1  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize("seconds", [0, -1, float("inf"), float("nan")])
+def test_the_total_deadline_setting_must_be_positive_and_finite(seconds: float) -> None:
+    with pytest.raises(ValidationError, match="smtp_total_seconds must be positive and finite"):
+        Settings(smtp_total_seconds=seconds)
 
 
 @pytest.mark.parametrize("seconds", [0, -1.0, float("nan"), float("inf"), True, "20"])

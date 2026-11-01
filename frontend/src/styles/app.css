@@ -207,6 +207,39 @@ code {
   border-color: var(--ov-ok);
 }
 
+/* "Continue with Google", after Google's sign-in branding guidelines (owner, 2026-11-01): the
+   standard "G" at 20px, 12px padding with 10px between the mark and the label, a 1px border,
+   40px high, in the light or dark variant of the theme. Roboto Medium when the device has it,
+   otherwise Plex Sans 500: no font is fetched from Google (the CSP allows 'self' alone). */
+.google-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 0 0 var(--ov-space-2);
+  padding: 0 12px;
+  border: 1px solid var(--ov-google-border);
+  border-radius: 20px;
+  background: var(--ov-google-surface);
+  color: var(--ov-google-text);
+  font-family: Roboto, var(--ov-font-sans);
+  font-size: 14px;
+  font-weight: var(--ov-weight-medium);
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.google-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.google-button__mark {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
 .divider {
   margin: var(--ov-space-5) 0 var(--ov-space-3);
   color: var(--ov-muted);

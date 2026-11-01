@@ -3,9 +3,11 @@
 Up to ``worker_concurrency`` runs as asyncio tasks. When a slot is free the loop calls
 ``queue_claim``, woken by ``LISTEN jobs_queued`` (``ownvitals.worker.listen``) or a poll every
 ``worker_poll_seconds``; it claims nothing until the role and queue checks of a connection have
-passed (``queue_verified``). Every ``worker_maintenance_seconds`` (30 s) it runs the reaper. The
-hourly auth purge of ADR 0003 section 1 joins the loop with the accounts issue (#10); M1 adds the
-scheduler's ticks and the owner-less upkeep (ADR 0005 section 8).
+passed (``queue_verified``). Every ``worker_maintenance_seconds`` (30 s) it runs the reaper, and
+every ``purge_interval_seconds`` (an hour) the auth purge of ADR 0003 section 1
+(``ownvitals.auth.purge``: expired sessions and flows, used tokens, old invites, unused known
+devices, old auth events and session IPs). M1 adds the scheduler's ticks and the owner-less
+upkeep (ADR 0005 section 8).
 
 Several workers are safe: ``SKIP LOCKED`` gives each job to one claimer, and the fence makes a
 lost lease harmless.
@@ -15,7 +17,8 @@ lost lease harmless.
 ``worker_shutdown_wait_seconds`` (25 s) are cancelled and their leases handed back too. Each
 hand-back is one fenced requeue (``attempt - 1``, ``lease_version + 1``) under the role's 5 s
 ``lock_timeout``; what is not handed back is reaped when its lease expires. A maintenance step in
-progress at SIGTERM is cancelled (one transaction, rolled back and run again later); a claim is
+or auth purge in progress at SIGTERM is cancelled (one transaction, rolled back and run again
+later); a claim is
 left to finish (5 s ``connect_timeout``, 30 s ``statement_timeout``), since a claim cancelled
 after its commit would strand its job until the reaper.
 
@@ -38,6 +41,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from ownvitals.auth.purge import purge_expired
 from ownvitals.config import Settings
 from ownvitals.db import (
     DatabaseRoleError,
@@ -131,6 +135,18 @@ class Worker:
         """Reap once (ADR 0005 section 3)."""
         await _quietly("reap", lambda: queue.reap(self.factory))
 
+    async def purge(self) -> None:
+        """The auth purge, once (ADR 0003 section 1). A failure is logged by its class and
+        retried at the next interval; counts per table are logged, never a row."""
+        try:
+            counts = await purge_expired(self.factory, self.settings)
+        except DatabaseRoleError:
+            raise
+        except Exception as exc:
+            logger.warning("auth purge failed", extra={"error_type": type(exc).__name__})
+            return
+        logger.info("auth purge", extra={"deleted": counts})
+
     def verified(self) -> bool:
         """The role and queue checks passed on a connection of this engine (ADR 0005 section 3).
         Until they have, a check runs in the background (so a database that is down never blocks
@@ -212,7 +228,7 @@ class Worker:
         listen_stop = asyncio.Event()
         listener = asyncio.ensure_future(listen(self.engine, self.wake, listen_stop))
         stopper = asyncio.ensure_future(self._wake_on(stop))
-        next_maintenance = time.monotonic()
+        next_maintenance = next_purge = time.monotonic()
         try:
             while not stop.is_set():
                 self.passes += 1
@@ -228,7 +244,11 @@ class Worker:
                         next_maintenance = (
                             time.monotonic() + self.settings.worker_maintenance_seconds
                         )
-                    timeout = min(timeout, max(next_maintenance - time.monotonic(), 0.01))
+                    if time.monotonic() >= next_purge and not stop.is_set():
+                        await self._unless_stopped(self.purge(), stop)
+                        next_purge = time.monotonic() + self.settings.purge_interval_seconds
+                    upcoming = min(next_maintenance, next_purge)
+                    timeout = min(timeout, max(upcoming - time.monotonic(), 0.01))
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self.wake.wait(), timeout=timeout)
                 self.wake.clear()

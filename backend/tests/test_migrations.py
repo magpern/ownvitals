@@ -9,7 +9,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from dbtools import alembic_config, applied_revisions, migrated, public_tables
 
-HEAD = "0004_connection_keks"
+HEAD = "0005_auth"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -18,6 +18,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0004_connection_keks",
         "0003_jobs",
         "0002_close_alembic_version",
         "0001_baseline",
@@ -52,18 +53,21 @@ def test_upgrade_head_then_downgrade_base(
 def test_the_migrations_create_exactly_their_tables(
     database_url: str, owner_database_url: str
 ) -> None:
-    """Besides Alembic's own table, 0003's job tables (ADR 0005 section 1) and 0004's key-ring
-    check table (ADR 0004 section 3); the account and connection tables arrive with #10 and
-    #13."""
+    """Besides Alembic's own table, 0003's job tables (ADR 0005 section 1), 0004's key-ring
+    check table (ADR 0004 section 3) and 0005's account tables (ADR 0003, #10); the connection
+    tables arrive with #13."""
+    from ownvitals.auth.tables import metadata
+
     with migrated(owner_database_url):
         assert public_tables(database_url) == {
             "alembic_version",
             "jobs",
             "job_events",
             "connection_keks",
+            *metadata.tables,
         }
     assert applied_revisions(database_url) == []
-    assert public_tables(database_url) == {"alembic_version"}  # downgraded: 0003's and 0004's gone
+    assert public_tables(database_url) == {"alembic_version"}  # downgraded: all of them gone
 
 
 def test_downgrading_0004_is_refused_while_it_holds_check_rows(
