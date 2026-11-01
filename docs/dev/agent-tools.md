@@ -97,7 +97,10 @@ isolation, use a separate fresh session. An in-session self-review is never inde
 Use all of AGENTS.md's checks, including units/time zones, forced RLS across execution contexts,
 log redaction, synthetic data, rule tiers/sources, experimental flags and design screenshots.
 Run targeted tests and about eight risk-based mutations, not the full suite. Review deltas
-and verify previous findings. Review after a second FAIL uses Astra (Codex) or Opus (Cursor).
+and verify previous findings. Security-critical reviews, their deltas and a review after a second FAIL go to
+codex-security-reviewer (Astra) or cursor-security-reviewer (Opus). A routine reviewer hands that
+work to that agent and does not PASS it. Security-critical implementation goes to
+codex-security-developer or cursor-security-developer.
 Only PASS with no blocking findings and green ci/pr-title on that exact SHA.
 
 Record verdicts as PR comments using the actual model:
