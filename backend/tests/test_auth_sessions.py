@@ -456,6 +456,26 @@ async def test_the_pending_flag_is_never_set_for_a_non_admin_or_another_users_se
     assert anonymous["session"] is None
 
 
+async def test_a_future_mfa_or_stepup_time_is_outside_its_window(env: Env) -> None:
+    """``_within`` fails closed: a timestamp after the database ``now`` is not a fresh TOTP
+    (the 12-hour admin window) and not a fresh step-up."""
+    user_id = await env.user(ADMIN_EMAIL, role="admin")
+    issued = await env.full_login(user_id, stepup=True)
+    headers = session_cookie(issued.token)
+    await env.run("UPDATE sessions SET mfa_at = now() + interval '1 minute'")
+    body = (await env.client.get("/api/auth/session", headers=headers)).json()
+    assert body["user"]["role"] == "user"
+    assert body["session"]["admin_pending_mfa"] is True
+    whoami = await env.client.get("/api/admin/whoami", headers=headers)
+    assert (whoami.status_code, whoami.json()["detail"]) == (403, {"reason": "mfa_required"})
+
+    await env.run("UPDATE sessions SET mfa_at = now(), stepup_at = now() + interval '1 minute'")
+    body = (await env.client.get("/api/auth/session", headers=headers)).json()
+    assert body["user"]["role"] == "admin"
+    assert body["session"]["admin_pending_mfa"] is False
+    assert body["session"]["stepup"] is False
+
+
 async def test_a_demoted_admin_stops_being_pending(env: Env) -> None:
     """The flag follows the stored role at request time: after ``admin revoke`` it is false."""
     admin_id = await env.user("boss@example.com", role="admin")

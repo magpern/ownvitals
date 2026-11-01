@@ -108,7 +108,12 @@ class SessionInfo:
 
 
 def _within(moment: datetime | None, now: datetime, window: timedelta) -> bool:
-    return moment is not None and now - moment <= window
+    """True when ``moment`` is present and its age is inside ``[0, window]``.
+
+    A moment after ``now`` (a future ``stepup_at`` or ``mfa_at``) is outside: the lower bound
+    is ``timedelta(0)``, so a negative age fails closed.
+    """
+    return moment is not None and timedelta(0) <= now - moment <= window
 
 
 @dataclass(frozen=True, slots=True)
