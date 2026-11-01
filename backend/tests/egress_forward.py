@@ -107,8 +107,8 @@ def holds_code(text: str, depth: int = 0) -> bool:
     for node in ast.walk(parsed):
         if isinstance(node, _RUNS):
             return True
-        nested = isinstance(node, ast.Constant) and isinstance(node.value, str) and depth < 8
-        if nested and holds_code(str(node.value), depth + 1):
+        value = node.value if isinstance(node, ast.Constant) else None
+        if isinstance(value, str) and depth < 8 and holds_code(value, depth + 1):
             return True
     return False
 
