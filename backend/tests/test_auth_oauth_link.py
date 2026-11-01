@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 
 from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture, smtp_fixture  # noqa: F401 - fixtures
-from flows import PASSWORD, Browser, age_reauth, reason, signed_in
+from flows import PASSWORD, Browser, age_reauth, pass_second_factor, reason, signed_in
 from oauthtools import fake_fixture, location, make_invite, oenv_fixture, sign_in_with, start  # noqa: F401 - fixtures
 from oidcfake import DROP, FakeProviders
 from ownvitals.auth.cookies import OAUTH_COOKIE, SESSION_COOKIE
@@ -59,6 +59,8 @@ async def test_the_email_collision_path_sign_in_to_the_account_then_link(
     assert await oenv.scalar("SELECT count(*) FROM identities") == 0
     owner = Browser(oenv)
     assert (await owner.sign_in("g@example.com")).status_code == 200
+    owner_id = await oenv.scalar("SELECT id FROM users")
+    await pass_second_factor(oenv, owner, owner_id)  # pyright: ignore[reportArgumentType]
     assert location(await link(owner, fake)) == LINKED
     assert await oenv.scalar("SELECT count(*) FROM identities") == 1
     again = Browser(oenv)  # and now the provider signs in to it
@@ -125,7 +127,8 @@ async def add_identity(env: Env, user_id, provider: str = "google", subject: str
 
 
 async def browser_for(env: Env, user_id) -> Browser:
-    issued = await env.login(user_id)
+    """A browser with a full session that has a fresh step-up (#11)."""
+    issued = await env.full_login(user_id, stepup=True)
     browser = Browser(env)
     browser.cookies[SESSION_COOKIE] = issued.token
     return browser

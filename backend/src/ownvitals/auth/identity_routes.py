@@ -1,8 +1,8 @@
 """Linked sign-in methods on the account page (ADR 0003 sections 1, 5 and 6).
 
-Listing needs a session. Unlinking needs recent authentication (and step-up with a confirmed
-TOTP), only touches the signed-in user's own identities, answers 404 for another user's id as for
-an unknown one, and refuses to remove the last sign-in method.
+Listing needs a session. Unlinking needs recent authentication and a step-up, only touches the
+signed-in user's own identities, answers 404 for another user's id as for an unknown one, and
+refuses to remove the last sign-in method.
 """
 
 from datetime import datetime
@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from ownvitals.auth.deps import request_ip, require_recent_auth, require_user
+from ownvitals.auth.deps import request_ip, require_sensitive, require_user
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import factory
 from ownvitals.auth.oauth_store import list_identities, remove_identity
@@ -57,7 +57,7 @@ async def get_identities(
 
 @router.delete("/identities/{identity_id}", status_code=204)
 async def unlink_identity(
-    identity_id: str, request: Request, ctx: Annotated[UserContext, Depends(require_recent_auth)]
+    identity_id: str, request: Request, ctx: Annotated[UserContext, Depends(require_sensitive)]
 ) -> None:
     try:
         target = UUID(identity_id)

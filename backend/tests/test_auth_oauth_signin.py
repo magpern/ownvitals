@@ -15,7 +15,7 @@ from authtools import (  # noqa: F401 - fixtures
     running_env,
     smtp_fixture,
 )
-from flows import Browser, reason, user_with_password
+from flows import Browser, pass_second_factor, reason, user_with_password
 from oauthtools import (  # noqa: F401 - fixtures
     CLIENT_IDS,
     fake_fixture,
@@ -340,6 +340,8 @@ async def test_signing_in_again_replaces_the_browsers_session(
 ) -> None:
     browser = Browser(oenv)
     await sign_in_with(browser, fake, "google", invite=await make_invite(oenv))
+    # #11: a session must pass its second factor before it can start anything else.
+    await pass_second_factor(oenv, browser, await oenv.scalar("SELECT id FROM users"))  # pyright: ignore[reportArgumentType]
     old = browser.cookies[SESSION_COOKIE]
     await sign_in_with(browser, fake, "google")
     assert browser.cookies[SESSION_COOKIE] != old

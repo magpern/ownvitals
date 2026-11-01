@@ -90,6 +90,9 @@ async def test_a_success_releases_what_it_reserved(env: Env) -> None:
     for _ in range(9):
         await browser.sign_in(EMAIL, "wrong password 12345")
     assert (await browser.sign_in(EMAIL)).status_code == 200
+    # A new browser: this one's session is now waiting for its second factor (#11), which the
+    # gate keeps off the sign-in route.
+    browser = Browser(env)
     for _ in range(9):  # the pair bucket was deleted by the success
         assert (await browser.sign_in(EMAIL, "wrong password 12345")).status_code == 401
 

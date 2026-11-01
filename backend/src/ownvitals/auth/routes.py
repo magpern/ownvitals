@@ -1,12 +1,12 @@
 """``/api/auth``: the session endpoint and session management (ADR 0003 sections 3 and 4).
 
-Sign-in itself arrives with #37 to #39. Every query here filters on the ``user_id`` of the
+Every query here filters on the ``user_id`` of the
 request's own session, and another user's session id answers 404, the same as an unknown one.
 """
 
 import secrets
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -14,7 +14,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.cookies import CSRF_COOKIE, clear_session_cookie, set_csrf_cookie
-from ownvitals.auth.deps import current_session, require_user
+from ownvitals.auth.deps import current_session, request_ip, require_stepup, require_user
+from ownvitals.auth.events import record_event
 from ownvitals.auth.middleware import csrf_token_for_session
 from ownvitals.auth.sessions import (
     SessionInfo,
@@ -40,8 +41,14 @@ class SessionOut(BaseModel):
     id: UUID
     expires_at: datetime
     recent_auth: bool
+    # The session passed its second factor (it is full, ownvitals ADR 0003 section 2).
     mfa: bool
     stepup: bool
+    # The account has a confirmed TOTP, so the SPA sends a session that is not full to the code
+    # prompt rather than to enrolment.
+    totp_enabled: bool
+    # What a session that is not full still owes: "enrol" or "verify"; null once it is full.
+    second_factor: Literal["enrol", "verify"] | None
     # The signed-in account is an admin whose TOTP check is missing or lapsed, so the page shows
     # the code prompt (ADR 0011 section 6). Always false for any other account; it reports only
     # the caller's own account, and the admin routes decide on their own.
@@ -89,8 +96,10 @@ async def get_session(
                 id=info.id,
                 expires_at=info.expires_at,
                 recent_auth=info.recent_auth,
-                mfa=info.recent_mfa,
-                stepup=info.recent_stepup,
+                mfa=info.full,
+                stepup=info.full and info.recent_stepup,
+                totp_enabled=info.totp_enabled,
+                second_factor=info.second_factor,
                 admin_pending_mfa=info.admin_pending_mfa,
             ),
         )
@@ -162,9 +171,16 @@ async def logout(
 async def logout_all(
     request: Request,
     response: Response,
-    ctx: Annotated[UserContext, Depends(require_user)],
+    ctx: Annotated[UserContext, Depends(require_stepup)],
 ) -> None:
-    """Sign out everywhere, this browser included."""
+    """Sign out everywhere, this browser included (step-up first, ownvitals ADR 0003 section 3)."""
     async with system_session(_factory(request)) as db:
-        await revoke_user_sessions(db, ctx.user_id)
+        count = await revoke_user_sessions(db, ctx.user_id)
+        await record_event(
+            db,
+            "logout_everywhere",
+            user_id=ctx.user_id,
+            ip=request_ip(request),
+            detail={"sessions": count},
+        )
     clear_session_cookie(response)

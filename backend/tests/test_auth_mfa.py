@@ -22,7 +22,7 @@ from mfatools import (  # noqa: F401 - fixtures
     step_of,
 )
 from ownvitals.auth import totp
-from ownvitals.auth.deps import require_recent_auth
+from ownvitals.auth.deps import require_sensitive
 from ownvitals.auth.keys import Keys
 from ownvitals.auth.mfa import open_pending, seal_pending
 from ownvitals.context import UserContext
@@ -48,11 +48,13 @@ async def test_a_non_admin_gets_403(env: Env, make_actor: Any) -> None:
     assert reason(response) == "forbidden"
 
 
-async def test_an_admin_without_mfa_gets_403_mfa_required(env: Env, make_actor: Any) -> None:
+async def test_an_admin_without_mfa_gets_403(env: Env, make_actor: Any) -> None:
+    """#11: a session without its second factor is stopped by the gate before the admin check;
+    a full session whose TOTP check is over 12 hours old gets ``mfa_required`` (below)."""
     actor = await make_actor(await env.user("a@example.com", role="admin"))
     response = await actor.get("/api/admin/whoami")
     assert response.status_code == 403
-    assert reason(response) == "mfa_required"
+    assert reason(response) == "two_factor_required"
 
 
 async def test_an_admin_with_mfa_passes_and_the_window_is_12_hours(
@@ -90,13 +92,12 @@ async def test_totp_is_open_to_a_plain_user_and_does_not_make_them_admin(
 
 
 async def test_enrollment_needs_recent_auth(env: Env, make_actor: Any) -> None:
+    """#11: a session that has not enrolled within ten minutes of its sign-in is ended, so a
+    first enrolment always follows a fresh sign-in."""
     actor = await make_actor(await env.user())
     await env.run("UPDATE sessions SET reauth_at = now() - interval '11 minutes'")
-    response = await actor.post("/api/auth/mfa/totp/start")
-    assert response.status_code == 403
-    assert reason(response) == "reauth_required"
-    confirm = await actor.post("/api/auth/mfa/totp/confirm", {"pending": "x", "code": "123456"})
-    assert reason(confirm) == "reauth_required"
+    assert (await actor.get("/api/auth/session")).json()["authenticated"] is False
+    assert await env.scalar("SELECT count(*) FROM sessions") == 0
     assert await env.scalar("SELECT count(*) FROM mfa_totp") == 0
 
 
@@ -176,10 +177,10 @@ async def test_replacing_needs_stepup_and_swaps_the_secret_and_codes(
     env: Env, make_actor: Any, clock: list[float], notifier: FakeNotifier
 ) -> None:
     actor, old_secret, old_codes, user_id = await admin_with_totp(env, make_actor)
-    await env.run("UPDATE sessions SET stepup_at = now() - interval '6 minutes'")
+    await env.run("UPDATE sessions SET stepup_at = now() - interval '11 minutes'")
     refused = await actor.post("/api/auth/mfa/totp/start")
     assert refused.status_code == 403
-    assert reason(refused) == "stepup_required"
+    assert reason(refused) == "step_up_required"
     assert (await actor.post("/api/auth/mfa/stepup", {"code": old_codes[0]})).status_code == 200
     clock[0] += 60
     new_secret, new_codes = await actor.enroll()
@@ -190,9 +191,9 @@ async def test_replacing_needs_stepup_and_swaps_the_secret_and_codes(
     other = await make_actor(user_id)
     clock[0] += 60
     old_code = totp.code_for_step(old_secret, step_of(clock[0]))
-    assert (await other.post("/api/auth/mfa/stepup", {"code": old_code})).status_code == 400
-    assert (await other.post("/api/auth/mfa/stepup", {"code": old_codes[1]})).status_code == 400
-    assert (await other.post("/api/auth/mfa/stepup", {"code": new_codes[0]})).status_code == 200
+    assert (await other.post("/api/auth/mfa/verify", {"code": old_code})).status_code == 400
+    assert (await other.post("/api/auth/mfa/verify", {"code": old_codes[1]})).status_code == 400
+    assert (await other.post("/api/auth/mfa/verify", {"code": new_codes[0]})).status_code == 200
 
 
 # --- password-only re-auth cannot touch TOTP -----------------------------------------------
@@ -202,7 +203,7 @@ async def test_password_only_reauth_cannot_remove_replace_or_regenerate(
     env: Env, make_actor: Any, clock: list[float]
 ) -> None:
     _, _, _, user_id = await admin_with_totp(env, make_actor)
-    other = await make_actor(user_id)  # a new sign-in: reauth_at is fresh, no step-up
+    other = await make_actor(user_id, mfa=True)  # a full session: reauth_at fresh, no step-up
     for method, path in (
         ("DELETE", "/api/auth/mfa/totp"),
         ("POST", "/api/auth/mfa/totp/start"),
@@ -210,7 +211,7 @@ async def test_password_only_reauth_cannot_remove_replace_or_regenerate(
     ):
         response = await other.call(method, path)
         assert response.status_code == 403, path
-        assert reason(response) == "stepup_required", path
+        assert reason(response) == "step_up_required", path
     assert await env.scalar("SELECT count(*) FROM mfa_totp") == 1
 
 
@@ -219,15 +220,17 @@ async def test_every_recent_auth_action_also_needs_stepup_once_totp_is_confirmed
 ) -> None:
     @env.app.post("/api/test/sensitive")
     async def sensitive(  # pyright: ignore[reportUnusedFunction]
-        ctx: UserContext = Depends(require_recent_auth),  # noqa: B008
+        ctx: UserContext = Depends(require_sensitive),  # noqa: B008
     ) -> dict[str, bool]:
         return {"ok": True}
 
     plain = await make_actor(await env.user("plain@example.com"))
-    assert (await plain.post("/api/test/sensitive")).status_code == 200
+    # #11: before enrolment the session is gated; enrolling makes it full with a step-up.
+    assert reason(await plain.post("/api/test/sensitive")) == "two_factor_required"
     await plain.enroll()
+    assert (await plain.post("/api/test/sensitive")).status_code == 200
     await env.run("UPDATE sessions SET stepup_at = NULL")
-    assert reason(await plain.post("/api/test/sensitive")) == "stepup_required"
+    assert reason(await plain.post("/api/test/sensitive")) == "step_up_required"
     await env.run("UPDATE sessions SET stepup_at = now()")
     assert (await plain.post("/api/test/sensitive")).status_code == 200
     await env.run("UPDATE sessions SET reauth_at = now() - interval '11 minutes'")
@@ -249,9 +252,9 @@ async def test_regenerating_recovery_codes_invalidates_the_old_ones(
     fresh = (await actor.post("/api/auth/mfa/recovery-codes")).json()["recovery_codes"]
     assert len(fresh) == 10
     assert not set(fresh) & set(old)
-    other = await make_actor(user_id)
-    assert (await other.post("/api/auth/mfa/stepup", {"code": old[0]})).status_code == 400
-    assert (await other.post("/api/auth/mfa/stepup", {"code": fresh[0]})).status_code == 200
+    other = await make_actor(user_id)  # a new sign-in checks its code
+    assert (await other.post("/api/auth/mfa/verify", {"code": old[0]})).status_code == 400
+    assert (await other.post("/api/auth/mfa/verify", {"code": fresh[0]})).status_code == 200
 
 
 # --- secrets at rest ------------------------------------------------------------------------
@@ -300,4 +303,4 @@ async def test_a_row_moved_to_another_user_does_not_verify(
     victim = await make_actor(other_id)
     clock[0] += 60
     code = totp.code_for_step(secret, step_of(clock[0]))
-    assert (await victim.post("/api/auth/mfa/stepup", {"code": code})).status_code == 400
+    assert (await victim.post("/api/auth/mfa/verify", {"code": code})).status_code == 400

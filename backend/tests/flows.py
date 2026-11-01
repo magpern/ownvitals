@@ -7,7 +7,8 @@ from uuid import UUID
 import httpx
 from sqlalchemy import text
 
-from authtools import ORIGIN, Env
+from authtools import ORIGIN, TEST_TOTP_SECRET, Env
+from ownvitals.auth import totp
 from ownvitals.auth.cookies import SESSION_COOKIE
 
 PASSWORD = "correct horse battery staple"
@@ -74,10 +75,25 @@ async def user_with_password(env: Env, email: str = "user@example.com", **kwargs
     return await env.user(email, password_hash=hashed, **kwargs)
 
 
-async def signed_in(env: Env, email: str = "user@example.com") -> Browser:
+async def pass_second_factor(env: Env, browser: Browser, user_id: UUID) -> None:
+    """Give the user a TOTP if it has none (``Env.enrol``) and verify a code in the browser's
+    session, so it is full (ownvitals ADR 0003 section 2; this also counts as a step-up)."""
+    if not await env.scalar("SELECT count(*) FROM mfa_totp WHERE user_id = :u", u=user_id):
+        await env.enrol(user_id)
+    code = totp.code_for_step(TEST_TOTP_SECRET, int(totp.clock() // totp.PERIOD))
+    response = await browser.post("/api/auth/mfa/verify", {"code": code})
+    assert response.status_code == 200, response.text
+
+
+async def signed_in(
+    env: Env, email: str = "user@example.com", *, second_factor: bool = True
+) -> Browser:
+    """A browser signed in by password; with ``second_factor`` (the default) through TOTP too."""
     browser = Browser(env)
-    await user_with_password(env, email)
+    user_id = await user_with_password(env, email)
     assert (await browser.sign_in(email)).status_code == 200
+    if second_factor:
+        await pass_second_factor(env, browser, user_id)
     return browser
 
 

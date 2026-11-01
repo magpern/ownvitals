@@ -4,7 +4,7 @@ Reset: the request answers the same for any address and mails a 30-minute link (
 fragment, posted to the API). Completing it signs the user out everywhere, deletes their known
 devices and every other outstanding token, and can remove linked sign-in methods in the same
 step: the reset is the proof, so that needs neither recent auth nor step-up. Change: recent
-authentication (and step-up with a confirmed TOTP), revoking every other session.
+authentication and a step-up, revoking every other session.
 """
 
 from typing import Annotated
@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ownvitals.auth import mails
 from ownvitals.auth.accounts import find_user
 from ownvitals.auth.clientip import bucket_ip
-from ownvitals.auth.deps import current_session, request_ip, require_recent_auth
+from ownvitals.auth.deps import current_session, request_ip, require_sensitive
 from ownvitals.auth.devices import forget_devices
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import EmailAddress, factory, mailer, reserve
@@ -229,7 +229,7 @@ async def complete_reset(body: ResetCompleteIn, request: Request) -> Done:
 async def change_password(
     body: ChangePasswordIn,
     request: Request,
-    ctx: Annotated[UserContext, Depends(require_recent_auth)],
+    ctx: Annotated[UserContext, Depends(require_sensitive)],
     info: Annotated[SessionInfo | None, Depends(current_session)],
 ) -> Done:
     """Set or change the password. Every other session is revoked; the caller's stays."""

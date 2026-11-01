@@ -15,13 +15,14 @@ from uuid import UUID
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, func, insert, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.accounts import create_user
 from ownvitals.auth.cookies import SESSION_COOKIE
 from ownvitals.auth.sessions import IssuedSession, start_session
-from ownvitals.auth.tables import TABLE_NAMES
+from ownvitals.auth.tables import TABLE_NAMES, mfa_totp
+from ownvitals.auth.totp_keys import seal_totp_secret
 from ownvitals.config import Settings
 from ownvitals.db import system_session
 from ownvitals.web import create_app
@@ -30,6 +31,8 @@ from smtpfake import SmtpFake
 ORIGIN = "https://ownvitals.test"
 APP_SECRET = "test-app-secret-key-0123456789abcdef0123456789abcdef"
 ADMIN_EMAIL = "Owner@Example.com"
+# A synthetic TOTP secret (160 bits, base32) for ``Env.enrol``; never a real authenticator's.
+TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
 
 
 def make_settings(database_url: str, **overrides: object) -> Settings:
@@ -67,6 +70,30 @@ class Env:
             return await start_session(
                 db, self.settings, user_id, user_agent="pytest", ip=ip, mfa=mfa
             )
+
+    async def enrol(self, user_id: UUID, secret: str = TEST_TOTP_SECRET) -> str:
+        """Give the user a confirmed TOTP (envelope-sealed, as an enrolment stores it) without
+        going through the API. Returns the secret."""
+        async with self.db() as db:
+            values = await seal_totp_secret(db, self.app.state.keyring, user_id, secret.encode())
+            await db.execute(
+                insert(mfa_totp).values(
+                    user_id=user_id, confirmed_at=func.now(), last_step=0, **values
+                )
+            )
+        return secret
+
+    async def full_login(
+        self, user_id: UUID, *, ip: str = "203.0.113.5", stepup: bool = False
+    ) -> IssuedSession:
+        """A full session (ownvitals ADR 0003 section 2): the user gets a confirmed TOTP if it
+        has none, and the session counts as having passed it (``stepup``: just now as well)."""
+        if not await self.scalar("SELECT count(*) FROM mfa_totp WHERE user_id = :u", u=user_id):
+            await self.enrol(user_id)
+        issued = await self.login(user_id, mfa=True, ip=ip)
+        if stepup:
+            await self.run("UPDATE sessions SET stepup_at = now() WHERE id = :i", i=issued.id)
+        return issued
 
     async def scalar(self, sql: str, **params: object) -> object:
         async with self.db() as db:
