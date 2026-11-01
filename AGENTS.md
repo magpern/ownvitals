@@ -245,12 +245,26 @@ The repository and GitHub are the source of truth, never chat history: `docs/roa
 
 Every orchestration cycle, and always after a restart:
 
-1. read `CLAUDE.md`, `AGENTS.md`, `docs/roadmap.md` and `docs/status.md`;
+1. read `CLAUDE.md`, `AGENTS.md`, `docs/roadmap.md` and the `docs/status.md` index (the files in
+   `docs/status/` only when the work needs them);
 2. reconcile: `git fetch`, open PRs with their head SHA, CI and verdict comments, open issues and
    their labels, `git worktree list`, running stacks;
 3. fix any drift in `docs/status.md`, then continue with the next unblocked issue without
    re-planning finished work. A PR whose head has no verdict gets a fresh Reviewer; a branch
    with no PR goes back to its Developer.
+
+## Reading budget
+
+Every agent starts cold and pays for what it reads. Read what the task needs and no more:
+
+- An issue names its spec sections (PLAN §…, PLAN-operations §…, ADRs). Read those sections, not
+  the whole files. An issue that names none gets them from the Architect before work starts.
+- `docs/status.md` is an index. Read `docs/status/` and the `docs/dev/` file for your area only
+  when the work needs them.
+- Keep command output short (`tail`, `-q`, a count). Never paste a full test log, diff or file
+  listing into a report or PR comment; quote the failing lines.
+- A Reviewer reads the diff and the cited sections and relies on CI for the full suite. A delta
+  review reads the diff since the last reviewed head and each earlier finding, not the PR again.
 
 ## Developer commands
 
@@ -271,42 +285,10 @@ Reviewer of a UI PR compares the result with the screenshots.
 
 ## CI
 
-| Workflow / job | Runs | What it does |
-|---|---|---|
-| `ci` / `changes` | always | `scripts/ci-changes.sh`: which areas the PR changed (`backend`, `frontend`, `stack`, `all`); `Dockerfile`, `.dockerignore`, `compose*.yaml`, `docker-compose*.yml`, `.env.example`, `deploy/` and `docker/` set `backend` too (its tests guard them); a change to `.github/`, `.gitattributes` or the CI scripts, the weekly run and a manual run set `all`; a diff that can't be computed runs everything |
-| `ci` / `checks` | always | Frozen-spec guard (the three spec files equal `635901d`); gitleaks over the PR's own commits (weekly: whole history); `bash -n` and shellcheck on `scripts/*.sh`, `deploy/ownvitals-deploy` and `docker/postgres/**/*.sh` (`sh -n` for those); the CI gate and change-filter tests (`scripts/test-ci-gate.sh`); the release workflow tests (`scripts/test-release.sh`) and the download checksum tests (`scripts/test-ci-downloads.sh`); actionlint; the uv version check (`scripts/ci-uv-version.sh`); pip-audit; npm audit; Trivy repository scan |
-| `ci` / `backend` | `backend` | From `backend/`: `uv sync --locked`, ruff, format check, pyright, pytest against a Postgres 17 service. No step skips: a missing `backend/`, `pyproject.toml` or `uv.lock` fails the job |
-| `ci` / `frontend` | `frontend` | From `frontend/`: `npm ci`, lint, typecheck, Vitest, build. No step skips: a missing `frontend/` or `package-lock.json` fails the job |
-| `ci` / `ci` | always | The required check (`scripts/ci-gate.sh`): `changes` and `checks` succeeded, and every other job succeeded or was skipped while its filter is false. Fails closed |
-| `pr-title` | every PR title change | commitlint (`commitlint.config.cjs`) on the title with ` (#<n>)` appended, after a self-test |
-
-A new job joins `needs` of `ci`, `JOBS`/`FILTERS` in `scripts/ci-gate.sh`, the gate tests and
-this table in the same PR.
-
-Every GitHub Action is pinned by full commit SHA with the version in a comment. Release
-binaries downloaded in CI (gitleaks, Trivy) are checksum-verified (`scripts/test-ci-downloads.sh`
-tests it), and the shellcheck and actionlint images are pinned by digest. commitlint runs through
-`npx` at exact versions (no lockfile), and the Postgres service image is pinned by tag and index
-digest, the same reference as `compose.yaml`'s `db` (a test checks they agree).
-Dependabot keeps Actions, uv, npm and the Docker images current; what it can't see is bumped by
-hand ([docs/dev/release.md](docs/dev/release.md)).
-
-The dependency audits are steps of `checks` and also run in the weekly run, which picks up new
-advisories:
-
-- **uv version:** the `version:` of every `setup-uv` step (a literal, never `version-file` or an
-  expression) and every `uv@X.Y.Z` / `with uv X.Y.Z` in `docs/dev/backend.md` equal the uv tag of the
-  `Dockerfile`; the check needs yq v4, which the runner image has.
-- **pip-audit:** its exact version is the `audit` dependency group of `backend/pyproject.toml`, so its
-  own dependencies are hash-locked in `uv.lock`; CI installs it with `uv sync --frozen --only-group
-  audit` and the runtime image (`uv sync --locked --no-dev`) never has it. It audits `uv export
-  --frozen` with hashes (`--require-hashes --strict`): production dependencies, then every group.
-- **npm audit:** `npm audit --audit-level=high` in `frontend/` (and `e2e/` once it exists). The
-  moderate, dev-only findings of the ESLint chain do not fail it.
-- **Trivy repository scan:** vulnerabilities in the lockfiles and misconfiguration in the
-  `Dockerfile` (compose is not scanned), failing on HIGH and CRITICAL findings that have a fix
-  (`--ignore-unfixed`). **Accepted risk:** unfixed HIGH and CRITICAL findings are not gated; they
-  are revisited at the M8 security review, and once a fix appears Trivy starts failing on them.
+The workflows and jobs, the pinning rules and the dependency audits are in
+[docs/dev/ci.md](docs/dev/ci.md). Read it when you change CI or a CI failure needs it. A new job
+joins `needs` of `ci`, `JOBS`/`FILTERS` in `scripts/ci-gate.sh`, the gate tests and the table in
+`docs/dev/ci.md` in the same PR.
 
 New advisory: **upgrade first** (bump the dependency or base image, refresh the lockfile). Only
 if no fix exists or the code path is unreachable, add a dated ignore with a reason comment:

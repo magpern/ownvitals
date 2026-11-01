@@ -102,7 +102,7 @@ All settings of the platform milestone exist already, so the issues that use the
 | `admin_emails` | empty | comma-separated; these addresses get `admin` when they sign up |
 | `trusted_proxies` | `127.0.0.0/8,::1` | comma-separated IPs or CIDR ranges whose `X-Forwarded-For` counts: SWAG's address in production (#10, [auth.md](auth.md)) |
 | `cf_connecting_ip_proxies` | empty | the trusted proxies (SWAG) whose `CF-Connecting-IP` counts; each must also be in `trusted_proxies` to matter |
-| `session_idle_days`, `session_absolute_days` | 7, 30 | |
+| `session_idle_hours`, `session_absolute_days` | 72, 30 | |
 | `password_hash_workers` | 4 | |
 | `signup_mode` | `invite` | `invite` or `closed`; `open` is refused until the M8 gate |
 | `stepup_window_minutes` | 10 | how long a fresh TOTP check authorises a sensitive action (PLAN §6: 10 minutes; 1 to 10, so the environment can only shorten it) |

@@ -282,7 +282,7 @@ are refused.
   imports the list whole and names no licence of its own.
 - **Dev-only tooling is exempt** (Vite, ESLint, Vitest, the CSS tooling ...): it is not
   distributed. Some of it is under other permissive or weak-copyleft licences (BSD, MPL-2.0
-  unmodified, MIT-0, CC0, BlueOak-1.0.0, CC-BY-4.0 data); the decisions log in `docs/status.md`
+  unmodified, MIT-0, CC0, BlueOak-1.0.0, CC-BY-4.0 data); the decisions log in `docs/status/decisions-log.md`
   records that this is accepted. `src/packageJson.test.ts` still checks that every direct
   dependency, dev ones included, has an accepted licence.
 - A new production dependency under any other licence fails the test; the fix is to choose

@@ -42,7 +42,7 @@ async def test_verify_opens_the_admin_gate_and_sets_stepup(
 ) -> None:
     _, secret, _, user_id = await admin_with_totp(env, make_actor)
     actor = await make_actor(user_id)  # the next sign-in: password only
-    assert reason(await actor.get("/api/admin/whoami")) == "mfa_required"
+    assert reason(await actor.get("/api/admin/whoami")) == "two_factor_required"  # #11
     clock[0] += 60
     code = totp.code_for_step(secret, step_of(clock[0]))
     old_token = actor.token
@@ -56,9 +56,13 @@ async def test_verify_opens_the_admin_gate_and_sets_stepup(
     )
 
 
-async def test_verify_without_a_totp_is_409_and_anonymous_is_401(env: Env, make_actor: Any) -> None:
+async def test_verify_without_a_totp_is_refused_and_anonymous_is_401(
+    env: Env, make_actor: Any
+) -> None:
+    """#11: an account without a TOTP must enrol; the gate refuses it the code check."""
     actor = await make_actor(await env.user())
-    assert (await actor.post(VERIFY, {"code": "123456"})).status_code == 409
+    refused = await actor.post(VERIFY, {"code": "123456"})
+    assert (refused.status_code, reason(refused)) == (403, "two_factor_required")
     assert (await env.client.get("/api/auth/mfa")).status_code == 401
 
 
@@ -146,16 +150,16 @@ async def test_another_users_recovery_code_does_not_work(
 # --- step-up --------------------------------------------------------------------------------
 
 
-async def test_stepup_lasts_five_minutes(env: Env, make_actor: Any, clock: list[float]) -> None:
+async def test_stepup_lasts_ten_minutes(env: Env, make_actor: Any, clock: list[float]) -> None:
     actor, _, _, _ = await admin_with_totp(env, make_actor)
     path = "/api/auth/mfa/recovery-codes"
     assert (await actor.post(path)).status_code == 200  # enrollment left a fresh step-up
-    await env.run("UPDATE sessions SET stepup_at = now() - interval '4 minutes'")
+    await env.run("UPDATE sessions SET stepup_at = now() - interval '9 minutes'")
     assert (await actor.post(path)).status_code == 200
-    await env.run("UPDATE sessions SET stepup_at = now() - interval '6 minutes'")
+    await env.run("UPDATE sessions SET stepup_at = now() - interval '11 minutes'")
     expired = await actor.post(path)
     assert expired.status_code == 403
-    assert reason(expired) == "stepup_required"
+    assert reason(expired) == "step_up_required"
 
 
 async def test_stepup_endpoint_sets_only_the_stepup_flag(
@@ -163,12 +167,16 @@ async def test_stepup_endpoint_sets_only_the_stepup_flag(
 ) -> None:
     _, secret, _, user_id = await admin_with_totp(env, make_actor)
     clock[0] += 600
-    actor = await make_actor(user_id)
+    actor = await make_actor(user_id, mfa=True)  # #11: step-up needs a full session
+    old = "now() - interval '2 hours'"
+    await env.run(f"UPDATE sessions SET mfa_at = {old}, stepup_at = NULL")  # noqa: S608
     code = totp.code_for_step(secret, step_of(clock[0]))
     assert (await actor.post(STEPUP, {"code": code})).status_code == 200
     session = (await actor.get("/api/auth/session")).json()["session"]
     assert session["stepup"] is True
-    assert session["mfa"] is False
+    assert await env.scalar(
+        "SELECT mfa_at < now() - interval '1 hour' FROM sessions ORDER BY created_at DESC LIMIT 1"
+    )
     assert (await actor.post("/api/auth/mfa/recovery-codes")).status_code == 200
 
 
@@ -180,7 +188,7 @@ async def test_an_admin_can_reauthenticate_with_one_totp_code(
 ) -> None:
     _, secret, _, user_id = await admin_with_totp(env, make_actor)
     clock[0] += 600
-    actor = await make_actor(user_id)
+    actor = await make_actor(user_id, mfa=True)
     await env.run("UPDATE sessions SET reauth_at = now() - interval '1 hour', stepup_at = NULL")
     code = totp.code_for_step(secret, step_of(clock[0]))
     assert (await actor.post("/api/auth/reauth/totp", {"code": code})).status_code == 200

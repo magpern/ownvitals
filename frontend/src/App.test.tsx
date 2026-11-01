@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { App } from './App'
-import { MFA_OFF, SIGNED_IN, SIGNED_IN_NO_CODE, fakeApi, reason } from './test/fakeApi'
+import { SIGNED_IN, SIGNED_IN_NO_TOTP, fakeApi, reason } from './test/fakeApi'
 import { renderAt } from './test/render'
 
 const here = () => window.location.pathname + window.location.search
@@ -72,15 +72,14 @@ describe('signing out', () => {
   it('is possible from the enrolment page, so a user on the wrong account can leave', async () => {
     let out = false
     fakeApi({
-      'GET /api/auth/session': () => (out ? { authenticated: false, csrf_token: 'a' } : SIGNED_IN_NO_CODE),
-      'GET /api/auth/mfa': MFA_OFF,
+      'GET /api/auth/session': () => (out ? { authenticated: false, csrf_token: 'a' } : SIGNED_IN_NO_TOTP),
       'POST /api/auth/logout': () => {
         out = true
         return new Response(null, { status: 204 })
       },
     })
     renderAt('/two-factor/setup')
-    await screen.findByRole('heading', { name: 'Set up two-factor' })
+    await screen.findByRole('heading', { name: 'Set up your authenticator app' })
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
   })

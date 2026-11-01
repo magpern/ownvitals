@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MFA_OFF, MFA_ON, SIGNED_IN, SIGNED_IN_NO_CODE, fakeApi, reason } from '../test/fakeApi'
+import { SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, fakeApi, json, reason } from '../test/fakeApi'
 import { DecodeError } from './decode'
 import { confirmTotp, getPendingSignup, getSession, startOAuth, startTotp } from './auth'
 
@@ -10,28 +10,21 @@ describe('getSession', () => {
     expect(api.to('GET', '/api/auth/mfa')).toHaveLength(0)
   })
 
-  it('reads the user, the session flags and whether the account has TOTP', async () => {
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN_NO_CODE, 'GET /api/auth/mfa': MFA_ON })
+  it('reads the user, the session flags and whether the account has TOTP from the one answer', async () => {
+    const api = fakeApi({ 'GET /api/auth/session': SIGNED_IN_NO_CODE })
     expect(await getSession()).toEqual({
       authenticated: true,
       user: { id: 'u1', email: 'ann@example.test', role: 'user' },
-      session: { expiresAt: '2030-01-01T00:00:00Z', recentAuth: true, mfa: false, stepup: false },
+      session: { id: 's1', expiresAt: '2030-01-01T00:00:00Z', recentAuth: true, mfa: false, stepup: false },
       totpEnabled: true,
     })
+    // #11: `totp_enabled` is in the session answer; no second call that the gate would refuse.
+    expect(api.to('GET', '/api/auth/mfa')).toHaveLength(0)
   })
 
   it('knows an account without TOTP', async () => {
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN, 'GET /api/auth/mfa': MFA_OFF })
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN_NO_TOTP })
     expect((await getSession()).totpEnabled).toBe(false)
-  })
-
-  it('treats two_factor_required on the status call as no TOTP, and any other refusal as an error', async () => {
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN, 'GET /api/auth/mfa': reason(403, 'two_factor_required') })
-    expect((await getSession()).totpEnabled).toBe(false)
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN, 'GET /api/auth/mfa': reason(403, 'forbidden') })
-    await expect(getSession()).rejects.toMatchObject({ status: 403, reason: 'forbidden' })
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN, 'GET /api/auth/mfa': reason(500, 'boom') })
-    await expect(getSession()).rejects.toMatchObject({ status: 500 })
   })
 
   it('refuses an answer that is not the shape the pages rely on', async () => {
@@ -39,7 +32,9 @@ describe('getSession', () => {
     await expect(getSession()).rejects.toBeInstanceOf(DecodeError)
     fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, session: { ...SIGNED_IN.session, mfa: 'yes' } } })
     await expect(getSession()).rejects.toBeInstanceOf(DecodeError)
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN, 'GET /api/auth/mfa': { totp_enabled: 1 } })
+    const withoutTotp: Record<string, unknown> = { ...SIGNED_IN.session }
+    delete withoutTotp.totp_enabled
+    fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, session: withoutTotp } })
     await expect(getSession()).rejects.toBeInstanceOf(DecodeError)
   })
 })
@@ -56,9 +51,17 @@ describe('the two-factor calls', () => {
 
   it('returns the recovery codes of a confirmation, and refuses a malformed list', async () => {
     fakeApi({ 'POST /api/auth/mfa/totp/confirm': { recovery_codes: ['a', 'b'] } })
-    expect(await confirmTotp('p', '123456')).toEqual(['a', 'b'])
+    expect(await confirmTotp('p', '123456')).toEqual({ recoveryCodes: ['a', 'b'], signedOut: false })
     fakeApi({ 'POST /api/auth/mfa/totp/confirm': { recovery_codes: ['a', 2] } })
     await expect(confirmTotp('p', '123456')).rejects.toBeInstanceOf(DecodeError)
+  })
+
+  it('keeps the recovery codes of a confirmation answered 401, and fails a bare 401', async () => {
+    const lost = { detail: { reason: 'not_authenticated' }, enrolled: true, recovery_codes: ['a', 'b'] }
+    fakeApi({ 'POST /api/auth/mfa/totp/confirm': json(lost, 401) })
+    expect(await confirmTotp('p', '123456')).toEqual({ recoveryCodes: ['a', 'b'], signedOut: true })
+    fakeApi({ 'POST /api/auth/mfa/totp/confirm': reason(401, 'not_authenticated') })
+    await expect(confirmTotp('p', '123456')).rejects.toMatchObject({ status: 401 })
   })
 })
 
