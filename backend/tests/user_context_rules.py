@@ -22,8 +22,8 @@ annotations included:
 - ``copyreg`` as an import, a name, an attribute or a string: ``copyreg.__newobj__(K)`` makes a
   blank context without the token.
 
-``annotation_findings`` keeps annotations, which run on Python 3.12, to type expressions (see
-its docstring).
+``annotation_findings`` keeps annotations, which run on Python 3.12, to type expressions, and
+``Annotated``'s metadata (``typing``'s only) is judged as ordinary code (see its docstring).
 
 Threat model (``docs/dev/isolation.md``): these rules stop plausible, review-visible forgeries;
 they are not a sandbox. Reflection in the process (the package object, ``sys.modules``, ``gc``,
@@ -32,6 +32,7 @@ with code review, RLS and the role checks (ADR 0002 section 1).
 """
 
 import ast
+from collections.abc import Callable
 
 CONTEXT_MODULE = "ownvitals.context"
 PACKAGE = "ownvitals"
@@ -167,30 +168,79 @@ def _as_expression(annotation: ast.AST) -> ast.AST:
     return annotation
 
 
+TYPING_MODULES = {"typing", "typing_extensions"}
+
+
+def typing_annotated(tree: ast.AST) -> set[str]:
+    """The module's spellings of ``typing.Annotated``: imported from ``typing`` or
+    ``typing_extensions`` under any alias (``from typing import Annotated as A``, ``import typing
+    as t`` gives ``t.Annotated``). A bare name the module also binds another way (``Annotated =
+    dict``, a ``def`` or another import) is not one."""
+    names: set[str] = set()
+    other: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in TYPING_MODULES:
+                    names.add(f"{alias.asname or alias.name}.Annotated")
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                bound = alias.asname or alias.name
+                if node.module in TYPING_MODULES and alias.name == "Annotated":
+                    names.add(bound)
+                else:
+                    other.add(bound)
+        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            other.add(node.id)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            other.add(node.name)
+    return {name for name in names if name.split(".")[0] not in other}
+
+
+def annotated_metadata(root: ast.AST, annotated: set[str]) -> list[ast.expr]:
+    """The metadata (``elts[1:]``) of every ``Annotated[T, ...]`` in ``root``. The type position
+    stays an annotation; the metadata is ordinary code, evaluated with the annotation."""
+    found: list[ast.expr] = []
+    for node in ast.walk(root):
+        if (
+            isinstance(node, ast.Subscript)
+            and _dotted(node.value) in annotated
+            and isinstance(node.slice, ast.Tuple)
+        ):
+            found += node.slice.elts[1:]
+    return found
+
+
 def annotation_findings(
-    annotations: list[ast.AST], token_names: set[str], annotated: set[str]
+    annotations: list[ast.AST],
+    token_names: set[str],
+    annotated: set[str],
+    scan_code: Callable[[str], list[tuple[int, str]]],
 ) -> list[tuple[int, str]]:
     """Annotations are evaluated at run time (Python 3.12), so one may hold only a type: a name,
     an attribute chain, a subscript of a type name (a generic), ``|``, literals and tuples or
-    lists of these. Refused inside one: a call (except in ``Annotated``'s metadata, where
-    FastAPI's ``Depends(...)`` lives), a subscript of anything else, an attribute starting with
-    ``_`` (``__globals__``, ``_ISSUER``), the token's names, and lambdas, comprehensions and the
-    like. ``annotated`` holds the module's spellings of ``Annotated`` (aliases included)."""
+    lists of these. Refused inside one: a call, a subscript of anything else, an attribute
+    starting with ``_`` (``__globals__``, ``_ISSUER``), the token's names, and lambdas,
+    comprehensions and the like.
+
+    ``Annotated``'s metadata (``annotated`` holds its spellings) is not part of the type: it is
+    code, judged by every rule for code. ``scan_source`` takes it out of the annotation; here it
+    is skipped, except in a whole-string annotation, whose metadata ``scan_code`` (the whole
+    scan) judges."""
     found: list[tuple[int, str]] = []
     for annotation in annotations:
         root = _as_expression(annotation)
-        metadata: set[int] = set()
-        for node in ast.walk(root):
-            if (
-                isinstance(node, ast.Subscript)
-                and _type_name(node.value)
-                and (_dotted_tail(node.value) == "Annotated" or _dotted(node.value) in annotated)
-                and isinstance(node.slice, ast.Tuple)
-            ):
-                metadata |= {id(n) for e in node.slice.elts[1:] for n in ast.walk(e)}
+        metadata = annotated_metadata(root, annotated)
+        skipped = {id(n) for e in metadata for n in ast.walk(e)}
+        if root is not annotation:  # a parsed string: its nodes are not in the module's tree
+            line = getattr(annotation, "lineno", 0)
+            for element in metadata:
+                found += [(line, why) for _, why in scan_code(ast.unparse(element))]
         for node in ast.walk(root):
             why = None
-            if isinstance(node, ast.Call) and id(node) not in metadata:
+            if id(node) in skipped:
+                continue
+            if isinstance(node, ast.Call):
                 why = "a call inside an annotation"
             elif isinstance(node, ast.Subscript) and not _type_name(node.value):
                 why = "a subscript of a non-type inside an annotation"
@@ -215,7 +265,3 @@ def _dotted(node: ast.AST) -> str:
         parts.append(node.attr)
         node = node.value
     return ".".join([getattr(node, "id", ""), *reversed(parts)])
-
-
-def _dotted_tail(node: ast.AST) -> str:
-    return node.attr if isinstance(node, ast.Attribute) else getattr(node, "id", "")

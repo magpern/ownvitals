@@ -60,7 +60,12 @@ review gate. ``docs/dev/isolation.md`` lists these limits.
 
 import ast
 
-from user_context_rules import CONTEXT_FIELDS, annotation_findings
+from user_context_rules import (
+    CONTEXT_FIELDS,
+    annotated_metadata,
+    annotation_findings,
+    typing_annotated,
+)
 from user_context_rules import findings as token_route_findings
 
 NAME = "UserContext"
@@ -388,6 +393,11 @@ def scan_source(source: str) -> list[tuple[int, str]]:
             mark(node.annotation)
         elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             mark(node.returns)
+    # ``Annotated``'s metadata is code, evaluated with the annotation: every rule applies to it.
+    annotated = typing_annotated(tree)
+    for annotation in annotations:
+        for element in annotated_metadata(annotation, annotated):
+            annotation_nodes.difference_update(id(n) for n in ast.walk(element))
 
     aliases = {NAME}  # local names bound to the class by an import
     found: list[tuple[int, str]] = []
@@ -403,7 +413,7 @@ def scan_source(source: str) -> list[tuple[int, str]]:
 
     found += _depends_findings(tree, aliases)
     found += token_route_findings(tree, annotation_nodes)
-    found += annotation_findings(annotations, TOKEN_NAMES, _Spellings(tree).annotated)
+    found += annotation_findings(annotations, TOKEN_NAMES, annotated, scan_source)
     refused = _spellings(tree, ALWAYS_REFUSED) | (
         _spellings(tree, REFUSED_WITH_CONTEXT) if NAME in source else set()
     )

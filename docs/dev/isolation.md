@@ -217,11 +217,17 @@ never from a path, query, body or header. The same scan refuses, in every module
   puts the token in `f.__annotations__`. Every rule above applies inside annotations too (a
   type may still name the module: `ownvitals.context.UserContext`), and an annotation may hold
   only a type: names, attribute chains, a subscript of a type name (a generic), `|`, literals,
-  and tuples or lists of these. Refused inside one: a call (except in `Annotated`'s metadata,
-  where `Depends(...)` lives, under any alias), a subscript of anything else, an attribute
-  starting with `_`, the token's names (also as strings), and lambdas, comprehensions and the
-  like. A whole-string annotation is parsed and checked the same way (`typing.get_type_hints`
-  evaluates it).
+  and tuples or lists of these. Refused inside one: a call, a subscript of anything else, an
+  attribute starting with `_`, the token's names (also as strings), and lambdas, comprehensions
+  and the like. A whole-string annotation is parsed and checked the same way
+  (`typing.get_type_hints` evaluates it);
+- `Annotated`'s metadata as code (#89): in `Annotated[T, m1, m2]`, `T` is the annotation and
+  `m1, m2` are ordinary code, evaluated with it, so every rule in this section applies to them
+  as it does outside an annotation (`Depends(get)`, `Header()` and `Field(ge=1)` pass;
+  `getattr(object, "__setattr__")(...)`, `vars(ownvitals.context)` and `UserContext(...)` don't).
+  Only `typing`'s or `typing_extensions`' `Annotated`, under any import alias, has metadata.
+  A name the module binds another way (`Annotated = dict`, another module's `Annotated`) is a
+  plain generic, where a call is refused.
 
 The guard reads "anywhere" with one exception (Architect, 2026-10-31): the frozen-dataclass idiom
 `object.__setattr__(self, "field", value)` written directly in a class's undecorated
@@ -252,7 +258,7 @@ leaves to the review gate. Known limits:
 - class-level patching: `type(ctx).role = property(...)` changes what every context reads
   (accepted by the Architect);
 - a hook reached without its name, as above, when it sets a field that isn't one of the context's:
-  harmless to a context, which has only those slots;
+  harmless to a context, which has only those slots.
 
 ## Guards (ADR 0002 §7)
 
@@ -262,7 +268,7 @@ leaves to the review gate. Known limits:
 | 2 | roles and every privilege as an allowlist | `test_role_guard.py` (`role_guard.check_roles`), `test_roles_rerun.py` |
 | 3 | two users on test-only owned tables: no cross-user read, write, move, child reference or unique-value probe; no rows without a context; the app role can't change the schema | `test_isolation.py` |
 | 4 | no `app.user_id` or held cursor left on a pooled connection; `commit()` inside a session raises | `test_isolation.py` |
-| 5 | `UserContext` only from its issuers | `test_user_context_guard.py`, `test_user_context_writers.py`, `test_context.py` |
+| 5 | `UserContext` only from its issuers | `test_user_context_guard.py`, `test_user_context_writers.py`, `test_user_context_routes.py`, `test_context.py` |
 | 6 | startup refusal of a privileged role, and of a login the database refuses | `test_role_check.py`, `test_role_check_login.py`, `test_role_check_refused.py` |
 | — | only allowlisted modules open a session | `test_session_guard.py` |
 
