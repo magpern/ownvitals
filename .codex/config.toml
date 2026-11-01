@@ -1,0 +1,16 @@
+# Project configuration loads only after trusting this checkout in Codex.
+model = "gpt-6-astra"
+model_reasoning_effort = "high"
+project_doc_max_bytes = 65536
+developer_instructions = """
+Read AGENTS.md, CLAUDE.md, docs/dev/agent-tools.md, docs/roadmap.md and docs/status.md before work.
+Use codex-developer, codex-explorer, codex-reviewer, codex-security-developer and codex-security-reviewer by those names. Roadmap Amendment 4 authorizes their models.
+You are the Architect: preserve shared-file locks, security classification and integration review before merge.
+No real health data. Only synthetic fixtures/fakes. Owner-only integration, production and legal gates remain.
+An independent current-head PASS plus green ci/pr-title and Architect integration review are mandatory.
+If the interface cannot launch an independent reviewer, leave the PR open. Never bypass gates or downgrade roles.
+"""
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 5
