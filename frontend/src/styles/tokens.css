@@ -68,6 +68,17 @@
   --ov-qr-ink: #14181d;
   --ov-qr-paper: #ffffff;
 
+  /* Colour: the Google sign-in button, from Google's branding guidelines (owner, 2026-11-01).
+     The four colours of the "G" are the same in both themes; the button has a light and a dark
+     variant. Not part of ov.css: Google's colours, not the design's. */
+  --ov-google-blue: #4285f4;
+  --ov-google-red: #ea4335;
+  --ov-google-yellow: #fbbc05;
+  --ov-google-green: #34a853;
+  --ov-google-surface: #ffffff;
+  --ov-google-border: #747775;
+  --ov-google-text: #1f1f1f;
+
   /* Colour: dialogs */
   --ov-scrim: rgba(13, 16, 19, 0.42);
   --ov-shadow: 0 1px 2px rgba(20, 24, 29, 0.06), 0 12px 32px rgba(20, 24, 29, 0.10);
@@ -148,6 +159,9 @@
     --ov-ecg-major: #4a2c31;
     --ov-admin: #e9edf0;
     --ov-admin-ink: #14181d;
+    --ov-google-surface: #131314;
+    --ov-google-border: #8e918f;
+    --ov-google-text: #e3e3e3;
     --ov-scrim: rgba(0, 0, 0, 0.6);
     --ov-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
   }
@@ -191,6 +205,9 @@
   --ov-ecg-major: #4a2c31;
   --ov-admin: #e9edf0;
   --ov-admin-ink: #14181d;
+  --ov-google-surface: #131314;
+  --ov-google-border: #8e918f;
+  --ov-google-text: #e3e3e3;
   --ov-scrim: rgba(0, 0, 0, 0.6);
   --ov-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
 }

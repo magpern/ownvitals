@@ -102,7 +102,7 @@ PROBLEMS = (
     "owns a schema, or is a member of a role that does",
     "has a default for an app.* setting (on the role, the database or every role)",
     "logs in as one role and runs as another (a default or connection option for role)",
-    "starts its sessions with app.user_id set (server configuration or connection options)",
+    "starts each session with app.user_id set (server configuration or connection options)",
 )
 
 

@@ -3,10 +3,12 @@ import { getOAuthProviders, startOAuth } from '../api/auth'
 import { providerName } from '../api/messages'
 import { goToProvider } from '../lib/navigation'
 import { Field, Notice, useAction } from './forms'
+import { GoogleLogo } from './GoogleLogo'
 
 /**
- * "Continue with ..." buttons for the enabled providers (Google), plus the invite field a first
- * sign-in with a provider may need while sign-up is by invite.
+ * "Continue with Google" when Google sign-in is enabled (the only provider), plus the invite field
+ * a first sign-in with Google needs while sign-up is by invite. The button follows Google's
+ * branding guidelines: its "G" mark (GoogleLogo, from this origin) and an approved label.
  */
 export function ProviderButtons({ returnTo }: { returnTo: string | null }) {
   const [providers, setProviders] = useState<string[]>([])
@@ -49,13 +51,14 @@ export function ProviderButtons({ returnTo }: { returnTo: string | null }) {
         <button
           key={provider}
           type="button"
-          className="button button--secondary"
+          className={provider === 'google' ? 'google-button' : 'button button--secondary'}
           disabled={action.busy}
           onClick={() => {
             start(provider)
           }}
         >
-          Continue with {providerName(provider)}
+          {provider === 'google' ? <GoogleLogo /> : null}
+          <span>Continue with {providerName(provider)}</span>
         </button>
       ))}
     </div>

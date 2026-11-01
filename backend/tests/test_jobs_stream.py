@@ -247,12 +247,14 @@ async def test_the_stream_ends_when_the_session_does(
     assert set(frames) <= {stream.KEEPALIVE_FRAME}  # it ended (at most one comment first)
 
 
-async def test_the_default_session_probe_fails_closed(
+async def test_without_a_session_cookie_the_probe_ends_the_stream(
     jenv: JobsEnv, api: Api, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pins the seam's default until #10 (#77): the probe says no, so an open stream ends at its
-    first check, also through the endpoint (only the user override is in place there)."""
-    probe_for = stream_session_probe(Request({"type": "http", "headers": []}))
+    """#10's probe (``ownvitals.auth.deps.session_probe``) without a session cookie says no, so
+    an open stream ends at its first check, also through the endpoint (only the user override
+    is in place there). ``test_auth_session_probe.py`` covers a real session."""
+    request = Request({"type": "http", "headers": [], "app": api.app})
+    probe_for = stream_session_probe(request)
     assert await probe_for(uuid.uuid4())() is False
     monkeypatch.setattr(stream, "KEEPALIVE_SECONDS", 0.1)
     browser = api.browser()

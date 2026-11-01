@@ -97,12 +97,24 @@ def digest(value: str) -> bytes:
 
 
 def new_user() -> uuid.UUID:
-    """A synthetic owner id (no ``users`` table before #10)."""
+    """A synthetic owner id; ``new_job`` and ``ensure_user`` give it its ``users`` row."""
     return uuid.uuid4()
 
 
+def ensure_user(conn: Connection, owner: uuid.UUID) -> None:
+    """The synthetic account of ``owner``: ``jobs.owner_id`` references ``users`` since #10."""
+    conn.execute(
+        text(
+            "INSERT INTO users (id, email, email_normalized, email_verified_at) "
+            "VALUES (:id, :email, :email, now()) ON CONFLICT (id) DO NOTHING"
+        ),
+        {"id": owner, "email": f"synthetic-{owner}@example.test"},
+    )
+
+
 def new_job(conn: Connection, owner: uuid.UUID, **columns: Any) -> uuid.UUID:
-    """A queued ``test_kind`` job."""
+    """A queued ``test_kind`` job of ``owner`` (whose account it creates when missing)."""
+    ensure_user(conn, owner)
     values: dict[str, Any] = {
         "id": uuid.uuid4(),
         "owner_id": owner,

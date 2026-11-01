@@ -160,9 +160,15 @@ def test_webhook_key_ids_reject_other_forms_and_other_kinds(field: str, value: s
         Settings(**{field: value})  # pyright: ignore[reportArgumentType]
 
 
-@pytest.mark.parametrize("mode", ["invite", "closed", "open"])
-def test_signup_mode_takes_the_three_modes(mode: str) -> None:
+@pytest.mark.parametrize("mode", ["invite", "closed"])
+def test_signup_mode_takes_invite_and_closed(mode: str) -> None:
     assert Settings(signup_mode=mode).signup_mode == mode  # pyright: ignore[reportArgumentType]
+
+
+def test_signup_mode_open_is_refused_until_the_m8_gate() -> None:
+    """ADR 0003 section 6 (D7): ``open`` is refused by the setting's validation, with a reason."""
+    with pytest.raises(ValidationError, match="refused until the M8 gate"):
+        Settings(signup_mode="open")  # pyright: ignore[reportArgumentType]
 
 
 def test_signup_mode_rejects_anything_else() -> None:

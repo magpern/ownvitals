@@ -33,6 +33,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from ownvitals.auth.cookies import CSRF_COOKIE
 from ownvitals.config import Settings
 from ownvitals.context import _ISSUER, UserContext  # pyright: ignore[reportPrivateUsage]
 from ownvitals.db import (
@@ -231,6 +232,25 @@ class WebRequest:
         return True
 
 
+# The double-submit CSRF value the test clients send (ADR 0003 section 4): every write passes
+# ``ownvitals.auth``'s Origin and CSRF middleware (#10), which no route can skip.
+TEST_CSRF = "test-csrf-" + uuid.uuid4().hex
+
+
+def same_origin_client(transport: httpx.AsyncBaseTransport, app: FastAPI) -> httpx.AsyncClient:
+    """A client whose requests come from the app's own origin with a valid double-submit CSRF
+    token, as the SPA's do, so tests reach the routes behind the middleware."""
+    return httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={
+            "origin": app.state.settings.public_base_url,
+            "x-csrf-token": TEST_CSRF,
+            "cookie": f"{CSRF_COOKIE}={TEST_CSRF}",
+        },
+    )
+
+
 @asynccontextmanager
 async def web_request(
     app_url: str, *, rows: Rows | None = None, bypass_url: str | None = None
@@ -244,7 +264,7 @@ async def web_request(
         if bypass_url is not None:
             app.state.session_factory = await stack.enter_async_context(bypass_sessions(bypass_url))
         client = await stack.enter_async_context(
-            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+            same_origin_client(httpx.ASGITransport(app=app), app)
         )
         yield WebRequest(app, client)
 

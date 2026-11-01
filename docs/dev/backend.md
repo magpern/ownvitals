@@ -99,16 +99,19 @@ All settings of the platform milestone exist already, so the issues that use the
 | `maint_database_url` | unset | admin role; needs `database_maint_password` too |
 | `static_dir` | unset | built SPA; unset: API only |
 | `public_base_url` | `http://127.0.0.1:8000` | the one public origin, normalised |
-| `admin_emails`, `trusted_proxies` | empty | comma-separated; proxies are IPs or CIDR ranges |
+| `admin_emails` | empty | comma-separated; these addresses get `admin` when they sign up |
+| `trusted_proxies` | `127.0.0.0/8,::1` | comma-separated IPs or CIDR ranges whose `X-Forwarded-For` counts: SWAG's address in production (#10, [auth.md](auth.md)) |
+| `cf_connecting_ip_proxies` | empty | the trusted proxies (SWAG) whose `CF-Connecting-IP` counts; each must also be in `trusted_proxies` to matter |
 | `session_idle_days`, `session_absolute_days` | 7, 30 | |
 | `password_hash_workers` | 4 | |
-| `signup_mode` | `invite` | `invite`, `closed`, `open` |
+| `signup_mode` | `invite` | `invite` or `closed`; `open` is refused until the M8 gate |
 | `stepup_window_minutes` | 10 | how long a fresh TOTP check authorises a sensitive action (PLAN §6: 10 minutes; 1 to 10, so the environment can only shorten it) |
 | `purge_interval_seconds` | 3600 | |
 | `connection_kek_id` | `kek-1` | `kek-[a-z0-9-]{1,28}`; the key is the secret file `connection_kek` |
 | `webhook_seed_id` | `seed-1` | `seed-[a-z0-9-]{1,28}`; the key is the secret file `webhook_seed`, worker only (ADR 0004 §4; optional in M0, see [crypto.md](crypto.md)) |
 | `webhook_pepper_id` | `pep-1` | `pep-[a-z0-9-]{1,28}`; the key is the secret file `webhook_pepper`, web and worker (optional in M0) |
 | `smtp_host`, `smtp_port`, `smtp_sender`, `smtp_tls`, `smtp_username` | unset, 587, `ownvitals@localhost`, `starttls` | `smtp_tls=none` only for loopback or `mailpit` |
+| `smtp_total_seconds` | 20 | the most one mail may take, connect to quit; positive and finite |
 | `oauth_google_client_id` | unset | Google is the only OAuth provider |
 | `worker_poll_seconds`, `worker_maintenance_seconds`, `worker_shutdown_wait_seconds` | 2, 30, 25 | wait at most 25 s |
 | `job_lease_seconds`, `worker_concurrency`, `jobs_per_user`, `job_busy_requeue_limit` | 120, 2, 2, 5 | bounded: 30..600, 1..16, 1..100, 0..100 |
