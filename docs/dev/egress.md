@@ -227,7 +227,106 @@ What else the guard refuses outside the package:
 - an import that does **not resolve** in the locked environment ("not in the locked
   environment"), except inside `if TYPE_CHECKING:`;
 - **dynamic imports** with a computed name, a `package` or a `fromlist` (a constant name is an
-  ordinary import), and `pkgutil.resolve_name`. `getattr(x, "name")` is the reference `x.name`;
+  ordinary import, judged by every rule above). An importer (`importlib.import_module`,
+  `importlib.__import__`, `builtins.__import__`, bare `__import__`, by any alias, `from` form
+  or chain) may only be called directly with one string literal: any other reference (stored
+  in a variable or a list, passed to `partial`, taken through `getattr`) is refused, so the
+  name it imports is always visible. `importlib.util.find_spec` and `spec_from_*` are refused
+  outright (`IMPORT_CALLS`, `SPEC_FINDERS`). `getattr(x, "name")` is the reference `x.name`;
+- **module loaders**, under any alias, `from` form or chain (`LOADER_MODULES`,
+  `tests/egress_importers.py`): `runpy`, `pkgutil` (the whole module), `zipimport`,
+  `importlib.machinery`, `importlib.abc`, `importlib._bootstrap*`, `_frozen_importlib*`, `_imp`,
+  and every `importlib` name except `import_module` (direct, literal only) and
+  `importlib.metadata`. Each loads a module by a name the guard does not judge; `src` uses
+  none of them, so this fails closed;
+- **evaluators**, under any alias or `from` form (`EVALUATORS`, `tests/egress_importers.py`):
+  the builtins `exec`, `eval` and `compile` (`re.compile` is not `compile`), `pickle`, `_pickle`,
+  `marshal`, `shelve`, `timeit`, `code`, `codeop`, `pydantic.ImportString` and
+  `pydantic.types.ImportString`, `cProfile`, `profile`, `trace`, `doctest`, `pdb`, `bdb`, the
+  builtins `help` and `breakpoint`, `sys.breakpointhook`, `sys.__breakpointhook__` and
+  `_sitebuiltins` (`help` and `_Helper` import through `pydoc`; `breakpoint` imports what
+  `PYTHONBREAKPOINT` names). argparse's `help=` keyword is not the builtin and passes. Each runs
+  code or loads objects from text or bytes the guard does not read; `src` uses none, so this
+  fails closed;
+- **names in strings** (fail closed, `tests/test_egress_importers.py`,
+  `tests/test_egress_prose.py`): a `str` or `bytes` constant (an f-string part included) that
+  names a native or process module, or a process name (`concurrent.futures.ProcessPoolExecutor`,
+  and `ProcessPoolExecutor` as a word), as identifier segments, split on every character that is
+  not a letter, digit or `_` (`"ctypes"`, `"ctypes:CDLL"`, `"import ctypes"`,
+  `"ctypes/__init__.py"`, `b"_posixsubprocess"`, `"concurrent/futures/process.py"` ...;
+  `"ctypesish"` is not one). Also the name or attribute `__builtins__`. Every importer reached
+  by name (`__builtins__["__import__"]`, `vars(builtins)["__import__"]`,
+  `importlib.__dict__["import_module"]`) names one of them;
+- **strings that are code** (`tests/test_egress_strings.py`), for every `str` (and, for the
+  words, `bytes`) constant. `typing` and pydantic evaluate a string that reaches a type position
+  as a value, not only in annotation syntax (`T = "..."` then `x: T`, `TypedDict`, `NamedTuple`,
+  `TypeAdapter("...")`, `NewType`, `make_dataclass`, `__annotations__`), so:
+  - **code words**: refused if an identifier segment is `__import__`, `import_module`, `exec`,
+    `eval`, `compile`, `__builtins__`, `builtins`, `modules`, `getattr`, `vars`, `globals`, `help`,
+    `breakpoint`, `breakpointhook`, `__breakpointhook__` or `PYTHONBREAKPOINT` (`CODE_WORDS`);
+  - **code that runs**: refused if it parses (`ast.parse(s, mode="eval")`) to anything holding a
+    call, a lambda, a comprehension or generator, a walrus, `await`/`yield` or an f-string (a
+    nested string likewise). Every import statement or function needs a call. An evaluated
+    string with no call can still trigger a lazy import: reading `concurrent.futures.X` runs the
+    package's module `__getattr__`, which imports `concurrent.futures.process` (and
+    `multiprocessing`). That is why the module and process names are refused in strings (above),
+    whatever else the string holds. Otherwise a string with no call only reads names and runs
+    operator or subscript dunders of objects the module defines, which the guard already scans.
+    So operators, comparisons and conditionals on names pass, which keeps ordinary text out of
+    the table: header names (`"X-Content-Type-Options"`), MIME types (`"text/event-stream"`),
+    algo version ids (`"daily/1"`), `"utf-8"`, `"smtp_host is not configured"`. Text that does
+    not parse (prose, SQL, log messages) passes;
+- **docstrings and comments** are judged too (`tests/test_egress_prose.py`,
+  `tests/test_egress_prose_words.py`, `tests/test_egress_prose_calls.py`; comments are read with
+  `tokenize`), each line, and a docstring as a whole when a module name or word breaks over
+  lines. `logging` (`findCaller`, `formatException`, `formatStack`), `warnings.formatwarning`
+  and `tracemalloc` hand source lines back, and `src` needs `logging` and `warnings`, so those
+  readers stay. In any docstring or comment the guard refuses, before stripping or parsing and
+  after NFKC:
+  - a native or process module (or process name), as identifier segments;
+  - **the word rule** (`PROSE_WORDS`): `exec`, `eval`, `compile` and the importer words, as
+    whole identifiers (identifier segments). The set is the last segment of every evaluator,
+    importer, spec finder and loader, plus `PROSE_IMPORTER_WORDS`, minus `code`, `profile`,
+    `trace` and `abc`. A subscript (`[exec][0]`), a comment-only `exec`, or `exec` in a
+    docstring is refused whether or not the line parses as a call;
+  - **the call rule** (`PROSE_CALLS`), a second layer: a line that parses (`ast.parse`, after
+    leading `>>>`, `...` or list markers) as a call whose function or attribute is `exec`,
+    `eval`, `compile`, `__import__`, `import_module`, `getattr`, `setattr`, `vars`, `globals`,
+    `locals`, `breakpoint`, `help`, `open`, `run_module` or `run_path`. Other calls
+    (`max(...)`, `F(t)`) pass. A non-parsing line is still refused when it holds a refused word.
+- **reviewed exceptions**: exact text by module. `CODE_STRINGS`, for strings code reads: the
+  reprs `"MailMessage(...)"` and `"Mailer(...)"` (`mail`) and `"Keys(...)"` (`auth.keys`), and the
+  SQL server defaults `"gen_random_uuid()"` and `"now()"` (`auth.tables`); a string naming a
+  native or process module is never excepted. `PROSE_LINES` is four exact stripped lines, each
+  passing only as a docstring line or comment of its module: `ownvitals.context` ("slot
+  descriptors, ctypes)..."), `ownvitals.auth` ("PEP 562, ``import_module``..."), `ownvitals.cli`
+  ("docker compose exec web python -m ownvitals admin grant...") and `ownvitals.headers` ("No
+  inline or ``eval`` script"). `DICT_KEY_STRINGS` holds the ECG record key `"modules"` in
+  `ownvitals.ecg.pipeline`, which passes only as a key of a dict display there. Tests pin each
+  entry to `src` and show it refused elsewhere;
+- **reading source text back**: the name or attribute `__doc__`, and `inspect`, `pydoc`,
+  `linecache`, `tokenize` and `traceback` under any alias, `from` form or chain
+  (`SOURCE_READERS`); `src` uses none;
+- **strings `typing` evaluates** (`tests/egress_forward.py`, `tests/test_egress_forward.py`):
+  `typing.get_type_hints`, which FastAPI and pydantic call on routes and models (pydantic when
+  it builds the class), evaluates every string in an annotation: a whole-string annotation
+  (`x: "Node"`) and a string nested in one (`list["Node"]`, `Optional["Node"]`,
+  `Annotated["Node", ...]`). So do a string `TypeVar` bound or constraint and
+  `ForwardRef("...")`. Each may hold only names, dotted names, subscripts, tuples, lists,
+  constants and `X | Y` (`ast.parse(s, mode="eval")`; a string nested in it likewise).
+  Anything else, a call, a lambda, a comprehension, an operator or a syntax error, is refused,
+  and so is an annotation that builds a string (an f-string, `+` or any operator but `|`). A
+  `Literal[...]` argument is a value and `Annotated` metadata is not a type: neither is read.
+  Each name in such a string is then judged as a name in code, through the run-time imports or,
+  when nothing binds it, as spelled: so `"ctypes.c_int"` is refused as a reference to `ctypes`,
+  even under a type-only import, and `"__import__"`, `"__builtins__"` or an importer is refused;
+- **a module looked up by name**: any reference to `sys.modules` (a subscript, `.get(...)`, an
+  `in` test, a variable holding it) and `pkgutil.resolve_name`, under any alias of `sys`, as
+  `from sys import modules` and through a chain (`os.sys.modules`). `subprocess` imports
+  `_posixsubprocess`, so `sys.modules["_posixsubprocess"]` would hand out a process route every
+  other rule misses (`REFLECTION_NAMES`, `tests/test_egress_reflection.py`);
+- **`ctypes` and `_ctypes`** (`NATIVE_MODULES`), under any alias or `from` form: they reach the
+  C library's process and socket functions, which raise no audit event the hook sees;
 - **assigning to** or deleting any attribute of `ownvitals.egress` or `ownvitals.mail` (also by
   `setattr`/`delattr`), and any private name of either;
 - building an `Allowlist`, `AllowlistTransport`, opener or deadline handler, or handing an entry
@@ -237,7 +336,40 @@ What else the guard refuses outside the package:
   `ownvitals.cli`, `ownvitals.web`), or `smtp_session` outside `ownvitals.mail`;
 - star-importing anything.
 
-An import inside `if TYPE_CHECKING:` is allowed when its names appear only in annotations.
+An import inside `if TYPE_CHECKING:` passes every rule, `ctypes` and the process routes
+included, when its names appear only in annotations (`tests/egress_typeonly.py`,
+`tests/test_egress_typeonly.py`). Such an import never runs: `typing.TYPE_CHECKING` is `False`
+at run time, so it only tells the type checker what a name is. A name it binds is a run-time
+reference anywhere outside an annotation, and inside an annotation it resolves only through the
+run-time imports, so an annotation that is evaluated cannot reach the module unless a run-time
+import binds it, which the guard sees. (A string `typing` evaluates is the exception: its names are
+also judged as spelled, above, so `"ctypes.c_int"` is refused even then.) That holds only while
+the flag is really `typing`'s, so
+the block is skipped only when:
+
+- its test is `TYPE_CHECKING` imported from `typing` or `typing_extensions` (by any alias), or
+  `typing.TYPE_CHECKING` with `typing` (or `typing_extensions`) imported by any alias;
+- every import that binds that name (a relative import never counts) binds it to one of
+  those, and no other binding of it is recorded in any `symtable` scope of the module
+  (assignment, `del`, a parameter, the walrus, a loop, `with` or `except` target; a
+  `global`/`nonlocal` write is an assignment in its own scope). A 3.12 comprehension variable
+  is recorded only in the comprehension, which is right: it does not rebind the module's name;
+- nothing in the module writes to a name or attribute `TYPE_CHECKING`, or names it as a string
+  or a keyword.
+
+Otherwise the block is ordinary code and is scanned as such. Separately, these are refused in
+`src/`:
+
+- any write to a name or attribute `TYPE_CHECKING`: `TYPE_CHECKING = True`,
+  `typing.TYPE_CHECKING = True`, `del`, a parameter or type parameter, a definition, a `match`
+  capture;
+- the string `"TYPE_CHECKING"` (or bytes `b"TYPE_CHECKING"`) and the keyword `TYPE_CHECKING=`
+  anywhere. Every other way to
+  write the flag names it like that: `globals()[...]`, `globals().update(...)`, `vars(...)`,
+  `__dict__`, and `setattr`, `__setattr__` or `object.__setattr__` by any spelling. `src` only
+  imports the flag and tests it, so this fails closed.
+
+An `else:` branch runs and is scanned.
 
 **Adding a dependency or an import.** The guard names the path to the network
 (`x can reach the network (x -> y -> socket); not classified`). The PR adds a table entry with
@@ -271,21 +403,34 @@ cd backend
 uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_closure.py tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
   tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py \
-  tests/test_egress_scope.py tests/test_egress_process.py
+  tests/test_egress_scope.py tests/test_egress_process.py tests/test_egress_reflection.py \
+  tests/test_egress_typeonly.py tests/test_egress_importers.py tests/test_egress_forward.py \
+  tests/test_egress_strings.py tests/test_egress_prose.py tests/test_egress_prose_calls.py tests/test_egress_prose_words.py
 ```
+
+**The guard's scope** (the bound its reviews apply, as for #115):
+
+- **Blocking:** naming a refused module, importer or evaluator whole in source: in code, in any
+  string code reads, and in any docstring or comment as an identifier segment (`exec`, `eval`,
+  `compile` and the importer words) or as a reflection call (the prose rules above).
+- **Known limits:** names built at run time from allowed pieces; objects written to intercept
+  the guard's own allowed calls; reading source from disk through allowed file APIs; and
+  reflection with no such name written.
 
 ## Known limits
 
 - The hook sees only Python's `socket` module. It cannot see C extensions that open sockets
   themselves (libpq, the database driver, by design: it connects only to the configured
-  database; a new dependency with native networking is caught by dependency review), `ctypes`,
-  or code that already runs in the process: it is a control on our code and our libraries, not
+  database; a new dependency with native networking is caught by dependency review), `ctypes`
+  (refused statically in `src/`; a dependency's use is trusted code), or code that already runs
+  in the process: it is a control on our code and our libraries, not
   a sandbox. A network-level egress rule stays the deployment's (M2).
 - The hook refuses the process-creation routes that raise audit events. `_posixsubprocess.fork_exec`
   raises none: the `multiprocessing` `spawn` and `forkserver` methods (and uvicorn's
   `workers > 1` and `reload`) use it, and `ctypes` can start a process too. The guard refuses
   `_posixsubprocess`, `_winapi`, `multiprocessing` and `concurrent.futures.ProcessPoolExecutor`
-  in `src/` under any name (`tests/test_egress_process.py`); dependencies are trusted code.
+  in `src/` under any name (`tests/test_egress_process.py`), and `ctypes`, `_ctypes` and
+  `sys.modules` too (`tests/test_egress_reflection.py`); dependencies are trusted code.
   Web runs as one uvicorn process (#77).
 - The inherited-scope check (`tests/test_egress_scope.py`) is lexical: a helper called inside a
   scope that starts a task itself is not seen; the four modules that open a scope are reviewed.
@@ -293,11 +438,23 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   deployment's rule.
 - The guard is static; the hook covers at run time what it cannot see, and the review gate the
   rest:
-  - deliberate indirection (N9): `sys.modules`, a computed `getattr`, `exec`/`eval`,
-    `importlib.util` loaders, `ctypes`. The cheap partial closes are in: dynamic imports,
-    `pkgutil.resolve_name`, constant `getattr`, and `_socket`/`_ssl` as seeds. The `module:attr`
-    string form (pydantic's `ImportString`, `"socket:create_connection"`) is not read by the
-    string rule (N18): indirection of this kind, refused by the hook when it connects;
+  - deliberate indirection (N9): a computed `getattr` (also a name unpacked from a dict
+    display, `getattr(sys, *{"modules": 0})`), `vars(sys)`, `sys.__dict__`, a module
+    an expression returns (`importlib.import_module("sys").modules`), the module's own
+    `__loader__`, `__loader__.get_source(...)` and `__spec__.loader` (bound to its own file),
+    reads of `co_consts`, `sys._getframe()` and `open(__file__)` (that prose is judged by the
+    word rule, so it carries no `exec`, `eval`, `compile` or importer word, nor such a call), and a
+    module or flag name **built at run time**: `"cty" + "pes"`, `"TYPE_" + "CHECKING"`, `"".join(map(chr, ...))`,
+    `"type_checking".upper()`, `b"...".decode()`, an f-string with a variable part. Every route
+    that names its target as a constant is refused (above). `sys.path_hooks`,
+    `types.ModuleType(...)` and a code object load nothing without `exec` (or a file on disk),
+    and `exec`, `eval`, `compile` and `marshal` are refused. The cheap partial closes are in: a
+    rebound or named `TYPE_CHECKING`, dynamic imports and stored importers, module loaders,
+    evaluators, names of refused modules and importers in strings, strings `typing` evaluates,
+    `__builtins__`, `find_spec`/`spec_from_*`, `sys.modules`, `pkgutil`, `ctypes`, constant
+    `getattr`, and `_socket`/`_ssl` as seeds. A `module:attr` string
+    (`"socket:create_connection"`) is read as `module.attr` by the string rule (N18), and
+    pydantic's `ImportString`, which resolves one, is refused;
   - process execution (N10): `subprocess` is capable (it imports `select`) and so refused, as
     are `asyncio.create_subprocess_*` and `anyio`; `os.system`, `os.popen`, `os.exec*` and
     `os.spawn*` pass the guard. The image has `python`, so a child could connect: the hook

@@ -13,8 +13,11 @@ name under ``ownvitals``) may not do outside the egress package:
   ``typing_extensions._socket``, ``ownvitals.mail.smtplib``), and through any ``ownvitals``
   module's re-exports, is judged where it lands. ``getattr`` with a constant name counts;
 - import a module **not in the locked environment**, import dynamically (``import_module`` or
-  ``__import__`` with a name that is not a constant, a ``package`` or a ``fromlist``), use
-  ``pkgutil.resolve_name``, or star-import;
+  ``__import__`` with a name that is not a constant, a ``package`` or a ``fromlist``; any
+  reference to an importer but a direct call, ``find_spec``/``spec_from_*``, a module loader,
+  a string naming a refused module or an importer, ``__builtins__``: ``egress_importers``), look a
+  module up by name (``sys.modules``, ``pkgutil.resolve_name``), use ``ctypes`` or a process
+  route the hook cannot see (``PROCESS_MODULES``) by any spelling, or star-import;
 - name a classified-out dotted path in a **string** (``"logging.handlers.SysLogHandler"`` for
   ``dictConfig``, ``"handlers.SysLogHandler"`` for ``fileConfig``, ``"ext://socket.socket"``);
 - use an ``asyncio`` event-loop network method on any object (``.create_connection``,
@@ -22,12 +25,12 @@ name under ``ownvitals``) may not do outside the egress package:
 - build an allowlist, a transport or an opener of the package (``Allowlist``, ...), hand an
   entry point a list, use a **private name** of ``ownvitals.egress`` or ``ownvitals.mail``, or
   **assign** to (or delete) any attribute of either from outside;
+- write to a name or attribute ``TYPE_CHECKING`` (``egress_typeonly``);
 - use ``install_worker_allowlist``, which makes a process the worker: only the worker's entry
   point and the probe CLI may (``WORKER_ROLE_MODULES``), and tests.
 
-Imports inside ``if TYPE_CHECKING:`` are allowed when their names appear only in annotations.
-Like the other guards this catches ordinary code and makes the rest visible in review; deliberate
-indirection (``sys.modules``, a computed ``getattr``, ``exec``) is the review gate's (N9).
+Type-only imports pass when their names appear only in annotations (``egress_typeonly``). The
+rest of deliberate indirection (``vars(sys)``, a computed ``getattr``, ``exec``) is review's (N9).
 
 A worker module never imports ``ownvitals.mail`` (``egress_worker``: ``WORKER_PACKAGES``,
 ``WORKER_ENTRYPOINTS``, checked by the tests), and every web-only site calls
@@ -43,12 +46,27 @@ from pathlib import Path
 from egress_classified import (
     EDGE_CUTS,
     LOOP_METHODS,
+    NATIVE_MODULES,
     PROCESS_MODULES,
     PROCESS_NAMES,
+    REFLECTION_NAMES,
     TABLE,
     Entry,
 )
 from egress_closure import OWN, Closure, resolve_from, under
+from egress_forward import forward_references, spelled
+from egress_importers import (
+    NOT_DIRECT,
+    direct_imports,
+    dynamic_import,
+    evaluator,
+    importer,
+    loader,
+    names,
+    reads_source,
+)
+from egress_typeonly import annotations, assignments, type_only
+from egress_typeonly import dotted as _dotted
 
 EGRESS = "ownvitals.egress"
 MAIL = "ownvitals.mail"
@@ -92,6 +110,11 @@ WORKER_ROLE_MODULES: dict[str, str] = {
 INSTALL_HOOK = f"{EGRESS}.install_egress_hook"
 HOOK_INSTALLERS = frozenset({"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web"})
 SMTP_SESSION = f"{EGRESS}.smtp_session"
+# Builtins resolved where nothing rebinds them: ``__import__`` (an importer), the evaluators.
+_BUILTIN_NAMES = {
+    n: f"builtins.{n}" for n in ("__import__", "exec", "eval", "compile", "help", "breakpoint")
+}
+_MODULE_ATTR = re.compile(r"[A-Za-z_][\w.]*:[A-Za-z_][\w.]*")  # ``"socket:create_connection"``
 _DOTTED = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+")
 _EXCEPTIONS = frozenset(
     n for n, v in vars(builtins).items() if isinstance(v, type) and issubclass(v, BaseException)
@@ -229,31 +252,6 @@ def classify(dotted: str, scanning: str, verb: str, used: set[str] | None = None
 # --- aliases ------------------------------------------------------------------------------------
 
 
-def _type_only(tree: ast.AST, aliases: dict[str, str]) -> set[int]:
-    """``id``s of the import nodes inside ``if TYPE_CHECKING:`` (``typing``'s, by any alias);
-    the ``else`` branch runs and is not one."""
-    nodes: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.If) and _dotted(node.test, aliases) == "typing.TYPE_CHECKING":
-            for statement in node.body:
-                nodes.update(
-                    id(n) for n in ast.walk(statement) if isinstance(n, ast.Import | ast.ImportFrom)
-                )
-    return nodes
-
-
-def _annotations(tree: ast.AST) -> set[int]:
-    """``id``s of every node inside an annotation: the only place a name imported for type
-    checking may appear (anywhere else it would run, and could only work if rebound)."""
-    roots: list[ast.expr] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.returns:
-            roots.append(node.returns)
-        elif isinstance(node, ast.arg | ast.AnnAssign) and node.annotation:
-            roots.append(node.annotation)
-    return {id(inner) for root in roots for inner in ast.walk(root)}
-
-
 def _is_package(module: str) -> bool:
     found = CLOSURE.find(module)
     return found is not None and found.search is not None
@@ -275,17 +273,6 @@ def _aliases(tree: ast.AST, module: str, skip: set[int] | None = None) -> dict[s
             for alias in node.names:
                 names[alias.asname or alias.name] = f"{source}.{alias.name}"
     return names
-
-
-def _dotted(node: ast.expr, aliases: dict[str, str]) -> str | None:
-    parts: list[str] = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    if not isinstance(node, ast.Name):
-        return None
-    head = aliases.get(node.id)
-    return None if head is None else ".".join([head, *reversed(parts)])
 
 
 def _canonical(name: str) -> str:
@@ -324,11 +311,26 @@ def _internal(name: str, module: str, verb: str) -> list[str]:
         found.append(f"{verb} {name}: only a process entry point installs the egress hook")
     if name == SMTP_SESSION and module != MAIL:
         found.append(f"{verb} {name}: only the mail module opens an SMTP session")
-    if under(name, PROCESS_MODULES) or name in PROCESS_NAMES:
+    spelled = _landings(name)
+    if any(under(n, PROCESS_MODULES) or n in PROCESS_NAMES for n in spelled):
         found.append(f"{verb} {name}: starts a process the egress hook cannot see (ADR 0009)")
-    if name == "pkgutil.resolve_name":
+    if any(under(n, NATIVE_MODULES) for n in spelled):
+        found.append(f"{verb} {name}: calls native code the egress hook cannot see (ADR 0009)")
+    if any(under(n, REFLECTION_NAMES) for n in spelled):
         found.append(f"{verb} {name}: resolves a module by name at run time")
+    if loader(name, _landings):
+        found.append(f"{verb} {name}: loads a module by a name the guard cannot judge")
+    if evaluator(name, _landings):
+        found.append(f"{verb} {name}: evaluates code or data the guard cannot read")
+    if reads_source(name, _landings):
+        found.append(f"{verb} {name}: hands back source text, docstrings or comments")
     return found
+
+
+@cache
+def _landings(name: str) -> frozenset[str]:
+    """``name`` and where import bindings take it (``os.sys.modules`` is ``sys.modules``)."""
+    return frozenset({name, *(".".join([m, *rest]) for m, rest in visits(name))})
 
 
 def _imports(tree: ast.AST, module: str, skip: set[int]) -> list[tuple[int, str, bool]]:
@@ -347,24 +349,12 @@ def _imports(tree: ast.AST, module: str, skip: set[int]) -> list[tuple[int, str,
     return found
 
 
-def _dynamic_import(node: ast.Call, aliases: dict[str, str]) -> list[tuple[int, str, bool]] | str:
-    """A constant ``import_module``/``__import__`` as an import, or why it is refused."""
-    func = node.func
-    called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-    if called not in ("import_module", "__import__"):
-        return []
-    first = node.args[0] if node.args else None
-    extra = node.args[1:] or [k for k in node.keywords if k.arg in ("package", "fromlist", None)]
-    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)) or extra:
-        return f"imports dynamically ({called}): a module name must be one constant"
-    return [(node.lineno, first.value, True)]
-
-
 def _strings(tree: ast.AST) -> list[tuple[int, str]]:
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             text = node.value.removeprefix("ext://")
+            text = text.replace(":", ".", 1) if _MODULE_ATTR.fullmatch(text) else text
             if _DOTTED.fullmatch(text) and not under(text, (OWN,)):
                 found.append((node.lineno, text))
                 if text.startswith("handlers."):  # fileConfig resolves it in ``logging``
@@ -379,20 +369,22 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
         return []
     tree = ast.parse(source)
     every = _aliases(tree, module)
-    skip = _type_only(tree, every)
+    skip = type_only(tree, source)
     # In an annotation a name means what the run-time imports bind; anywhere else a name bound
     # only for type checking still counts (it could only run if rebound).
-    typed = _annotations(tree)
+    typed = annotations(tree)
     runtime = _aliases(tree, module, skip)
-    aliases = every | runtime
-    found: list[tuple[int, str]] = []
+    aliases = _BUILTIN_NAMES | every | runtime
+    direct = direct_imports(tree, aliases, _landings)
+    refused, references, read = forward_references(tree, aliases)
+    found: list[tuple[int, str]] = assignments(tree) + names(tree, read, module, source) + refused
     imports = _imports(tree, module, skip)
     object_names = object_network_names()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
             found.append((node.lineno, "star import: names must be visible"))
         elif isinstance(node, ast.Call):
-            dynamic = _dynamic_import(node, aliases)
+            dynamic = dynamic_import(node, aliases, _landings)
             if isinstance(dynamic, str):
                 found.append((node.lineno, dynamic))
             else:
@@ -414,6 +406,8 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
                 continue
             found += [(node.lineno, w) for w in _internal(name, module, "uses")]
             found += [(node.lineno, w) for w in classify(name, module, "uses", used)]
+            if id(node) not in direct and importer(name, _landings):
+                found.append((node.lineno, f"uses {name}: {NOT_DIRECT}"))
             if isinstance(node.ctx, ast.Store | ast.Del) and isinstance(node, ast.Attribute):
                 found += [(node.lineno, w) for w in _assigned(name, module)]
         elif isinstance(node, ast.ClassDef):
@@ -423,6 +417,12 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
                     found.append((node.lineno, f"subclasses {name}: lists live in {EGRESS}"))
     for line, text in _strings(tree):
         found += [(line, w) for w in classify(text, module, "names", used)]
+    for line, node in references:  # as bound at run time, else as spelled (``"ctypes.c_int"``)
+        name = _dotted(node, runtime) or spelled(node) or ""
+        found += [(line, w) for w in _internal(name, module, "names")]
+        found += [(line, w) for w in classify(name, module, "names", used)]
+        if name.split(".")[0] in ("__import__", "__builtins__") or importer(name, _landings):
+            found.append((line, f"names {name} in an annotation: an importer"))
     return sorted(set(found))
 
 
@@ -443,7 +443,8 @@ def _scan_call(
             name = f"{target}.{attr.value}"
             if called != "getattr":
                 return _assigned(name, module)
-            return _internal(name, module, "uses") + classify(name, module, "uses", used)
+            refused = [f"uses {name}: {NOT_DIRECT}"] if importer(name, _landings) else []
+            return refused + _internal(name, module, "uses") + classify(name, module, "uses", used)
         if target is not None and called != "getattr":
             return _assigned(target + ".?", module)
     name = _dotted(func, aliases)
@@ -485,5 +486,5 @@ def scan_tree(src: Path, used: set[str] | None = None) -> list[tuple[str, int, s
 def imported_modules(source: str, module: str) -> set[str]:
     """Every dotted name ``module`` imports at run time (and each ``from`` source)."""
     tree = ast.parse(source)
-    skip = _type_only(tree, _aliases(tree, module))
+    skip = type_only(tree, source)
     return {name for _, name, _ in _imports(tree, module, skip)}

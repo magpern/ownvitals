@@ -4,6 +4,8 @@ Moved out of [docs/status.md](../status.md) so the index stays short; the text i
 
 ## Completed
 
+- 2026-11-01: #140 step-up window bounds merged as #142 (Grok 4.7 PASS `83164b7`, merge check `c751275`) → IMPLEMENTED. A future step-up or MFA time is outside the window. Follow-up #143: `pending_expired` still has no lower bound.
+- 2026-11-01: #122 static egress guard merged as #123 (Grok 4.7 PASS `bab31a2`, merge review PASS `4206536`) → IMPLEMENTED. `egress.md` does not list the `fastapi.routing` allow; the guard reads the Python table.
 - 2026-11-01: #12 admin gate, audit log and stored flags merged as #129 (Opus PASS `b6d69c3`, Grok 4.7 delta PASS `f631a9b` after the #132 merge; Architect integration review PASS) → IMPLEMENTED. Synthetic data only. Follow-ups are #140.
 - 2026-11-01: #119 ECG follow-ups from the #114 review merged as #120 (Sonnet PASS `a0b7629`) → IMPLEMENTED.
 - 2026-11-01: #40 ECG signal-processing core merged as #114 (Opus delta PASS `308e54b` after FAIL `b40a263`; Architect integration review PASS) → IMPLEMENTED; synthetic data only, nothing verified against Withings. Its follow-ups are #119.
