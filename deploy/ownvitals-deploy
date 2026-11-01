@@ -30,7 +30,7 @@ readonly SIGNER=https://github.com/magpern/ownvitals/.github/workflows/release.y
 readonly OIDC_ISSUER=https://token.actions.githubusercontent.com
 readonly PREDICATE_TYPE=https://slsa.dev/provenance/v1
 readonly PROJECT=ownvitals
-readonly -a APP_SERVICES=(migrate web worker)
+readonly -a APP_SERVICES=(migrate db-functions web worker)
 # gh has --source-ref and --source-digest since 2.68.0. 2.102.0 makes --source-ref match case
 # sensitively, and 2.93.0 stops sending the token to TUF mirrors: 2.102.0 is the minimum.
 readonly -a GH_MINIMUM=(2 102 0)
@@ -52,6 +52,10 @@ readonly LOCK_FILE=$STATE_DIR/lock
 readonly GH_DIR=$STATE_DIR/gh
 readonly OVERRIDE=$STATE_DIR/compose.image.yaml
 readonly OVERRIDE_NEXT=$STATE_DIR/compose.image.next.yaml
+# db-functions' secrets as `docker compose config` prints them: postgres_password at its default.
+readonly DB_FUNCTIONS_SECRETS="      - source: postgres_password
+        target: /run/secrets/postgres_password
+"
 
 # One "<field><TAB><JSON value>" line per fact of a ruleset; tojson keeps each value on its line.
 readonly RULESET_JQ='"target\t\(.target | tojson)", "enforcement\t\(.enforcement | tojson)",
@@ -72,12 +76,9 @@ refuse() {
   exit 1
 }
 
-# Unsets every exported variable whose name is a shell identifier (what compgen -e lists), so no
-# GH_*, DOCKER_*, COMPOSE_*, BASH_ENV or locale variable reaches gh or docker. Entries whose names
-# are not identifiers (LC_a-b, BASH_FUNC_x%%) can be neither listed nor unset: they pass through to
-# every child, and no tool reads such names. compgen is a builtin; if it failed, the loop would
-# unset nothing, without a message. The hop to root bounds both: sudo resets the environment to
-# its own short list plus SSH_ORIGINAL_COMMAND (env_reset), and the root run cleans it again.
+# Unsets every exported variable compgen -e lists (no GH_*, DOCKER_*, COMPOSE_*, BASH_ENV or
+# locale variable reaches gh or docker). Names that are not identifiers can't be listed or unset;
+# no tool reads them, and sudo's env_reset plus the root run's own cleaning bound the rest.
 clean_environment() {
   local name
   while IFS= read -r name; do
@@ -90,10 +91,7 @@ clean_environment() {
 parse_command() {
   local line=$1
   ((${#line} <= MAX_COMMAND)) || refuse "command: longer than any allowed command"
-  if [[ $line == rollback ]]; then
-    ACTION=rollback
-    return 0
-  fi
+  if [[ $line == rollback ]]; then ACTION=rollback && return 0; fi
   [[ $line =~ ^deploy\ ([^ ]+)\ ([^ ]+)$ ]] \
     || refuse "command: allowed are exactly 'deploy <tag> <digest>' and 'rollback'"
   TAG=${BASH_REMATCH[1]} DIGEST=${BASH_REMATCH[2]}
@@ -108,10 +106,8 @@ take_lock() {
   flock --nonblock --conflict-exit-code 75 "$LOCK_FD" || status=$?
   case $status in
     0) ok "lock: no other deploy or rollback is running" ;;
-    75)
-      printf 'FAIL  lock: another deploy or rollback is running; nothing was done\n' >&2
-      exit 75
-      ;;
+    75) printf 'FAIL  lock: another deploy or rollback is running; nothing was done\n' >&2
+      exit 75 ;;
     *) refuse "lock: flock failed (exit $status)" ;;
   esac
 }
@@ -120,8 +116,8 @@ bad_state() {
   refuse "state: $STATE_FILE is not a state file this script wrote (docs/dev/deploy.md)"
 }
 
-# Seven lines in a fixed order: the current pair (always set), the previous pair (or empty) and
-# the highest release ever deployed (tag, commit, digest; always set, and rollback never moves it).
+# Seven lines in a fixed order: the current pair, the previous pair (or empty), the highest
+# release (docs/dev/deploy.md, "State").
 read_state() {
   local -a keys=(current_tag current_digest previous_tag previous_digest
     highest_tag highest_commit highest_digest) lines=() values=()
@@ -149,8 +145,7 @@ read_state() {
   ok "state: deployed $CURRENT_TAG, previous ${PREVIOUS_TAG:-none}, highest $HIGHEST_TAG"
 }
 
-# The CURRENT_*, PREVIOUS_* and HIGHEST_* values, through a temporary file and one rename. It runs
-# as a condition, where set -e is off: the && chain stops at the first failure.
+# Through a temporary file and one rename; run as a condition, so the && chain stops at a failure.
 write_state() {
   printf '%s\n' "current_tag=$CURRENT_TAG" "current_digest=$CURRENT_DIGEST" \
     "previous_tag=$PREVIOUS_TAG" "previous_digest=$PREVIOUS_DIGEST" "highest_tag=$HIGHEST_TAG" \
@@ -158,8 +153,7 @@ write_state() {
     > "$STATE_FILE.next" && mv -fT -- "$STATE_FILE.next" "$STATE_FILE" 2> /dev/null
 }
 
-# gh with the deploy's own settings only: the read-only token from TOKEN_FILE (in the
-# environment, never in an argument), its own config directory, no prompts.
+# gh with only the read-only token (environment, never an argument), its own config, no prompts.
 gh_run() {
   GH_TOKEN=$GH_READ_TOKEN GH_CONFIG_DIR=$GH_DIR HOME=$GH_DIR GH_HOST=github.com \
     DOCKER_CONFIG=$DOCKER_HOME/.docker GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
@@ -214,10 +208,9 @@ excludes() {
   [[ $ref == ${BASH_REMATCH[1]} ]]
 }
 
-# A ruleset protects the tag when it targets tags, is enforced (not "evaluate" or "disabled"),
-# includes refs/tags/v* (or ~ALL), excludes nothing that may match, blocks update and deletion,
-# and the token's user may never bypass it (current_user_can_bypass: a role of the owner's on the
-# bypass list; the read-only token is not shown the list itself).
+# A ruleset protects the tag when it targets tags, is active, includes refs/tags/v* (or ~ALL),
+# excludes nothing that may match, blocks update and deletion, and current_user_can_bypass is
+# never (docs/dev/deploy.md, check 6).
 ruleset_protects() {
   local id=$1 ref=$2 out field value
   local target='' enforcement='' bypass='' covered=false excluded=false update=false deletion=false
@@ -229,20 +222,15 @@ ruleset_protects() {
       bypass) bypass=$value ;;
       include) if [[ $value == '"refs/tags/v*"' || $value == '"~ALL"' ]]; then covered=true; fi ;;
       exclude) if excludes "$value" "$ref"; then excluded=true; fi ;;
-      rule)
-        case $value in
-          '"update"') update=true ;;
-          '"deletion"') deletion=true ;;
-        esac
-        ;;
+      rule) if [[ $value == '"update"' ]]; then update=true; fi
+        if [[ $value == '"deletion"' ]]; then deletion=true; fi ;;
     esac
   done <<< "$out"
   [[ $target == '"tag"' && $enforcement == '"active"' && $covered == true && $excluded == false ]] \
     && [[ $update == true && $deletion == true ]] && [[ $bypass == '"never"' ]]
 }
 
-# PLAN-operations §9.2 (1): a protected v* tag. It keeps the tag from moving or disappearing
-# under a recorded pair; the main and attestation checks are what stop a tag outside main (T62).
+# PLAN-operations §9.2 (1): the tag can't move under a recorded pair (main and attestation: T62).
 check_tag_protected() {
   local ref=refs/tags/$1 out id
   local -a ids=()
@@ -259,8 +247,8 @@ check_tag_protected() {
   refuse "tag: no active tag ruleset of $REPO blocks updating and deleting $ref without a bypass"
 }
 
-# main contains the commit: the compare from it to refs/heads/main (never a bare "main", which a
-# tag could shadow) is identical or ahead.
+# main contains the commit: compared with refs/heads/main (never a bare "main", which a tag could
+# shadow), it is identical or ahead.
 check_on_main() {
   local status
   status=$(gh_api "repos/$REPO/compare/$1...refs/heads/main?per_page=1" '.status') \
@@ -271,9 +259,8 @@ check_on_main() {
   esac
 }
 
-# A deploy over a recorded release: the commit is the highest release's commit or descends from
-# it (the compare from that commit to this one is identical or ahead). A higher-numbered tag on
-# an older commit of main is refused.
+# The commit is the highest release's commit or descends from it: a higher-numbered tag on an
+# older commit of main is refused.
 check_history() {
   local status
   status=$(gh_api "repos/$REPO/compare/$HIGHEST_COMMIT...$1?per_page=1" '.status') \
@@ -284,8 +271,7 @@ check_history() {
   esac
 }
 
-# The attestation release.yml signed for exactly this tag and commit, on a GitHub-hosted runner:
-# the policy release.yml verifies its own attestation with.
+# release.yml's attestation for exactly this tag and commit (release.yml's own verify policy).
 check_attestation() {
   local tag=$1 digest=$2 commit=$3
   if gh_run attestation verify "oci://$IMAGE@$digest" \
@@ -328,9 +314,8 @@ compose() { # <override file, or "" for the base file alone> <compose arguments.
     "${files[@]}" "$@"
 }
 
-# migrate gets scale 0: up -d then neither starts it nor waits for it, even when web depends on
-# it, while run --rm migrate still runs it. Migrations run only in the deploy's own run step, so
-# a rollback runs none (verified with Docker Compose v5.5.1; docs/dev/deploy.md, install step 5).
+# migrate gets scale 0: up -d neither starts nor waits for it, run --rm migrate still runs it, so
+# a rollback runs no migration (Docker Compose v5.5.1; docs/dev/deploy.md, install step 5).
 write_override() { # <tag> <digest>
   local service
   {
@@ -344,8 +329,7 @@ write_override() { # <tag> <digest>
   } > "$OVERRIDE_NEXT"
 }
 
-# Every application service exists in the base file, and with the override no service names the
-# image other than by this digest (a tag would be a pull by tag).
+# Every app service exists, and no service names the image other than by this digest (pull by tag).
 prepare_compose() { # <tag> <digest>
   local services service images image pinned=false
   [[ -f $COMPOSE_BASE ]] || refuse "compose: $COMPOSE_BASE is missing"
@@ -367,7 +351,36 @@ prepare_compose() { # <tag> <digest>
     fi
   done <<< "$images"
   [[ $pinned == true ]] || refuse "compose: no service runs $IMAGE@$2"
+  check_db_functions_mounts
   ok "compose: ${APP_SERVICES[*]} run $IMAGE@$2; no service names the image any other way"
+}
+
+# db-functions runs SQL as the superuser, which must come from the image only: in the resolved
+# configuration (every volume spelling normalised to `volumes:`) it has no volumes, configs,
+# or develop (extends is resolved before), and no secret but postgres_password at its default
+# target. Its PGPASSFILE
+# tmpfs is the `tmpfs:` key.
+check_db_functions_mounts() {
+  local config line section='' found=false seen=false key='' secrets=''
+  config=$(compose "$OVERRIDE_NEXT" config 2> /dev/null) \
+    || refuse "compose: the configuration with the image override is invalid"
+  while IFS= read -r line; do
+    if [[ $line =~ ^[^[:space:]] ]]; then
+      section=$line found=false
+    elif [[ $section == services: && $line =~ ^\ \ [^[:space:]] ]]; then
+      if [[ $line == '  db-functions:' ]]; then found=true seen=true; else found=false; fi
+    elif [[ $found == true && $line =~ ^\ {4}([^[:space:]][^:]*): ]]; then
+      key=${BASH_REMATCH[1]}
+      case $key in volumes | volumes_from | configs | develop)
+        refuse "compose: db-functions has $key; its SQL must come from the image only" ;;
+      esac
+    elif [[ $found == true && $key == secrets ]]; then
+      secrets+=$line$'\n'
+    fi
+  done <<< "$config"
+  [[ $seen == true ]] || refuse "compose: the configuration has no service db-functions"
+  [[ $secrets == "$DB_FUNCTIONS_SECRETS" ]] \
+    || refuse "compose: db-functions has secrets other than postgres_password at its default target"
 }
 
 run_migrations() {
@@ -378,9 +391,8 @@ run_migrations() {
   fi
 }
 
-# Recorded after the migrations and before up -d. Anything that fails after the record (putting the
-# override in place, or up -d) exits 2 with the new pair recorded: after a deploy, rollback returns
-# to the release that ran before, which works on the migrated schema (expand/contract).
+# After the migrations, before up -d. A failure after the record exits 2 with the new pair
+# recorded: rollback then returns to the release before (expand/contract).
 record() { # <what the record means now, for exit 2>
   write_state || refuse "state: $STATE_FILE could not be written"
   if ! mv -fT -- "$OVERRIDE_NEXT" "$OVERRIDE" 2> /dev/null; then
@@ -399,31 +411,22 @@ start_release() { # <digest> <what the record means now, for exit 2>
   fi
 }
 
-# True when tag $1 is a higher version than tag $2, field by field. Without leading zeros a longer
-# field is the larger number, and fields of equal length compare as strings: nothing overflows.
+# Tag $1 is newer than $2: field by field, a longer field (no leading zeros) or a greater string.
 version_newer() {
   local -a a b
   local i
   IFS=. read -r -a a <<< "${1#v}"
   IFS=. read -r -a b <<< "${2#v}"
   for i in 0 1 2; do
-    if ((${#a[i]} != ${#b[i]})); then
-      ((${#a[i]} > ${#b[i]}))
-      return
-    fi
-    if [[ ${a[i]} != "${b[i]}" ]]; then
-      [[ ${a[i]} > ${b[i]} ]]
-      return
-    fi
+    if ((${#a[i]} != ${#b[i]})); then ((${#a[i]} > ${#b[i]})); return; fi
+    if [[ ${a[i]} != "${b[i]}" ]]; then [[ ${a[i]} > ${b[i]} ]]; return; fi
   done
   return 1
 }
 
-# A deploy never goes below the highest release ever deployed, which rollback does not lower: a
-# stolen key must not install an older attested release with a known vulnerability. Only rollback
-# goes back, one step. The highest version again only with its digest (an idempotent redeploy, or
-# forward again after a rollback); the first deploy takes any release that passes the checks.
-# check_history adds that the release's commit descends from the highest release's commit.
+# Never below the highest release ever deployed (a stolen key must not install an older attested
+# release); the highest again only with its digest; the first deploy takes any release. Only
+# rollback goes back, one step. check_history adds the commit rule (docs/dev/deploy.md, check 3).
 check_version() {
   if [[ -z $HIGHEST_TAG ]]; then
     ok "version: no deployment recorded; any release may be the first"
@@ -457,9 +460,8 @@ deploy_release() {
   printf 'deployed %s %s\n' "$TAG" "$DIGEST"
 }
 
-# One step back, through every check but the version and history rules, and without migrations:
-# the previous release runs on the newer schema (expand/contract, PLAN-operations §9.2). It clears
-# the previous pair and keeps the highest, so the way forward again is the highest release.
+# One step back, through every check but the version and history rules, without migrations
+# (expand/contract). It clears the previous pair and keeps the highest.
 rollback_release() {
   local tag=$PREVIOUS_TAG digest=$PREVIOUS_DIGEST recorded
   ok "command: rollback"

@@ -17,9 +17,12 @@ out="${GITHUB_OUTPUT:-/dev/stdout}"
 
 # Path filters (extended regexes, matched against each whole path).
 re_all='^(\.github/|\.gitattributes$|scripts/(ci-changes|ci-gate|test-ci-gate)\.sh$)'
-re_backend='^(backend/|docker/postgres/|deploy/)'
+# The image and compose files (docker-compose*.yml and override files too, which Compose merges)
+# and .env.example or a force-added .env (COMPOSE_FILE) count as backend: the backend job's tests guard them (the
+# Dockerfile's digest pins, compose's roles, db-functions and host-SQL checks, the Postgres digest).
+re_backend='^(backend/|docker/|deploy/|Dockerfile$|(docker-)?compose[^/]*\.ya?ml$|\.dockerignore$|\.env(\.example)?$)'
 re_frontend='^frontend/'
-re_stack='^((backend|frontend|e2e|docker)/|scripts/worktree\.sh$|Dockerfile$|compose[^/]*\.ya?ml$|\.dockerignore$|\.env\.example$|\.trivyignore$)'
+re_stack='^((backend|frontend|e2e|docker)/|scripts/worktree\.sh$|Dockerfile$|(docker-)?compose[^/]*\.ya?ml$|\.dockerignore$|\.env\.example$|\.trivyignore$)'
 
 backend=false
 frontend=false

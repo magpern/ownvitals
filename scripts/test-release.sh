@@ -224,6 +224,21 @@ verify_case "refuses another table's version" "$m_version" v7.8.9 "$tooltable"
 verify_case "refuses a dynamic version" "$m_noversion" v1.2.3 "$dynamic"
 verify_case "refuses a malformed pyproject.toml" "$m_noversion" v1.2.3 "$badtoml"
 verify_case "refuses a commit without backend/pyproject.toml" "$m_noversion" v1.2.3 "$nofile"
+# python3 -I: the step runs at the repository root, where `python3 -c` would put the current
+# directory first on sys.path. A tomllib.py planted there (any commit can add one) must not be
+# imported: it would answer the tag's version and leave a marker.
+planted="$tmp/planted"
+git clone -q "$origin" "$planted"
+marker="$tmp/planted-imported"
+py_marker="$(cygpath -m "$marker" 2> /dev/null || printf '%s' "$marker")" # Git Bash: C:/...
+cat > "$planted/tomllib.py" << EOF
+open("$py_marker", "w").close()
+def load(_):
+    return {"project": {"version": "6.6.6"}}
+EOF
+verify_case "ignores a planted tomllib.py: v1.2.3 at version 1.2.3" ok v1.2.3 "$C" "" "$planted"
+verify_case "ignores a planted tomllib.py: v6.6.6 refused" "$m_version" v6.6.6 "$C" "" "$planted"
+check "verify: the planted tomllib.py was never imported" test ! -e "$marker"
 
 # ---- attest: the digest and the self-verification -----------------------------------------
 good="sha256:$(printf '%064d' 0 | tr 0 a)"

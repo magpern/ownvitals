@@ -376,11 +376,18 @@ def test_the_connection_scope_is_private_to_the_egress_package() -> None:
     assert scan_source(source, "ownvitals.egress.clients") == []
 
 
-# The one exemption: account mail over smtplib (roadmap Amendment 1).
+# The exemptions: account mail over smtplib (roadmap Amendment 1), and db-functions' one libpq
+# connection to the stack's database (#101; its names: test_egress_db_functions.py).
 def test_mail_is_the_only_module_allowed_a_connection_of_its_own() -> None:
     limited = {key: entry.only_in for key, entry in TABLE.items() if entry.only_in}
-    # The other limited entry is no connection: the worker's lease owner name (a local call).
-    assert limited == {"smtplib": ("ownvitals.mail",), "socket": ("ownvitals.worker.loop",)}
+    # The socket entry is no connection: the worker's lease owner name (a local call).
+    runner = ("ownvitals.db.install_functions",)
+    assert limited == {
+        "smtplib": ("ownvitals.mail",),
+        "socket": ("ownvitals.worker.loop",),
+        "psycopg": runner,
+        "psycopg.conninfo": runner,
+    }
     assert TABLE["socket"].names == {"gethostname"}
     assert not TABLE["socket"].exceptions
     assert TABLE["smtplib"].names == {"SMTP", "SMTP_SSL"}
