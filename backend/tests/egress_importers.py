@@ -1,0 +1,275 @@
+"""Importers for the egress guard (``egress_scan``; #122 and the FAILs on #123). Fail closed.
+
+- ``IMPORT_CALLS`` (``import_module``, ``__import__``) may be referenced only as the callee of a
+  direct call with one string literal, which ``egress_scan`` then judges as an import; any other
+  reference (stored, in a list, through ``getattr``) would hide the name.
+- ``LOADER_MODULES`` (``runpy``, ``pkgutil``, ``zipimport``, ``importlib.machinery``, the
+  bootstrap, ``importlib.abc``, ``_imp``) and every ``importlib`` name but ``import_module`` and
+  ``importlib.metadata`` load a module by a name the guard cannot judge: refused outright.
+- ``EVALUATORS`` (``exec``, ``eval``, ``compile``, ``pickle``, ``marshal``, ``shelve``,
+  ``timeit``, ``code``, ``codeop``, pydantic's ``ImportString``) run code or load objects from
+  data the guard cannot read: refused outright, under any alias or ``from`` form.
+- ``names``: a ``str``/``bytes`` constant naming a native or process module as an identifier
+  segment (docstrings and comments too), the strings ``"__import__"``/``"import_module"`` and
+  the name ``__builtins__``, the forms every other importer would take
+  (``__builtins__["__import__"]``, ``vars(builtins)["__import__"]``, ``"ctypes:CDLL"``).
+
+A name built at run time (``"cty" + "pes"``) is reflection, left to review (``egress.md``).
+Each function takes ``landings``: a dotted name and where import bindings take it.
+"""
+
+import ast
+import io
+import re
+import tokenize
+import unicodedata
+from collections.abc import Callable
+
+from egress_classified import (
+    CODE_STRINGS,
+    CODE_WORDS,
+    DICT_KEY_STRINGS,
+    EVALUATORS,
+    IMPORT_CALLS,
+    LOADER_MODULES,
+    NATIVE_MODULES,
+    PROCESS_MODULES,
+    PROCESS_NAMES,
+    PROSE_COMMON_WORDS,
+    PROSE_IMPORTER_WORDS,
+    PROSE_LINES,
+    SOURCE_READERS,
+    SPEC_FINDERS,
+)
+from egress_closure import under
+from egress_forward import holds_code
+from egress_typeonly import dotted
+
+Landings = Callable[[str], frozenset[str]]
+NOT_DIRECT = "an importer is only called directly, with one constant name"
+_IMPORTLIB_ALLOWED = ("importlib", "importlib.import_module")
+_IMPORTER_STRINGS = frozenset({"__import__", "import_module"})
+# The words a docstring or comment may not hold, as whole identifiers (the seventh FAIL on #123):
+# the last segment of every evaluator, importer, spec finder and loader, and the importer words.
+PROSE_WORDS = (
+    frozenset(
+        n.rpartition(".")[2] for n in (*EVALUATORS, *IMPORT_CALLS, *SPEC_FINDERS, *LOADER_MODULES)
+    )
+    | PROSE_IMPORTER_WORDS
+) - PROSE_COMMON_WORDS
+_PROSE_WORD = re.compile(r"\b(?:" + "|".join(sorted(map(re.escape, PROSE_WORDS))) + r")\b")
+# Calls refused in prose (the sixth FAIL on #123), a second layer: reflection by a call.
+PROSE_CALLS = frozenset(
+    {"exec", "eval", "compile", "__import__", "import_module", "getattr", "setattr", "vars"}
+    | {"globals", "locals", "breakpoint", "help", "open", "run_module", "run_path"}
+)
+_MARKERS = re.compile(r"^\s*(?:>>>|\.\.\.|[-*+]|\d+[.)])?\s*")  # doctest, list markers
+_BUILTINS = "__builtins__"
+_READ_BACK = {
+    _BUILTINS: "reaches every importer by name",
+    "__doc__": "reads a docstring back as a string",
+}
+_SEPARATORS = re.compile(r"[^A-Za-z0-9_]+")
+# What the string rule refuses as segments: the modules, and each process name by its last
+# segment, which covers it whole too (``ProcessPoolExecutor``: ``concurrent.futures`` imports
+# ``concurrent.futures.process`` lazily when it is read).
+_NAMED = NATIVE_MODULES + PROCESS_MODULES
+_NAMED += tuple(sorted({n.rpartition(".")[2] for n in PROCESS_NAMES}))
+
+
+def importer(name: str, landings: Landings, calls_only: bool = False) -> bool:
+    """Whether ``name`` lands on an importer; ``calls_only``: one that may be called directly."""
+    for n in landings(name):
+        if n in IMPORT_CALLS or (not calls_only and under(n, SPEC_FINDERS)):
+            return True
+    return False
+
+
+def loader(name: str, landings: Landings) -> bool:
+    """Whether ``name`` lands in a module loader or an ``importlib`` name outside the two."""
+    for n in landings(name):
+        if under(n, LOADER_MODULES):
+            return True
+        allowed = n in _IMPORTLIB_ALLOWED or under(n, ("importlib.metadata",))
+        if under(n, ("importlib",)) and not allowed:
+            return True
+    return False
+
+
+def direct_imports(tree: ast.AST, aliases: dict[str, str], landings: Landings) -> set[int]:
+    """``id``s of the callees of direct ``import_module``/``__import__`` calls: the one way an
+    importer may be referenced (``dynamic_import`` then judges the name)."""
+    return {
+        id(node.func)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and importer(dotted(node.func, aliases) or "", landings, True)
+    }
+
+
+def dynamic_import(
+    node: ast.Call, aliases: dict[str, str], landings: Landings
+) -> list[tuple[int, str, bool]] | str:
+    """A constant ``import_module``/``__import__`` as an import, or why it is refused. A bare
+    ``import_module``/``__import__`` callee counts even when unresolved (``x.import_module``)."""
+    func = node.func
+    called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+    resolved = importer(dotted(func, aliases) or "", landings, True)
+    if called not in ("import_module", "__import__") and not resolved:
+        return []
+    first = node.args[0] if node.args else None
+    extra = node.args[1:] or [k for k in node.keywords if k.arg in ("package", "fromlist", None)]
+    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)) or extra:
+        return f"imports dynamically ({called}): a module name must be one constant"
+    return [(node.lineno, first.value, True)]
+
+
+def evaluator(name: str, landings: Landings) -> bool:
+    """Whether ``name`` lands on code or data evaluation (``EVALUATORS``): ``exec``, ``eval``,
+    ``compile``, ``pickle``, ``marshal``, ``shelve``, ``timeit``, ``code``, ``ImportString``."""
+    return any(under(n, EVALUATORS) for n in landings(name))
+
+
+def reads_source(name: str, landings: Landings) -> bool:
+    """Whether ``name`` lands in a module that hands back source text (``SOURCE_READERS``)."""
+    return any(under(n, SOURCE_READERS) for n in landings(name))
+
+
+def _standalone(tree: ast.AST) -> set[int]:
+    """``id``s of the strings that are a statement of their own: docstrings and the like."""
+    return {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+    }
+
+
+def _segments(value: str | bytes) -> list[str]:
+    text = value.decode("latin-1") if isinstance(value, bytes) else value
+    return [s for s in _SEPARATORS.split(text) if s]
+
+
+def _names_module(value: str | bytes) -> str | None:
+    """The native or process module (or process name) ``value`` names as identifier segments,
+    if any: ``"ctypes:CDLL"``, ``"import ctypes"``, ``"ctypes/__init__.py"`` and
+    ``"ProcessPoolExecutor"`` do, ``"ctypesish"`` does not (a pickle opcode glued to a name does
+    not either: ``pickle`` is refused by name)."""
+    segments = _segments(value)
+    for module in _NAMED:
+        parts = module.split(".")
+        for i in range(len(segments) - len(parts) + 1):
+            if segments[i : i + len(parts)] == parts:
+                return module
+    return None
+
+
+def _string(value: str | bytes, module: str) -> str | None:
+    """Why a ``str``/``bytes`` constant is refused: it names a native or process module (never
+    excepted) or a code word as identifier segments, or (a ``str``) parses as code that runs
+    (``holds_code``), unless ``CODE_STRINGS`` lists it for ``module``."""
+    named = _names_module(value)
+    if named is not None:
+        return f"names {named!r}: a native or process module, by string"
+    if isinstance(value, str) and (module, value) in CODE_STRINGS:
+        return None
+    words = sorted(CODE_WORDS.intersection(_segments(value)))
+    if words or value in _IMPORTER_STRINGS:
+        return f"names {words[0] if words else value!r}: an importer or evaluator, by string"
+    if isinstance(value, str) and holds_code(value):
+        return f"string {value[:40]!r} parses as code: typing or pydantic could evaluate it"
+    return None
+
+
+def _prose_call(line: str) -> str | None:
+    """The evaluator, importer or reflection name a line of prose calls, if it parses as an
+    expression (``exec(...) or int``): ``logging``, ``warnings`` or ``tracemalloc`` can hand the
+    line to pydantic, which evaluates it. Other calls (``max(...)``, ``F(t)``) pass."""
+    try:
+        parsed = ast.parse(_MARKERS.sub("", line), mode="eval")
+    except (SyntaxError, ValueError):
+        return None
+    for node in ast.walk(parsed):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if name in PROSE_CALLS:
+                return name
+    return None
+
+
+def _prose_word(text: str) -> str | None:
+    """The first ``PROSE_WORDS`` name ``text`` holds as a whole identifier, before any stripping
+    or parsing (``#: exec(``, ``[exec][0]``), after NFKC as Python reads identifiers."""
+    found = _PROSE_WORD.search(unicodedata.normalize("NFKC", text))
+    return found.group() if found else None
+
+
+def _prose_line(line: str, module: str) -> str | None:
+    """Why a line of a docstring or comment is refused: it names a native or process module, or
+    an evaluator or importer as a whole identifier (``PROSE_WORDS``), or calls a reflection name
+    (``_prose_call``), unless ``PROSE_LINES`` lists the exact stripped line for ``module``."""
+    if (module, line.strip()) in PROSE_LINES:
+        return None
+    named = _names_module(line)
+    if named is not None:
+        return f"names {named!r}: a native or process module, by string"
+    word = _prose_word(line)
+    if word is not None:
+        return f"names {word!r}: an evaluator or importer, in prose"
+    called = _prose_call(line)
+    return f"calls {called} in prose: a reader could hand it to pydantic" if called else None
+
+
+def _prose(text: str, module: str, first: int) -> list[tuple[int, str]]:
+    """A docstring or comment, judged line by line (``PROSE_LINES`` lists reviewed lines, each
+    stripped), and as a whole for a dotted module name broken over lines."""
+    found: list[tuple[int, str]] = []
+    for offset, line in enumerate(text.splitlines()):
+        why = _prose_line(line, module)
+        if why is not None:
+            found.append((first + offset, why))
+    kept = [
+        s for s in (line.strip() for line in text.splitlines()) if (module, s) not in PROSE_LINES
+    ]
+    whole = " ".join(kept)
+    if not found and len(kept) > 1 and (_names_module(whole) or _prose_word(whole)):
+        found.append((first, "prose that spans lines names a refused module or word"))
+    return found
+
+
+def _comments(source: str, module: str) -> list[tuple[int, str]]:
+    """Every comment, judged as prose: ``traceback`` or ``linecache`` hand them back."""
+    found: list[tuple[int, str]] = []
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, SyntaxError):  # ``ast.parse`` accepted it; be safe anyway
+        return [(1, "source that does not tokenize: comments cannot be judged")]
+    for token in tokens:
+        if token.type == tokenize.COMMENT:
+            found += _prose(token.string.lstrip("#"), module, token.start[0])
+    return found
+
+
+def names(tree: ast.AST, skip: set[int], module: str, source: str) -> list[tuple[int, str]]:
+    """``(line, why)`` for each refused ``str`` or ``bytes`` constant (``_string``), docstring or
+    comment (``_prose``), and each use of ``__builtins__`` or ``__doc__``. The strings ``skip``
+    (``egress_forward`` reads them) are judged there. A dict key in ``DICT_KEY_STRINGS`` passes
+    only as a key of a dict display."""
+    found: list[tuple[int, str]] = _comments(source, module)
+    standalone = _standalone(tree)
+    keys = {id(k) for n in ast.walk(tree) if isinstance(n, ast.Dict) for k in n.keys if k}
+    for node in ast.walk(tree):
+        if id(node) in skip:
+            continue
+        line = getattr(node, "lineno", 1)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str | bytes):
+            if id(node) in standalone and isinstance(node.value, str):
+                found += _prose(node.value, module, line)
+                continue
+            if id(node) in keys and (module, node.value) in DICT_KEY_STRINGS:
+                continue
+            why = _string(node.value, module)
+            if why is not None:
+                found.append((line, why))
+        elif (spelled := getattr(node, "id", None) or getattr(node, "attr", None)) in _READ_BACK:
+            found.append((line, f"uses {spelled}: {_READ_BACK[str(spelled)]}"))
+    return found
