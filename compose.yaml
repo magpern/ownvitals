@@ -22,7 +22,9 @@ x-app: &app
 
 services:
   db:
-    image: postgres:17.11
+    # The multi-arch index digest of postgres:17.11 (docs/dev/jobs.md says where it comes from);
+    # CI's backend service runs the same one (test_compose_roles.py checks both).
+    image: postgres:17.11@sha256:31ba9c94a03ada9988f2bb493a22a75eef3a185884533e5cdbcd498ea835b08f
     restart: unless-stopped
     environment:
       POSTGRES_DB: ownvitals
@@ -35,7 +37,9 @@ services:
       - db-data:/var/lib/postgresql/data
       # Creates ownvitals_owner and ownvitals_app with their passwords from the two secret files
       # on the first start of an empty volume (`docker compose down -v` to get them on an older
-      # volume).
+      # volume). The one host path holding SQL that a service reads, allowed because it runs on
+      # the first start only and creates roles, not the functions a deploy updates
+      # (docs/dev/stack.md; test_compose_roles.py allows exactly this mount).
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
       - "127.0.0.1:${DB_PORT:-55432}:5432"
@@ -60,20 +64,21 @@ services:
 
   # The job queue's role and SECURITY DEFINER functions (ADR 0005 section 3): 20-queue.sql as the
   # superuser after the migrations, in one transaction, run again on every start (it is
-  # idempotent and repairs drift). Besides `db`, the only service with the postgres_password
-  # secret; the password goes into a PGPASSFILE on a tmpfs built at run time, never into the
-  # environment or the command line, so it is not in `docker inspect`.
+  # idempotent and repairs drift). It runs the application image, which carries the SQL and the
+  # entrypoint under /app/db-functions: the functions always come from the image (on the server,
+  # the deployed release's digest), never from a host path (docs/dev/stack.md). Besides `db`, the
+  # only service with the postgres_password secret; the password goes into a PGPASSFILE on a tmpfs
+  # built at run time, never into the environment or the command line, so it is not in
+  # `docker inspect`. No volumes and no environment of its own.
   db-functions:
-    image: postgres:17.11
+    build: .
+    image: ${COMPOSE_PROJECT_NAME:-ownvitals}:local
     restart: "no"
-    user: postgres
-    entrypoint: ["sh", "/queue/db-functions.sh"]
+    entrypoint: ["sh", "/app/db-functions/db-functions.sh"]
     secrets:
       - postgres_password
     tmpfs:
-      - /run/pgpass:mode=0700,uid=999,gid=999
-    volumes:
-      - ./docker/postgres/queue:/queue:ro
+      - /run/pgpass:mode=0700,uid=10001,gid=10001
     depends_on:
       migrate:
         condition: service_completed_successfully

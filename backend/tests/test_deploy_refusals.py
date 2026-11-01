@@ -301,7 +301,20 @@ def test_a_failed_pull_is_refused(host: Host) -> None:
 
 COMPOSE: dict[str, tuple[dict[str, Any], str]] = {
     "no worker": (
-        {"compose": {"db": "postgres:17.11", "migrate": IMAGE, "web": IMAGE}},
+        {
+            "compose": {
+                "db": "postgres:17.11",
+                "migrate": IMAGE,
+                "db-functions": IMAGE,
+                "web": IMAGE,
+            }
+        },
+        "compose: ",
+    ),
+    # Without db-functions in the override, the functions would come from whatever the base file
+    # names: the deploy refuses a base file without it.
+    "no db-functions": (
+        {"compose": {"db": "postgres:17.11", "migrate": IMAGE, "web": IMAGE, "worker": IMAGE}},
         "compose: ",
     ),
     "invalid": ({"compose_valid": False}, "compose: "),

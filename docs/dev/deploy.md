@@ -113,8 +113,9 @@ file or a container's output.
 10. **Pull by digest:** `docker pull --quiet ghcr.io/magpern/ownvitals@<digest>`, never a tag,
     under `timeout 600` (`PULL_TIMEOUT`): a pull that hangs is stopped and refused, so it never
     holds the lock.
-11. **Compose.** `/opt/ownvitals/compose.yaml` has the services `migrate`, `web` and `worker`. The
-    script writes an override that gives each of them `image: ghcr.io/magpern/ownvitals@<digest>`
+11. **Compose.** `/opt/ownvitals/compose.yaml` has the services `migrate`, `db-functions`, `web`
+    and `worker`. The script writes an override that gives each of them
+    `image: ghcr.io/magpern/ownvitals@<digest>`
     and `pull_policy: never`, and gives `migrate` **`scale: 0`**. With it,
     `docker compose config --images` may name the image only by that digest: a service that names
     it by a tag (or another digest) is refused, since running it would be a pull by tag. The script
@@ -134,7 +135,9 @@ file or a container's output.
     exits 2.
 14. **Start:** `docker compose up -d --pull never --no-build`. It starts every service but
     `migrate`, and does not wait for `migrate` even when `web` and `worker` depend on it
-    (`service_completed_successfully`, directly or through `db-functions`).
+    (`service_completed_successfully`, directly or through `db-functions`). `db-functions` runs
+    the release's image, so this installs the release's database functions before `web` and
+    `worker` start (below, "Database functions").
 
 Every compose call is
 `docker compose --project-name ownvitals --project-directory /opt/ownvitals --file /opt/ownvitals/compose.yaml [--file <override>]`.
@@ -145,11 +148,58 @@ current with no previous pair, keeps the highest release, and runs `up -d`. **It
 migrations:** it has no step 12, and `up -d` does not start `migrate` (`scale: 0`), so the
 previous release's `alembic upgrade head`, which would not know the newer revision, never runs,
 provided the compose file meets install step 5. The previous release runs on the newer schema
-(expand/contract, PLAN-operations §9.2). It goes back one step only; a second `rollback` is
+(expand/contract, PLAN-operations §9.2), **with its own database functions**: `up -d` runs
+`db-functions` from the previous release's image, which re-installs that release's functions. It
+goes back one step only; a second `rollback` is
 refused until the next deploy. The way forward again is `deploy` of the highest release with its
 digest, or of a newer one; the release rolled back to is below the highest, so `deploy` refuses
 it. If the previous pair no longer passes a check (its attestation, its tag ruleset, its commit on
 `main`), the rollback is refused and nothing changes.
+
+### Database functions
+
+The job queue's `SECURITY DEFINER` functions (`20-queue.sql`, ADR 0005 section 3) are installed by
+the one-shot `db-functions` as the database superuser, on every `up -d`. It runs the application
+image: the SQL and its entrypoint ship in the image (`/app/db-functions`), and nothing is read from
+the server's disk ([stack.md](stack.md), "Where the database's SQL comes from"). The override pins
+`db-functions` to the release digest like `migrate`, `web` and `worker`, and check 11 refuses a
+compose file that lacks it. So:
+
+| After | The functions installed are |
+|---|---|
+| `deploy vX.Y.Z` | those of vX.Y.Z (step 14 runs its `db-functions`) |
+| `rollback` | those of the release rolled back to: its `db-functions` re-installs them, replacing the newer release's |
+| `deploy` of the highest release again | those of the highest release |
+| a failed `up -d` (exit 2) | those of whichever release's `db-functions` last completed; `ps -a` shows it |
+
+The previous release's functions must work on the newer schema, as its code must
+(expand/contract). The script replaces every function it manages, so a rollback leaves no newer
+version of them behind; a function the newer release added and the older script does not know
+makes it stop with a message naming it (its foreign-code check), and the rollback's `up -d` fails
+(exit 2, below).
+
+### A failed rollback
+
+If a rollback's `up -d` fails (exit 2), the rollback is already recorded: current is the release
+rolled back to, there is no previous pair, and `/var/lib/ownvitals-deploy/compose.image.yaml`
+pins its digest. The key cannot retry it (`rollback` refuses without a previous pair); it can only
+go forward with `deploy <highest tag> <its digest>`. To retry the rollback itself, on the server
+as root (the owner's step), with the recorded override and nothing else:
+
+```bash
+o=/var/lib/ownvitals-deploy/compose.image.yaml
+c=(docker compose --project-name ownvitals --project-directory /opt/ownvitals
+   --file /opt/ownvitals/compose.yaml --file "$o")
+"${c[@]}" ps -a
+"${c[@]}" logs db-functions web worker   # may show data-free errors only; never paste them anywhere
+# fix the cause, then start exactly what the record says:
+"${c[@]}" up -d --pull never --no-build
+```
+
+Never edit the state file or the override by hand, and never run `migrate` here: the override
+gives it scale 0, and `up -d` leaves it alone. If the older release cannot run on the schema (or
+its functions script refuses it), go forward instead: `deploy` of the highest release with its
+digest.
 
 ### Checking a release by hand
 
@@ -230,8 +280,13 @@ In `/opt/ownvitals`: `compose.yaml` (the production stack), `.env` (root, `0600`
 `secrets/` (root, `0700`). Images other than ours (the database's) must already be pulled: the
 deploy runs compose with `--pull never`. `compose.yaml` **must**:
 
-- have the services `migrate`, `web` and `worker` (the script refuses without them); the
-  override replaces their `image:`, so it can be `ghcr.io/magpern/ownvitals`;
+- have the services `migrate`, `db-functions`, `web` and `worker` (the script refuses without
+  them); the override replaces their `image:`, so it can be `ghcr.io/magpern/ownvitals`;
+- run `db-functions` as the repository's `compose.yaml` does: its entrypoint
+  `["sh", "/app/db-functions/db-functions.sh"]` from the image, the `postgres_password` secret, the
+  `/run/pgpass` tmpfs (uid 10001), and **no volumes**;
+- run the database image by digest (`postgres:17.11@sha256:...`, the one in the repository's
+  `compose.yaml`), pulled by that digest beforehand;
 - run the migrations (`alembic upgrade head`) in `migrate` only, as a service the override can
   scale to 0: no `profiles` (the script needs it in `config --services`) and no
   `deploy.replicas` other than 0 (compose refuses it beside `scale: 0`, and so does the deploy;
@@ -246,7 +301,10 @@ It **must not**:
   `up -d` starts every service whose scale is not 0, so such a path would run on every `up -d`,
   and a rollback would run the older release's migrations against the newer schema;
 - name our image other than as `ghcr.io/magpern/ownvitals` spelled exactly (`ghcr.io:443/…`, an
-  image id): the script would not recognise it (check 11).
+  image id): the script would not recognise it (check 11);
+- mount anything into `db-functions` (above all `/app/db-functions`), or give any service a
+  host path that holds SQL other than `db`'s first-start init directory: the functions would then
+  come from the server's disk, and a deploy or rollback would not change them.
 
 **6. The deploy user**, with no shell access, no groups and a home it can't write:
 
@@ -306,11 +364,26 @@ ownvitals-deploy ALL=(root) NOPASSWD: /usr/local/bin/ownvitals-deploy ""
 ```
 
 Check it with `sudo visudo -cf /etc/sudoers.d/ownvitals-deploy`. Ubuntu 26.04's `sudo` is
-sudo-rs, while the smoke test of this PR ran classic sudo 1.9.15 on Ubuntu 24.04. sudo-rs
-documents both the `""` (no arguments) rule and per-user `Defaults`, and the script fails closed
-either way: it refuses any argument itself and parses `SSH_ORIGINAL_COMMAND` again as root, so a
-rule sudo-rs read more loosely grants nothing more, and one it read more strictly only refuses.
+sudo-rs, while the smoke test of #100 ran classic sudo 1.9.15 on Ubuntu 24.04. The script fails
+closed either way: it refuses any argument itself and parses `SSH_ORIGINAL_COMMAND` again as root,
+so a rule sudo read more loosely grants nothing more, and one it read more strictly only refuses.
 Run `visudo -cf` and step 10 with the host's own sudo.
+
+**sudo-rs 0.2.2** rejects the per-user `Defaults:ownvitals-deploy` line, and without it drops
+`SSH_ORIGINAL_COMMAND`: every command is then refused (`FAIL  command: ...`) and nothing runs. The
+fallback is a global keep in the same file, in place of the per-user line:
+
+```
+Defaults env_keep += "SSH_ORIGINAL_COMMAND"
+ownvitals-deploy ALL=(root) NOPASSWD: /usr/local/bin/ownvitals-deploy ""
+```
+
+*Trade-off:* the variable then survives **every** `sudo` on the host, for every user, not only
+this rule: a command an administrator runs with `sudo` from an SSH session sees the SSH command
+line that session was started with. It is not a secret, and only a program that reads it is
+affected (this script, which parses it again as root); it grants nothing by itself. Use it only
+if the host's sudo refuses the per-user line, and check the file again with
+`sudo visudo -cf /etc/sudoers.d/ownvitals-deploy`.
 
 **10. Try it** from the agent machine: `ssh ownvitals-deploy@192.168.1.222 rollback` answers
 `FAIL  rollback: no previous deployment is recorded`; `ssh ... id` and `ssh -t ...` are refused.
@@ -324,7 +397,7 @@ an annotated tag).
 |---|---|
 | Shell | none: every session runs the forced command (both `authorized_keys` and `ForceCommand`), with no PTY and no forwarding |
 | Root | only `/usr/local/bin/ownvitals-deploy` with no arguments, which accepts only the two commands and checks them again as root |
-| Database | none: no Docker group, no database password, no published Postgres port; the script runs only `migrate`, which ships in the attested image, and only in a deploy's step 12 |
+| Database | none: no Docker group, no database password, no published Postgres port; the script runs `migrate` only in a deploy's step 12 and `db-functions` only through `up -d`, both from the attested image |
 | Keys and secrets | none: `/etc/ownvitals-deploy` and `/var/lib/ownvitals-deploy` are root `0700`, the token file `0600`, `/opt/ownvitals/secrets` root `0700`; the token reaches gh through the environment, never an argument or the output |
 | Logs | none: not in `adm`, `systemd-journal` or `docker`; the script discards gh's and docker's output and prints only its own check lines |
 
@@ -352,7 +425,7 @@ older commit (check 8), and it cannot roll back twice in a row.
 |---|---|
 | `test_deploy_harness.py` | `Host`: a copy of the script whose seven installation lines point into a temporary directory, fakes first on its PATH and, on Linux, nothing else but a few core utilities; checks of the script as a file (`#!/bin/bash -p`, LF, mode 100755, `bash -n`, shellcheck) |
 | `test_deploy_fakes.py` | the fake gh, docker and sudo (synthetic GitHub with a commit graph, GHCR and host) and their fidelity: each jq program against the real `jq -r`, the attestation flags against gh's semantics, `compare` against the graph. Like compose, the fake's `up -d` starts every service whose scale is not 0, and web waits for `migrate` |
-| `test_deploy_script.py` | scenarios: the full deploy, every refusal of checks 6, 7 and 9–11 (a ruleset the owner may bypass, an unexpected ruleset id), rollback through every check, running no migration (with a `migrate` that would fail) and refused when the previous pair no longer verifies, the state file and its modes, a failed migration and a failed `up -d`, two concurrent deploys, the sudo hop, the environment and tool output (a marker on every tool's stderr, `config` and failing `gh api` calls included) |
+| `test_deploy_script.py` | scenarios: the full deploy (`db-functions` pinned and started with the app services), every refusal of checks 6, 7 and 9–11 (a ruleset the owner may bypass, an unexpected ruleset id), rollback through every check (its `db-functions` on the previous digest), running no migration (with a `migrate` that would fail) and refused when the previous pair no longer verifies, the state file and its modes, a failed migration and a failed `up -d`, two concurrent deploys, the sudo hop, the environment and tool output (a marker on every tool's stderr, `config` and failing `gh api` calls included) |
 | `test_deploy_versions.py` | checks 3 and 8: an older release, a release below the highest whatever the current and previous pairs, the highest version with another digest, the same pair again, a newer release, numeric not textual order, the first deploy; v1.0.0, v1.2.0, `rollback`, v1.1.0 refused and v1.2.0 (its digest) and a descending v1.3.0 accepted; a higher tag on an older commit refused; rollback not held to either rule |
 | `test_deploy_failures.py` | a hung pull stopped by its timeout, a state file that cannot be written (exit 1), an override that cannot be put in place (exit 2) |
 | `test_deploy_refusals.py` | every malformed command, tag, digest and state file, and the variants of each check |

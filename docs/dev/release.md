@@ -13,7 +13,9 @@ Deploying is not part of a release and needs the owner's go-ahead. The procedure
 2. `version` in `backend/pyproject.toml` on `main` is that version without the `v`, spelled
    exactly as the tag (`X.Y.Z-rc.1` for a pre-release, not PEP 440's `X.Y.Zrc1`): the `verify`
    job refuses any other tag. If it isn't, first merge a PR that sets it and runs `uv lock` (the
-   lockfile records the project's version).
+   lockfile records the project's version). Only pre-release spellings that Python packaging
+   also accepts as a version (`-rc.1`, `-a.1`, `-beta.2`) can be released: `verify` accepts any
+   SemVer pre-release, but `pyproject.toml` and `uv lock` refuse a version such as `1.2.3-x-y.1`.
 3. Tag the tip of `main` and push the tag:
 
    ```bash
@@ -84,7 +86,8 @@ The `checks` CI job runs actionlint (with shellcheck) on every workflow, and
 `scripts/test-release.sh`, which tests the workflow's guards without the network: the trigger,
 each job's permissions and `needs`, the action and image pins, no `${{ }}` inside a `run:`
 script, and the `run:` scripts themselves, run against a scratch git repository with a fake
-`gh` (accepted and refused tags, refs, commits, versions and digests; the exact arguments of
+`gh` (accepted and refused tags, refs, commits, versions and digests; a `tomllib.py` planted at
+the repository root, which `python3 -I` never imports; the exact arguments of
 `gh attestation verify` and `gh release create`). A change to a guard changes its test in the
 same PR. Locally the script needs mikefarah yq v4 (it reads only stdin, so a `docker run -i`
 wrapper works), jq, git and python3 3.11 or later.
@@ -133,7 +136,8 @@ image in the `Dockerfile` must equal the uv version CI installs (`setup-uv` `ver
 `ci.yml`), so both move together by hand.
 
 Not tracked by Dependabot, bumped by hand: the shellcheck and actionlint images and the Postgres
-service image in `ci.yml`, the images in `release.yml` above, the uv and Node versions given to
+service image in `ci.yml` (with `compose.yaml`'s `db` image, which must carry the same digest;
+[jobs.md](jobs.md)), the images in `release.yml` above, the uv and Node versions given to
 `setup-uv` and `setup-node`, the `Dockerfile`'s uv image and `# syntax=` line, and the gitleaks
 and Trivy releases in `ci.yml` (each with its SHA-256 from the release's checksums file;
 `scripts/test-ci-downloads.sh` tests that both steps check it).

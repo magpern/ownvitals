@@ -30,7 +30,7 @@ readonly SIGNER=https://github.com/magpern/ownvitals/.github/workflows/release.y
 readonly OIDC_ISSUER=https://token.actions.githubusercontent.com
 readonly PREDICATE_TYPE=https://slsa.dev/provenance/v1
 readonly PROJECT=ownvitals
-readonly -a APP_SERVICES=(migrate web worker)
+readonly -a APP_SERVICES=(migrate db-functions web worker)
 # gh has --source-ref and --source-digest since 2.68.0. 2.102.0 makes --source-ref match case
 # sensitively, and 2.93.0 stops sending the token to TUF mirrors: 2.102.0 is the minimum.
 readonly -a GH_MINIMUM=(2 102 0)

@@ -98,16 +98,26 @@ jobs:
             "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .
           fi
 
+      # The repository's shell: scripts/*.sh, the deploy's forced command and the database
+      # containers' scripts (docker/postgres/**/*.sh, POSIX sh: the images run them with dash).
       - name: bash -n
-        run: for f in scripts/*.sh; do bash -n "$f"; done
+        run: |
+          set -euo pipefail
+          for f in scripts/*.sh deploy/ownvitals-deploy; do bash -n "$f"; done
+          mapfile -t postgres_scripts < <(find docker/postgres -type f -name '*.sh' | sort)
+          [ "${#postgres_scripts[@]}" -gt 0 ] || { echo "::error::no docker/postgres scripts"; exit 1; }
+          for f in "${postgres_scripts[@]}"; do sh -n "$f"; done
 
       # koalaman/shellcheck v0.11.0, pinned by its index digest. Dependabot does not track an
-      # image used in a `run:` step: bump the tag and digest here by hand.
+      # image used in a `run:` step: bump the tag and digest here by hand. Any warning fails.
       - name: shellcheck
         run: |
+          set -euo pipefail
+          mapfile -t postgres_scripts < <(find docker/postgres -type f -name '*.sh' | sort)
+          [ "${#postgres_scripts[@]}" -gt 0 ] || { echo "::error::no docker/postgres scripts"; exit 1; }
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt \
             koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
-            scripts/*.sh
+            scripts/*.sh deploy/ownvitals-deploy "${postgres_scripts[@]}"
 
       - name: CI gate and change-filter tests
         run: scripts/test-ci-gate.sh
@@ -208,7 +218,8 @@ jobs:
         working-directory: backend
     services:
       postgres:
-        image: postgres:17.11
+        # compose.yaml's db image, the same index digest (test_compose_roles.py checks it).
+        image: postgres:17.11@sha256:31ba9c94a03ada9988f2bb493a22a75eef3a185884533e5cdbcd498ea835b08f
         env:
           # Throwaway database of this job only; not a secret.
           POSTGRES_PASSWORD: test
@@ -255,10 +266,11 @@ jobs:
         run: uv sync --locked
 
       # The job queue's script (docker/postgres/queue/20-queue.sql, ADR 0005 section 3) as the
-      # compose db-functions service runs it: after the migrations, as the superuser, in one
-      # transaction, twice (the second run proves it is idempotent). The digests the worker checks
-      # must then match what this Postgres image renders (a stale queue_digests.py fails here).
-      # Afterwards the queue is uninstalled and the schema migrated back: guard 2 (role_guard.py)
+      # compose db-functions service runs it: after the migrations, as the superuser, through its
+      # runner (python -m ownvitals.db.install_functions, the password in a PGPASSFILE only), in
+      # one transaction, twice (the second run proves it is idempotent). The digests the worker
+      # checks must then match what this Postgres image renders (a stale queue_digests.py fails
+      # here). Afterwards the queue is uninstalled and the schema migrated back: guard 2 (role_guard.py)
       # does not know the queue role yet (#77 item 2), and the test fixtures install the queue
       # themselves and remove it again.
       - name: Install the job queue twice and check its digests
@@ -271,9 +283,12 @@ jobs:
           set -euo pipefail
           export OWNVITALS_SECRETS_DIR="$RUNNER_TEMP/secrets"
           uv run alembic upgrade head
+          pgpass="$RUNNER_TEMP/pgpass"
+          (umask 077 && printf '127.0.0.1:5432:ownvitals:postgres:%s\n' "$PGPASSWORD" > "$pgpass")
           for _ in 1 2; do
-            psql --single-transaction -v ON_ERROR_STOP=1 -X -q -d ownvitals \
-              -f ../docker/postgres/queue/20-queue.sql
+            env -u PGPASSWORD PGPASSFILE="$pgpass" uv run python -m ownvitals.db.install_functions \
+              "host=127.0.0.1 port=5432 dbname=ownvitals user=postgres" \
+              ../docker/postgres/queue/20-queue.sql
           done
           uv run python tests/queue_digests.py --check
           psql -v ON_ERROR_STOP=1 -X -q -d ownvitals \

@@ -1,9 +1,11 @@
 # The local stack and worktrees
 
-`compose.yaml` runs the stack on one machine: **db** (`postgres:17.11`, which creates the
-database roles on a new volume), **migrate** (a one-shot `alembic upgrade head` as the owner role)
-and **web** (the API as the app role, non-root user `ownvitals`, uid 10001). Later issues
-add the worker, the one-shot queue-functions service and the mail service. The stack only ever
+`compose.yaml` runs the stack on one machine: **db** (`postgres:17.11`, pinned by its index
+digest, which creates the database roles on a new volume), **migrate** (a one-shot
+`alembic upgrade head` as the owner role), **db-functions** (a one-shot that installs the job
+queue's `SECURITY DEFINER` functions as the superuser, from the application image), **web** (the
+API as the app role, non-root user `ownvitals`, uid 10001) and **worker**. A later issue adds the
+mail service. The stack only ever
 holds synthetic data (the demo account and fakes): never connect a real Withings account to it.
 
 Ports bind `127.0.0.1` only and come from `.env`. Passwords and keys are files under `secrets/`
@@ -64,15 +66,37 @@ The database roles ([isolation.md](isolation.md)): `db` creates `ownvitals_owner
 `ownvitals_app` from `docker/postgres/init/10-roles.sql` on the first start of an empty volume,
 with the passwords of `database_owner_password` and `database_password` (an older volume needs
 `docker compose down -v`). `migrate` connects as `ownvitals_owner` with `database_owner_password`,
-`web` as `ownvitals_app` with `database_password`; only `db` holds `postgres_password`. Web
-refuses to start as a privileged role.
+`web` and `worker` as `ownvitals_app` with `database_password`; only `db` and `db-functions` hold
+`postgres_password` (`db-functions` writes it to a `PGPASSFILE` on a tmpfs, [jobs.md](jobs.md)).
+Web and the worker refuse to start as a privileged role.
+
+## Where the database's SQL comes from
+
+The SQL the services run comes from the application image, never from a host path, with one
+exception:
+
+| SQL | Runs | From |
+|---|---|---|
+| `docker/postgres/queue/20-queue.sql` (the queue's role and definer functions) | `db-functions`, on every start | the application image (`/app/db-functions`), so on the server the deployed release's digest: a deploy installs that release's functions and a rollback re-installs the previous release's ([deploy.md](deploy.md), "Database functions") |
+| migrations | `migrate` | the application image |
+| `docker/postgres/init/10-roles.sql` (the two roles, grants, defaults) | `db`'s own init, **only on the first start of an empty volume** | the host: `./docker/postgres/init:/docker-entrypoint-initdb.d:ro` |
+
+The init mount is the one allowed exception, by its exact source and target. It runs once, when
+the volume is created, and never again on a deploy, a rollback or a restart; it creates the
+roles, not the definer functions a deploy updates, and it needs psql's meta-commands (it reads
+the password files), which only the postgres image has. A change to it reaches an existing
+database only by hand (or `docker compose down -v` locally). `test_compose_roles.py` fails if
+any other service, mount or secret file reads a host path that holds SQL (a path it cannot
+inspect counts as one), if a mount uses the long volume syntax, or if a named volume gets driver
+options.
 
 ## Image
 
 `Dockerfile` builds the backend only: `ghcr.io/astral-sh/uv:0.13.6` installs the locked
 dependencies (`uv sync --locked --no-dev`) into `python:3.12.16-slim-bookworm`, then the app runs as
-the non-root user `ownvitals`: `python -m ownvitals --host 0.0.0.0 --port 8000`. The single-page-app
-build stage is added with the end-to-end harness. `.dockerignore` keeps `.git`, `.env*`,
+the non-root user `ownvitals`: `python -m ownvitals --host 0.0.0.0 --port 8000`. It also carries the
+queue functions and their entrypoint under `/app/db-functions` (`db-functions` runs them). The
+single-page-app build stage is added with the end-to-end harness. `.dockerignore` keeps `.git`, `.env*`,
 `secrets/`, virtualenvs, caches and docs out of the build context.
 
 The image **defaults to `OWNVITALS_ENVIRONMENT=prod`**, so a container started without settings

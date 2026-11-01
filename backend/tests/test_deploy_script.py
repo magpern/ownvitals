@@ -35,8 +35,10 @@ from test_deploy_harness import (
 )
 
 REFUSED = "refused: nothing was recorded and the running release is unchanged"
-APP_SERVICES = ("migrate", "web", "worker")
-UP_STARTS = ["db", "web", "worker"]  # every service but migrate, which the override scales to 0
+APP_SERVICES = ("migrate", "db-functions", "web", "worker")
+# Every service but migrate, which the override scales to 0. db-functions runs the release's
+# image, so up -d installs that release's database functions (docs/dev/deploy.md).
+UP_STARTS = ["db", "db-functions", "web", "worker"]
 COMPARE_C = f"repos/{REPO}/compare/{COMMITS['C']}...refs/heads/main?per_page=1"
 CHECKS = [
     "lock:",
@@ -316,6 +318,9 @@ def scenario_rollback_runs_every_check(host: Host) -> None:
     assert docker[0]["argv"] == ["pull", "--quiet", f"{IMAGE}@{digest_of('v1.1.0')}"]
     assert [compose_rest(c["argv"])[0] for c in docker[1:]] == ["config", "config", "up"]
     assert docker[-1]["override"] == pinned("v1.1.0")
+    # up -d re-runs db-functions from v1.1.0's image: the previous release's functions return.
+    assert docker[-1]["override"]["db-functions"]["image"] == f"{IMAGE}@{digest_of('v1.1.0')}"
+    assert "db-functions" in docker[-1]["started"]
     assert host.state() == state("v1.1.0", highest="v1.2.0")
 
 
