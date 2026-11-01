@@ -1,5 +1,9 @@
 # One grouped PR per ecosystem per week for minor/patch, and a separate one for majors, so a
-# breaking major does not hold back the rest and the number of CI runs stays down. Runtime
+# breaking major does not hold back the rest and the number of CI runs stays down. Group names are
+# short because they appear in the PR title, which becomes the squash subject: with " (#n)" it
+# must fit commitlint's 100 characters (docs/dev/release.md). uv and npm versions are offered only
+# 5 days after their release (cooldown), so a hijacked release is usually yanked before it gets
+# here; security updates ignore the cooldown. Runtime
 # versions are fixed: Python 3.12, Postgres 17, Node 24. Upgrading one of them is a deliberate
 # change with its own issue, so Dependabot only offers patch updates for Python and minor/patch
 # for Postgres and Node; @types/node follows the Node major. What Dependabot does not see (images
@@ -13,10 +17,12 @@ updates:
     commit-message:
       prefix: build(deps)
       prefix-development: build(deps-dev)
+    cooldown:
+      default-days: 5
     groups:
-      python:
+      uv:
         update-types: [minor, patch]
-      python-major:
+      major:
         update-types: [major]
 
   # /frontend only for now: the e2e harness issue adds /e2e here when it creates e2e/.
@@ -30,10 +36,12 @@ updates:
     ignore:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+    cooldown:
+      default-days: 5
     groups:
       npm:
         update-types: [minor, patch]
-      npm-major:
+      major:
         update-types: [major]
 
   - package-ecosystem: github-actions
@@ -45,7 +53,7 @@ updates:
     groups:
       actions:
         update-types: [minor, patch]
-      actions-major:
+      major:
         update-types: [major]
 
   # The Dockerfile's base images.
@@ -67,7 +75,7 @@ updates:
     groups:
       docker:
         update-types: [minor, patch]
-      docker-major:
+      major:
         update-types: [major]
 
   # compose.yaml's images (Postgres).
@@ -81,7 +89,7 @@ updates:
       - dependency-name: postgres
         update-types: ["version-update:semver-major"]
     groups:
-      docker-compose:
+      compose:
         update-types: [minor, patch]
-      docker-compose-major:
+      major:
         update-types: [major]

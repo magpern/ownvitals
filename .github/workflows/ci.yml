@@ -41,7 +41,8 @@ jobs:
         run: scripts/ci-changes.sh
 
   # Everything cheap that must run on every change, as steps of one runner. gitleaks and Trivy are
-  # checksum-verified release binaries.
+  # checksum-verified release binaries (scripts/test-ci-downloads.sh tests the checks), bumped by
+  # hand: Dependabot does not see them (docs/dev/release.md).
   checks:
     name: Checks
     runs-on: ubuntu-24.04
@@ -110,6 +111,14 @@ jobs:
 
       - name: CI gate and change-filter tests
         run: scripts/test-ci-gate.sh
+
+      # release.yml's guards (the deploy relies on its attestation) and the checksum checks of
+      # the gitleaks and Trivy downloads, each run against fakes: no network, no tag, no registry.
+      - name: Release workflow tests
+        run: scripts/test-release.sh
+
+      - name: Download checksum tests
+        run: scripts/test-ci-downloads.sh
 
       # rhysd/actionlint v1.7.12 (includes shellcheck), pinned by its index digest. Dependabot
       # does not track an image used in a `run:` step: bump the tag and digest here by hand.
