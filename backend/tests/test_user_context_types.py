@@ -5,6 +5,8 @@
 Each forgery a review ran to an admin context runs here too, and the scan must refuse its source;
 each refused case has a near miss of the same shape that stays allowed."""
 
+import ast
+import symtable
 import typing
 from typing import Annotated, Any
 
@@ -13,6 +15,7 @@ import pytest
 from ctx import make_context
 from ownvitals.context import require_context
 from user_context_scan import scan_source
+from user_context_types import _binding_sites, _rebound_in_a_scope  # pyright: ignore[reportPrivateUsage]
 
 
 # The review's two forgeries: a string nested in a generic is evaluated by get_type_hints.
@@ -231,3 +234,124 @@ def test_the_review_forgeries_are_refused_as_written() -> None:
 
     for forgery in (nested_string_metadata, nested_string_type):
         assert scan_source(textwrap.dedent(inspect.getsource(forgery))) != []
+
+
+# The sixth #115 review (#89): Literal or Annotated rebound in some scope is not typing's, and
+# a subscript named so that doesn't resolve is refused (a misread exemption fails closed).
+L = "from typing import Literal\n"
+BINDINGS: dict[str, tuple[str, str]] = {
+    "a parameter named Literal": (
+        L + f'def make(Literal):\n    def g(x: Literal["{SETTER}"]): ...\n',
+        L + 'def make(kind):\n    def g(x: Literal["user"]): ...\n',
+    ),
+    "a parameter named Annotated": (
+        "from typing import Annotated\n"
+        f'def make(Annotated):\n    def g(x: Annotated[int, "{SETTER}"]): ...\n',
+        'from typing import Annotated\ndef make(kind):\n    def g(x: Annotated[int, "doc"]): ...\n',
+    ),
+    "a match capture": (
+        L + f'match list:\n    case Literal:\n        def g(x: Literal["{SETTER}"]): ...\n',
+        'import typing\nmatch v:\n    case other:\n        def g(x: typing.Literal["user"]): ...\n',
+    ),
+    "a parameter named like the typing alias": (
+        f'import typing as t\ndef make(t):\n    def g(x: t.Literal["{SETTER}"]): ...\n',
+        'import typing as t\ndef make(u):\n    def g(x: t.Literal["user"]): ...\n',
+    ),
+    "except ... as": (
+        L + 'try:\n    pass\nexcept Exception as Literal:\n    pass\ndef g(x: Literal["a"]): ...\n',
+        L + 'try:\n    pass\nexcept Exception as err:\n    pass\ndef g(x: Literal["a"]): ...\n',
+    ),
+    "a comprehension variable": (
+        L + 'v = [0 for Literal in [list]]\ndef g(x: Literal["a"]): ...\n',
+        L + 'v = [0 for item in [list]]\ndef g(x: Literal["a"]): ...\n',
+    ),
+    "the walrus": (
+        L + 'if (Literal := list):\n    pass\ndef g(x: Literal["a"]): ...\n',
+        L + 'if (kind := list):\n    pass\ndef g(x: Literal["a"]): ...\n',
+    ),
+    "global": (
+        L + 'def h():\n    global Literal\n    Literal = list\ndef g(x: Literal["a"]): ...\n',
+        L + 'def h():\n    global other\n    other = list\ndef g(x: Literal["a"]): ...\n',
+    ),
+    "a PEP 695 type parameter": (
+        L + 'def f[Literal](x: Literal["a"]): ...\n',
+        L + 'def f[T](x: T, y: Literal["a"]): ...\n',
+    ),
+    "a lambda parameter": (
+        L + 'f = lambda Literal: 0\ndef g(x: Literal["a"]): ...\n',
+        L + 'f = lambda kind: 0\ndef g(x: Literal["a"]): ...\n',
+    ),
+    "an alias from another module": (
+        'from mylib import Literal as Lit\ndef g(x: Lit["a"]): ...\n',
+        'from typing import Literal as Lit\ndef g(x: Lit["a"]): ...\n',
+    ),
+    # Mutations b, c and e of the review: the type element of Annotated is a type (spliced and
+    # descended into), and a real Literal's arguments still may not name the token.
+    "Annotated nested in Annotated's type": (
+        TYPING + f"def g(x: Annotated[Annotated[int, {SETTER}], 1]): ...\n",
+        TYPING + "def g(x: Annotated[Annotated[int, Depends(get)], 1]): ...\n",
+    ),
+    "a string as Annotated's type": (
+        TYPING + f'def g(x: Annotated["{SETTER}", 1]): ...\n',
+        TYPING + 'def g(x: Annotated["int", 1]): ...\n',
+    ),
+    "the token's name in typing's Literal": (
+        TYPING + "x: Literal['_ISSUER'] = None\n",
+        TYPING + "x: Literal['_user'] = None\n",
+    ),
+}
+
+
+@pytest.mark.parametrize(("refused", "_"), BINDINGS.values(), ids=BINDINGS.keys())
+def test_a_rebound_or_unresolved_literal_or_annotated_is_refused(refused: str, _: str) -> None:
+    assert scan_source(refused) != []
+
+
+@pytest.mark.parametrize(("_", "near"), BINDINGS.values(), ids=BINDINGS.keys())
+def test_typing_literal_and_annotated_stay_allowed(_: str, near: str) -> None:
+    assert scan_source(near) == []
+
+
+def test_the_typing_alias_imported_again_from_another_module_is_not_typing() -> None:
+    assert scan_source('import typing as t\nimport mylib as t\ndef g(x: t.Literal["a"]): ...\n')
+    assert not scan_source('import typing as t\nimport mylib as u\ndef g(x: t.Literal["a"]): ...\n')
+
+
+# Both views of the bindings are checked on their own: the compiler's (symtable) and the AST's.
+REBINDINGS = {
+    "a parameter": "def f(Literal): ...\n",
+    "a lambda parameter": "f = lambda Literal: 0\n",
+    "except ... as": "try:\n    pass\nexcept Exception as Literal:\n    pass\n",
+    "a match capture": "match v:\n    case Literal:\n        pass\n",
+    "the walrus": "if (Literal := 1):\n    pass\n",
+    "global": "def h():\n    global Literal\n    Literal = 1\n",
+    "a PEP 695 parameter": "def f[Literal](): ...\n",
+    "del": "del Literal\n",
+    "a def": "def Literal(): ...\n",
+}
+
+
+@pytest.mark.parametrize("rebinding", REBINDINGS.values(), ids=REBINDINGS.keys())
+def test_symtable_sees_each_rebinding(rebinding: str) -> None:
+    source = "from typing import Literal\n" + rebinding
+    table = symtable.symtable(source, "<test>", "exec")
+    assert _rebound_in_a_scope(table, "Literal")
+    assert not _rebound_in_a_scope(table, "other")
+
+
+@pytest.mark.parametrize(
+    "rebinding",
+    [*REBINDINGS.values(), "v = [0 for Literal in []]\n", "def h():\n    global Literal\n"],
+    ids=[*REBINDINGS.keys(), "a comprehension variable", "a global declaration alone"],
+)
+def test_the_ast_sees_each_rebinding(rebinding: str) -> None:
+    sites = _binding_sites(ast.parse("from typing import Literal\n" + rebinding))
+    assert len(sites["Literal"]) >= 2  # the import and the rebinding
+
+
+def test_an_import_alone_is_no_rebinding() -> None:
+    source = "from typing import Literal\nimport typing as t\n"
+    table = symtable.symtable(source, "<test>", "exec")
+    assert not _rebound_in_a_scope(table, "Literal")
+    assert not _rebound_in_a_scope(table, "t")
+    assert len(_binding_sites(ast.parse(source))["Literal"]) == 1

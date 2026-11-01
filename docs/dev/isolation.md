@@ -234,6 +234,11 @@ type  := name | name.name...          (no part starting with _, never the token'
 type-args := type | (type, ...) | [type, ...]
 ```
 
+Type variables are named without a leading `_`: the `_` rule covers bare names too, so the
+private idiom `_T = TypeVar("_T")` with `def f(x: _T) -> _T` is refused in `src`. Use `T` (or a
+PEP 695 type parameter, `def f[T](x: T) -> T`). A private library type (`mod._Hidden`) is refused
+the same way; if `src` ever needs one, it goes to the Architect.
+
 - `Literal[...]`'s arguments are values: constants, dotted names (`Color.RED`) and nested
   `Literal`s. They are never parsed (`Literal["a", "b"]` passes).
 - In `Annotated[T, m1, m2]`, `T` is a type and the metadata `m1, m2` is ordinary code, the one
@@ -241,10 +246,18 @@ type-args := type | (type, ...) | [type, ...]
   `Field(ge=1)`). Every rule in this section applies to the metadata as it does outside an
   annotation, so `getattr(object, "__setattr__")(...)`, `vars(ownvitals.context)` and
   `UserContext(...)` are refused there. A string in the metadata is a value, not parsed.
-- `Literal` and `Annotated` count only when imported from `typing` or `typing_extensions`,
-  under any alias, and not rebound in the module (an assignment, a `def` or `class`, another
-  import, or the module alias rebound: `import typing as t; t = dict`). Anything else named so
-  is a plain generic, where a call is refused.
+- `Literal` and `Annotated` (and `TypeAlias`) count only when imported from `typing` or
+  `typing_extensions`, under any alias (`from typing import Literal as L`, or `t.Literal` after
+  `import typing as t`), and only if that import is the **sole binding of the name in every
+  scope** of the module. Two views must agree: the compiler's own (`symtable`: a parameter,
+  lambda parameter, assignment, deletion, `except ... as`, `match` capture, walrus, PEP 695 type
+  parameter, `global` assignment, `def` or `class` in any scope) and the AST's binding sites
+  (the same forms plus comprehension variables, which 3.12's `symtable` folds away, any other
+  import, and `global`/`nonlocal` declarations).
+- **A misread exemption fails closed** (#89, the sixth #115 review): a subscript named `Literal`
+  or `Annotated`, by its last name part or as an imported alias of either, that doesn't resolve
+  to `typing`'s as above is refused, never read as a plain generic. A `def make(Literal):` whose
+  `Literal["..."]` would otherwise skip parsing its strings is the route this closes.
 - A string in a type position, nested ones included (`list["..."]`, `X | "..."`, a string in a
   string), is parsed **into the module's tree** before any rule runs, so its code is judged with
   the module's own imports and aliases: `"Annotated[int, vars(ownvitals.context)]"` after
@@ -295,6 +308,12 @@ leaves to the review gate. Known limits:
     `vars(builtins)["eval"]`, `builtins.__dict__["eval"]`, `sys.modules["builtins"].eval`,
     `importlib.import_module("builtins")`, `__import__("builtins")`, and other evaluators of
     code in strings (`timeit`, `code`, `runpy`);
+  - the functional forms that store string types for `get_type_hints`:
+    `NamedTuple("N", [("x", "...")])`, `TypedDict("T", {"x": "..."})` and
+    `dataclasses.make_dataclass`;
+- defeating name resolution only through run-time mutation of a namespace: a metaclass whose
+  `__prepare__` maps `Literal` to another object in a class body, `globals()[...] = ...`,
+  `setattr` on a module, a `sys.modules` swap. Neither `symtable` nor the AST sees these;
 - class-level patching: `type(ctx).role = property(...)` changes what every context reads
   (accepted by the Architect);
 - a hook reached without its name, as above, when it sets a field that isn't one of the context's:

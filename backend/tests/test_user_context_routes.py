@@ -128,7 +128,7 @@ ANNOTATION_ROUTES: dict[str, tuple[str, str]] = {
     "a lambda": ("def f(x: (lambda: int)) -> None: ...\n", "def f(x: int | None) -> None: ...\n"),
     "the token's name as a string": (
         "x: '_ISSUER' = None\n",
-        "x: Literal['user', 'admin'] = 'user'\n",
+        "from typing import Literal\nx: Literal['user', 'admin'] = 'user'\n",
     ),
     "the token's name in Literal": (
         "x: Literal['_ISSUER'] = None\n",
@@ -215,11 +215,11 @@ METADATA_ROUTES: dict[str, tuple[str, str]] = {
         "import typing as t\nfrom pydantic import Field\n"
         "def g(x: t.Annotated[int, Field(ge=1, le=9)]): ...\n",
     ),
-    # Only typing's Annotated has metadata; anything else named so is a plain annotation, where
-    # a call is refused.
+    # Only typing's Annotated has metadata; anything else named so is refused (#89, sixth
+    # review): a misread exemption fails closed.
     "Annotated = dict": (
         "Annotated = dict\ndef g(x: Annotated[int, make()]): ...\n",
-        "Annotated = dict\ndef g(x: Annotated[int, str]): ...\n",
+        "Mapping = dict\ndef g(x: Mapping[int, str]): ...\n",
     ),
     "typing's Annotated rebound to dict": (
         "from typing import Annotated\nAnnotated = dict\ndef g(x: Annotated[int, make()]): ...\n",
@@ -227,7 +227,7 @@ METADATA_ROUTES: dict[str, tuple[str, str]] = {
     ),
     "Annotated not imported": (
         "def g(x: Annotated[int, make()]): ...\n",
-        "def g(x: Annotated[int, str]): ...\n",
+        "def g(x: Mapping[int, str]): ...\n",
     ),
     "Annotated from another module": (
         "from mylib import Annotated\ndef g(x: Annotated[int, make()]): ...\n",

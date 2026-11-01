@@ -381,7 +381,7 @@ def scan_source(source: str) -> list[tuple[int, str]]:
     # Annotations follow the type grammar of ``user_context_types``: strings in a type position
     # are parsed into the tree first, so every rule below judges them with the module's imports.
     # ``Annotated``'s metadata is code, evaluated with the annotation: every rule applies to it.
-    types = Spellings(tree)
+    types = Spellings(tree, source)
     roots, splice_refused, type_strings = splice_strings(tree, types)
     annotation_nodes: set[int] = set()
     for root in roots:

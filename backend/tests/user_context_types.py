@@ -21,8 +21,11 @@ Two subscripts are special:
   code, the one place in an annotation where a call is allowed (FastAPI's ``Depends(...)``).
 
 ``Literal`` and ``Annotated`` count only when imported from ``typing`` or ``typing_extensions``
-(any alias) and not rebound in the module. Anything else in a type position is refused: a call,
-an attribute of a call, a lambda, a comprehension, a walrus, a subscript of a non-name.
+(any alias) and when that import is the sole binding of the name in every scope (``symtable``
+and the AST's binding sites agree; see ``typing_names``). A subscript named ``Literal`` or
+``Annotated`` that doesn't resolve so is refused: a misread exemption fails closed. Anything else
+in a type position is refused: a call, an attribute of a call, a lambda, a comprehension, a
+walrus, a subscript of a non-name.
 
 The annotation positions: arguments, returns, variable annotations, the value of a
 ``X: TypeAlias = ...`` (``TypeAlias`` under any alias), and PEP 695 ``type`` aliases and
@@ -35,37 +38,124 @@ the same as code written without quotes.
 """
 
 import ast
+import symtable
 
 TYPING_MODULES = {"typing", "typing_extensions"}
 MAX_DEPTH = 8  # strings inside strings; deeper nesting is refused
 
 
-def typing_names(tree: ast.AST, name: str) -> set[str]:
-    """The module's spellings of ``typing.<name>``: imported from ``typing`` or
-    ``typing_extensions`` under any alias (``from typing import Annotated as A``; ``import typing
-    as t`` gives ``t.Annotated``). A spelling whose root the module also binds another way (an
-    assignment, a ``def`` or ``class``, another import) is not one."""
-    names: set[str] = set()
-    other: set[str] = set()
+BINDS_ITS_NAME = (
+    ast.TypeVar,
+    ast.ParamSpec,
+    ast.TypeVarTuple,
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+)
+
+
+def _binding_sites(tree: ast.AST) -> dict[str, list[ast.AST]]:
+    """Every place ``tree`` binds a name, in any scope: imports, assignments and deletions
+    (comprehension variables and the walrus included), parameters (lambdas too), ``except ...
+    as``, ``match`` captures, PEP 695 type parameters, ``def``/``class`` names, and ``global``/
+    ``nonlocal`` declarations (counted, so a name declared so is never trusted)."""
+    sites: dict[str, list[ast.AST]] = {}
+
+    def add(name: str | None, node: ast.AST) -> None:
+        if name is not None:
+            sites.setdefault(name, []).append(node)
+
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            add(node.id, node)
+        elif isinstance(node, ast.arg):
+            add(node.arg, node)
+        elif isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar):
+            add(node.name, node)
+        elif isinstance(node, ast.MatchMapping):
+            add(node.rest, node)
+        elif isinstance(node, BINDS_ITS_NAME):
+            add(node.name, node)
+        elif isinstance(node, ast.Global | ast.Nonlocal):
+            for name in node.names:
+                add(name, node)
+        elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name in TYPING_MODULES:
-                    names.add(f"{alias.asname or alias.name}.{name}")
-                else:
-                    other.add(alias.asname or alias.name.split(".")[0])
+                add(alias.asname or alias.name.split(".")[0], node)
         elif isinstance(node, ast.ImportFrom):
             for alias in node.names:
-                bound = alias.asname or alias.name
-                if node.module in TYPING_MODULES and alias.name == name:
-                    names.add(bound)
-                else:
-                    other.add(bound)
-        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
-            other.add(node.id)
-        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-            other.add(node.name)
-    return {spelling for spelling in names if spelling.split(".")[0] not in other}
+                add(alias.asname or alias.name, node)
+    return sites
+
+
+def _rebound_in_a_scope(table: symtable.SymbolTable, name: str) -> bool:
+    """The compiler's view: ``name`` is a parameter, assigned, deleted, or a ``def``/``class``
+    in some scope of the module."""
+    pending = [table]
+    while pending:
+        scope = pending.pop()
+        pending.extend(scope.get_children())
+        try:
+            symbol = scope.lookup(name)
+        except KeyError:
+            continue
+        if symbol.is_parameter() or symbol.is_assigned() or symbol.is_namespace():
+            return True
+    return False
+
+
+def typing_names(tree: ast.AST, table: symtable.SymbolTable, name: str) -> set[str]:
+    """The module's spellings of ``typing.<name>``: imported from ``typing`` or
+    ``typing_extensions`` under any alias (``from typing import Annotated as A``; ``import typing
+    as t`` gives ``t.Annotated``). A spelling counts only if every binding of its root, in every
+    scope, is that import: ``symtable`` (parameters, assignments, ``def``/``class``) and the
+    AST's binding sites (every form, comprehension variables and ``global`` included) agree."""
+    sites = _binding_sites(tree)
+    found: set[str] = set()
+
+    def is_typing_import(node: ast.AST, root: str, direct: bool) -> bool:
+        if direct and isinstance(node, ast.ImportFrom):
+            return node.module in TYPING_MODULES and all(
+                a.name == name for a in node.names if (a.asname or a.name) == root
+            )
+        if not direct and isinstance(node, ast.Import):
+            return all(
+                a.name in TYPING_MODULES
+                for a in node.names
+                if (a.asname or a.name.split(".")[0]) == root
+            )
+        return False
+
+    for node in ast.walk(tree):
+        candidates: list[tuple[str, str, bool]] = []
+        if isinstance(node, ast.Import):
+            candidates = [
+                (a.asname or a.name, f"{a.asname or a.name}.{name}", False)
+                for a in node.names
+                if a.name in TYPING_MODULES
+            ]
+        elif isinstance(node, ast.ImportFrom) and node.module in TYPING_MODULES:
+            candidates = [
+                (a.asname or a.name, a.asname or a.name, True) for a in node.names if a.name == name
+            ]
+        for root, spelling, direct in candidates:
+            if not _rebound_in_a_scope(table, root) and all(
+                is_typing_import(site, root, direct) for site in sites.get(root, [])
+            ):
+                found.add(spelling)
+    return found
+
+
+def import_aliases(tree: ast.AST, name: str) -> set[str]:
+    """Every local name an import binds to ``<module>.<name>``, whatever the module: a
+    ``Literal`` or ``Annotated`` under another name that doesn't resolve is still refused."""
+    return {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.name == name
+    }
 
 
 def dotted(node: ast.AST) -> str | None:
@@ -78,11 +168,26 @@ def dotted(node: ast.AST) -> str | None:
     return None
 
 
+EXEMPT = ("Literal", "Annotated")  # the two subscripts the grammar treats specially
+
+
 class Spellings:
-    def __init__(self, tree: ast.AST) -> None:
-        self.annotated = typing_names(tree, "Annotated")
-        self.literal = typing_names(tree, "Literal")
-        self.type_alias = typing_names(tree, "TypeAlias")
+    def __init__(self, tree: ast.AST, source: str) -> None:
+        table = symtable.symtable(source, "<scan>", "exec")
+        self.annotated = typing_names(tree, table, "Annotated")
+        self.literal = typing_names(tree, table, "Literal")
+        self.type_alias = typing_names(tree, table, "TypeAlias")
+        self.exempt_aliases = import_aliases(tree, "Literal") | import_aliases(tree, "Annotated")
+
+    def is_unresolved(self, node: ast.AST) -> bool:
+        """A subscript named ``Literal`` or ``Annotated`` (by its last name part, or an imported
+        alias of either) that doesn't resolve to ``typing``'s: refused, never a plain generic."""
+        if not isinstance(node, ast.Subscript) or self.is_literal(node) or self.is_annotated(node):
+            return False
+        spelling = dotted(node.value)
+        return spelling is not None and (
+            spelling.split(".")[-1] in EXEMPT or spelling in self.exempt_aliases
+        )
 
     def is_annotated(self, node: ast.AST) -> bool:
         return (
@@ -239,6 +344,8 @@ def type_findings(
         elif isinstance(node, ast.Subscript):
             if not name(node.value):
                 refuse(node, "a subscript of a non-name in a type expression")
+            elif spellings.is_unresolved(node):
+                refuse(node, "a Literal or Annotated that isn't typing's (rebound or not imported)")
             elif spellings.is_literal(node):
                 literal_argument(node.slice)
             elif spellings.is_annotated(node):
