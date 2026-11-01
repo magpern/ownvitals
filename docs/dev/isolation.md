@@ -192,9 +192,12 @@ never from a path, query, body or header. The same scan refuses, in every module
 - the obvious routes to the issuer token (#89, `user_context_rules.py`). A function's globals and
   the module's namespace are the same dict, and it holds the token: with it, `K = type(ctx);
   K(uid, "admin", issuer=tok)` builds an admin context. So the scan refuses:
-  - `__globals__`, `__module__`, `__kwdefaults__` and `__defaults__` as an attribute, a name or
-    a string (`require_context.__globals__`, `sys.modules[f.__module__]`,
-    `K.__init__.__kwdefaults__["issuer"] = tok`);
+  - `__globals__`, `__kwdefaults__` and `__defaults__` as an attribute, a name or a string
+    (`require_context.__globals__`, `K.__init__.__kwdefaults__["issuer"] = tok`);
+  - `sys.modules` looked up by a computed key (`sys.modules[f.__module__]`,
+    `sys.modules.get(name)`, any alias of `sys` or `modules`): `f.__module__` names the module
+    that holds the token. A literal key is judged by the string rules. `__module__` itself is
+    allowed (`egress.hook` checks an event loop's module by it);
   - every import that binds the module object `ownvitals.context` (`import ownvitals.context as
     c`, `from ownvitals import context`, `from .. import context`), `ownvitals.context` as an
     attribute of the package outside a type annotation, and the strings `"ownvitals.context"`
@@ -225,7 +228,8 @@ from `typing` or `typing_extensions`), PEP 695 `type` aliases and
 type-parameter bounds) may hold only a type expression:
 
 ```
-type  := name | name.name...          (no part starting with _, never the token's names)
+type  := name | name.name...          (no dunder name, no attribute part starting with _,
+                                       never the token's names)
        | name[ type-args ]            (a subscript of a dotted name)
        | type | type                  (X | Y)
        | *type                        (*Ts)
@@ -234,10 +238,11 @@ type  := name | name.name...          (no part starting with _, never the token'
 type-args := type | (type, ...) | [type, ...]
 ```
 
-Type variables are named without a leading `_`: the `_` rule covers bare names too, so the
-private idiom `_T = TypeVar("_T")` with `def f(x: _T) -> _T` is refused in `src`. Use `T` (or a
-PEP 695 type parameter, `def f[T](x: T) -> T`). A private library type (`mod._Hidden`) is refused
-the same way; if `src` ever needs one, it goes to the Architect.
+A bare name in a type may be the module's own private name: `_Policy`, `_Deadline` and a
+private type variable (`_T = TypeVar("_T")`, `def f(x: _T) -> _T`) pass, since `src` annotates
+with its private classes (`egress`, `mail`). A dunder name (`list["__builtins__"]`) and the
+token's names are refused. An attribute part starting with `_` is refused, so a private
+library type (`mod._Hidden`) is too; if `src` ever needs one, it goes to the Architect.
 
 - `Literal[...]`'s arguments are values: constants, dotted names (`Color.RED`) and nested
   `Literal`s. They are never parsed (`Literal["a", "b"]` passes).

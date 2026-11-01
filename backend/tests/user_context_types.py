@@ -4,7 +4,8 @@ Annotations run on Python 3.12: parameter, return and variable annotations when 
 the statement runs, and every string in one when ``typing.get_type_hints`` resolves it. So an
 annotation position may hold only a **type expression**:
 
-- a name or a dotted name (no part starting with ``_``, never the issuer token's names);
+- a name or a dotted name: a bare name may be a module's private name (``_Policy``) but not a
+  dunder (``__builtins__``); an attribute part never starts with ``_``; never the token's names;
 - a subscript of a dotted name, whose subscript is again type expressions (tuples and lists of
   them included, for ``Callable[[int], str]``);
 - ``X | Y`` of type expressions, and ``*Ts``;
@@ -315,7 +316,9 @@ def type_findings(
     def name(node: ast.AST) -> bool:
         """A name or dotted name; refuses ``_`` parts and the token's names."""
         if isinstance(node, ast.Name):
-            if node.id.startswith("_") or node.id in token_names:
+            # A module's own private names (``_Policy``, ``_T``) are fine as types; a dunder
+            # name (``__builtins__``) or the token never is.
+            if (node.id.startswith("__") and node.id.endswith("__")) or node.id in token_names:
                 refuse(node, f"use of {node.id} in a type expression")
             return True
         if isinstance(node, ast.Attribute):

@@ -165,9 +165,9 @@ ROUTES: dict[str, tuple[str, str]] = {
         'def g(x: list["make"] | None): ...\n',
     ),
     "a call in a *args type": ("def g(*a: *make()): ...\n", "def g(*a: *Ts): ...\n"),
-    "a name starting with _": (
+    "a dunder name": (
         'def g(x: list["__builtins__"]): ...\n',
-        'def g(x: list["builtins_list"]): ...\n',
+        'class _Policy: ...\n_T = 1\ndef g(x: list["_Policy"], y: _T) -> _T: ...\n',
     ),
 }
 # The three rebinding mutations the review saw survive: typing's Annotated rebound by a def or

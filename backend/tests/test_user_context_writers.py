@@ -221,12 +221,18 @@ RULES: dict[str, tuple[dict[str, str], dict[str, str]]] = {
             "the word as a value": body("return config['issuer']"),
         },
     ),
-    "__module__": (
+    "sys.modules by a computed key": (
         {
-            "the attribute": body("import sys", "return sys.modules[f.__module__]"),
-            "a string": body("return getattr(f, '__module__')"),
+            "__module__ as the key": body("import sys", "return sys.modules[f.__module__]"),
+            "get with a name": body("import sys", "return sys.modules.get(name)"),
+            "an aliased sys": body("import sys as s", "return s.modules[name]"),
+            "from sys import modules": body("from sys import modules as m", "return m.pop(name)"),
         },
-        {"__name__": body("return f.__name__"), "a similar name": body("return f.__modules")},
+        {
+            "a literal key": body("import sys", "return sys.modules['json']"),
+            "__module__ compared": body("return type(loop).__module__ in ('asyncio',)"),
+            "another dict's get": body("return options.get(name)"),
+        },
     ),
     "the module ownvitals.context": (
         {

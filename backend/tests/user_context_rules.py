@@ -3,9 +3,13 @@
 ``findings(tree)`` refuses, in every scanned module (the issuer modules are not scanned), type
 annotations included:
 
-- the attribute, name or string ``__globals__``, ``__module__``, ``__kwdefaults__`` and
-  ``__defaults__``: a function's globals hold the issuer token (``require_context.__globals__``),
-  ``sys.modules[f.__module__]`` is the module that holds it, and a default can pass it;
+- the attribute, name or string ``__globals__``, ``__kwdefaults__`` and ``__defaults__``: a
+  function's globals hold the issuer token (``require_context.__globals__``), and a default can
+  pass it;
+- ``sys.modules`` looked up by a computed key (``sys.modules[f.__module__]``,
+  ``sys.modules.get(name)``): ``f.__module__`` names the module that holds the token. A literal
+  key is judged by the string rules (``"ownvitals.context"`` is refused). ``__module__`` itself
+  stays allowed: ``egress.hook`` compares an event loop's module by it;
 - the module object ``ownvitals.context``: every import that binds it (``import
   ownvitals.context as c``, ``from ownvitals import context``, a relative ``from .. import
   context``), ``ownvitals.context`` reached as an attribute of the package outside a type
@@ -38,10 +42,12 @@ import ast
 
 CONTEXT_MODULE = "ownvitals.context"
 PACKAGE = "ownvitals"
-# Never named: ``__globals__`` and ``__module__`` lead to the token; ``__kwdefaults__`` and
+# Never named: ``__globals__`` leads to the token; ``__kwdefaults__`` and
 # ``__defaults__`` would make it a default (``K.__init__.__kwdefaults__["issuer"] = tok``);
 # ``copyreg`` builds a blank instance without calling ``__init__``.
-NEVER_NAMED = {"__globals__", "__module__", "__kwdefaults__", "__defaults__", "copyreg"}
+NEVER_NAMED = {"__globals__", "__kwdefaults__", "__defaults__", "copyreg"}
+# ``sys.modules`` methods that take a module name.
+MODULES_LOOKUPS = {"get", "pop", "setdefault"}
 # Builtins that run code given as a string.
 CODE_BUILTINS = {"eval", "exec", "compile"}
 BUILTINS_MODULES = {"builtins", "__builtins__"}
@@ -116,6 +122,43 @@ def _builtins_names(tree: ast.AST) -> set[str]:
     return names
 
 
+def _sys_modules_names(tree: ast.AST) -> set[str]:
+    """Local spellings of ``sys.modules``: ``sys.modules`` (any alias of ``sys``) and ``modules``
+    from ``from sys import modules`` (any alias)."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {f"{a.asname or a.name}.modules" for a in node.names if a.name == "sys"}
+        elif isinstance(node, ast.ImportFrom) and node.module == "sys":
+            names |= {a.asname or a.name for a in node.names if a.name == "modules"}
+    return names | {"sys.modules"}
+
+
+def _dotted(node: ast.AST) -> str | None:
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    return ".".join([node.id, *reversed(parts)]) if isinstance(node, ast.Name) else None
+
+
+def _computed(key: ast.AST | None) -> bool:
+    return not (isinstance(key, ast.Constant) and isinstance(key.value, str))
+
+
+def _modules_by_computed_key(node: ast.AST, modules: set[str]) -> bool:
+    """``sys.modules[<not a string literal>]`` or ``sys.modules.get(<not a string literal>)``."""
+    if isinstance(node, ast.Subscript) and _dotted(node.value) in modules:
+        return _computed(node.slice)
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in MODULES_LOOKUPS
+        and _dotted(node.func.value) in modules
+        and _computed(node.args[0] if node.args else None)
+    )
+
+
 def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]:
     """What these rules refuse in ``tree``, annotations included (they run on 3.12).
     ``annotation_nodes`` are the ids of the nodes inside type annotations, where the package
@@ -123,7 +166,10 @@ def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]
     found: list[tuple[int, str]] = []
     package = _package_names(tree)
     builtins = _builtins_names(tree)
+    modules = _sys_modules_names(tree)
     for node in ast.walk(tree):
+        if _modules_by_computed_key(node, modules):
+            found.append((getattr(node, "lineno", 0), "sys.modules looked up by a computed key"))
         if isinstance(node, ast.Name) and node.id in CODE_BUILTINS:
             found.append((node.lineno, f"use of {node.id}"))
         elif (

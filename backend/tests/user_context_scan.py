@@ -27,8 +27,8 @@
   ``type(ctx).__mro__[-1].__setattr__``, and a slot descriptor's ``__set__`` or ``__delete__``
   (``type(ctx).role.__set__(ctx, "admin")``, also after ``d = K.role``) writes a field directly.
 
-- (#89, ``user_context_rules``) ``__globals__``, ``__module__``, the module object
-  ``ownvitals.context`` (imports, the package attribute, the strings for ``sys.modules`` and
+- (#89, ``user_context_rules``) ``__globals__``, ``sys.modules`` by a computed key, the module
+  object ``ownvitals.context`` (imports, the package attribute, the strings for ``sys.modules`` and
   ``importlib``), an ``issuer=`` keyword or a ``**`` argument spelling ``"issuer"``, and
   ``copyreg``: the other routes to the issuer token or to a blank instance; and ``eval``,
   ``exec`` and ``compile``. Annotations follow the allow-list type grammar of
