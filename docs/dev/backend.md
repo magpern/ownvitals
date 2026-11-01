@@ -135,6 +135,15 @@ service file picks host, user and password), `options` (`-c` sets session settin
 among them), `host` and `hostaddr`. The error names the field, never the URL or the parameter.
 `dev` and `test` accept any parameter.
 
+**The Postgres server must report its errors in English** (`lc_messages` `en_US` or `C`, the
+Postgres default and the official image's; don't change it). psycopg reports no SQLSTATE for an
+error at connect, so web and the worker tell a refused login (a wrong password, role or database
+name, no CONNECT privilege, a forbidden connection option) from a database that is down by the
+server's message, and a refused login stops startup with `DatabaseRoleError`
+([isolation.md](isolation.md)). In another language a refusal reads as "unreachable": startup
+goes on with every connection still refused, and the role check logs a warning naming the
+`FATAL:` answer's SQLSTATE class (never its text).
+
 ## Migrations
 
 Alembic lives in `backend/migrations` (`alembic.ini`). It connects as the owner role with

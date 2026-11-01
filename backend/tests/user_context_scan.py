@@ -27,11 +27,26 @@
   ``type(ctx).__mro__[-1].__setattr__``, and a slot descriptor's ``__set__`` or ``__delete__``
   (``type(ctx).role.__set__(ctx, "admin")``, also after ``d = K.role``) writes a field directly.
 
+- (#89, ``user_context_rules``) ``__globals__``, ``sys.modules`` by a computed key, the module
+  object ``ownvitals.context`` (imports, the package attribute, the strings for ``sys.modules`` and
+  ``importlib``), an ``issuer=`` keyword or a ``**`` argument spelling ``"issuer"``, and
+  ``copyreg``: the other routes to the issuer token or to a blank instance; and ``eval``,
+  ``exec`` and ``compile``. Annotations follow the allow-list type grammar of
+  ``user_context_types`` (strings in type positions parsed into the tree first).
+- (#89, ``user_context_dunders``) every dunder name outside an allow-list of what ``src`` uses,
+  wherever it can name an attribute: attribute, name, every segment of a ``str`` or ``bytes``
+  constant, keyword argument, ``match`` class-pattern keyword, imported name; an allowed one is
+  never written. The same string segments may not name the issuer token or a path into
+  ``ownvitals.context``. ``scan_source(source, module)`` takes the module's path under ``src``
+  for the list's ``only_in``.
+
 One exception (Architect, 2026-10-31): the frozen-dataclass idiom ``object.__setattr__(self,
 "field", value)`` written directly in the undecorated ``__post_init__(self, ...)`` method of a
 class, with the bare ``self`` as the first argument, a string literal that does not start with
-``__`` as the second, and ``self`` never rebound there. With the rules above, nothing but the
-dataclass's own ``__init__`` can call that method, so ``self`` is an instance of that class.
+``__`` and is not one of ``UserContext``'s field names (``CONTEXT_FIELDS``, #89) as the second,
+and ``self`` never rebound there. Named, that method runs only from the dataclass's own
+``__init__``; it can still be reached without its name (``for f in vars(A).values(): f(ctx)``),
+which is why a ``UserContext`` field name is never exempt.
 - ``Depends(UserContext)``, ``Security(UserContext)``, and a bare ``Depends()`` or
   ``Security()`` (no dependency, or ``None``) on a ``UserContext`` parameter (default value
   or ``Annotated[UserContext, Depends()]``), so FastAPI would try to build one from the
@@ -45,11 +60,18 @@ dataclass's own ``__init__`` can call that method, so ``self`` is an instance of
 
 This layer and the runtime barrier in ``ownvitals.context`` stop accidental misuse and make the
 obvious forgeries fail CI. They do not stop deliberate obfuscation (a name built at run time, for
-example ``getattr(K, "__post_" + "init__")``, or ``inspect``): ADR 0002 section 1 leaves
-deliberately malicious code inside the process to the review gate.
+example ``getattr(K, "__post_" + "init__")``, ``"__SETATTR__".lower()`` or
+``b"__setattr__".decode()``; class-level patching such as ``type(ctx).role = property(...)``;
+``inspect``): ADR 0002 section 1 leaves deliberately malicious code inside the process to the
+review gate. ``docs/dev/isolation.md`` lists these limits.
 """
 
 import ast
+
+from user_context_dunders import comment_findings, dunder_findings, string_findings
+from user_context_rules import CONTEXT_FIELDS, MODULE_STRINGS, NEVER_NAMED
+from user_context_rules import findings as token_route_findings
+from user_context_types import Spellings, metadata, splice_strings, type_findings
 
 NAME = "UserContext"
 TOKEN_NAMES = {"issuer_token", "_ISSUER"}
@@ -316,6 +338,7 @@ def _sets_own_field(node: ast.AST) -> bool:
         and isinstance(node.args[1], ast.Constant)
         and isinstance(node.args[1].value, str)
         and not node.args[1].value.startswith("__")
+        and node.args[1].value not in CONTEXT_FIELDS
         and not isinstance(node.args[2], ast.Starred)
     )
 
@@ -360,19 +383,21 @@ def _forging_call(node: ast.Call) -> str | None:
     return None
 
 
-def scan_source(source: str) -> list[tuple[int, str]]:
+def scan_source(source: str, module: str | None = None) -> list[tuple[int, str]]:
+    """What guard 5 refuses in ``source``. ``module`` is its path under ``src``
+    (``ownvitals/log.py``), for the dunder allow-list's ``only_in``; None for other source."""
     tree = ast.parse(source)
+    # Annotations follow the type grammar of ``user_context_types``: strings in a type position
+    # are parsed into the tree first, so every rule below judges them with the module's imports.
+    # ``Annotated``'s metadata is code, evaluated with the annotation: every rule applies to it.
+    types = Spellings(tree, source)
+    roots, splice_refused, type_strings = splice_strings(tree, types)
     annotation_nodes: set[int] = set()
-
-    def mark(annotation: ast.AST | None) -> None:
-        if annotation is not None:
-            annotation_nodes.update(id(n) for n in ast.walk(annotation))
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.arg | ast.AnnAssign):
-            mark(node.annotation)
-        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            mark(node.returns)
+    for root in roots:
+        annotation_nodes.update(id(n) for n in ast.walk(root))
+    for root in roots:
+        for element in metadata(root, types):
+            annotation_nodes.difference_update(id(n) for n in ast.walk(element))
 
     aliases = {NAME}  # local names bound to the class by an import
     found: list[tuple[int, str]] = []
@@ -387,6 +412,16 @@ def scan_source(source: str) -> list[tuple[int, str]]:
                     found.append((node.lineno, f"import of {alias.name}"))
 
     found += _depends_findings(tree, aliases)
+    found += token_route_findings(tree, annotation_nodes, module)
+    found += comment_findings(source, TOKEN_NAMES, module)
+    found += dunder_findings(tree, module)
+    found += string_findings(tree, TOKEN_NAMES)
+    found += splice_refused
+    for line, value in type_strings:  # the string rules, on each string as written
+        if value in REFUSED_STRINGS | TOKEN_NAMES | NEVER_NAMED | MODULE_STRINGS:
+            found.append((line, f"string {value!r} in an annotation"))
+    for root in roots:
+        found += type_findings(root, types, TOKEN_NAMES)
     refused = _spellings(tree, ALWAYS_REFUSED) | (
         _spellings(tree, REFUSED_WITH_CONTEXT) if NAME in source else set()
     )

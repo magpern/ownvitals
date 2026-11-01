@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from user_context_dunders import beyond_the_allow_list
 from user_context_scan import ISSUER_MODULES, scan_source
 
 DEPENDS = "from fastapi import Depends"
@@ -30,7 +31,9 @@ def test_no_module_outside_the_issuers_builds_or_copies_a_user_context() -> None
         relative = path.relative_to(SRC).as_posix()
         if relative in ISSUER_MODULES:
             continue
-        violations += [(relative, line, why) for line, why in scan_source(path.read_text("utf-8"))]
+        violations += [
+            (relative, line, why) for line, why in scan_source(path.read_text("utf-8"), relative)
+        ]
     assert violations == []
 
 
@@ -289,7 +292,6 @@ def post_init(*body: str, method: str = "__post_init__") -> str:
 ALLOWED_POST_INIT = {
     "on self": ("object.__setattr__(self, 'at', self.at.upper())",),
     "in a branch": ("if self.at:", "    object.__setattr__(self, 'at', self.at.upper())"),
-    "after super": ("super().__post_init__()", "object.__setattr__(self, 'at', 'x')"),
 }
 REFUSED_POST_INIT = {
     "on another object": ("object.__setattr__(other, 'user_id', 1)",),
@@ -367,8 +369,17 @@ ALLOWED_HOOKS = {
     "super().__init__ in __init__": lines(
         "class S(Base):", "    def __init__(self, x):", "        super().__init__(x)"
     ),
-    "super().__post_init__ in __post_init__": post_init("super().__post_init__()"),
     "the idiom on a literal field": post_init("object.__setattr__(self, 'at', 'x')"),
+}
+# The frozen-dataclass idiom is allow-listed only in the modules that use it (the dunder rule).
+IDIOM_MODULE = "ownvitals/analysis/quality.py"
+# The hook rule allows these, but ``src`` doesn't use the names, so the dunder allow-list refuses
+# them.
+SUPER_HOOKS_NOT_IN_SRC = {
+    "super().__post_init__ in __post_init__": post_init("super().__post_init__()"),
+    "the idiom after super().__post_init__": post_init(
+        "super().__post_init__()", "object.__setattr__(self, 'at', 'x')"
+    ),
 }
 
 
@@ -379,12 +390,28 @@ def test_no_hook_runs_on_another_object_and_nothing_assigns_class(source: str) -
 
 @pytest.mark.parametrize("source", ALLOWED_HOOKS.values(), ids=ALLOWED_HOOKS.keys())
 def test_super_calls_of_the_hooks_stay_allowed(source: str) -> None:
-    assert scan_source(source) == []
+    assert scan_source(source, IDIOM_MODULE) == []
+
+
+@pytest.mark.parametrize(
+    "source", SUPER_HOOKS_NOT_IN_SRC.values(), ids=SUPER_HOOKS_NOT_IN_SRC.keys()
+)
+def test_a_super_hook_src_does_not_use_is_refused_by_the_allow_list_alone(source: str) -> None:
+    found = scan_source(source, IDIOM_MODULE)
+    assert found != []
+    assert beyond_the_allow_list(found) == []
+
+
+def test_the_idiom_is_allow_listed_only_where_src_uses_it() -> None:
+    idiom = ALLOWED_HOOKS["the idiom on a literal field"]
+    assert scan_source(idiom, "ownvitals/analysis/methods/series.py") == []
+    assert scan_source(idiom, "ownvitals/egress/core.py") != []
+    assert scan_source(idiom) != []
 
 
 @pytest.mark.parametrize("body", ALLOWED_POST_INIT.values(), ids=ALLOWED_POST_INIT.keys())
 def test_the_frozen_dataclass_idiom_on_its_own_instance_is_allowed(body: tuple[str, ...]) -> None:
-    assert scan_source(post_init(*body)) == []
+    assert scan_source(post_init(*body), IDIOM_MODULE) == []
 
 
 @pytest.mark.parametrize("body", REFUSED_POST_INIT.values(), ids=REFUSED_POST_INIT.keys())

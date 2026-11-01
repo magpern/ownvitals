@@ -64,10 +64,27 @@ user of the URL, `session_user`):
 The attribute and ownership checks also cover every role the role is a member of, so a report
 names what a membership would give. The engine repeats the check on every new connection, and on
 every pool checkout checks that the connection carries no `app.user_id` and has exactly the
-role's timeouts (otherwise the pool replaces it). A refused login is fatal too; an unreachable
-database is not (the per-connection check still applies). There is no override, not even in
-`dev`. Guard 2 (`role_guard.py`) checks the same on the test database, and refuses an `app.*`
-default for any role or database.
+role's timeouts (otherwise the pool replaces it).
+
+A login the database refuses is fatal too (`DatabaseRoleError`, #89): SQLSTATE class 28, 42501
+or 3D000. psycopg reports no SQLSTATE at connect, so `role_check.REFUSED_LOGIN` matches the
+server's message: a wrong password or role, a role that may not log in, no `pg_hba.conf` entry,
+no CONNECT privilege, a connection option the role may not set (`-c session_authorization=...`
+or `-c role=...` in `options` or `PGOPTIONS`), or a database that does not exist. The queue check
+and the key ring use the same classification. A real connection failure (refused, a timeout,
+DNS, a server that is starting up or full) is not fatal: the per-connection check still applies
+to every later connection, and no connection is used before it passes.
+
+**The server must report its errors in English** (`lc_messages` `en_US` or `C`, the Postgres
+default and the official image's) for these refusals to be classified. In another language a
+refusal is read as "unreachable": startup goes on, `/api/ready` answers 503 and every connection
+is still refused, so it fails closed but without the clear error. When startup defers on a
+`FATAL:` answer it doesn't recognise, the role check logs one warning with the SQLSTATE class
+(or `unknown`) and never the message text. A non-superuser can't change `lc_messages` through
+the connection options.
+
+There is no override, not even in `dev`. Guard 2 (`role_guard.py`) checks the same on the test
+database, and refuses an `app.*` default for any role or database.
 
 ## The test database
 
@@ -126,20 +143,63 @@ re-grant), so a re-run of the script keeps the narrower grants (`test_roles_reru
 
 `tests/session_scan.py` keeps two allowlists (packages and exact modules):
 
-| Session | Allowed |
-|---|---|
-| `user_session` | `ownvitals.db`, `ownvitals.auth`, `ownvitals.connections` |
-| `system_session` | `ownvitals.db`, `ownvitals.auth` |
+| Session | Packages | Exact modules |
+|---|---|---|
+| `user_session` | `ownvitals.db`, `ownvitals.auth`, `ownvitals.connections` | `ownvitals.jobs.fence` (every write a worker makes for a job), `ownvitals.jobs.service` and `ownvitals.jobs.progress` (the jobs API's own writes and reads for the signed-in user, web only) |
+| `system_session` | `ownvitals.db`, `ownvitals.auth` | `ownvitals.jobs.queue` (the calls of the queue's `SECURITY DEFINER` functions), `ownvitals.crypto.keks` (the key ring's startup check) |
 
-Everything else, worker and job-kind code included, fails `test_session_guard.py`: any reference
-to the names (and to `_owned_session` and `SET_USER`, which only `ownvitals.db` may name), an
-import of `ownvitals.db.session` or anything in it, a name or attribute chain that reaches that
-module (`ownvitals.db.session.X`, `db.session.X` after `from ownvitals import db`, `m.X` after
-`import ownvitals.db.session as m`), or a string that sets `app.user_id`. Relative imports are
-resolved to absolute names first (`from ..db import session` in `ownvitals.jobs.sync` is caught),
-and one above the top-level package is refused. Worker writes go through the fenced helper of #9. A package joins a list in its own PR, with the reason
-in `session_scan.py`'s docstring and the pinning test updated (#8 KEK check, #9 jobs, #12 flags
-and admin are expected).
+Everything else fails `test_session_guard.py`: the rest of `ownvitals.jobs` (the runner, the job
+kinds, the issuer), all of `ownvitals.worker`, and every other package. Worker code writes through
+`ownvitals.jobs.fence`. What fails is any reference to the names (and to `_owned_session` and
+`SET_USER`, which only `ownvitals.db` may name), an import of `ownvitals.db.session` or anything
+in it, a name or attribute chain that reaches that module (`ownvitals.db.session.X`,
+`db.session.X` after `from ownvitals import db`, `m.X` after `import ownvitals.db.session as m`),
+or a string that sets `app.user_id`. Relative imports are resolved to absolute names first
+(`from ..db import session` in `ownvitals.jobs.sync` is caught), and one above the top-level
+package is refused. A package or module joins a list in its own PR, with the reason in
+`session_scan.py`'s docstring and the pinning test updated (#12 flags and admin are expected).
+
+**Threat model of guard 5 (Architect, #89).** The scan stops the plausible, review-visible ways
+of forging a `UserContext`: mistakes, shortcuts and copied snippets. It is not a sandbox against
+adversarial code in the process: a static scan can't prove that Python code running in the same
+process can't reach the token (reflection, `gc` and `ctypes` always can). Adversarial code is
+covered by code review of every PR, by RLS (the database enforces `owner_id` whatever context
+Python builds) and by the role checks. A further route of the same kind (reflection reaching the
+token in process) goes under "Known limits" below, not into a new rule, unless it is a plain
+import or a call that code review could miss.
+
+**Guard 5's scope (Architect, the eleventh #115 review, and the fourteenth's decisions).**
+Reviewers of guard 5 classify every finding against this text:
+
+- **Blocking:** a route written in plain code that names the token, the context module (by any
+  spelling), or a dunder outside its pinned use, in any construct code can read: code, strings,
+  docstrings and comments. A dunder in a docstring is on the allow-list
+  ([isolation-guard5.md](isolation-guard5.md)). The form `docstring` follows the entry's
+  `only_in`. The form `docstring:<module>` pins a docstring segment to that one module and does
+  not use `only_in`, the same way `comment:<module>:<text>` pins a comment. `__cause__` and
+  `__context__` use `docstring:ownvitals/withings/errors.py` for that module's docstring, which
+  says the client raises these after its `except` blocks: no `__cause__`, no `__context__`
+  (ADR 0004 §8). The pin is those two names in that module's docstrings.
+- The package's name is never written as a string. A `str` or `bytes` constant exactly
+  `"ownvitals"` (f-string parts included) is blocking, except four named pins, each once in its
+  module: `version("ownvitals")` in `__init__.py`, `ISSUER = "ownvitals"` in `auth/totp.py`, the
+  `'User-Agent'` value in `egress/code_exchange.py`, and `title="ownvitals"` in `web.py`. There
+  is no general exemption for that string. `"ownvitals.web"` is another string. A name built at
+  run time is known limit (a).
+- `.obj` on an exception is not a bypass. The `self.context.wrap_socket(...)` pin in `mail.py`
+  stays a check of how `self` is written. An unbound call can raise `AttributeError`, and
+  `e.obj` would hand back the value passed as `self`. The string rule above keeps the package
+  object out, so that call has no plain package value to pass.
+- `Literal[-1]` is refused: a unary minus is not a constant in `Literal`'s arguments. That is
+  stricter than PEP 586, which allows a negative integer literal. No module in `src` uses one.
+- **Known limits (non-blocking):**
+  - (a) names built at run time from allowed pieces;
+  - (b) objects written to intercept the guard's own allowed comparisons or calls (a recording
+    `__eq__`, mocks);
+  - (c) reading source text from disk through allowed file APIs;
+  - (d) reflection with no such name written. For example, `inspect.getmodule(UserContext)` after
+    `from ownvitals.context import UserContext` reaches the module without a forbidden name in
+    the source. `import inspect` is refused, so writing that import does not scan clean.
 
 Only `ownvitals/context.py`, `ownvitals/auth/deps.py` (#10) and `ownvitals/jobs/issuer.py` (#9)
 may build a `UserContext` (`user_context_scan.py`); handlers get it through the auth dependency,
@@ -161,19 +221,170 @@ never from a path, query, body or header. The same scan refuses, in every module
   `super(type(ctx), ctx).__setattr__` (`super` with or without arguments) and
   `type(ctx).__mro__[-1].__setattr__` reach `object.__setattr__` past the frozen class's own, and
   a slot descriptor (`type(ctx).role.__set__(ctx, "admin")`, also after `d = K.role`) writes a
-  field directly. Defining these methods in a class stays allowed.
+  field directly. Defining these methods in a class stays allowed;
+- the obvious routes to the issuer token (#89, `user_context_rules.py`). A function's globals and
+  the module's namespace are the same dict, and it holds the token: with it, `K = type(ctx);
+  K(uid, "admin", issuer=tok)` builds an admin context. So the scan refuses:
+  - `__globals__`, `__kwdefaults__` and `__defaults__` as an attribute, a name or a string
+    (`require_context.__globals__`, `K.__init__.__kwdefaults__["issuer"] = tok`);
+  - `import_module` (any module's, under any import alias) other than called directly with a
+    string literal (by position or as `name=`): `importlib.import_module(name)`, `load =
+    importlib.import_module`. And `sys.modules` looked up by a computed key
+    (`sys.modules[name]`, `sys.modules.get(name)`, any alias of `sys` or `modules`). A module name
+    built at run time (`repr(type(ctx))` sliced to it) turns into the module that holds the
+    token. A literal is judged by the string rules. `__import__` and `__module__` are dunders,
+    refused by the attribute rule below. `sys.modules` bound to another name
+    (`mods = sys.modules; mods[name]`) or copied stays with code review (Known limits);
+  - every import that binds the module object `ownvitals.context` (`import ownvitals.context as
+    c`, `from ownvitals import context`, `from .. import context`), `ownvitals.context` as an
+    attribute of the package outside a type annotation, and the strings `"ownvitals.context"`
+    and `".context"` (`sys.modules[...]`, `sys.modules.get(...)`, `importlib.import_module`,
+    `__import__`). Names imported from the module (`from ownvitals.context import
+    require_context`) stay allowed, and so does a plain `import ownvitals.context` for an
+    annotation: it binds only the package, as `import ownvitals.db` does, and each use is judged.
+    A star import from `ownvitals` or any of its packages, relative ones included, is refused:
+    `ownvitals` has no `__all__`, so `from ownvitals import *` binds the module `context`;
+  - an `issuer=` keyword in any call, and a `**` argument that spells `"issuer"` anywhere
+    (`**{"issuer": t}`, `**dict(issuer=t)`, `**{k: t for k in ["issuer"]}`,
+    `**dict([("issuer", t)])`, `**({} | {"issuer": t})`). Only the issuer modules pass the token,
+    and they are not scanned. A third-party API with a keyword of that name (a JWT library's
+    `issuer=`, say) needs the Architect;
+- `copyreg` as an import, a name, an attribute or a string (`importlib.import_module("copyreg")`):
+  `copyreg.__newobj__(type(ctx))` and `copyreg._reconstructor` make a blank context without the
+  token (#89);
+- `eval`, `exec` and `compile`, the builtins (#89): as a name, imported from `builtins` under
+  any alias, or as an attribute of `builtins` or `__builtins__`. Code in a string runs unseen.
+  `re.compile`, `ast.literal_eval` and other objects' methods of those names stay allowed.
+
+**Dunder names follow an allow-list: guard 5's attribute rule**, with the string, comment
+and package rules that go with it and the table of allowed dunders, is in
+[isolation-guard5.md](isolation-guard5.md).
+
+**Annotations follow an allow-list type grammar** (#89, Architect's decision on #115,
+`tests/user_context_types.py`). Annotations run on Python 3.12: parameter, return and variable
+annotations when the `def` or the statement runs, and every string in one when
+`typing.get_type_hints` resolves it. So every annotation position (parameters, returns,
+variable annotations, the value of `X: TypeAlias = ...` (`TypeAlias` under any alias imported
+from `typing` or `typing_extensions`), PEP 695 `type` aliases and
+type-parameter bounds) may hold only a type expression:
+
+```
+type  := name | name.name...          (no dunder name, no attribute part starting with _,
+                                       never the token's names)
+       | name[ type-args ]            (a subscript of a dotted name)
+       | type | type                  (X | Y)
+       | *type                        (*Ts)
+       | constant                     (None, ..., numbers)
+       | "string"                     (parsed and checked as a type, in its place, recursively)
+type-args := type | (type, ...) | [type, ...]
+```
+
+A bare name in a type may be the module's own private name: `_Policy`, `_Deadline` and a
+private type variable (`_T = TypeVar("_T")`, `def f(x: _T) -> _T`) pass, since `src` annotates
+with its private classes (`egress`, `mail`). A dunder name (`list["__builtins__"]`) and the
+token's names are refused. An attribute part starting with `_` is refused, so a private
+library type (`mod._Hidden`) is too; if `src` ever needs one, it goes to the Architect.
+
+- `Literal[...]`'s arguments are values: constants and nested `Literal`s only. They are never
+  parsed (`Literal["a", "b"]` passes). A unary minus is not a constant, so `Literal[-1]` is
+  refused (stricter than PEP 586; see the scope above). A name is refused
+  (`Literal[ownvitals.context]` hands the module to `typing.get_args`), even an enum member
+  (`Color.RED`).
+- In `Annotated[T, m1, m2]`, `T` is a type and the metadata `m1, m2` is ordinary code, the one
+  place in an annotation where a call is allowed (FastAPI's `Depends(get)`, `Header()`,
+  `Field(ge=1)`). Every rule in this section applies to the metadata as it does outside an
+  annotation, so `getattr(object, "__setattr__")(...)`, `vars(ownvitals.context)` and
+  `UserContext(...)` are refused there. A string in the metadata is a value, not parsed.
+- `Literal` and `Annotated` (and `TypeAlias`) count only when imported from `typing` or
+  `typing_extensions`, under any alias (`from typing import Literal as L`, or `t.Literal` after
+  `import typing as t`), and only if that import is the **sole binding of the name in every
+  scope** of the module. Two views must agree: the compiler's own (`symtable`: a parameter,
+  lambda parameter, assignment, deletion, `except ... as`, `match` capture, walrus, PEP 695 type
+  parameter, `global` assignment, `def` or `class` in any scope) and the AST's binding sites
+  (the same forms plus comprehension variables, which 3.12's `symtable` folds away, any other
+  import, and `global`/`nonlocal` declarations). A star import from any module other than
+  `typing` or `typing_extensions` (relative ones included) binds names neither view sees, so it
+  counts as a binding of every name: after `from somelib import *` no spelling of `Literal`,
+  `Annotated` or `TypeAlias` resolves. A star import from `typing` is trusted but binds no
+  spelling either: `from typing import *` alone doesn't make `Literal` resolve, so its
+  `Literal["a"]` is refused (fails closed); import the name explicitly.
+- **A misread exemption fails closed** (#89, the sixth #115 review): a subscript named `Literal`
+  or `Annotated`, by its last name part or as an imported alias of either, that doesn't resolve
+  to `typing`'s as above is refused, never read as a plain generic. A `def make(Literal):` whose
+  `Literal["..."]` would otherwise skip parsing its strings is the route this closes.
+- A string in a type position, nested ones included (`list["..."]`, `X | "..."`, a string in a
+  string), is parsed **into the module's tree** before any rule runs, so its code is judged with
+  the module's own imports and aliases: `"Annotated[int, vars(ownvitals.context)]"` after
+  `import ownvitals.context`, an aliased `UserContext` and `dataclasses.replace` are refused as
+  they are unquoted. **The grammar fails closed:** a string passes only if it parses and the
+  grammar accepts it, and a string that doesn't parse is refused. A string starting with `*` is
+  checked as `*<rest>` (`"*Ts"` passes, `"*[getattr(...)]"` is refused), as 3.12's `ForwardRef`
+  evaluates it. Strings nested more than 8 deep are refused. Before a string is parsed, the
+  string rules run on it as written (the module strings, the token's names, `__globals__` and
+  the like), so a key such as `sys.modules["ownvitals.context"]` is refused as it is outside an
+  annotation.
+- Anything else in a type position is refused: a call, an attribute of a call, a subscript of a
+  non-name, a lambda, a comprehension, a walrus.
 
 The guard reads "anywhere" with one exception (Architect, 2026-10-31): the frozen-dataclass idiom
 `object.__setattr__(self, "field", value)` written directly in a class's undecorated
 `__post_init__(self, ...)`, with the bare `self` first, a string literal that does not start with
-`__` second, and `self` never rebound there. With the rules above only the dataclass's own
-`__init__` calls that method, so `self` is an instance of that class. Another target, another
-method, a computed or dunder field name, a nested function or lambda, or an alias stays refused.
+`__` second, and `self` never rebound there. Code that **names** the method can't call it (the
+rules above refuse the name), but code can still reach it without the name: `for f in
+vars(A).values(): f(ctx)` runs it with a context as `self`. So the exemption never covers one of
+`UserContext`'s own field names (`user_id`, `role`, `connections`; `CONTEXT_FIELDS`, pinned to
+the class by `test_user_context_writers.py`), in any method (#89). Another target, another method,
+a computed, dunder or context field name, a nested function or lambda, or an alias stays refused.
 
-What the scan catches is accidental misuse and the obvious forgeries, as listed. It does not
-stop deliberate obfuscation (a name built at run time such as `getattr(K, "__post_" + "init__")`,
-`inspect`, `importlib`): ADR 0002 §1 leaves deliberately malicious code inside the process to the
-review gate.
+What the scan catches is accidental misuse and the obvious forgeries, as listed: it reads source
+text, so it sees only names written out. It does not stop deliberate code, which ADR 0002 §1
+leaves to the review gate. Known limits:
+
+- a name that exists only at run time, built by a string operation (concatenation,
+  formatting, slicing, `partition`, encoding) from pieces that are each allowed on their own:
+  `getattr(K, "__post_" + "init__")`, `getattr(super(type(ctx), ctx), "__SETATTR__".lower())`,
+  `"__%s__" % "globals"`, `"__{}__".format("globals")`, an f-string split around the name
+  (`f"__glo{''}bals__"`), bytes in another encoding decoded at run time (`utf-16`), or a module
+  name built the same way for `sys.modules` bound to another name or copied
+  (`mods = sys.modules; mods[name]`, `dict(sys.modules)[name]`, `sys.modules.__getitem__` is a
+  dunder and refused). Scope (a);
+- objects written to intercept the guard's own allowed comparisons or calls: calling the real
+  `_audit` in `egress/hook.py` with a recording object or a mock as `event` hands it
+  `"socket.__new__"` without writing the name. Scope (b);
+- reading source text from disk through an allowed file API: `open` on a module's own file
+  (found without `importlib.util`), then slicing a line that holds an allowed dunder in a comment
+  or a docstring. Scope (c);
+- the module reached through the package object without a written name: `getattr(ownvitals,
+  "con" + "text")`, walking `vars(ownvitals)`. With the module, `vars(m)` gives the token, and
+  it can't be refused outright: other code uses it (`m.__dict__` is a dunder, allowed only in
+  `ownvitals/log.py`). Scope (d);
+- the general class, reflection in the process: walking package or module objects, searching
+  `sys.modules`, `gc.get_referrers`/`gc.get_objects`, `inspect` (`inspect.getmodule(UserContext)`
+  after `from ownvitals.context import UserContext`, a function's closure or frame), and `ctypes`;
+- a keyword dict bound to a name first: `kw = {"issuer": tok}`, then `K(..., **kw)`;
+- code evaluated from a string outside annotations, other than through `eval`, `exec` and
+  `compile`: `typing.get_type_hints` on a string built at run time, `pickle`, `pydoc.locate` and
+  the like are reflection under the threat model, as long as the string names no dunder, no
+  token name and no path into `ownvitals.context` (those are refused, [isolation-guard5.md](isolation-guard5.md)). Among them:
+  - a plain string alias used as a type: `S = "getattr(...)"` (or `S = list["..."]`) without a
+    `TypeAlias` annotation, then `def g(x: list[S])`; also `TypeVar("T", bound="...")` and
+    `NewType("N", "...")`, and a `ForwardRef` built outside an annotation (`F =
+    typing.ForwardRef("...")`, then `def g(x: list[F])`; `Literal[F]` is refused, since a
+    `Literal` takes constants only). The string is written outside an annotation position;
+  - `eval`, `exec` and `compile` reached without their names: `getattr(builtins, "eval")`,
+    `vars(builtins)["eval"]`, `builtins.__dict__["eval"]`, `sys.modules["builtins"].eval`,
+    `importlib.import_module("builtins")`, `__import__("builtins")`, and other evaluators of
+    code in strings (`timeit`, `code`, `runpy`);
+  - the functional forms that store string types for `get_type_hints`:
+    `NamedTuple("N", [("x", "...")])`, `TypedDict("T", {"x": "..."})` and
+    `dataclasses.make_dataclass`;
+- defeating name resolution only through run-time mutation of a namespace: a metaclass whose
+  `__prepare__` maps `Literal` to another object in a class body, `globals()[...] = ...`,
+  `setattr` on a module, a `sys.modules` swap. Neither `symtable` nor the AST sees these;
+- class-level patching: `type(ctx).role = property(...)` changes what every context reads
+  (accepted by the Architect);
+- a hook reached without its name, as above, when it sets a field that isn't one of the context's:
+  harmless to a context, which has only those slots.
 
 ## Guards (ADR 0002 §7)
 
@@ -183,8 +394,8 @@ review gate.
 | 2 | roles and every privilege as an allowlist | `test_role_guard.py` (`role_guard.check_roles`), `test_roles_rerun.py` |
 | 3 | two users on test-only owned tables: no cross-user read, write, move, child reference or unique-value probe; no rows without a context; the app role can't change the schema | `test_isolation.py` |
 | 4 | no `app.user_id` or held cursor left on a pooled connection; `commit()` inside a session raises | `test_isolation.py` |
-| 5 | `UserContext` only from its issuers | `test_user_context_guard.py`, `test_user_context_writers.py`, `test_context.py` |
-| 6 | startup refusal of a privileged role | `test_role_check.py`, `test_role_check_login.py` |
+| 5 | `UserContext` only from its issuers | `test_user_context_guard.py`, `test_user_context_writers.py`, `test_user_context_routes.py`, `test_user_context_types.py`, `test_context.py` |
+| 6 | startup refusal of a privileged role, and of a login the database refuses | `test_role_check.py`, `test_role_check_login.py`, `test_role_check_refused.py` |
 | — | only allowlisted modules open a session | `test_session_guard.py` |
 
 Each guard has tests that plant a violation and show the guard catches it.

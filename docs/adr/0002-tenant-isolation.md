@@ -62,6 +62,9 @@ class UserContext:
   `object.__setattr__`, `object.__new__`, `x.__class__(...)` and `type(x)(...)` fail CI.
 - These stop accidents and make misuse visible in review; deliberately malicious code inside the
   process is the review gate's job, not the barrier's (classbeat's scope statement holds).
+  Guard 5's threat model (#89): it stops plausible, review-visible forgeries and is not a sandbox,
+  since no static scan can stop reflection, `gc` or `ctypes` in the process; code review, RLS and
+  the role checks cover adversarial code (`docs/dev/isolation.md`).
 - Handlers get the context through one FastAPI dependency. **A user id never comes from a path,
   query, body, header, webhook payload or model output.** Ids from the browser are looked up
   within the owner's rows; not found and not owned are the same answer (404).
