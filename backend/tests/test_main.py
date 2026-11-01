@@ -2,6 +2,9 @@ import asyncio
 import asyncio.selector_events
 import signal
 import sys
+import urllib.error
+import urllib.request
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -10,6 +13,15 @@ from fastapi import FastAPI
 
 from ownvitals import __main__ as entry
 from ownvitals.__main__ import GRACEFUL_SHUTDOWN_SECONDS, UVICORN_LOOP, Server, main
+from ownvitals.egress import OutboundBlocked, worker_allowlist_installed
+
+
+@pytest.fixture(autouse=True)
+def _restore_urllib_opener() -> Iterator[None]:
+    """``main`` installs web's process-wide urllib opener; put the pytest process's back."""
+    saved = vars(urllib.request)["_opener"]
+    yield
+    urllib.request.install_opener(saved)  # pyright: ignore[reportArgumentType]
 
 
 def _runs(monkeypatch: pytest.MonkeyPatch) -> list[Server]:
@@ -49,6 +61,32 @@ def test_main_runs_uvicorn_with_the_json_logging(monkeypatch: pytest.MonkeyPatch
         # Open requests get a bounded time after SIGTERM.
         "timeout_graceful_shutdown": GRACEFUL_SHUTDOWN_SECONDS,
     }
+
+
+@pytest.mark.usefixtures("restore_logging")
+def test_serving_installs_the_deny_all_urllib_opener(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#10: a library calling ``urlopen`` in web is refused before anything is sent, for every
+    scheme, and web does not become the worker (its own clients keep working)."""
+    _runs(monkeypatch)
+    main([])
+    for url in (
+        "https://oauth2.googleapis.com/token",
+        "https://wbsapi.withings.net/v2/oauth2",
+        "http://127.0.0.1:9/",
+        "file:///etc/passwd",
+    ):
+        with pytest.raises((OutboundBlocked, urllib.error.URLError)) as refused:
+            urllib.request.urlopen(url, timeout=1)  # noqa: S310 - the refusal is the point
+        if isinstance(refused.value, urllib.error.URLError):
+            assert "unknown url type" in str(refused.value.reason)
+    assert not worker_allowlist_installed()
+
+
+def test_a_subcommand_does_not_install_the_web_opener(monkeypatch: pytest.MonkeyPatch) -> None:
+    before = vars(urllib.request)["_opener"]
+    monkeypatch.setattr(entry, "run_command", lambda args, settings: 0)
+    assert main(["jobs", "stats"]) == 0
+    assert vars(urllib.request)["_opener"] is before
 
 
 def test_uvicorn_runs_the_standard_selector_loop() -> None:

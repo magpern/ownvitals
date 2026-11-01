@@ -332,10 +332,11 @@ def test_jsonb_size_measures_as_jsonb_prints() -> None:
                                                ensure_ascii=False).encode()  # fmt: skip
 
 
-async def test_without_the_accounts_issue_every_route_answers_401(
+async def test_without_a_session_every_route_answers_401(
     jenv: JobsEnv, bare_app: httpx.AsyncClient
 ) -> None:
-    """Pins the fail-closed default (#77): until #10 nobody is signed in, whatever is sent."""
+    """The app as shipped (#10 replaced #77's fail-closed seam with ``ownvitals.auth``): without
+    a session nobody is signed in, whatever is sent."""
     _, job_id = jenv.job()
     key = {"Idempotency-Key": new_key(), "X-Test-User": str(jenv.row(job_id).owner_id)}
     for response in (
@@ -346,7 +347,7 @@ async def test_without_the_accounts_issue_every_route_answers_401(
     ):
         assert (response.status_code, response.json()) == (
             401,
-            {"detail": {"reason": "not_signed_in"}},
+            {"detail": {"reason": "not_authenticated"}},
         )
     assert jenv.row(job_id).cancel_requested_at is None
     assert count(jenv) == 1

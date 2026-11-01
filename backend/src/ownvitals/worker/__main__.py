@@ -17,6 +17,7 @@ import logging
 import signal
 import sys
 
+from ownvitals.auth.owners import ACCOUNTS
 from ownvitals.config import Settings
 from ownvitals.db import DatabaseRoleError, event_loop_factory
 from ownvitals.egress import install_egress_hook, require_standard_event_loop
@@ -44,7 +45,7 @@ async def _run(settings: Settings) -> None:
     stop = asyncio.Event()
     # Before "worker started" is logged, so a signal after that line is always handled.
     _install_signal_handlers(asyncio.get_running_loop(), stop)
-    await run_worker(settings, stop)
+    await run_worker(settings, stop, accounts=ACCOUNTS)  # ownvitals.auth's owner check (#10)
 
 
 def main() -> int:

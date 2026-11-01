@@ -6,6 +6,7 @@ module is not written yet is documented where it is declared.
 """
 
 import ipaddress
+import math
 import os
 import re
 from pathlib import Path
@@ -54,6 +55,7 @@ PROD_QUERY_PARAMETERS = frozenset(
 # Hosts where unencrypted SMTP (``smtp_tls = none``) is allowed: loopback and the compose service.
 PLAIN_SMTP_HOSTS = frozenset({"localhost", "mailpit"})
 MIN_APP_SECRET_BYTES = 32
+DEFAULT_SMTP_TOTAL_SECONDS = 20.0
 # The id of the current KEK (the ``connection_kek`` secret file, read by the crypto package).
 CONNECTION_KEK_ID = re.compile(r"kek-[a-z0-9-]{1,28}")
 # The ids of the current webhook-secret seed and pepper (the ``webhook_seed`` and
@@ -157,13 +159,20 @@ class Settings(BaseSettings):
     # Comma-separated addresses that become admin at their next sign-in.
     admin_emails: str = ""
     # Comma-separated addresses or CIDR ranges of reverse proxies whose X-Forwarded-For is
-    # believed. Empty: the peer address is the client.
-    trusted_proxies: str = ""
+    # believed (ADR 0003 section 8): on the home server, SWAG. Default: loopback only. Empty: the
+    # peer address is always the client.
+    trusted_proxies: str = "127.0.0.0/8,::1"
+    # Those of the trusted proxies whose ``CF-Connecting-IP`` header is believed: SWAG, which sets
+    # or overwrites it only for connections from Cloudflare's ranges (the owner's SWAG
+    # configuration). The header counts only on a request whose peer is in both lists. Default:
+    # none, so the header is never believed.
+    cf_connecting_ip_proxies: str = ""
     session_idle_days: int = 7
     session_absolute_days: int = 30
     password_hash_workers: int = 4
-    # Who may create an account: ``invite`` (default), ``closed`` or ``open``.
-    signup_mode: Literal["invite", "closed", "open"] = "invite"
+    # Who may create an account: ``invite`` (default) or ``closed``. ``open`` is refused until
+    # the M8 gate (D7, ADR 0003 section 6).
+    signup_mode: Literal["invite", "closed"] = "invite"
     # How long a fresh TOTP check authorises a sensitive action (step-up, PLAN §6: within 10
     # minutes). The environment can shorten the window, never lengthen it.
     stepup_window_minutes: int = Field(default=10, ge=1, le=10)
@@ -189,6 +198,9 @@ class Settings(BaseSettings):
     smtp_username: str | None = None
     # From the file ``smtp_password`` (never the environment).
     smtp_password: SecretStr | None = None
+    # The total deadline of one delivery, every SMTP step included (mail runs inside web
+    # requests; ``ownvitals.mail``). Positive and finite.
+    smtp_total_seconds: float = DEFAULT_SMTP_TOTAL_SECONDS
 
     # Google sign-in, the only OAuth provider. It is on only when the client id and the secret
     # file ``oauth_google_client_secret`` (never the environment) both exist.
@@ -346,10 +358,24 @@ class Settings(BaseSettings):
             raise ValueError("smtp_port must be between 1 and 65535")
         return value
 
-    @field_validator("trusted_proxies")
+    @field_validator("trusted_proxies", "cf_connecting_ip_proxies")
     @classmethod
-    def _check_trusted_proxies(cls, value: str) -> str:
-        parse_networks(value)
+    def _check_trusted_proxies(cls, value: str, info: ValidationInfo) -> str:
+        parse_networks(value, info.field_name or "trusted_proxies")
+        return value
+
+    @field_validator("signup_mode", mode="before")
+    @classmethod
+    def _refuse_open_signup(cls, value: object) -> object:
+        if value == "open":
+            raise ValueError("signup_mode=open is refused until the M8 gate (ADR 0003 section 6)")
+        return value
+
+    @field_validator("smtp_total_seconds")
+    @classmethod
+    def _check_smtp_total_seconds(cls, value: float) -> float:
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("smtp_total_seconds must be positive and finite")
         return value
 
     @field_validator("session_idle_days", "session_absolute_days", "password_hash_workers")
@@ -374,6 +400,12 @@ class Settings(BaseSettings):
     @property
     def trusted_proxy_networks(self) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
         return parse_networks(self.trusted_proxies)
+
+    @property
+    def cf_connecting_ip_networks(
+        self,
+    ) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+        return parse_networks(self.cf_connecting_ip_proxies, "cf_connecting_ip_proxies")
 
     def sqlalchemy_url(self) -> URL:
         """The app role's URL, with ``database_password`` substituted when it is set."""
@@ -413,16 +445,16 @@ def public_origin(url: str) -> str:
 
 
 def parse_networks(
-    value: str,
+    value: str, name: str = "trusted_proxies"
 ) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
-    """Parse a comma-separated list of addresses and CIDR ranges."""
+    """Parse a comma-separated list of addresses and CIDR ranges (``name`` is the setting)."""
     networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
     for item in value.split(","):
         if item.strip():
             try:
                 networks.append(ipaddress.ip_network(item.strip(), strict=False))
             except ValueError:
-                raise ValueError("trusted_proxies must list IP addresses or CIDR ranges") from None
+                raise ValueError(f"{name} must list IP addresses or CIDR ranges") from None
     return tuple(networks)
 
 

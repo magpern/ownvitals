@@ -19,10 +19,14 @@ PARTITIONS: Final = 3
 # 4: webhook-secret rotation, ``pg_advisory_xact_lock``, keyed by the ``withings_apps`` id (ADR
 # 0008 section 2, ADR 0004 section 4; used from M1).
 WEBHOOK_SECRET_ROTATION: Final = 4
+# 5: MFA failures, ``pg_advisory_xact_lock``, keyed by the user id (ADR 0003 section 2: the fifth
+# failure in an hour mails the user once; ``ownvitals.auth.mfa.record_failure``, #10).
+MFA_FAILURES: Final = 5
 
 NAMESPACES: Final = {
     "job_creation": JOB_CREATION,
     "token_refresh": TOKEN_REFRESH,
     "partitions": PARTITIONS,
     "webhook_secret_rotation": WEBHOOK_SECRET_ROTATION,
+    "mfa_failures": MFA_FAILURES,
 }
