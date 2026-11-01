@@ -23,7 +23,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews | Grok 4.7 | #115 | Grok 4.7 PASS on `ee6c431` (`ci` green). The branch then merged `main`; head `b2f7183` is in security review because both sides changed `docs/dev/backend.md` |
+| #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews | Grok 4.7 | #115 | Grok 4.7 FAIL on `b2f7183`: `Actor.__slots__` in `admin/db.py` is not on the guard 5 allow-list, and `ci` is red. A fix is in progress. The PASS on `ee6c431` does not cover this head |
 | #143 | A future proof must not keep a pending session alive | Grok 4.7 | — | ready. Non-blocking note from the #142 PASS. It does not grant step-up or the admin role |
 
 Merged since the last reconcile: #122 (#123) is on `main` at `35316ee` and #140 (#142) at `a4e7e26`, both IMPLEMENTED. `main` is `a4e7e26`.
