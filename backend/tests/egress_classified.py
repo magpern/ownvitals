@@ -260,6 +260,11 @@ EVALUATORS: tuple[str, ...] = (
     "codeop",
     "pydantic.ImportString",
     "pydantic.types.ImportString",
+    # The sixth FAIL on #123 (B2): ``help("x")`` imports ``x`` through ``pydoc``, and
+    # ``breakpoint()`` imports what ``PYTHONBREAKPOINT`` names through ``sys.breakpointhook``.
+    "builtins.help",
+    "builtins.breakpoint",
+    "sys.breakpointhook",
     # The fifth FAIL on #123 (F4): they run a string as code (``cProfile.run``, ``profile.run``,
     # ``trace.Trace().run``, ``pdb.run``, ``bdb.Bdb.run``) or the code in docstrings (``doctest``).
     "cProfile",
@@ -287,6 +292,7 @@ CODE_WORDS: frozenset[str] = frozenset(
         "getattr",
         "vars",
         "globals",
+        "PYTHONBREAKPOINT",  # the variable ``sys.breakpointhook`` imports by name (B2)
     }
 )
 # Strings refused by the string rules and reviewed as harmless: an exact string, or an exact line
@@ -298,13 +304,18 @@ CODE_STRINGS: frozenset[tuple[str, str]] = frozenset(
         ("ownvitals.auth.keys", "Keys(...)"),  # Keys.__repr__: never evaluated
         ("ownvitals.auth.tables", "gen_random_uuid()"),  # a SQL server default, sent to Postgres
         ("ownvitals.auth.tables", "now()"),  # a SQL server default, sent to Postgres
-        # Docstring lines that name a refused module or an importer, as prose.
-        (
+    }
+)
+# Docstring or comment lines refused by the prose rules and reviewed as harmless: exact stripped
+# lines, by module, passing only as prose there. ``test_egress_strings.py`` pins each to ``src``.
+PROSE_LINES: frozenset[tuple[str, str]] = frozenset(
+    {
+        (  # names ctypes as an out-of-scope route
             "ownvitals.context",
             "slot descriptors, ctypes) is out of scope for runtime checks; "
             "the review gate catches it.",
         ),
-        (
+        (  # names import_module as what the port leaves out
             "ownvitals.auth",
             "re-export table (PEP 562, ``import_module`` with a computed name) is not ported, "
             "because the",

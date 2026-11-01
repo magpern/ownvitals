@@ -111,7 +111,9 @@ INSTALL_HOOK = f"{EGRESS}.install_egress_hook"
 HOOK_INSTALLERS = frozenset({"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web"})
 SMTP_SESSION = f"{EGRESS}.smtp_session"
 # Builtins resolved where nothing rebinds them: ``__import__`` (an importer), the evaluators.
-_BUILTIN_NAMES = {n: f"builtins.{n}" for n in ("__import__", "exec", "eval", "compile")}
+_BUILTIN_NAMES = {
+    n: f"builtins.{n}" for n in ("__import__", "exec", "eval", "compile", "help", "breakpoint")
+}
 _MODULE_ATTR = re.compile(r"[A-Za-z_][\w.]*:[A-Za-z_][\w.]*")  # ``"socket:create_connection"``
 _DOTTED = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+")
 _EXCEPTIONS = frozenset(

@@ -34,6 +34,7 @@ from egress_classified import (
     NATIVE_MODULES,
     PROCESS_MODULES,
     PROCESS_NAMES,
+    PROSE_LINES,
     SOURCE_READERS,
     SPEC_FINDERS,
 )
@@ -47,6 +48,12 @@ _IMPORTLIB_ALLOWED = ("importlib", "importlib.import_module")
 _IMPORTER_STRINGS = frozenset({"__import__", "import_module"})
 # The code words a docstring or comment may not hold (the others are common English).
 PROSE_WORDS = frozenset({"__import__", "import_module", "__builtins__"})
+# Calls refused in prose (the sixth FAIL on #123): evaluators, importers and reflection.
+PROSE_CALLS = frozenset(
+    {"exec", "eval", "compile", "__import__", "import_module", "getattr", "setattr", "vars"}
+    | {"globals", "locals", "breakpoint", "help", "open", "run_module", "run_path"}
+)
+_MARKERS = re.compile(r"^\s*(?:>>>|\.\.\.|[-*+]|\d+[.)])?\s*")  # doctest, list markers
 _BUILTINS = "__builtins__"
 _READ_BACK = {
     _BUILTINS: "reaches every importer by name",
@@ -146,14 +153,14 @@ def _names_module(value: str | bytes) -> str | None:
 
 
 def _string(value: str | bytes, module: str) -> str | None:
-    """Why a ``str``/``bytes`` constant (or a line of prose) is refused: it names a native or
-    process module or a code word as identifier segments, or (a ``str``) parses as code that
-    runs (``holds_code``), unless ``CODE_STRINGS`` lists it for ``module``."""
-    if isinstance(value, str) and (module, value) in CODE_STRINGS:
-        return None
+    """Why a ``str``/``bytes`` constant is refused: it names a native or process module (never
+    excepted) or a code word as identifier segments, or (a ``str``) parses as code that runs
+    (``holds_code``), unless ``CODE_STRINGS`` lists it for ``module``."""
     named = _names_module(value)
     if named is not None:
         return f"names {named!r}: a native or process module, by string"
+    if isinstance(value, str) and (module, value) in CODE_STRINGS:
+        return None
     words = sorted(CODE_WORDS.intersection(_segments(value)))
     if words or value in _IMPORTER_STRINGS:
         return f"names {words[0] if words else value!r}: an importer or evaluator, by string"
@@ -162,21 +169,42 @@ def _string(value: str | bytes, module: str) -> str | None:
     return None
 
 
+def _prose_call(line: str) -> str | None:
+    """The evaluator, importer or reflection name a line of prose calls, if it parses as an
+    expression (``exec(...) or int``): ``logging``, ``warnings`` or ``tracemalloc`` can hand the
+    line to pydantic, which evaluates it. Other calls (``max(...)``, ``F(t)``) pass."""
+    try:
+        parsed = ast.parse(_MARKERS.sub("", line), mode="eval")
+    except (SyntaxError, ValueError):
+        return None
+    for node in ast.walk(parsed):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if name in PROSE_CALLS:
+                return name
+    return None
+
+
 def _prose_line(line: str, module: str) -> str | None:
-    """Why a line of a docstring or comment is refused: it names a native or process module, or
-    an importer (``PROSE_WORDS``). Common-English code words and the parse rule do not apply:
-    every reader that gets at the text and every evaluator is refused, so prose cannot run."""
-    if (module, line) in CODE_STRINGS:
+    """Why a line of a docstring or comment is refused: it names a native or process module or
+    an importer (``PROSE_WORDS``), or calls an evaluator, importer or reflection name
+    (``_prose_call``), unless ``PROSE_LINES`` lists it for ``module``. Common-English words
+    (``exec``, ``modules``) and other calls in prose pass."""
+    if (module, line) in PROSE_LINES:
         return None
     named = _names_module(line)
     if named is not None:
         return f"names {named!r}: a native or process module, by string"
     words = sorted(PROSE_WORDS.intersection(_segments(line)))
-    return f"names {words[0]!r}: an importer, in prose" if words else None
+    if words:
+        return f"names {words[0]!r}: an importer, in prose"
+    called = _prose_call(line)
+    return f"calls {called} in prose: a reader could hand it to pydantic" if called else None
 
 
 def _prose(text: str, module: str, first: int) -> list[tuple[int, str]]:
-    """A docstring or comment, judged line by line (``CODE_STRINGS`` lists reviewed lines, each
+    """A docstring or comment, judged line by line (``PROSE_LINES`` lists reviewed lines, each
     stripped), and as a whole for a dotted module name broken over lines."""
     found: list[tuple[int, str]] = []
     for offset, line in enumerate(text.splitlines()):
@@ -184,7 +212,7 @@ def _prose(text: str, module: str, first: int) -> list[tuple[int, str]]:
         if why is not None:
             found.append((first + offset, why))
     kept = [
-        s for s in (line.strip() for line in text.splitlines()) if (module, s) not in CODE_STRINGS
+        s for s in (line.strip() for line in text.splitlines()) if (module, s) not in PROSE_LINES
     ]
     if not found and len(kept) > 1 and _names_module(" ".join(kept)):
         found.append((first, "prose that spans lines names a native or process module"))

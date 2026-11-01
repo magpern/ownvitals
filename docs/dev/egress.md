@@ -242,9 +242,12 @@ What else the guard refuses outside the package:
 - **evaluators**, under any alias or `from` form (`EVALUATORS`, `tests/egress_importers.py`):
   the builtins `exec`, `eval` and `compile` (`re.compile` and other attributes are not
   them), `pickle`, `marshal`, `shelve`, `timeit`, `code`, `codeop`, pydantic's `ImportString`,
-  and `cProfile`, `profile`, `trace`, `pdb`, `bdb` (each runs a string as code) and `doctest`
-  (it runs the code in docstrings). Each runs code or loads objects from text or bytes the guard
-  does not read; `src` uses none of them, so this fails closed;
+  `cProfile`, `profile`, `trace`, `pdb`, `bdb` (each runs a string as code) and `doctest`
+  (it runs the code in docstrings), and the builtins `help` (it imports a name through `pydoc`)
+  and `breakpoint` with `sys.breakpointhook` (it imports what `PYTHONBREAKPOINT` names; that
+  string is a code word). argparse's `help=` keyword is not the builtin and passes. Each runs code
+  or loads objects from text or bytes the guard does not read; `src` uses none of them, so this
+  fails closed;
 - **names in strings** (fail closed, `tests/test_egress_importers.py`,
   `tests/test_egress_prose.py`): a `str` or `bytes` constant (an f-string part included) that
   names a native or process module, or a process name (`concurrent.futures.ProcessPoolExecutor`,
@@ -273,24 +276,33 @@ What else the guard refuses outside the package:
     the table: header names (`"X-Content-Type-Options"`), MIME types (`"text/event-stream"`),
     algo version ids (`"daily/1"`), `"utf-8"`, `"smtp_host is not configured"`. Text that does
     not parse (prose, SQL, log messages) passes;
-- **docstrings and comments** are judged too (`tests/test_egress_prose.py`; comments are read
-  with `tokenize`), each line stripped and a docstring also as a whole for a dotted name broken
-  over lines. In them a native or process module (or process name) and the importer words
-  `__import__`, `import_module` and `__builtins__` are refused. The common-English code words
-  (`exec`, `eval`, `compile`, `modules`, `vars`, `getattr`, `globals`, `builtins`) and the parse
-  rule are not applied there (Architect decision on the fifth review). The reason: a docstring
-  or comment only matters if code can turn it into an import or an evaluation, and both halves
-  are refused. Every reader that gets at the text is refused (`__doc__`, `inspect`, `pydoc`,
-  `linecache`, `tokenize`, `traceback`), and so is every evaluator (`exec`, `eval`, `compile`,
-  the profilers, `trace`, `doctest`, `pdb`, `bdb`). So prose words such as "exec" or "modules"
-  cannot run, while naming a refused module or an importer in prose stays refused, whatever
-  might read it;
-- **reviewed exceptions**: exact text by module (`CODE_STRINGS`): the reprs `"MailMessage(...)"`
-  and `"Mailer(...)"` (`mail`) and `"Keys(...)"` (`auth.keys`), the SQL server defaults
-  `"gen_random_uuid()"` and `"now()"` (`auth.tables`), and two docstring lines of prose
-  (`context`, which names `ctypes`, and `auth`, which names `import_module`). `DICT_KEY_STRINGS`
-  holds the ECG record key `"modules"` in `ownvitals.ecg.pipeline`, which passes only as a key of
-  a dict display there. A test pins each entry to `src` and shows it refused elsewhere;
+- **docstrings and comments** are judged too (`tests/test_egress_prose.py`,
+  `tests/test_egress_prose_calls.py`; comments are read with `tokenize`), each line stripped and a
+  docstring also as a whole for a dotted name broken over lines. Not every reader of prose can be
+  refused: `logging` (`findCaller`, `formatException`, `formatStack`), `warnings.formatwarning`
+  and `tracemalloc` hand source lines back, and `src` needs `logging` and `warnings`. So prose is
+  judged on what a payload needs: a line evaluated by pydantic or `typing` can only import or run
+  code through a call. In a docstring line or comment these are refused:
+  - a native or process module (or process name), and the importer words `__import__`,
+    `import_module` and `__builtins__`;
+  - a line that parses (`ast.parse(line, mode="eval")`, after `#` and leading `>>>`, `...` or
+    list markers are stripped) to a call whose function is, or is an attribute ending in,
+    `exec`, `eval`, `compile`, `__import__`, `import_module`, `getattr`, `setattr`, `vars`,
+    `globals`, `locals`, `breakpoint`, `help`, `open`, `run_module` or `run_path`
+    (`PROSE_CALLS`).
+
+  Other calls in prose (the formula comments `max(MAD_SCALE * mad, min_scale)`, `F(t)`) pass, as
+  do the common-English words on their own (`exec`, `modules`, `vars`) and lines that do not
+  parse. A payload with no such call cannot import: the other evaluators and importers are
+  refused by name in code, and a string with no call can at most read names (above);
+- **reviewed exceptions**: exact text by module. `CODE_STRINGS`, for strings code reads: the
+  reprs `"MailMessage(...)"` and `"Mailer(...)"` (`mail`) and `"Keys(...)"` (`auth.keys`), and the
+  SQL server defaults `"gen_random_uuid()"` and `"now()"` (`auth.tables`); a string naming a
+  native or process module is never excepted. `PROSE_LINES`, which pass only as a docstring line
+  or comment of their module: one line in `context` (it names `ctypes`) and one in `auth` (it
+  names `import_module`). `DICT_KEY_STRINGS` holds the ECG record key `"modules"` in
+  `ownvitals.ecg.pipeline`, which passes only as a key of a dict display there. Tests pin each
+  entry to `src` and show it refused elsewhere;
 - **reading source text back**: the name or attribute `__doc__`, and `inspect`, `pydoc`,
   `linecache`, `tokenize` and `traceback` under any alias, `from` form or chain
   (`SOURCE_READERS`); `src` uses none;
@@ -392,13 +404,14 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py \
   tests/test_egress_scope.py tests/test_egress_process.py tests/test_egress_reflection.py \
   tests/test_egress_typeonly.py tests/test_egress_importers.py tests/test_egress_forward.py \
-  tests/test_egress_strings.py tests/test_egress_prose.py
+  tests/test_egress_strings.py tests/test_egress_prose.py tests/test_egress_prose_calls.py
 ```
 
 **The guard's scope** (the bound its reviews apply, as for #115):
 
-- **Blocking:** naming a refused module, importer or evaluator whole in source, in any string
-  code can read.
+- **Blocking:** naming a refused module, importer or evaluator whole in source: in code, in any
+  string code reads, and in prose as the module or importer name or as a call to an evaluator,
+  importer or reflection name (the prose rules above).
 - **Known limits:** names built at run time from allowed pieces; objects written to intercept
   the guard's own allowed calls; reading source from disk through allowed file APIs; and
   reflection with no such name written.
@@ -424,10 +437,12 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   deployment's rule.
 - The guard is static; the hook covers at run time what it cannot see, and the review gate the
   rest:
-  - deliberate indirection (N9): a computed `getattr`, `vars(sys)`, `sys.__dict__`, a module
+  - deliberate indirection (N9): a computed `getattr` (also a name unpacked from a dict
+    display, `getattr(sys, *{"modules": 0})`), `vars(sys)`, `sys.__dict__`, a module
     an expression returns (`importlib.import_module("sys").modules`), the module's own
     `__loader__`, `__loader__.get_source(...)` and `__spec__.loader` (bound to its own file),
-    reads of `co_consts` and `sys._getframe()` (the docstrings they hand back are judged), and a
+    reads of `co_consts`, `sys._getframe()` and `open(__file__)` (the prose they hand back is
+    judged by the prose rules, so it carries no import or evaluator call), and a
     module or flag name **built at run time**: `"cty" + "pes"`, `"TYPE_" + "CHECKING"`, `"".join(map(chr, ...))`,
     `"type_checking".upper()`, `b"...".decode()`, an f-string with a variable part. Every route
     that names its target as a constant is refused (above). `sys.path_hooks`,
