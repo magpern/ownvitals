@@ -214,6 +214,8 @@ share of its tolerance; AF-like strips have no HR to compare.
 | flat_line | 500 | 0/200 |
 | all_zeros | 300 | 0/200 |
 | all_zeros | 500 | 0/200 |
+| clipping | 300 | 0/200 |
+| clipping | 500 | 0/200 |
 
 ## Tails of the 200-seed sweep (accepted by amendment, not re-seeded)
 
@@ -252,7 +254,7 @@ The sweep has 70 rows and all pass, with the two tails named below (run 2026-11-
 - Every number is from generated strips. No real or public recording was used.
 - The distortion threshold 0.85, the 5 s edge trim, the ±50 ms confirmation and the 0.5 s edge
   margin are derived from the generator (derivation and per-condition r table: amendments file,
-  amendments file, 2026-10-31 (#40), item 6). Whether real strips behave like them is §14 V2.
+  2026-10-31 (#40), item 6). Whether real strips behave like them is §14 V2.
 - The generator's AF-like and ectopic beats are simplifications of real ones.
 - CI cost: the ECG suite takes about 75 s on the Windows development machine (480 tests), the
   cost of at least 20 seeds in 25 conditions at two rates (accepted by the Architect).

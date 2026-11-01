@@ -182,9 +182,10 @@ synthetic, from `backend/tests/ecg/calibrate.py`; the full tables are in `docs/d
     measured nothing. Decision: a strip whose intervals excluded by (0), (a), (c) and (b) exceed
     20 % (the guard that switches rule (d) off) has `hr_bpm` null and `irregular_rhythm` as the
     last of its `hrv_reasons`; Withings' own HR stays the value shown. No unchecked value is
-    shown. The 94.5 % Se floor stays as a detection metric only. The tests compare HR with the
-    truth on every accepted strip that has one (`measure.hrv_error`), whether or not `hrv`
-    exists, and assert null HR with that reason on every AF-like strip.
+    shown. The rule applies to any strip over 20 %, not only AF-like ones: an ectopic strip with
+    many excluded intervals also loses its HR. The 94.5 % Se floor stays as a detection metric
+    only. The tests compare HR with the truth on every accepted strip that has one
+    (`measure.hrv_error`), whether or not `hrv` exists, and assert null HR with that reason on every AF-like strip.
 12. **Excluded fraction (§8).** `missed_beat` counts in it, as in item 9 and the code; the text
     said (0), (a), (c) or (b).
 13. **Known limitation below 50 bpm (item 2), completed.** Such strips show no values; **E4/E6 are

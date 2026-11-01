@@ -4,6 +4,8 @@ The truth is ``truth.py``, an independent restatement of section 8; the toleranc
 ``tolerances.py``. Each assertion is one row of the tests file.
 """
 
+import dataclasses
+
 import measure
 import numpy as np
 import pytest
@@ -212,3 +214,30 @@ def test_more_than_20_percent_excluded_means_no_hrv_for_every_condition(fs: int)
                 assert rr.hrv_reasons[0] == "too_many_excluded"
                 checked += 1
     assert checked  # the AF-like strips at least
+
+
+@pytest.mark.parametrize("fs", RATES)
+def test_hr_is_compared_on_a_strip_that_has_hr_but_no_hrv(fs: int) -> None:
+    """``measure.hrv_error`` must not skip a strip whose ``hrv`` is null: its HR is still
+    checked against the truth (N1, Opus review of #114). Constructed from a clean strip, because
+    the sweep has too few of them."""
+    case = accepted("clean", fs)[0]
+    assert isinstance(case.result, Analysed)
+    rr = case.result.rr
+    assert rr.hr_bpm is not None
+    truth_hr = measure.span_truth(case).hr_bpm
+    group = tol.group_of("clean")
+    assert group is not None
+    tolerance = tol.HR_BPM[group]
+
+    def with_null_hrv(hr_bpm: float) -> scenarios.Case:
+        no_hrv = dataclasses.replace(rr, hrv=None, hrv_reasons=("insufficient_nn",), hr_bpm=hr_bpm)
+        return dataclasses.replace(case, result=dataclasses.replace(case.result, rr=no_hrv))
+
+    good = measure.hrv_error(with_null_hrv(rr.hr_bpm))
+    assert good is not None
+    assert good.has_hrv is False
+    assert good.hr_margin <= 1.0
+    wrong = measure.hrv_error(with_null_hrv(truth_hr + 3 * tolerance))
+    assert wrong is not None, "a strip without hrv is skipped by the HR comparison"
+    assert wrong.hr_margin > 1.0

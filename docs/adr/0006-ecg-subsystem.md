@@ -267,10 +267,10 @@ odd padding makes a step (amended 2026-10-31, #40).
 - `input_fingerprint` (SHA-256 over `signalid`, `payload_hash` and `sampling_hz`) and
   `input_revision` (PLAN §5);
 - `lead` (index analysed) and `sqi` (`result`, `reasons`, `span_s`, per-window component values);
-- on a pass only: `rpeaks` (sample positions, 2 decimals), `excluded` (`[{i, reason}]`), `hr_bpm`,
-  `n_rr`, and `hrv` (`rmssd_ms`, `sdnn_ms`, `pnn50_pct`, `n_nn`, `n_pairs`, `excluded_fraction`)
-  or null with its reason. Nothing else: version 1 has no irregularity index or other
-  interpretation field (§12).
+- on a pass only: `rpeaks` (sample positions, 2 decimals), `excluded` (`[{i, reason}]`), `n_rr`,
+  `hr_bpm` (nullable: null with `irregular_rhythm` last in the reasons, §8) and `hrv` (`rmssd_ms`,
+  `sdnn_ms`, `pnn50_pct`, `n_nn`, `n_pairs`, `excluded_fraction`) or null with its reasons. Nothing
+  else: version 1 has no irregularity index or other interpretation field (§12).
 
 How it is shown (findings never store our gate outcome; only §11's overlay brings it to them):
 
@@ -286,8 +286,8 @@ How it is shown (findings never store our gate outcome; only §11's overlay brin
   slot or column, never filling a missing Withings value. An output that can't keep that label
   and separation leaves them out (the §3 PDF does). Never an input to device-tier rules or to
   Withings-sourced series (rule C1 uses measured HR). AI (M7) treats them as experimental.
-- **No reason code (§7, §8) is ever a display label**, and neither `excluded` nor
-  `excluded_fraction` is ever shown as an irregularity indicator (E5 is deferred, §12).
+- **No reason code (§7, §8) is ever a display label**; `excluded`, `excluded_fraction` and a null
+  `hr_bpm` with `irregular_rhythm` are never an irregularity indicator (E5 stays deferred, §12).
 - Logs carry reason codes, counts and versions only, never samples or values (AGENTS.md).
 
 ### 10. Six-lead derivation (PLAN §7.3 step 5)
@@ -406,9 +406,9 @@ with aggregates and a pass/fail line per criterion. **Only the pass/fail lines g
 - **V2** (report only): agreement table of our gate against Withings' noise code, the share of
   each HRV reason (for example `too_many_excluded` on slow, high-RSA strips, §8), and the gate's
   failures by heart-rate band (under 50 bpm) and reason.
-- **V3**: |our HR − Withings' `heart_rate`| ≤ 5 bpm for ≥ 95 % of gate-passed recordings (both our
-  choices), with a Bland–Altman summary (1986). V3 settles A8 **and** validates our HR, so a
-  failure needs a follow-up to tell which; V4 checks our beats independently.
+- **V3**: |our HR − Withings' `heart_rate`| ≤ 5 bpm for ≥ 95 % of gate-passed recordings with an HR
+  (none on an irregular rhythm, §8; both our choices), with a Bland–Altman summary (1986). V3
+  settles A8 **and** validates our HR, so a failure needs a follow-up; V4 checks our beats.
 - **V4**: the owner inspects ≥ 20 random gate-passed strips with R-peak markers (≤ 1 % of beats
   wrong) and ≥ 10 rejected strips (rejection justified in ≥ 8); counts are our choices.
 - **V5**: recomputing reproduces `estimated` byte for byte.
