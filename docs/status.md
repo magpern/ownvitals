@@ -9,7 +9,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement), #101 (#118), #10 (#125), #11 (#132), #12 (#129, admin gate, audit log and stored flags), #122 (#123, static egress guard) and #140 (#142, step-up window bounds) merged; open: #89 (#115) | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement), #101 (#118), #10 (#125), #11 (#132), #12 (#129, admin gate, audit log and stored flags), #122 (#123, static egress guard), #140 (#142, step-up window bounds), #89 (#115, guard 5 follow-ups), #143 (#145, pending-session expiry) and #146 (#147, purge and session-list bounds) merged; ready: #13, #14, #18, #77, #124, #126 and #127 | — |
 | M1 | Withings core | #19 (#63), #66 (#71) and #20 (#128, the API client, error taxonomy and response models) merged; backlog #18, #21–#30, #36 (dependency graph in [status/dependency-graphs.md](status/dependency-graphs.md)) | — |
 | M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward) merged: IMPLEMENTED, not installed (installing it is the owner's); #101 (#118, the deploy-side follow-up) merged; the rest are mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
@@ -23,12 +23,16 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews | Grok 4.7 | #115 | Grok 4.7 FAIL on `b2f7183` (`Actor.__slots__` was not allow-listed). Head `42126ca` allows that name only as a class-body assignment in `admin/db.py` and has no verdict yet |
-| #143 | A future proof must not keep a pending session alive | Grok 4.7 | — | ready. Non-blocking note from the #142 PASS. It does not grant step-up or the admin role |
+| #13 | Connections layer, rewrap and keys CLI | Grok 4.7 | — | ready; starting. Holds `connections/**`, `keys_cli.py`, `cli.py`, migration `0007`, `connections.md`, the connections install in `web.py`, and `auth/owners.py` `connection_refs` |
+| #14 | E2E harness: Playwright, fake-oidc, auth flows and image scan | Composer | — | ready; starting. Holds `e2e/**`, `compose.e2e.yaml`, `Dockerfile`, `ci.yml`, `scripts/ci-gate.sh`, `scripts/test-ci-gate.sh`, `dependabot.yml`, `docs/dev/e2e.md` |
+| #124 | Egress hook exemptions and psycopg entries after #118 | Grok 4.7 | — | ready; starting. Holds `docs/dev/deploy.md`, `docs/dev/egress.md`, ADR 0009 and the egress guard tests. Depends on #118, #123 and #115, all merged |
+| #18 | Jobs for Withings: system and webhook kinds, lanes, singletons, retry budget, dead-letter | Grok 4.7 | — | ready. Waits: `cli.py` is held by #13, and `worker/**` will be #77's |
+| #77 | Wire the KEK ring, egress allowlist and queue checks | Grok 4.7 | — | ready. Waits: `web.py` is held by #13 for the connections install |
+| #126 | Wire the maint role, its password and the admin URL | Grok 4.7 | — | ready (#12 merged). Waits: `Dockerfile` and the CI files are held by #14 |
+| #127 | Admin users view and account helpers | Grok 4.7 | — | ready (#11 and #12 merged). Waits: `web.py` is held by #13 |
 
-Merged since the last reconcile: #122 (#123) is on `main` at `35316ee` and #140 (#142) at `a4e7e26`, both IMPLEMENTED. `main` is `a4e7e26`.
-On GitHub #77 and the open issues #13–#16, #18 and #21–#30 still carry `blocked-deps`
-(#17, #19 and #20 do not). The dependency re-check waits until #115 is through. At most five Developers work on issues at
+Merged since the last reconcile: #89 (#115) is on `main` at `e434f49`, #143 (#145) at `bff8eb4` and #146 (#147) at `4e10259`, all IMPLEMENTED. `main` is `4e10259`.
+On GitHub #15, #16, #21–#30, #36, #47, and no longer #13, #14, #18, #77, #124, #126 or #127, carry `blocked-deps`. #124, #126 and #127 are ready but waiting on file locks. At most five Developers work on issues at
 once; a fix round on an open PR may run while five are busy, and no new issue starts until fewer
 than five are.
 
@@ -50,17 +54,19 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `.github/workflows/ci.yml`, `compose.yaml`, `Dockerfile`, `AGENTS.md`, `deploy/`, `scripts/ci-changes.sh`, `scripts/test-ci-gate.sh`, `scripts/test-release.sh`, `backend/pyproject.toml`, `backend/uv.lock` | — (#118, #55 and #134 released them) |
-| `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py`, `backend/src/ownvitals/mail.py`, `backend/src/ownvitals/egress/**` except `egress/hook.py`, `docs/dev/stack.md`, `docs/dev/deploy.md`, `docs/dev/jobs.md`, `docs/dev/release.md` | — (#55 and #118 released them) |
-| `backend/src/ownvitals/db/engine.py`, `db/role_check.py`, `egress/hook.py`, `backend/tests/user_context_*.py`, `backend/tests/conftest.py`, `docs/dev/backend.md`, `docs/dev/isolation.md`, `docs/dev/isolation-guard5.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | #89 (#115), with `test_role_check*.py`, `test_user_context_*.py`, `test_egress_hook.py` |
-| `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md` | — (#123 released them). `egress.md` still omits the `fastapi.routing` allow; the guard reads the Python table |
-| `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `backend/src/ownvitals/web.py`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | — (#129 released them). #142 changed `auth/sessions.py` and the step-up tests, not this set |
+| `compose.yaml`, `AGENTS.md`, `deploy/`, `scripts/ci-changes.sh`, `scripts/test-release.sh`, `backend/pyproject.toml`, `backend/uv.lock` | — (#118, #55 and #134 released them). #14 holds `ci.yml`, `Dockerfile`, `scripts/ci-gate.sh` and `scripts/test-ci-gate.sh` |
+| `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py`, `backend/src/ownvitals/mail.py`, `backend/src/ownvitals/egress/**` except `egress/hook.py`, `docs/dev/stack.md`, `docs/dev/jobs.md`, `docs/dev/release.md` | — (#55 and #118 released them). #13 holds `cli.py`. #124 holds `docs/dev/deploy.md` |
+| `backend/src/ownvitals/db/engine.py`, `db/role_check.py`, `egress/hook.py`, `backend/tests/user_context_*.py`, `backend/tests/conftest.py`, `docs/dev/backend.md`, `docs/dev/isolation.md`, `docs/dev/isolation-guard5.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | — (#115 released them). #77 is next for `conftest.py`, `isolation.md` and `role_check.py` once `web.py` is free |
+| `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md`, `docs/dev/deploy.md` | #124 |
+| `backend/src/ownvitals/connections/**`, `backend/src/ownvitals/keys_cli.py`, `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/web.py`, `backend/src/ownvitals/auth/owners.py`, `docs/dev/connections.md`, migration `0007` | #13 |
+| `e2e/**`, `compose.e2e.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `scripts/ci-gate.sh`, `scripts/test-ci-gate.sh`, `.github/dependabot.yml`, `docs/dev/e2e.md` | #14 |
+| `docs/status.md`, `docs/status/completed.md`, `docs/status/decisions-log.md` | the status reconcile after #147 |
+| `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | — (#129 released them). #13 holds `web.py` for the connections install |
 | `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md`, `docs/adr/README.md` | — (#139 released them) |
-| `docs/status.md`, `docs/status/completed.md`, `docs/status/decisions-log.md` | #144 |
 | `.codex/**` | — (#131 released it) |
 | `backend/src/ownvitals/db/queue_check.py` | — (#77 next) |
 | `backend/src/ownvitals/config.py`, `backend/tests/dbtools.py`, `test_web.py`, `rls_guard.py`, `test_config_milestone.py` | — (#8, #82 and #11 released them) |
-| `scripts/ci-uv-version.sh`, `.trivyignore`, `scripts/ci-gate.sh` | — (#106 released them) |
+| `scripts/ci-uv-version.sh`, `.trivyignore` | — (#106 released them). #14 holds `scripts/ci-gate.sh` |
 | `frontend/**`, `docs/dev/frontend.md` | — (#98 and #105 released them) |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
