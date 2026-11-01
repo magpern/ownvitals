@@ -66,9 +66,12 @@ def discard_session_state(engine: AsyncEngine) -> None:
 def create_engine(settings: Settings, **kwargs: Any) -> AsyncEngine:
     """Build the app role's async engine (web and worker). It connects lazily, on first use.
 
-    Every new connection is checked: a role that is a superuser, has BYPASSRLS or REPLICATION, is
-    a member of any role, owns tables, a schema or the database, has other role settings or meets
-    an ``app.*`` setting default is refused (ADR 0002 section 5, ``role_check``).
+    Every new connection is checked on its **login** role: a role that is a superuser, has
+    BYPASSRLS or REPLICATION, is a member of any role, owns tables, a schema or the database, has
+    other role settings or meets an ``app.*`` setting default is refused, and so is a login that
+    runs as another role (a ``role`` default or connection option) or starts its sessions with
+    ``app.user_id`` set (server configuration or connection options) (ADR 0002 section 5,
+    ``role_check``).
     Every checkout checks the connection carries no ``app.user_id``, and every connection
     returned to the pool is wiped with ``DISCARD ALL``.
     """

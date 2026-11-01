@@ -19,6 +19,7 @@ from pydantic import SecretStr
 
 from ownvitals import cli, mail
 from ownvitals.config import Settings
+from ownvitals.db import event_loop_factory
 from ownvitals.egress import (
     EgressRefused,
     install_egress_hook,
@@ -293,6 +294,16 @@ def test_the_standard_selector_loop_is_accepted() -> None:
         require_standard_event_loop()
 
     asyncio.run(check(), loop_factory=asyncio.SelectorEventLoop)
+
+
+def test_the_platforms_own_loop_is_accepted() -> None:
+    """What the CLI and the worker run on: the default loop on Linux, a selector loop on
+    Windows (``event_loop_factory``)."""
+
+    async def check() -> None:
+        require_standard_event_loop()
+
+    asyncio.run(check(), loop_factory=event_loop_factory())
 
 
 @pytest.mark.parametrize(

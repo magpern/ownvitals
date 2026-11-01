@@ -179,10 +179,12 @@ opens a `user_session`, and `envelope` opens nothing.
 
 `scripts/worktree.sh init` writes `secrets/connection_kek`; compose mounts it into web. The seed
 and pepper are not mounted in M0 (M1 mounts the pepper into web and the worker, the seed into the
-worker only). In the tests `conftest.secrets_dir` writes a random `connection_kek` for each test
-(`current_kek` gives its bytes); tests that start web on a real database use the `schema` fixture
-(the migrated schema), and `owned_tables` brings it too. `keystools.py` holds the key-file and
-check-row helpers; every key in the tests is synthetic.
+worker only). In the tests `conftest.secrets_dir` writes the same random `connection_kek`
+(`conftest.TEST_RUN_KEK`) into each test's own directory: one key per run, not per test, so a
+schema that a module's tests share keeps matching the check row the first start recorded. Tests
+that need another key write it there themselves. Tests that start web on a real database use the
+`schema` fixture (the migrated schema), and `owned_tables` brings it too. `keystools.py` holds
+the key-file and check-row helpers; every key in the tests is synthetic.
 
 | Test file | Covers |
 |---|---|
