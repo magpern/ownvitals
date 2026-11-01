@@ -52,11 +52,11 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | File | Held by |
 |---|---|
 | `.github/workflows/ci.yml`, `compose.yaml`, `Dockerfile`, `AGENTS.md`, `deploy/`, `scripts/ci-changes.sh`, `scripts/test-ci-gate.sh`, `scripts/test-release.sh`, `backend/pyproject.toml`, `backend/uv.lock` | — (#118, #55 and #134 released them) |
-| `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py`, `backend/src/ownvitals/mail.py`, `backend/src/ownvitals/egress/**` except `egress/hook.py`, `docs/adr/README.md`, `docs/dev/stack.md`, `docs/dev/deploy.md`, `docs/dev/jobs.md`, `docs/dev/release.md` | — (#55 and #118 released them) |
+| `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py`, `backend/src/ownvitals/mail.py`, `backend/src/ownvitals/egress/**` except `egress/hook.py`, `docs/dev/stack.md`, `docs/dev/deploy.md`, `docs/dev/jobs.md`, `docs/dev/release.md` | — (#55 and #118 released them) |
 | `backend/src/ownvitals/db/engine.py`, `db/role_check.py`, `egress/hook.py`, `backend/tests/user_context_*.py`, `backend/tests/conftest.py`, `docs/dev/backend.md`, `docs/dev/isolation.md`, `docs/dev/isolation-guard5.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | #89 (#115), with `test_role_check*.py`, `test_user_context_*.py`, `test_egress_hook.py` |
 | `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md` | #122 (#123); `backend/tests/egress_classified.py` is also in #12 (#129), additive hunks in each, and the second to merge updates from `main` |
 | `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `backend/src/ownvitals/web.py`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | #12 (#129) |
-| `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md` | the Cursor model amendment (Grok 4.7 high for security roles) |
+| `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md`, `docs/adr/README.md`, `docs/status.md`, `docs/status/decisions-log.md` | #139 |
 | `.codex/**` | — (#131 released it) |
 | `backend/src/ownvitals/db/queue_check.py` | — (#77 next) |
 | `backend/src/ownvitals/config.py`, `backend/tests/dbtools.py`, `test_web.py`, `rls_guard.py`, `test_config_milestone.py` | — (#8, #82 and #11 released them) |
