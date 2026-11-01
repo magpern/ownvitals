@@ -323,3 +323,8 @@ async def test_the_session_answer_says_what_is_missing(env: Env) -> None:
     assert await env.enrol(user_id) == TEST_TOTP_SECRET
     body = (await env.client.get("/api/auth/session", headers=session_cookie(issued.token))).json()
     assert (body["session"]["totp_enabled"], body["session"]["second_factor"]) == (True, "verify")
+    # A second factor passed for an authenticator that is gone no longer counts.
+    await env.run("UPDATE sessions SET mfa_at = now()")
+    await env.run("DELETE FROM mfa_totp")
+    body = (await env.client.get("/api/auth/session", headers=session_cookie(issued.token))).json()
+    assert (body["session"]["mfa"], body["session"]["second_factor"]) == (False, "enrol")
