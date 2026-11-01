@@ -69,6 +69,12 @@ MODEL_TOTAL_SECONDS: Final = 300.0
 WITHINGS_TOTAL_SECONDS: Final = 30.0
 # Total deadline of one Google sign-in request (classbeat's 10 s OAuth timeout).
 GOOGLE_TOTAL_SECONDS: Final = 10.0
+# The network library's exceptions a caller of these clients catches, so that it never imports
+# the library (the guard). ``TRANSPORT_ERRORS``: the request failed in transport (connect, read,
+# write, protocol, decoding, or a timeout); ``TIMEOUT_ERRORS``: the timeouts among them, with the
+# package's own total deadline. Anything else a call raises is not a transport failure.
+TRANSPORT_ERRORS: Final[tuple[type[Exception], ...]] = (httpx.RequestError, RequestDeadline)
+TIMEOUT_ERRORS: Final[tuple[type[Exception], ...]] = (httpx.TimeoutException, RequestDeadline)
 
 
 class _DeadlineStream(httpx.AsyncByteStream):

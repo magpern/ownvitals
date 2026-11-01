@@ -10,7 +10,7 @@ or calls ``install_worker_allowlist`` (the worker's entry point and the probe CL
 The lists are code; nothing in the environment widens one. Callers catch the
 package's own exceptions (``OutboundBlocked``, ``RequestDeadline``, ``RequestBudgetExhausted``);
 a network library's exception class a caller needs is re-exported here, never imported from the
-library (none is needed yet).
+library (``TRANSPORT_ERRORS`` and ``TIMEOUT_ERRORS``, for the Withings client, #20).
 
 **What each process can reach** (``tests/test_egress_runtime.py`` enumerates it):
 
@@ -43,6 +43,8 @@ from ownvitals.egress.clients import (
     GOOGLE_TOTAL_SECONDS,
     MODEL_TIMEOUT_SECONDS,
     MODEL_TOTAL_SECONDS,
+    TIMEOUT_ERRORS,
+    TRANSPORT_ERRORS,
     WITHINGS_TOTAL_SECONDS,
     AllowlistTransport,
     google_async_client,
@@ -126,6 +128,8 @@ __all__ = [
     "MODEL_TIMEOUT_SECONDS",
     "MODEL_TOTAL_SECONDS",
     "REQUEST_FALLBACK_SECONDS",
+    "TIMEOUT_ERRORS",
+    "TRANSPORT_ERRORS",
     "WEB_URLLIB_ALLOWLIST",
     "WITHINGS_ACCOUNT_HOST",
     "WITHINGS_ALLOWLIST",
