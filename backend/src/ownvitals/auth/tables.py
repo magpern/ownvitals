@@ -1,8 +1,8 @@
-"""The M1 system tables (ADR 0003 section 1), as SQLAlchemy Core definitions.
+"""The account system tables (ADR 0003 section 1), as SQLAlchemy Core definitions.
 
 Only ``ownvitals.auth`` (and migrations and tests) may import this module or name these tables
 in SQL; guard 8 (``tests/test_auth_tables_guard.py``) fails the build otherwise. The migration
-``0002_auth`` creates the same tables; ``tests/test_auth_schema.py`` keeps the two in step.
+``0005_auth`` creates the same tables; ``tests/test_auth_schema.py`` keeps the two in step.
 """
 
 from typing import Any
@@ -76,7 +76,7 @@ identities = Table(
     Column("email_at_link", Text),
     _ts("created_at", nullable=False, default_now=True),
     UniqueConstraint("provider", "subject", name="identities_provider_subject_key"),
-    CheckConstraint("provider IN ('google', 'github', 'microsoft')", name="identities_provider"),
+    CheckConstraint("provider = 'google'", name="identities_provider"),
     Index("identities_user_id_idx", "user_id"),
 )
 
@@ -131,6 +131,7 @@ pending_signups = Table(
     Column("password_hash", Text),
     Column("provider", Text),
     Column("subject", Text),
+    CheckConstraint("provider = 'google'", name="pending_signups_provider"),
     Column("browser_hash", LargeBinary),
     Column("invite_id", UUID(as_uuid=True), ForeignKey("invites.id", ondelete="CASCADE")),
     _ts("created_at", nullable=False, default_now=True),
@@ -169,14 +170,15 @@ oauth_flows = Table(
     Column("provider", Text, nullable=False),
     Column("purpose", Text, nullable=False),
     Column("state_hash", LargeBinary, nullable=False),
-    Column("nonce", Text),
+    Column("nonce", Text, nullable=False),
     Column("pkce_verifier", Text, nullable=False),
+    CheckConstraint("pkce_verifier ~ '^[A-Za-z0-9_-]{64}$'", name="oauth_flows_pkce_verifier"),
     _user_fk(nullable=True),
     Column("invite_id", UUID(as_uuid=True), ForeignKey("invites.id", ondelete="CASCADE")),
     Column("return_to", Text),
     _ts("created_at", nullable=False, default_now=True),
     _ts("expires_at", nullable=False),
-    CheckConstraint("provider IN ('google', 'github', 'microsoft')", name="oauth_flows_provider"),
+    CheckConstraint("provider = 'google'", name="oauth_flows_provider"),
     CheckConstraint("purpose IN ('sign_in', 'link', 'reauth')", name="oauth_flows_purpose"),
 )
 
@@ -191,20 +193,18 @@ mfa_totp = Table(
         nullable=False,
         unique=True,
     ),
+    # ADR 0004's envelope form only (ADR 0003 section 5).
     Column("secret_ciphertext", LargeBinary, nullable=False),
     Column("nonce", LargeBinary, nullable=False),
     Column("key_id", Text, nullable=False),
+    Column("wrapped_dek", LargeBinary, nullable=False),
+    Column("dek_nonce", LargeBinary, nullable=False),
     _ts("confirmed_at"),
     Column("last_step", BigInteger, nullable=False, server_default="0"),
-    # The v2 (envelope) form, ADR 0004 section 2; NULL for ``app-v1`` rows (migration 0003).
-    Column("wrapped_dek", LargeBinary),
-    Column("dek_nonce", LargeBinary),
-    CheckConstraint(
-        "(key_id = 'app-v1' AND wrapped_dek IS NULL AND dek_nonce IS NULL) OR "
-        "(key_id ~ '^kek-[a-z0-9-]{1,28}$' AND wrapped_dek IS NOT NULL AND dek_nonce IS NOT "
-        "NULL AND octet_length(wrapped_dek) = 48 AND octet_length(dek_nonce) = 12)",
-        name="mfa_totp_key_form",
-    ),
+    CheckConstraint("octet_length(nonce) = 12", name="mfa_totp_nonce"),
+    CheckConstraint("key_id ~ '^kek-[a-z0-9-]{1,28}$'", name="mfa_totp_key_id"),
+    CheckConstraint("octet_length(wrapped_dek) = 48", name="mfa_totp_wrapped_dek"),
+    CheckConstraint("octet_length(dek_nonce) = 12", name="mfa_totp_dek_nonce"),
 )
 
 mfa_recovery_codes = Table(

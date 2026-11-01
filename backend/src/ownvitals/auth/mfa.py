@@ -4,7 +4,7 @@ All functions take the caller's ``AsyncSession`` (a ``system_session``) and filt
 ``user_id`` of the request's own session. Replay protection and recovery-code single use are
 conditional ``UPDATE`` statements, so concurrent submissions of one code let exactly one win.
 
-Secrets are stored in the v2 envelope form (``totp_keys``, ADR 0004 section 2).
+Secrets are stored only in ADR 0004's envelope form (``totp_keys``; ADR 0003 section 5).
 
 A pending enrollment is not stored: ``seal_pending`` returns the new secret encrypted
 (AES-256-GCM, AAD ``user_id|totp-pending``, 10 minutes) for the client to send back with the
@@ -21,7 +21,7 @@ from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import Text, cast, delete, func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +30,7 @@ from ownvitals.auth.keys import NONCE_LENGTH, Keys, hmac_digest
 from ownvitals.auth.tables import auth_events, mfa_recovery_codes, mfa_totp
 from ownvitals.auth.totp_keys import open_totp_secret, seal_totp_secret
 from ownvitals.crypto.keks import KeyRing
+from ownvitals.db.queue_locks import MFA_FAILURES
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ async def confirm_enrollment(
     generation: str,
     code: str,
 ) -> list[str] | None:
-    """Store the secret (the v2 envelope form, ADR 0004 section 2) once ``code`` is valid for
+    """Store the secret (the envelope form, ADR 0003 section 5) once ``code`` is valid for
     it, and issue recovery codes.
 
     A first enrollment (``generation == NO_TOTP``) inserts and does nothing if a row appeared
@@ -194,7 +195,7 @@ async def _verify_totp(
     ).first()
     if row is None:
         return False
-    secret = (await open_totp_secret(db, keys, ring, user_id, row)).decode()
+    secret = (await open_totp_secret(db, ring, user_id, row)).decode()
     step = totp.match_step(secret, code)
     if step is None:
         return False
@@ -237,8 +238,11 @@ async def check_second_factor(
 
 async def record_failure(db: AsyncSession, user_id: UUID, ip: str | None, purpose: str) -> bool:
     """Write ``mfa_failed``. True when this is the fifth in the last hour (mail the user).
-    Serialized per user, so exactly one of several concurrent failures sees the fifth."""
-    await db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(str(user_id), 0))))
+    Serialized per user (advisory-lock namespace ``MFA_FAILURES``, ADR 0005 section 9), so
+    exactly one of several concurrent failures sees the fifth."""
+    await db.execute(
+        select(func.pg_advisory_xact_lock(MFA_FAILURES, func.hashtext(cast(user_id, Text))))
+    )
     await db.execute(
         insert(auth_events).values(
             kind="mfa_failed", user_id=user_id, ip=ip, detail={"purpose": purpose}

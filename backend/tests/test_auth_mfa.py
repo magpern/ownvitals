@@ -7,15 +7,27 @@ from typing import Any
 import pytest
 from fastapi import Depends
 
-from authtools import Env
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+)
+from mfatools import (  # noqa: F401 - fixtures
+    FakeNotifier,
+    admin_with_totp,
+    clock_fixture,
+    make_actor_fixture,
+    notifier_fixture,
+    step_of,
+)
 from ownvitals.auth import totp
+from ownvitals.auth.deps import require_recent_auth
 from ownvitals.auth.keys import Keys
 from ownvitals.auth.mfa import open_pending, seal_pending
 from ownvitals.context import UserContext
 from ownvitals.crypto.envelope import DecryptFailed, open_sealed, totp_aad, totp_wrap_aad
 from ownvitals.crypto.keks import KeyRing
-from mfatools import FakeNotifier, admin_with_totp, step_of
 
 
 def reason(response: Any) -> str:
@@ -207,7 +219,7 @@ async def test_every_recent_auth_action_also_needs_stepup_once_totp_is_confirmed
 ) -> None:
     @env.app.post("/api/test/sensitive")
     async def sensitive(  # pyright: ignore[reportUnusedFunction]
-        ctx: UserContext = Depends(auth.require_recent_auth),  # noqa: B008
+        ctx: UserContext = Depends(require_recent_auth),  # noqa: B008
     ) -> dict[str, bool]:
         return {"ok": True}
 

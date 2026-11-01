@@ -1,4 +1,4 @@
-"""OAuth sign-in, linking and re-authentication (ADR 0003 section 5).
+"""Google sign-in, linking and re-authentication (ADR 0003 sections 1 and 6).
 
 ``POST /api/auth/oauth/{provider}/start`` (CSRF-checked) creates the single-use flow and returns
 the authorization URL. ``GET /oauth/{provider}/callback`` takes the flow atomically *before* the
@@ -105,7 +105,7 @@ async def start(
     settings = request.app.state.settings
     if body.purpose == "sign_in" and body.invite_code:
         async with system_session(factory(request)) as db:
-            invite_mode = await flags.signup_mode(db, settings.signup_mode) == "invite"
+            invite_mode = await flags.signup_mode(db, settings.signup_mode) == "invite"  # or closed
             if invite_mode:
                 invite_id = await valid_invite(db, body.invite_code)
         if invite_mode and invite_id is None:
@@ -115,14 +115,13 @@ async def start(
             db,
             provider=provider,
             purpose=body.purpose,
-            oidc=prov.oidc,
             user_id=user_id,
             invite_id=invite_id,
             return_to=safe_return_to(body.return_to),
         )
     set_oauth_cookie(response, flow.cookie)
     return StartOut(
-        authorization_url=authorization_url(
+        authorization_url=await authorization_url(
             prov,
             _redirect_uri(request, provider),
             state=flow.state,

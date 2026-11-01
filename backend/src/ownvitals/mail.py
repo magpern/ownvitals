@@ -11,16 +11,16 @@ only here): the SMTP host is a setting, not an allowlist entry. The
 account mails run in the web process; ``refuse_in_worker`` refuses a send in the worker before
 any connection. TLS uses ``egress.tls_client_context()``: verifying, and never a key log.
 
-**A total deadline per delivery** (``SMTP_TOTAL_SECONDS``, 20 s). A socket timeout bounds one
-blocking operation only, so a server trickling its replies a byte at a time could hold a web
-request for as long as it likes. Every socket operation here gets the time that is left as its
-timeout: the connection, each ``recv`` of a reply (``_DeadlineReader``), each send, and the TLS
-handshake (CPython bounds a TLS handshake, read or write and a ``sendall`` as a whole by the
-socket timeout). Once the deadline has passed nothing more is sent or awaited. The one wait it
-cannot cut is a DNS lookup in progress; and a host name with several addresses gets the time
-left for each connection attempt. ``EHLO`` names the public site's host (``ehlo_name``), never
-the machine's: smtplib would otherwise call ``socket.getfqdn()``, a reverse lookup outside the
-deadline that the egress hook refuses anyway.
+**A total deadline per delivery** (the ``smtp_total_seconds`` setting, 20 s by default). A
+socket timeout bounds one blocking operation only, so a server trickling its replies a byte at a
+time could hold a web request for as long as it likes. Every socket operation here gets the time
+that is left as its timeout: the connection, each ``recv`` of a reply (``_DeadlineReader``),
+each send, and the TLS handshake (CPython bounds a TLS handshake, read or write and a
+``sendall`` as a whole by the socket timeout). Once the deadline has passed nothing more is sent
+or awaited. The one wait it cannot cut is a DNS lookup in progress; and a host name with several
+addresses gets the time left for each connection attempt. ``EHLO`` names the public site's host
+(``ehlo_name``), never the machine's: smtplib would otherwise call ``socket.getfqdn()``, a
+reverse lookup outside the deadline that the egress hook refuses anyway.
 
 **The egress hook** (ADR 0009) lets a socket connect only inside a connection scope: the blocking
 send opens ``smtp_session()`` itself, in the thread that connects. Its lookup of ``smtp_host`` is
@@ -59,9 +59,6 @@ if TYPE_CHECKING:  # annotations only: the guard lets mail import smtplib alone 
 
 logger = logging.getLogger(__name__)
 
-# The total deadline of one delivery. A module constant until ``config.py`` can take a setting
-# (the Architect moves it; the shared-file lock is held elsewhere).
-SMTP_TOTAL_SECONDS: Final = 20.0
 _RECV_BYTES: Final = 4096
 # ``EHLO``'s name when the public site has no DNS name of its own (an address or ``localhost``).
 FALLBACK_EHLO_NAME: Final = "localhost"
@@ -197,7 +194,8 @@ class _DeadlineSMTPSSL(_DeadlineSMTP, smtplib.SMTP_SSL):
 
 
 class Mailer:
-    def __init__(self, settings: Settings, *, total_seconds: float = SMTP_TOTAL_SECONDS) -> None:
+    def __init__(self, settings: Settings, *, total_seconds: float | None = None) -> None:
+        """``total_seconds`` overrides the ``smtp_total_seconds`` setting (tests)."""
         self._host = settings.smtp_host
         self._port = settings.smtp_port
         self._sender = settings.smtp_sender
@@ -206,7 +204,9 @@ class Mailer:
         self._password = (
             settings.smtp_password.get_secret_value() if settings.smtp_password else None
         )
-        self._total_seconds = check_total_seconds(total_seconds)
+        self._total_seconds = check_total_seconds(
+            settings.smtp_total_seconds if total_seconds is None else total_seconds
+        )
         self._ehlo_name = ehlo_name(settings.public_base_url)
 
     def __repr__(self) -> str:

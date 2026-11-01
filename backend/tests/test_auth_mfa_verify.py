@@ -5,10 +5,26 @@ from typing import Any
 
 import pytest
 
-from authtools import Env
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+)
+from mfatools import (  # noqa: F401 - fixtures
+    FakeNotifier,
+    admin_with_totp,
+    clock_fixture,
+    make_actor_fixture,
+    notifier_fixture,
+    step_of,
+)
 from ownvitals.auth import totp
-from ownvitals.auth.notices import notify_mfa_failures, notify_totp_enrolled
-from mfatools import FakeNotifier, admin_with_totp, step_of
+from ownvitals.auth.notices import (
+    notify_mfa_failures,
+    notify_totp_enrolled,
+    register_security_notifier,
+)
 
 VERIFY = "/api/auth/mfa/verify"
 STEPUP = "/api/auth/mfa/stepup"
@@ -248,9 +264,7 @@ async def test_a_missing_or_failing_notifier_never_raises(
 ) -> None:
     from uuid import uuid4
 
-    from ownvitals import auth
-
-    auth.register_security_notifier(None)
+    register_security_notifier(None)
     await notify_totp_enrolled(uuid4(), "a@example.com")
     await notify_mfa_failures(uuid4(), "a@example.com")
 
@@ -261,9 +275,9 @@ async def test_a_missing_or_failing_notifier_never_raises(
         async def mfa_failures(self, user_id: Any, email: str) -> None:
             raise RuntimeError("smtp down")
 
-    auth.register_security_notifier(Broken())
+    register_security_notifier(Broken())
     try:
         await notify_totp_enrolled(uuid4(), "a@example.com")
         await notify_mfa_failures(uuid4(), "a@example.com")
     finally:
-        auth.register_security_notifier(None)
+        register_security_notifier(None)

@@ -4,9 +4,18 @@ import logging
 
 import pytest
 
-from authtools import Env
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+    menv_fixture,
+    smtp_fixture,
+)
 from flows import PASSWORD, Browser, age_reauth, only_user_id, reason, signed_in, user_with_password
+from ownvitals.auth.cookies import SESSION_COOKIE
+from ownvitals.auth.hooks import register_reset_link_sender, send_reset_link
+from ownvitals.auth.reset_routes import make_reset_link_sender
 from smtpfake import SmtpFake
 
 EMAIL = "user@example.com"
@@ -26,13 +35,13 @@ async def complete(
     )
 
 
-async def link_identity(env: Env, user_id: object, provider: str = "github") -> str:
+async def link_identity(env: Env, user_id: object, subject: str = "google-subject") -> str:
     return str(
         await env.scalar(
-            "INSERT INTO identities (user_id, provider, subject) VALUES (:u, :p, :s) RETURNING id",
+            "INSERT INTO identities (user_id, provider, subject) "
+            "VALUES (:u, 'google', :s) RETURNING id",
             u=user_id,
-            p=provider,
-            s=f"{provider}-subject",
+            s=subject,
         )
     )
 
@@ -122,15 +131,15 @@ async def test_the_reset_page_lists_and_removes_linked_methods_without_recent_au
     menv: Env, smtp: SmtpFake
 ) -> None:
     user_id = await user_with_password(menv)
-    github = await link_identity(menv, user_id, "github")
-    google = await link_identity(menv, user_id, "google")
+    first = await link_identity(menv, user_id, "first-subject")
+    google = await link_identity(menv, user_id, "second-subject")
     await ask(Browser(menv))
     token = smtp.messages[0].token()
     info = await Browser(menv).post("/api/auth/password/reset/info", {"token": token})
     assert info.status_code == 200
-    assert {m["provider"] for m in info.json()["methods"]} == {"github", "google"}
+    assert sorted(m["provider"] for m in info.json()["methods"]) == ["google", "google"]
     # Listing does not consume the token; no session or recent auth is involved.
-    done = await complete(Browser(menv), token, remove=[github])
+    done = await complete(Browser(menv), token, remove=[first])
     assert done.status_code == 200
     remaining = await menv.scalar("SELECT id FROM identities")
     assert str(remaining) == google
@@ -194,7 +203,7 @@ async def test_an_oauth_only_user_can_set_a_password_after_reauth(menv: Env) -> 
     user_id = await menv.user(EMAIL)
     issued = await menv.login(user_id)
     browser = Browser(menv)
-    browser.cookies[auth.SESSION_COOKIE] = issued.token
+    browser.cookies[SESSION_COOKIE] = issued.token
     assert (
         await browser.post("/api/auth/password/change", {"new_password": NEW})
     ).status_code == 200
@@ -204,8 +213,9 @@ async def test_an_oauth_only_user_can_set_a_password_after_reauth(menv: Env) -> 
 async def test_step_up_is_needed_in_addition_when_totp_is_confirmed(menv: Env) -> None:
     browser = await signed_in(menv)
     await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, confirmed_at) "
-        "SELECT id, 'x', 'y', 'app-v1', now() FROM users"
+        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
+        "dek_nonce, confirmed_at) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
+        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'), now() FROM users"
     )
     refused = await browser.post("/api/auth/password/change", {"new_password": NEW})
     assert (refused.status_code, reason(refused)) == (403, "stepup_required")
@@ -218,8 +228,9 @@ async def test_step_up_is_needed_in_addition_when_totp_is_confirmed(menv: Env) -
 async def test_an_unconfirmed_totp_needs_no_step_up(menv: Env) -> None:
     browser = await signed_in(menv)
     await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id) "
-        "SELECT id, 'x', 'y', 'app-v1' FROM users"
+        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
+        "dek_nonce) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
+        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex') FROM users"
     )
     assert (
         await browser.post("/api/auth/password/change", {"new_password": NEW})
@@ -231,12 +242,12 @@ async def test_the_registered_sender_mails_the_reset_link_for_mfa_reset(
 ) -> None:
     """``admin mfa-reset`` calls ``send_reset_link``; the sender creates a token and mails it."""
     user_id = await menv.user(EMAIL)
-    sender = auth.make_reset_link_sender(menv.settings, menv.factory, menv.app.state.mailer)
-    auth.register_reset_link_sender(sender)
+    sender = make_reset_link_sender(menv.settings, menv.factory, menv.app.state.mailer)
+    register_reset_link_sender(sender)
     try:
-        assert await auth.send_reset_link(user_id, EMAIL) is True
+        assert await send_reset_link(user_id, EMAIL) is True
     finally:
-        auth.register_reset_link_sender(None)
+        register_reset_link_sender(None)
     [mail] = smtp.to(EMAIL)
     assert (await complete(Browser(menv), mail.token())).status_code == 200
 
@@ -320,8 +331,9 @@ async def test_the_security_notifier_mails_totp_and_mfa_failure_notices(
 async def test_reauth_for_a_totp_user_sets_recent_auth_but_not_step_up(menv: Env) -> None:
     browser = await signed_in(menv)
     await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, confirmed_at) "
-        "SELECT id, 'x', 'y', 'app-v1', now() FROM users"
+        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
+        "dek_nonce, confirmed_at) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
+        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'), now() FROM users"
     )
     await age_reauth(menv)
     assert (await browser.post("/api/auth/reauth", {"password": PASSWORD})).status_code == 200

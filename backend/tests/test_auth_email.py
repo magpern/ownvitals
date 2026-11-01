@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from authtools import Env
+from authtools import Env, auth_schema_fixture, clean_auth_fixture, menv_fixture, smtp_fixture  # noqa: F401 - fixtures
 from flows import Browser, age_reauth, only_user_id, reason, signed_in, user_with_password
 from smtpfake import SmtpFake
 
@@ -147,7 +147,7 @@ async def test_deleting_the_account_needs_recent_auth_and_removes_everything(men
     browser = await signed_in(menv)
     user_id = await only_user_id(menv)
     await menv.run(
-        "INSERT INTO identities (user_id, provider, subject) VALUES (:u, 'github', 'x')", u=user_id
+        "INSERT INTO identities (user_id, provider, subject) VALUES (:u, 'google', 'x')", u=user_id
     )
     await age_reauth(menv)
     refused = await browser.request("DELETE", "/api/auth/account")
@@ -168,8 +168,9 @@ async def test_deleting_the_account_needs_recent_auth_and_removes_everything(men
 async def test_deleting_the_account_needs_step_up_when_totp_is_confirmed(menv: Env) -> None:
     browser = await signed_in(menv)
     await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, confirmed_at) "
-        "SELECT id, 'x', 'y', 'app-v1', now() FROM users"
+        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
+        "dek_nonce, confirmed_at) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
+        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'), now() FROM users"
     )
     refused = await browser.request("DELETE", "/api/auth/account")
     assert (refused.status_code, reason(refused)) == (403, "stepup_required")

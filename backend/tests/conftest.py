@@ -38,6 +38,8 @@ if sys.platform == "win32":
 
 # The current KEK in every test's secrets directory: random for each run, never committed.
 TEST_RUN_KEK = secrets.token_bytes(32)
+# The app secret in every test's secrets directory, the same way (#10).
+TEST_RUN_APP_SECRET = secrets.token_hex(32)
 
 
 @pytest.fixture(autouse=True)
@@ -75,6 +77,8 @@ def secrets_dir(
     here."""
     directory = tmp_path_factory.mktemp("secrets")
     (directory / "connection_kek").write_bytes(TEST_RUN_KEK.hex().encode() + b"\n")
+    # The run's app_secret_key (ADR 0003 section 1): web refuses to start without one (#10).
+    (directory / "app_secret_key").write_text(TEST_RUN_APP_SECRET + "\n", encoding="ascii")
     monkeypatch.setenv("OWNVITALS_SECRETS_DIR", str(directory))
     return directory
 

@@ -135,6 +135,18 @@ describe('Continue with Google', () => {
     })
   })
 
+  it("follows Google's branding: the G mark from this origin and an approved label", async () => {
+    fakeApi({ 'GET /api/auth/oauth/providers': { providers: ['google'] } })
+    renderAt('/signin')
+    const google = await screen.findByRole('button', { name: 'Continue with Google' })
+    expect(google).toHaveClass('google-button')
+    const mark = google.querySelector('svg[data-testid="google-logo"]')
+    expect(mark).not.toBeNull()
+    expect(google.querySelector('img')).toBeNull() // drawn inline: no request for the mark
+    expect(google.innerHTML).not.toMatch(/https?:|\/\/|data:/)
+    expect(google.textContent).toBe('Continue with Google')
+  })
+
   it('is not offered when no provider is enabled', async () => {
     fakeApi({})
     renderAt('/signin')

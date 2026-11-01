@@ -1,42 +1,36 @@
-"""The jobs API's authentication seams, fail-closed until the accounts issue (#10).
+"""The jobs API's authentication, from ``ownvitals.auth`` (#10).
 
-``POST /api/jobs``, ``GET /api/jobs/{id}``, its cancel and its event stream need a **full
-session** (ADR 0003 section 2: signed in, second factor passed) and, for the writes, the CSRF
-check. Neither exists before #10, so (Architect decision, 2026-10-31, #77):
+``POST /api/jobs``, ``GET /api/jobs/{id}``, its cancel and its event stream need a signed-in
+session (ADR 0003 section 2); the writes pass the Origin and CSRF checks of ``ownvitals.auth``'s
+middleware, which no route can skip. #11 narrows "signed in" to a full session (second factor
+passed) in ``ownvitals.auth.deps``, so nothing here changes then.
 
-- ``current_user`` always answers 401: no route of the jobs API serves anyone yet. #10 replaces
-  it with ``ownvitals.auth``'s dependency (the only web issuer of a ``UserContext``, ADR 0002
-  section 1), with CSRF on the writes;
+- ``current_user`` is ``ownvitals.auth``'s dependency, the only web issuer of a ``UserContext``
+  (ADR 0002 section 1): 401 when anonymous.
 - ``stream_session_probe`` gives the event stream a check that the session it was opened with is
-  still valid for the same user (every 15 s); the default says no, so a stream ends at its first
-  check. #10 replaces it with a check of the session cookie.
+  still valid for the same user (every 15 s): the request's session cookie, resolved again. A
+  revoked, expired or rotated-away session, or one of another user, ends the stream.
 
 Tests use ``app.dependency_overrides`` with a test-only issuer (``tests/ctx.py``). No context is
 built here.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, Request
 
+from ownvitals.auth.deps import Probe, require_user, session_probe
 from ownvitals.context import UserContext
 
-Probe = Callable[[], Awaitable[bool]]
 
-
-async def current_user() -> UserContext:
-    """Fail closed until #10: nobody is signed in."""
-    raise HTTPException(status_code=401, detail={"reason": "not_signed_in"})
+async def current_user(ctx: Annotated[UserContext, Depends(require_user)]) -> UserContext:
+    """The signed-in user's context; 401 ``not_authenticated`` when anonymous."""
+    return ctx
 
 
 def stream_session_probe(request: Request) -> Callable[[UUID], Probe]:
-    """For a stream of ``user_id``: whether its session is still valid. Fail closed until #10."""
-
-    def probe_for(user_id: UUID) -> Probe:
-        async def still_signed_in() -> bool:
-            return False
-
-        return still_signed_in
-
-    return probe_for
+    """For a stream of ``user_id``: whether the session cookie the stream was opened with still
+    resolves to a valid session of that user (``ownvitals.auth.deps.session_probe``)."""
+    return session_probe(request)

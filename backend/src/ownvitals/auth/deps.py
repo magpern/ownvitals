@@ -6,18 +6,16 @@ neither clears the cookie (the token may have just been rotated). A known sessio
 expired, idle or belongs to a disabled user is deleted and the cookie is cleared.
 """
 
+from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Literal, NoReturn
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ownvitals import connections
 from ownvitals.auth.clientip import client_ip
 from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
 from ownvitals.auth.sessions import Resolution, SessionInfo, resolve_session
-from ownvitals.auth.tables import users
 from ownvitals.config import Settings
 from ownvitals.context import UserContext, issuer_token
 
@@ -67,27 +65,11 @@ async def current_context(
 async def issue_context(
     factory: async_sessionmaker[AsyncSession], user_id: UUID, role: Literal["user", "admin"]
 ) -> UserContext:
-    """Two steps (ADR 0004 section 1): a context without connections, to read the user's
-    ``(provider, id)`` pairs in their own session, then the final context with them."""
-    bare = UserContext(user_id=user_id, role=role, issuer=issuer_token())
-    refs = await connections.connection_refs(factory, bare)
-    return UserContext(user_id=user_id, role=role, connections=refs, issuer=issuer_token())
-
-
-async def operator_contexts(db: AsyncSession) -> list[UserContext]:
-    """For the CLI only (``keys rewrap``, ``keys wipe``; ADR 0004 section 1): a context per user
-    (role ``user``, no connections), oldest first, for per-owner work with ``app.user_id`` set."""
-    ids = (await db.execute(select(users.c.id).order_by(users.c.created_at, users.c.id))).scalars()
-    return [UserContext(user_id=user_id, role="user", issuer=issuer_token()) for user_id in ids]
-
-
-async def purge_contexts(db: AsyncSession) -> list[UserContext]:
-    """For the hourly purge only (``ownvitals.auth.purge``; ADR 0009 section 3): a context per user
-    (role ``user``, no connections) to delete that user's used or expired Spotify connect flows in
-    their own session, since the table is owned and row security is forced. Nothing else may name
-    it (``tests/test_user_context_guard.py``)."""
-    ids = (await db.execute(select(users.c.id).order_by(users.c.id))).scalars()
-    return [UserContext(user_id=user_id, role="user", issuer=issuer_token()) for user_id in ids]
+    """The request's context: the user and the role, no connections yet. ``factory`` is where
+    #13 reads the user's ``(provider, id)`` pairs in their own session (ADR 0004 section 1): a
+    bare context first, then the final one with them, as classbeat does."""
+    del factory  # the connections layer (#13) reads the refs through it
+    return UserContext(user_id=user_id, role=role, issuer=issuer_token())
 
 
 def _refuse(status: int, reason: str) -> NoReturn:
@@ -138,12 +120,17 @@ async def require_stepup(
 
 
 def request_ip(request: Request) -> str:
-    """The client address (ADR 0003 section 9): the peer, or behind a trusted proxy the
-    right-most ``X-Forwarded-For`` entry that is not a proxy."""
+    """The client address (ADR 0003 section 8, ``clientip``): the peer, or behind a trusted
+    proxy SWAG's ``CF-Connecting-IP`` or the right-most ``X-Forwarded-For`` entry that is not a
+    proxy."""
     settings: Settings = request.app.state.settings
     peer = request.client.host if request.client else None
     return client_ip(
-        peer, request.headers.getlist("x-forwarded-for"), settings.trusted_proxy_networks
+        peer,
+        request.headers.getlist("x-forwarded-for"),
+        settings.trusted_proxy_networks,
+        cf_connecting_ip=request.headers.getlist("cf-connecting-ip"),
+        cf_proxies=settings.cf_connecting_ip_networks,
     )
 
 
@@ -158,3 +145,26 @@ def request_session_token(request: Request) -> str | None:
 def state(request: Request, name: str) -> Any:
     """``request.app.state.<name>``: ``keys``, ``limiter``, ``password_hasher``, ..."""
     return getattr(request.app.state, name)
+
+
+Probe = Callable[[], Awaitable[bool]]
+
+
+def session_probe(request: Request) -> Callable[[UUID], Probe]:
+    """For a long-lived response of ``user_id`` (the jobs event stream): whether the session
+    cookie the request came with still resolves to a valid session of that user. A revoked,
+    expired or rotated-away session, or one of another user, makes it ``False``."""
+    token = request.cookies.get(SESSION_COOKIE)
+    factory = request.app.state.session_factory
+    settings = request.app.state.settings
+
+    def probe_for(user_id: UUID) -> Probe:
+        async def still_signed_in() -> bool:
+            if not token:
+                return False
+            resolution = await resolve_session(factory, settings, token)
+            return resolution.info is not None and resolution.info.user_id == user_id
+
+        return still_signed_in
+
+    return probe_for

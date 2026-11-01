@@ -7,8 +7,16 @@ import logging
 
 import pytest
 
-from authtools import ORIGIN, Env
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    ORIGIN,
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+)
+from ownvitals.auth.cookies import SESSION_COOKIE
+from ownvitals.auth.keys import token_hash
+from ownvitals.auth.sessions import resolve_session, rotate_session
 from ownvitals.log import configure_logging, redact
 
 SESSION = "SESSIONTOKEN-aaaaaaaaaaaaaaaaaaaaaaaa"
@@ -95,7 +103,7 @@ async def test_requests_and_session_handling_log_no_token_hash_cookie_or_body(en
         raise RuntimeError(f"Authorization: Bearer {BEARER}")
 
     issued = await env.login(await env.user())
-    stored_hash = auth.token_hash(issued.token)
+    stored_hash = token_hash(issued.token)
     headers = {
         "Cookie": COOKIE_HEADER.replace(SESSION, issued.token),
         "Authorization": f"Bearer {BEARER}",
@@ -108,12 +116,10 @@ async def test_requests_and_session_handling_log_no_token_hash_cookie_or_body(en
     await client.post("/api/auth/login", headers=headers, json={"password": PASSWORD})
     await client.post("/api/auth/logout-all", headers=headers, content=PASSWORD)
     async with env.db() as db:
-        info = (await auth.resolve_session(env.factory, env.settings, issued.token)).info
+        info = (await resolve_session(env.factory, env.settings, issued.token)).info
         assert info is not None
-        rotated = await auth.rotate_session(db, info, mfa=True)
-    await client.get(
-        "/api/auth/session", headers={"Cookie": f"{auth.SESSION_COOKIE}={rotated.token}"}
-    )
+        rotated = await rotate_session(db, info, mfa=True)
+    await client.get("/api/auth/session", headers={"Cookie": f"{SESSION_COOKIE}={rotated.token}"})
     with contextlib.suppress(RuntimeError):  # the test transport re-raises server errors
         await client.get("/api/test/leaky", headers=headers)
 
@@ -122,7 +128,7 @@ async def test_requests_and_session_handling_log_no_token_hash_cookie_or_body(en
     assert leaked(out) == []
     for token in (issued.token, rotated.token):
         assert token not in out
-    for digest in (stored_hash, auth.token_hash(rotated.token)):
+    for digest in (stored_hash, token_hash(rotated.token)):
         assert digest.hex() not in out
         assert repr(digest) not in out
     # The access log records path and status, never a query string.
@@ -157,7 +163,7 @@ async def test_database_errors_do_not_put_hashes_or_emails_in_the_logs(
     email = "private" + ".person@example.org"
     email2 = "private" + ".person2@example.org"
     issued = await env.login(await env.user(email))
-    digest = auth.token_hash(issued.token)
+    digest = token_hash(issued.token)
     # (1) a broken statement on the path that carries the token hash.
     admin = create_engine(database_url, isolation_level="AUTOCOMMIT")
     try:
@@ -165,7 +171,7 @@ async def test_database_errors_do_not_put_hashes_or_emails_in_the_logs(
             connection.execute(text("ALTER TABLE sessions RENAME COLUMN last_seen_at TO seen"))
         try:
             with pytest.raises(SQLAlchemyError) as hidden:
-                await auth.resolve_session(env.factory, env.settings, issued.token)
+                await resolve_session(env.factory, env.settings, issued.token)
             log.exception("resolve failed", exc_info=hidden.value)
             assert "hide_parameters" in str(hidden.value)  # the statement is there, values not
         finally:

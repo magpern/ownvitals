@@ -1,4 +1,4 @@
-"""Wiring: what ``create_app`` adds for accounts and sessions."""
+"""Wiring: what ``create_app`` adds for accounts and sessions (``ownvitals.web``)."""
 
 import logging
 
@@ -34,10 +34,9 @@ from ownvitals.mail import Mailer
 
 logger = logging.getLogger(__name__)
 
-# Routes whose request bodies can hold a password or token, and the jobs API (its bodies are the
-# user's own text; its routes validate them themselves, this is the backstop, #115 item 2), and
-# redeem, whose body is a code (ADR 0011 section 2).
-SECRET_INPUT_PATHS = ("/api/auth/", "/api/connections", "/api/jobs", "/api/account/redeem")
+# Routes whose request bodies can hold a password, code or token, and the jobs API (its bodies
+# are the user's own input; its routes validate them themselves, this is the backstop).
+SECRET_INPUT_PATHS = ("/api/auth/", "/api/connections", "/api/jobs")
 
 
 def install(app: FastAPI) -> None:
@@ -75,8 +74,7 @@ def install(app: FastAPI) -> None:
             raise exc
         if not request.url.path.startswith(SECRET_INPUT_PATHS):
             return await request_validation_exception_handler(request, exc)
-        # FastAPI's default echoes ``input`` (a password or token); drop it on auth routes and on
-        # provider connects (the MOWL password, ADR 0004 section 4).
+        # FastAPI's default echoes ``input`` (a password, code or token): drop it on these routes.
         errors = [
             {key: value for key, value in error.items() if key not in ("input", "ctx", "url")}
             for error in exc.errors()
@@ -104,7 +102,7 @@ def attach_state(
     # httpx logs each request URL at INFO; the OAuth ones are not worth a log line.
     for noisy in ("httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
-    # #39's security notices (TOTP enrolled, repeated MFA failures) go out as mail. The notifier
+    # The security notices (TOTP enrolled, repeated MFA failures) go out as mail. The notifier
     # is process-global (``auth.notices``): the last app created in a process wins, and
     # ``detach_state`` clears it. Fine for one app per process; tests that build several apps
     # must not rely on which mailer a notice goes through.

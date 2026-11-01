@@ -4,10 +4,20 @@ import logging
 from datetime import timedelta
 
 import pytest
+from pydantic import ValidationError
 
-from authtools import ORIGIN, Env, running_env
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    ORIGIN,
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+    menv_fixture,
+    running_env,
+    smtp_fixture,
+)
 from flows import PASSWORD, Browser, reason
+from ownvitals.auth.accounts import create_invite
 from smtpfake import SmtpFake
 
 EMAIL = "new.user@example.com"
@@ -15,7 +25,7 @@ EMAIL = "new.user@example.com"
 
 async def invite(env: Env) -> str:
     async with env.db() as db:
-        return await auth.create_invite(db, timedelta(days=1))
+        return await create_invite(db, timedelta(days=1))
 
 
 async def sign_up(browser: Browser, code: str | None, email: str = EMAIL, password: str = PASSWORD):
@@ -80,18 +90,14 @@ async def test_closed_signups_refuse_everyone(app_database_url: str, clean_auth:
         assert (response.status_code, reason(response)) == (403, "signups_closed")
 
 
-async def test_open_signups_need_no_invite(
-    app_database_url: str, clean_auth: None, smtp: SmtpFake
+async def test_open_signups_are_refused_until_the_m8_gate(
+    app_database_url: str, clean_auth: None
 ) -> None:
-    async with running_env(
-        app_database_url,
-        signup_mode="open",
-        smtp_host="127.0.0.1",
-        smtp_port=smtp.port,
-        smtp_tls="none",
-    ) as env:
-        assert (await sign_up(Browser(env), None)).status_code == 202
-        assert len(smtp.to(EMAIL)) == 1
+    """Classbeat's ``open`` mode (no invite) is not available before M8 (#10): the app does not
+    start with it, and without an invite a sign-up is refused (``invite_required`` above)."""
+    with pytest.raises(ValidationError, match="refused until the M8 gate"):
+        async with running_env(app_database_url, signup_mode="open"):
+            pass
 
 
 async def confirm(browser: Browser, token: str, password: str = PASSWORD):

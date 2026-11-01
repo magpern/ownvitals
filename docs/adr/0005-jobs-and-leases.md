@@ -321,6 +321,7 @@ the SQL in `db-functions` uses the same numbers. A UUID key is hashed to `int4`
 | 2, token refresh | `pg_advisory_lock` (session-scoped) | the connection id, hashed | ADR 0004 §6 |
 | 3, partitions | `pg_advisory_xact_lock` | the parent table's oid, as `int4` | ADR 0002 §2 |
 | 4, webhook-secret rotation (amended 2026-10-31, #72) | `pg_advisory_xact_lock` | the `withings_apps` id, hashed | ADR 0008 §2 (each rotation step), ADR 0004 §4 (the function) |
+| 5, mfa failures (amended 2026-11-01, #10) | `pg_advisory_xact_lock` | the user id, hashed | ADR 0003 §2 (`record_failure`: the fifth failed code in an hour mails the user once) |
 
 A new advisory lock adds its row here in the PR that introduces it.
 

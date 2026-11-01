@@ -128,20 +128,15 @@ async def _reauth(db: AsyncSession, req: Request) -> Outcome:
     owner = await identity_owner(db, req.flow.provider, req.identity.subject)
     if owner is None or owner[0] != info.user_id:
         return _fail("identity_mismatch")
-    if req.flow.provider != "github":
-        # OIDC: a missing, old or future auth_time fails closed (the provider may ignore
-        # max_age=0 or leave the claim out).
-        now = time.time() if req.now is None else req.now
-        auth_time = req.identity.auth_time
-        if (
-            auth_time is None
-            or now - auth_time > REAUTH_MAX_AGE
-            or auth_time - now > AUTH_TIME_SKEW
-        ):
-            await record_event(
-                db, "reauth_failed", user_id=info.user_id, ip=req.ip, detail={"why": "auth_time"}
-            )
-            return _fail("reauth_stale")
+    # A missing, old or future auth_time fails closed (the provider may ignore max_age=0 or
+    # leave the claim out).
+    now = time.time() if req.now is None else req.now
+    auth_time = req.identity.auth_time
+    if auth_time is None or now - auth_time > REAUTH_MAX_AGE or auth_time - now > AUTH_TIME_SKEW:
+        await record_event(
+            db, "reauth_failed", user_id=info.user_id, ip=req.ip, detail={"why": "auth_time"}
+        )
+        return _fail("reauth_stale")
     try:
         issued = await rotate_session(db, info, reauth=True, user_agent=req.user_agent, ip=req.ip)
     except SessionGone:
@@ -176,11 +171,11 @@ async def _sign_in(db: AsyncSession, req: Request) -> Outcome:
         return await _session_for(db, req, user_id)
     if ident.email_verified and ident.email and await find_user(db, ident.email) is not None:
         return _fail("account_exists")  # nothing is created or linked
-    mode = await flags.signup_mode(db, settings.signup_mode)  # stricter of env and database
-    gated = mode != "open"
-    if mode == "closed" or (gated and req.flow.invite_id is None):
+    # ``invite`` or ``closed``: ``open`` is refused until the M8 gate (ADR 0003 section 6).
+    mode = await flags.signup_mode(db, settings.signup_mode)
+    if mode == "closed" or req.flow.invite_id is None:
         return _fail("invite_required")
-    if gated and not await _invite_valid(db, req.flow.invite_id):
+    if not await _invite_valid(db, req.flow.invite_id):
         return _fail("invite_invalid")
     if ident.email_verified and ident.email:
         return await _create_account(db, req, ident.email)

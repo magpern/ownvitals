@@ -23,11 +23,16 @@ Exemptions, the only way to pass a string the matcher flags:
   that number, so a new exemption is visible in review.
 
 ``scan_source`` parses Python source (a module outside ``ownvitals/auth/``) and returns what it
-refuses. Outside the package only the public API of ``ownvitals.auth`` itself may be used:
+refuses. Outside the package only the public API of ``ownvitals.auth`` may be used. In
+ownvitals that API is ``PUBLIC_ENTRY_POINTS``: named functions of a few submodules, imported
+with ``from <submodule> import <name>``. (Classbeat re-exported them lazily from the package
+with PEP 562; the egress guard refuses dynamic imports, and an eager package would load the
+web's sign-in and mail modules into the worker, so #10 names the entry points instead.)
 
 - any import of a ``ownvitals.auth`` submodule (``from ownvitals.auth.sessions import ...``,
   ``import ownvitals.auth.purge as p``, relative forms, ``importlib.import_module`` and
-  ``__import__`` of one, absolute or relative with a package);
+  ``__import__`` of one, absolute or relative with a package), except a ``from`` import of a
+  name listed for that submodule in ``PUBLIC_ENTRY_POINTS``;
 - any imported name that is a table, ``metadata``, a submodule name or ``*`` from
   ``ownvitals.auth``; attribute access to such a name on ``ownvitals.auth``, on an alias of it,
   on ``<alias of ownvitals>.auth`` (``import ownvitals as c; c.auth.tables``), or directly on
@@ -61,6 +66,22 @@ import tokenize
 
 TABLES_MODULE = "ownvitals.auth.tables"
 AUTH_PACKAGE = "ownvitals.auth"
+# The public API of ``ownvitals.auth`` (#10): the only names code outside the package may import
+# from its submodules, each with ``from ownvitals.auth.<module> import <name>``.
+# ``test_auth_tables_guard.py`` checks each exists and none is a table or ``metadata``.
+PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
+    # the app: middleware, routers and state (ownvitals.web)
+    "ownvitals.auth.setup": frozenset({"attach_state", "detach_state", "install"}),
+    # the jobs API: the signed-in user and the event stream's session check
+    "ownvitals.auth.deps": frozenset({"Probe", "require_user", "session_probe"}),
+    # the worker: the issuer's account check and the purge
+    "ownvitals.auth.owners": frozenset({"ACCOUNTS"}),
+    "ownvitals.auth.purge": frozenset({"purge_expired"}),
+    # the operator CLI
+    "ownvitals.auth.operator": frozenset(
+        {"AccountError", "create_invite", "grant_admin", "mfa_reset", "revoke_admin"}
+    ),
+}
 TABLE_NAMES = (
     "users",
     "identities",
@@ -78,8 +99,6 @@ TABLE_NAMES = (
 SUBMODULES = frozenset(
     {
         "accounts",
-        "admin_accounts",
-        "admin_lookup",
         "admin_routes",
         "clientip",
         "cookies",
@@ -98,6 +117,7 @@ SUBMODULES = frozenset(
         "notices",
         "notifier",
         "operator",
+        "owners",
         "oauth_client",
         "oauth_handoff",
         "oauth_idtoken",
@@ -351,7 +371,12 @@ def scan_source_with_exemptions(source: str) -> tuple[list[tuple[int, str]], int
                     found.append((node.lineno, f"import of {alias.name}"))
         elif isinstance(node, ast.ImportFrom):
             module = _module_of(node)
-            if _is_auth_submodule(module):
+            public = PUBLIC_ENTRY_POINTS.get(module) if not node.level else None
+            if public is not None:
+                for alias in node.names:
+                    if alias.name not in public:
+                        found.append((node.lineno, f"import of {alias.name} from {module}"))
+            elif _is_auth_submodule(module):
                 found.append((node.lineno, f"import from {module}"))
             elif module == AUTH_PACKAGE:
                 for alias in node.names:

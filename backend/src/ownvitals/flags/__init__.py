@@ -1,6 +1,2 @@
-"""Database flags and settings with the stricter-wins rule (ADR 0011 section 7)."""
-
-from ownvitals.flags import effective
-from ownvitals.flags.core import BANNER_MAX_CHARS, Banner, TrialSetting
-
-__all__ = ["BANNER_MAX_CHARS", "Banner", "TrialSetting", "effective"]
+"""Settings and stored flags with the stricter-wins rule (ADR 0003 section 6): the sign-up mode
+from #10, the stored flags and the AI and experimental switches from #12."""

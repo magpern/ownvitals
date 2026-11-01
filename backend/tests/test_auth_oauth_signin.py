@@ -7,12 +7,26 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from authtools import Env, running_env
-from ownvitals import auth
-from ownvitals.auth.cookies import OAUTH_COOKIE
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+    running_env,
+    smtp_fixture,
+)
 from flows import Browser, reason, user_with_password
-from oauthtools import CLIENT_IDS, location, make_invite, sign_in_with, start
+from oauthtools import (  # noqa: F401 - fixtures
+    CLIENT_IDS,
+    fake_fixture,
+    location,
+    make_invite,
+    oenv_fixture,
+    sign_in_with,
+    start,
+)
 from oidcfake import FakeProviders
+from ownvitals.auth.cookies import OAUTH_COOKIE, SESSION_COOKIE
 from smtpfake import SmtpFake
 
 
@@ -52,14 +66,28 @@ async def test_a_provider_without_its_secret_or_client_id_is_off(
     async with running_env(
         app_database_url,
         oauth_google_client_id="google-client",  # no secret file
-        oauth_github_client_secret="secret-only",  # no client id
-        oauth_microsoft_client_id="ms",
-        oauth_microsoft_client_secret="s",
     ) as env:
         providers = (await Browser(env).get("/api/auth/oauth/providers")).json()["providers"]
-        assert providers == ["microsoft"]
+        assert providers == []
         assert (await start(Browser(env), "google")).status_code == 404
         assert (await Browser(env).get("/oauth/google/callback?code=x&state=y")).status_code == 404
+    async with running_env(
+        app_database_url,
+        oauth_google_client_secret="secret-only",  # no client id
+    ) as env:
+        providers = (await Browser(env).get("/api/auth/oauth/providers")).json()["providers"]
+        assert providers == []
+
+
+@pytest.mark.parametrize("provider", ["github", "microsoft"])
+async def test_github_and_microsoft_are_not_providers(oenv: Env, provider: str) -> None:
+    """#10 drops classbeat's GitHub and Microsoft sign-in: Google is the only provider."""
+    providers = (await Browser(oenv).get("/api/auth/oauth/providers")).json()["providers"]
+    assert providers == ["google"]
+    assert (await start(Browser(oenv), provider)).status_code == 404
+    assert (
+        await Browser(oenv).get(f"/oauth/{provider}/callback?code=x&state=y")
+    ).status_code == 404
 
 
 async def test_new_google_user_with_a_verified_email_signs_up_and_in(
@@ -248,9 +276,10 @@ async def test_the_flow_is_bound_to_its_provider(oenv: Env, fake: FakeProviders)
     browser = Browser(oenv)
     started = await start(browser, "google", invite_code=await make_invite(oenv))
     callback = fake.complete(started.json()["authorization_url"])
-    wrong = callback.replace("/oauth/google/", "/oauth/microsoft/")
-    assert location(await browser.get(wrong)) == "/signin?oauth=invalid"
+    wrong = callback.replace("/oauth/google/", "/oauth/github/")
+    assert (await browser.get(wrong)).status_code == 404
     assert fake.token_requests == 0
+    assert await oenv.scalar("SELECT count(*) FROM oauth_flows") == 1  # still usable at Google
 
 
 async def test_an_expired_flow_is_refused(oenv: Env, fake: FakeProviders) -> None:
@@ -298,18 +327,6 @@ async def test_a_bad_id_token_creates_nothing(
     assert await oenv.scalar("SELECT used_at IS NULL FROM invites") is True
 
 
-async def test_a_microsoft_tenant_mismatch_is_refused(oenv: Env, fake: FakeProviders) -> None:
-    response = await sign_in_with(
-        Browser(oenv),
-        fake,
-        "microsoft",
-        invite=await make_invite(oenv),
-        iss="https://login.microsoftonline.com/other-tenant/v2.0",
-    )
-    assert location(response) == "/signin?oauth=invalid"
-    assert await oenv.scalar("SELECT count(*) FROM pending_signups") == 0
-
-
 async def test_a_wrong_client_secret_fails_at_the_token_endpoint(
     oenv: Env, fake: FakeProviders
 ) -> None:
@@ -318,34 +335,14 @@ async def test_a_wrong_client_secret_fails_at_the_token_endpoint(
     assert location(response) == "/signin?oauth=invalid"
 
 
-async def test_github_signs_up_with_its_verified_primary_email(
-    oenv: Env, fake: FakeProviders
-) -> None:
-    emails = [
-        {"email": "other@example.com", "primary": False, "verified": True},
-        {"email": "octo@example.com", "primary": True, "verified": True},
-    ]
-    response = await sign_in_with(
-        Browser(oenv),
-        fake,
-        "github",
-        invite=await make_invite(oenv),
-        github_user=4242,
-        github_emails=emails,
-    )
-    assert location(response) == "/"
-    assert await oenv.scalar("SELECT email FROM users") == "octo@example.com"
-    assert await oenv.scalar("SELECT subject FROM identities") == "4242"  # the id, not the login
-
-
 async def test_signing_in_again_replaces_the_browsers_session(
     oenv: Env, fake: FakeProviders
 ) -> None:
     browser = Browser(oenv)
     await sign_in_with(browser, fake, "google", invite=await make_invite(oenv))
-    old = browser.cookies[auth.SESSION_COOKIE]
+    old = browser.cookies[SESSION_COOKIE]
     await sign_in_with(browser, fake, "google")
-    assert browser.cookies[auth.SESSION_COOKIE] != old
+    assert browser.cookies[SESSION_COOKIE] != old
     assert await oenv.scalar("SELECT count(*) FROM sessions") == 1
 
 
@@ -354,17 +351,16 @@ async def test_admin_emails_grant_at_oauth_sign_in(
 ) -> None:
     async with running_env(
         app_database_url,
-        signup_mode="open",
         admin_emails="G@example.com",
         oauth_google_client_id="google-client",
         oauth_google_client_secret=fake.secret,
     ) as env:
         env.app.state.oauth.transport = fake.transport
         await user_with_password(env, "g@example.com")
-        response = await sign_in_with(Browser(env), fake, "google")
+        response = await sign_in_with(Browser(env), fake, "google", invite=await make_invite(env))
         assert location(response) == "/signin?oauth=account_exists"
         await env.run("DELETE FROM users")
-        await sign_in_with(Browser(env), fake, "google")
+        await sign_in_with(Browser(env), fake, "google", invite=await make_invite(env))
         assert await env.scalar("SELECT role FROM users") == "admin"
 
 
@@ -381,7 +377,7 @@ async def test_no_code_state_token_or_secret_reaches_the_logs(
     bad = Browser(oenv)  # and a failing one
     failed = await start(bad, "google")
     await bad.get(fake.complete(failed.json()["authorization_url"], alg="none"))
-    planted = [fake.secret, browser.cookies[auth.SESSION_COOKIE], *fake.codes]
+    planted = [fake.secret, browser.cookies[SESSION_COOKIE], *fake.codes]
     planted += [spec["id_token"] for spec in fake.codes.values() if "id_token" in spec]
     for response in (started, failed):
         planted.append(parse_qs(urlsplit(response.json()["authorization_url"]).query)["state"][0])

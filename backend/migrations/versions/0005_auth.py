@@ -1,28 +1,40 @@
-"""accounts and sessions: the M1 system tables (ADR 0003 section 1)
+"""accounts and sessions: the account system tables (ADR 0003 section 1)
 
-Revision ID: 0002_auth
-Revises: 0001_baseline
-Create Date: 2026-10-28
+Revision ID: 0005_auth
+Revises: 0004_connection_keks
+Create Date: 2026-11-01
 
-Twelve system tables, no ``owner_id`` and no RLS (ADR 0002 section 3); only ``ownvitals.auth``
-touches them. Every token is stored as a hash (bytea). The default privileges of
-``ownvitals_owner`` (docker/postgres/init/10-roles.sql) give ``ownvitals_app`` SELECT, INSERT,
-UPDATE and DELETE on each new table, and nothing else (no TRUNCATE, REFERENCES or TRIGGER), so
-this migration needs no GRANT of its own. ``tests/test_auth_schema.py`` checks the privileges.
+classbeat's ``0002_auth`` (at ``d806051``), Google only, with ADR 0003's changes:
+
+- Twelve system tables, no ``owner_id`` and no RLS (ADR 0002 section 3); only ``ownvitals.auth``
+  touches them (guard 8). Every token is stored as a hash (bytea). The default privileges of
+  ``ownvitals_owner`` give ``ownvitals_app`` SELECT, INSERT, UPDATE and DELETE on each new table
+  and nothing else, so this migration needs no GRANT of its own (``tests/test_auth_schema.py``).
+- ``identities`` and ``oauth_flows`` allow provider ``google`` only (PLAN section 3).
+- ``oauth_flows``: every flow has a nonce and a PKCE ``code_verifier`` of RFC 7636's form (the
+  64 characters ``oauth_store`` draws), so a flow without a verifier cannot exist (#55's N15).
+- ``mfa_totp`` holds only ADR 0004's envelope form from the first enrolment (ADR 0003 section 5):
+  ``key_id`` is a KEK id, with a 48-byte wrapped data key and a 12-byte nonce. classbeat's
+  interim ``app-v1`` form is not ported.
+- ``jobs.owner_id`` and ``job_events.owner_id`` get their foreign keys to ``users`` (ADR 0002
+  section 2, the #9 seam; ``docs/dev/isolation.md``, "Adding tables"): deleting an account
+  removes its jobs and events (referential actions run without row security, so the events'
+  append-only policies do not stop it).
 """
 
 from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0002_auth"
-down_revision: str | Sequence[str] | None = "0001_baseline"
+revision: str = "0005_auth"
+down_revision: str | Sequence[str] | None = "0004_connection_keks"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 _PK = "id uuid PRIMARY KEY DEFAULT gen_random_uuid()"
 _USER = "user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE"
 _NOW = "timestamptz NOT NULL DEFAULT now()"
+_KEK_ID = "'^kek-[a-z0-9-]{1,28}$'"
 
 # Creation order = dependency order; the downgrade drops in reverse.
 TABLES: dict[str, str] = {
@@ -38,7 +50,7 @@ TABLES: dict[str, str] = {
     "identities": f"""
         {_PK},
         {_USER},
-        provider text NOT NULL CONSTRAINT identities_provider CHECK (provider IN ('google', 'github', 'microsoft')),
+        provider text NOT NULL CONSTRAINT identities_provider CHECK (provider = 'google'),
         subject text NOT NULL,
         email_at_link text,
         created_at {_NOW},
@@ -75,7 +87,7 @@ TABLES: dict[str, str] = {
         email text,
         email_normalized text,
         password_hash text,
-        provider text,
+        provider text CONSTRAINT pending_signups_provider CHECK (provider = 'google'),
         subject text,
         browser_hash bytea,
         invite_id uuid REFERENCES invites (id) ON DELETE CASCADE,
@@ -97,11 +109,12 @@ TABLES: dict[str, str] = {
     "oauth_flows": f"""
         {_PK},
         flow_hash bytea NOT NULL UNIQUE,
-        provider text NOT NULL CONSTRAINT oauth_flows_provider CHECK (provider IN ('google', 'github', 'microsoft')),
+        provider text NOT NULL CONSTRAINT oauth_flows_provider CHECK (provider = 'google'),
         purpose text NOT NULL CONSTRAINT oauth_flows_purpose CHECK (purpose IN ('sign_in', 'link', 'reauth')),
         state_hash bytea NOT NULL,
-        nonce text,
-        pkce_verifier text NOT NULL,
+        nonce text NOT NULL,
+        pkce_verifier text NOT NULL
+            CONSTRAINT oauth_flows_pkce_verifier CHECK (pkce_verifier ~ '^[A-Za-z0-9_-]{{64}}$'),
         user_id uuid REFERENCES users (id) ON DELETE CASCADE,
         invite_id uuid REFERENCES invites (id) ON DELETE CASCADE,
         return_to text,
@@ -111,8 +124,10 @@ TABLES: dict[str, str] = {
         {_PK},
         user_id uuid NOT NULL UNIQUE REFERENCES users (id) ON DELETE CASCADE,
         secret_ciphertext bytea NOT NULL,
-        nonce bytea NOT NULL,
-        key_id text NOT NULL,
+        nonce bytea NOT NULL CONSTRAINT mfa_totp_nonce CHECK (octet_length(nonce) = 12),
+        key_id text NOT NULL CONSTRAINT mfa_totp_key_id CHECK (key_id ~ {_KEK_ID}),
+        wrapped_dek bytea NOT NULL CONSTRAINT mfa_totp_wrapped_dek CHECK (octet_length(wrapped_dek) = 48),
+        dek_nonce bytea NOT NULL CONSTRAINT mfa_totp_dek_nonce CHECK (octet_length(dek_nonce) = 12),
         confirmed_at timestamptz,
         last_step bigint NOT NULL DEFAULT 0""",
     "mfa_recovery_codes": f"""
@@ -146,14 +161,24 @@ INDEXES = [
     "CREATE INDEX auth_events_at_idx ON auth_events (at)",
 ]
 
+OWNER_FKS = {
+    table: f"ALTER TABLE public.{table} ADD CONSTRAINT {table}_owner_id_fkey "
+    "FOREIGN KEY (owner_id) REFERENCES public.users (id) ON DELETE CASCADE"
+    for table in ("jobs", "job_events")
+}
+
 
 def upgrade() -> None:
     for name, body in TABLES.items():
         op.execute(f"CREATE TABLE public.{name} ({body})")
     for statement in INDEXES:
         op.execute(statement)
+    for statement in OWNER_FKS.values():
+        op.execute(statement)
 
 
 def downgrade() -> None:
+    for table in OWNER_FKS:
+        op.execute(f"ALTER TABLE public.{table} DROP CONSTRAINT IF EXISTS {table}_owner_id_fkey")
     for name in reversed(TABLES):
         op.execute(f"DROP TABLE IF EXISTS public.{name} CASCADE")

@@ -1,8 +1,15 @@
 """Password sign-in and re-authentication (ADR 0003 sections 3, 5, 6, 9)."""
 
-from authtools import ADMIN_EMAIL, Env, running_env
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    ADMIN_EMAIL,
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+    running_env,
+)
 from flows import PASSWORD, Browser, age_reauth, reason, signed_in, user_with_password
+from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
 
 EMAIL = "user@example.com"
 
@@ -14,7 +21,7 @@ async def test_sign_in_sets_the_session_and_device_cookies(env: Env) -> None:
     assert response.status_code == 200
     assert response.json()["email"] == EMAIL
     assert browser.signed_in
-    assert auth.DEVICE_COOKIE in browser.cookies
+    assert DEVICE_COOKIE in browser.cookies
     set_cookie = " ".join(response.headers.get_list("set-cookie"))
     assert "HttpOnly" in set_cookie
     assert "Secure" in set_cookie
@@ -89,9 +96,9 @@ async def test_a_success_releases_what_it_reserved(env: Env) -> None:
 
 async def test_sign_in_replaces_the_browsers_old_session(env: Env) -> None:
     browser = await signed_in(env)
-    old = browser.cookies[auth.SESSION_COOKIE]
+    old = browser.cookies[SESSION_COOKIE]
     await browser.sign_in(EMAIL)
-    assert browser.cookies[auth.SESSION_COOKIE] != old
+    assert browser.cookies[SESSION_COOKIE] != old
     assert await env.scalar("SELECT count(*) FROM sessions") == 1
 
 
@@ -111,13 +118,13 @@ async def test_reauth_sets_reauth_at_and_rotates_the_session(env: Env) -> None:
     browser = await signed_in(env)
     await age_reauth(env)
     assert (await browser.get("/api/auth/session")).json()["session"]["recent_auth"] is False
-    old = browser.cookies[auth.SESSION_COOKIE]
+    old = browser.cookies[SESSION_COOKIE]
     response = await browser.post("/api/auth/reauth", {"password": PASSWORD})
     assert response.status_code == 200
-    assert browser.cookies[auth.SESSION_COOKIE] != old
+    assert browser.cookies[SESSION_COOKIE] != old
     assert (await browser.get("/api/auth/session")).json()["session"]["recent_auth"] is True
     stale = Browser(env)
-    stale.cookies[auth.SESSION_COOKIE] = old
+    stale.cookies[SESSION_COOKIE] = old
     assert not (await stale.get("/api/auth/session")).json()["authenticated"]
 
 

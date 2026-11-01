@@ -54,6 +54,13 @@ ALLOWED = [
     "x = 'the table sessions is described in the docs'",
     "__import__('ownvitals.context').context",
     "__import__('ownvitals.auth').auth.create_invite",
+    # the public entry points (#10)
+    "from ownvitals.auth.setup import attach_state, detach_state, install",
+    "from ownvitals.auth.setup import install as install_auth",
+    "from ownvitals.auth.deps import Probe, require_user, session_probe",
+    "from ownvitals.auth.owners import ACCOUNTS",
+    "from ownvitals.auth.purge import purge_expired",
+    "from ownvitals.auth.operator import AccountError, create_invite, mfa_reset",
 ]
 REFUSED = {
     "import module": "import ownvitals.auth.tables",
@@ -61,6 +68,12 @@ REFUSED = {
     "from submodule import": "from ownvitals.auth.tables import sessions as s",
     "package import": "from ownvitals.auth import tables",
     "submodule import": "from ownvitals.auth.sessions import SessionInfo",
+    "entry point module, other name": "from ownvitals.auth.purge import sessions",
+    "entry point module, unlisted name": "from ownvitals.auth.deps import resolve_request",
+    "entry point module, star": "from ownvitals.auth.setup import *",
+    "entry point module, relative": "from .auth.purge import purge_expired",
+    "entry point module, imported whole": "import ownvitals.auth.setup",
+    "entry point module from the package": "from ownvitals.auth import setup",
     "submodule table": "from ownvitals.auth.sessions import sessions, users",
     "submodule alias": "import ownvitals.auth.purge as p\np.sessions",
     "import submodule": "import ownvitals.auth.keys",
@@ -230,7 +243,35 @@ def test_the_auth_package_does_not_re_export_a_table_object() -> None:
 
     for name in dir(package):
         assert not isinstance(getattr(package, name), Table | MetaData), name
-    assert not {"metadata", *TABLE_NAMES} & set(package.__all__)
+    assert not {"metadata", *TABLE_NAMES} & set(getattr(package, "__all__", ()))
+
+
+def test_each_public_entry_point_exists_and_is_no_table() -> None:
+    """The names of ``PUBLIC_ENTRY_POINTS`` (#10) are real and are none of the table objects."""
+    import importlib
+
+    from sqlalchemy import MetaData, Table
+
+    from auth_tables_scan import FORBIDDEN_NAMES, PUBLIC_ENTRY_POINTS
+
+    assert PUBLIC_ENTRY_POINTS
+    for module_name, names in PUBLIC_ENTRY_POINTS.items():
+        module = importlib.import_module(module_name)
+        for name in names:
+            assert name not in FORBIDDEN_NAMES, (module_name, name)
+            value = getattr(module, name)
+            assert not isinstance(value, Table | MetaData), (module_name, name)
+
+
+def test_the_entry_points_are_the_only_submodule_names_outside_the_package() -> None:
+    from auth_tables_scan import PUBLIC_ENTRY_POINTS
+
+    for module_name, names in PUBLIC_ENTRY_POINTS.items():
+        assert scan_source(f"from {module_name} import {', '.join(sorted(names))}") == []
+        assert scan_source(f"from {module_name} import users") != []
+        assert scan_source(f"from {module_name} import metadata") != []
+        assert scan_source(f"from {module_name} import not_listed") != []
+        assert scan_source(f"import {module_name}") != []
 
 
 # --- exemptions: docstrings and the marked line ------------------------------------------------

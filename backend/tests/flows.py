@@ -8,7 +8,7 @@ import httpx
 from sqlalchemy import text
 
 from authtools import ORIGIN, Env
-from ownvitals import auth
+from ownvitals.auth.cookies import SESSION_COOKIE
 
 PASSWORD = "correct horse battery staple"
 
@@ -58,7 +58,7 @@ class Browser:
 
     @property
     def signed_in(self) -> bool:
-        return auth.SESSION_COOKIE in self.cookies
+        return SESSION_COOKIE in self.cookies
 
     async def sign_in(self, email: str, password: str = PASSWORD) -> httpx.Response:
         return await self.post("/api/auth/login", {"email": email, "password": password})

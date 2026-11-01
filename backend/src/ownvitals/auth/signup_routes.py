@@ -95,13 +95,12 @@ async def sign_up(body: SignUpIn, request: Request, background: BackgroundTasks)
         mode = await flags.signup_mode(db, settings.signup_mode)  # stricter of env and database
     if mode == "closed":
         raise refuse(403, "signups_closed")
-    invite_id = None
-    if mode == "invite":
-        # Checked before hashing, so a bad invite never occupies the hashing pool.
-        async with system_session(factory(request)) as db:
-            invite_id = await valid_invite(db, body.invite_code)
-        if invite_id is None:
-            raise refuse(400, "invalid_invite")  # its own error (section 5)
+    # ``invite``: ``open`` is refused until the M8 gate (ADR 0003 section 6). Checked before
+    # hashing, so a bad invite never occupies the hashing pool.
+    async with system_session(factory(request)) as db:
+        invite_id = await valid_invite(db, body.invite_code)
+    if invite_id is None:
+        raise refuse(400, "invalid_invite")  # its own error (section 5)
     password_hash = await request.app.state.password_hasher.hash(password)  # both branches
     message: MailMessage
     async with system_session(factory(request)) as db:
@@ -134,11 +133,10 @@ class _Refused(Exception):
 async def confirm_sign_up(
     body: ConfirmIn, request: Request, response: Response, background: BackgroundTasks
 ) -> Created:
-    # While the effective sign-up mode is "closed" (the emergency brake, ADR 0011 section 7,
-    # amendment 2026-10-31) no pending sign-up is confirmed, password or provider: 403
-    # signups_closed. The pending row and its invite stay, so it can still be confirmed if sign-ups
-    # reopen before it expires. "invite" and "open" do not matter here: the row was admitted when
-    # it was made, and its invite is consumed at confirmation.
+    # While the effective sign-up mode is "closed" (the emergency brake) no pending sign-up is
+    # confirmed, password or provider: 403 signups_closed. The pending row and its invite stay,
+    # so it can still be confirmed if sign-ups reopen before it expires. Its invite was checked
+    # when it was made and is consumed at confirmation.
     ip = request_ip(request)
     digest = token_hash(body.token)
     async with system_session(factory(request)) as db:

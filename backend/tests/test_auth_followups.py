@@ -4,11 +4,19 @@ from typing import Any
 
 from sqlalchemy import event
 
-from authtools import Env, session_cookie
-from ownvitals import auth
-from ownvitals.auth import mfa
-from ownvitals.auth.sessions import clear_mfa
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+    menv_fixture,
+    session_cookie,
+    smtp_fixture,
+)
 from flows import Browser, reason, signed_in
+from mfatools import make_actor_fixture  # noqa: F401 - fixtures
+from ownvitals.auth import mfa
+from ownvitals.auth.sessions import clear_mfa, list_sessions, resolve_session
 
 SESSIONS = "/api/auth/sessions"
 
@@ -62,8 +70,8 @@ async def test_list_sessions_applies_the_same_rule_as_resolve_session(env: Env) 
     old = await env.login(user_id)
     await env.run("UPDATE sessions SET expires_at = now() - interval '1 minute'")
     async with env.db() as db:
-        assert await auth.list_sessions(db, env.settings, user_id) == []
-    resolution = await auth.resolve_session(env.factory, env.settings, old.token)
+        assert await list_sessions(db, env.settings, user_id) == []
+    resolution = await resolve_session(env.factory, env.settings, old.token)
     assert resolution.outcome == "refused"
 
 
@@ -74,8 +82,9 @@ async def test_remove_totp_locks_the_totp_row_before_the_recovery_codes(env: Env
     """The same order as regenerate_recovery_codes, so the two cannot deadlock."""
     user_id = await env.user()
     await env.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, confirmed_at) "
-        "VALUES (:u, 'x', 'y', 'app-v1', now())",
+        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
+        "dek_nonce, confirmed_at) VALUES (:u, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
+        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'), now())",
         u=user_id,
     )
     await env.run("INSERT INTO mfa_recovery_codes (user_id, code_hash) VALUES (:u, 'h')", u=user_id)
@@ -136,8 +145,9 @@ async def test_email_change_answers_stepup_required_for_a_user_with_confirmed_to
 ) -> None:
     browser = await signed_in(menv)
     await menv.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, confirmed_at) "
-        "SELECT id, 'x', 'y', 'app-v1', now() FROM users"
+        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
+        "dek_nonce, confirmed_at) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
+        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'), now() FROM users"
     )
     refused = await browser.post("/api/auth/email/change", {"new_email": "new@example.com"})
     assert (refused.status_code, reason(refused)) == (403, "stepup_required")

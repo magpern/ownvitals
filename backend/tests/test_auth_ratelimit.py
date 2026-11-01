@@ -9,16 +9,21 @@ from datetime import timedelta
 
 import pytest
 
-from authtools import Env
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+)
 from ownvitals.auth.clientip import bucket_ip, client_ip
+from ownvitals.auth.deps import request_ip
 from ownvitals.auth.passwords import PasswordHashBusy, PasswordHasher
-from ownvitals.auth.ratelimit import Bucket, Limit, RateLimited
+from ownvitals.auth.ratelimit import Bucket, Limit, RateLimited, RateLimiter, password_buckets
 
 TEST_LIMIT = Limit("test", "pair", 5, 3600)
 
 
-def limiter(env: Env) -> auth.RateLimiter:
+def limiter(env: Env) -> RateLimiter:
     return env.app.state.limiter
 
 
@@ -50,7 +55,7 @@ async def test_the_limit_trips_and_a_new_window_resets_it(env: Env) -> None:
 
 
 async def test_success_deletes_the_pair_bucket_and_decrements_the_others(env: Env) -> None:
-    buckets = auth.password_buckets("a@example.com", "203.0.113.7", known_device=False)
+    buckets = password_buckets("a@example.com", "203.0.113.7", known_device=False)
     for _ in range(3):  # three earlier failures from the pair, the account and the IP
         await limiter(env).begin(buckets)
     attempt = await limiter(env).begin(buckets)
@@ -86,13 +91,13 @@ async def test_decrement_never_goes_below_zero(env: Env) -> None:
 
 
 async def test_a_known_device_reserves_no_per_account_slot(env: Env) -> None:
-    unknown = auth.password_buckets("a@example.com", "203.0.113.7", known_device=False)
-    known = auth.password_buckets("a@example.com", "203.0.113.7", known_device=True)
+    unknown = password_buckets("a@example.com", "203.0.113.7", known_device=False)
+    known = password_buckets("a@example.com", "203.0.113.7", known_device=True)
     assert [b.limit.scope for b in unknown] == ["pair", "account", "ip"]
     assert [b.limit.scope for b in known] == ["pair", "ip"]
     # 60 attempts from known devices never trip the 50/hour per-account cap.
     for ip in range(60):
-        buckets = auth.password_buckets("a@example.com", f"10.0.{ip}.1", known_device=True)
+        buckets = password_buckets("a@example.com", f"10.0.{ip}.1", known_device=True)
         assert (await limiter(env).begin(buckets)).allowed
 
 
@@ -130,7 +135,7 @@ async def test_ipv6_addresses_share_a_bucket_per_64(env: Env) -> None:
     # End to end: rotating addresses inside one /64 does not escape the per-IP limit.
     results = []
     for i in range(35):
-        buckets = auth.password_buckets(
+        buckets = password_buckets(
             f"user{i}@example.com", f"2001:db8:1:2::{i:x}", known_device=False
         )
         results.append((await limiter(env).begin(buckets)).allowed)
@@ -179,7 +184,7 @@ async def test_trusted_proxies_are_read_from_the_settings(app_database_url: str)
         client=SimpleNamespace(host="172.17.0.2"),
         headers=SimpleNamespace(getlist=lambda _name: ["198.51.100.77, 172.17.0.9"]),
     )
-    assert auth.request_ip(request) == "198.51.100.77"  # pyright: ignore[reportArgumentType]
+    assert request_ip(request) == "198.51.100.77"  # pyright: ignore[reportArgumentType]
 
 
 async def test_a_tripped_limit_is_a_429_with_retry_after(env: Env) -> None:
@@ -194,7 +199,7 @@ async def test_a_tripped_limit_is_a_429_with_retry_after(env: Env) -> None:
 
 async def test_bucket_keys_hold_no_email_or_ip_in_the_clear(env: Env) -> None:
     await limiter(env).begin(
-        auth.password_buckets("victim@example.com", "203.0.113.7", known_device=False)
+        password_buckets("victim@example.com", "203.0.113.7", known_device=False)
     )
     async with env.db() as db:
         from sqlalchemy import text

@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from ownvitals.cli import add_subcommands, run_command
 from ownvitals.config import Settings
+from ownvitals.egress import install_web_opener
 from ownvitals.log import configure_logging
 from ownvitals.web import create_app
 
@@ -68,6 +69,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     configure_logging(settings.log_level)
     if args.command is not None:
         return run_command(args, settings)
+    install_web_opener()  # no urllib request leaves web (#10); its calls go through egress
     app = create_app(settings)
     Server(server_config(app, args.host, args.port), app).run()
     return 0

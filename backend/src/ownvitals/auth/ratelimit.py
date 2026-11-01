@@ -46,22 +46,6 @@ MAIL_ACCOUNT = Limit("mail", "account", 10, 3600)
 MAIL_IP = Limit("mail", "ip", 10, 3600)
 OAUTH_IP = Limit("oauth", "ip", 30, 15 * 60)
 PASSWORD_CHANGE = Limit("password-change", "account", 10, 3600)
-# ADR 0004 section 4: provider connects (MOWL sign-in with a password) count requests, per
-# ownvitals user, per IP and per normalized provider email, so the route can't be used to test
-# passwords against MOWL. A success releases its slots.
-CONNECT_USER = Limit("connect", "account", 5, 15 * 60)
-CONNECT_IP = Limit("connect", "ip", 20, 15 * 60)
-CONNECT_PROVIDER_EMAIL = Limit("connect", "provider-email", 5, 15 * 60)
-# ADR 0009 section 4: Spotify connect starts, per user and per IP and hour. A completed
-# connection releases its slot (the callback, ``RateLimiter.release``).
-SPOTIFY_START_USER = Limit("spotify-start", "account", 10, 3600)
-SPOTIFY_START_IP = Limit("spotify-start", "ip", 30, 3600)
-# ADR 0011 section 6: every /api/admin request, per admin and minute.
-ADMIN_USER = Limit("admin", "account", 60, 60)
-# ADR 0011 section 2: redeem-code attempts, per user and per IP and hour. Every attempt counts,
-# a success too, so the route can't be used to try codes faster than this.
-REDEEM_USER = Limit("redeem", "account", 10, 3600)
-REDEEM_IP = Limit("redeem", "ip", 30, 3600)
 
 OnSuccess = Literal["decrement", "delete"]
 
@@ -126,25 +110,6 @@ class RateLimiter:
     def __init__(self, factory: async_sessionmaker[AsyncSession], keys: Keys) -> None:
         self._factory = factory
         self._keys = keys
-
-    async def release(self, buckets: Sequence[Bucket]) -> None:
-        """Give back one slot of each bucket in its current window (never below zero): a
-        success that completes in another request than the one that reserved (the Spotify
-        callback releases its start's slot)."""
-        async with system_session(self._factory) as session:
-            for bucket in buckets:
-                bucket_hash = self.bucket_hash(bucket.limit, bucket.value)
-                await session.execute(
-                    update(rate_limits)
-                    .where(
-                        and_(
-                            rate_limits.c.bucket_hash == bucket_hash,
-                            rate_limits.c.window_start
-                            == _window_start(bucket.limit.window_seconds),
-                        )
-                    )
-                    .values(count=func.greatest(rate_limits.c.count - 1, 0))
-                )
 
     def bucket_hash(self, limit: Limit, value: str) -> bytes:
         return hmac_digest(
@@ -220,28 +185,3 @@ def mfa_buckets(user_id: str, ip: str) -> list[Bucket]:
         Bucket(MFA_ACCOUNT, user_id),
         Bucket(MFA_IP, address),
     ]
-
-
-def connect_buckets(provider: str, user_id: str, ip: str, email_normalized: str) -> list[Bucket]:
-    """A provider connect with email and password (MOWL): per user, per IP, per provider email.
-    The values are HMAC-keyed like every bucket; the email is never stored in the clear."""
-    return [
-        Bucket(CONNECT_USER, f"{provider}|{user_id}"),
-        Bucket(CONNECT_IP, bucket_ip(ip)),
-        Bucket(CONNECT_PROVIDER_EMAIL, f"{provider}|{email_normalized}"),
-    ]
-
-
-def spotify_start_buckets(user_id: str, ip: str) -> list[Bucket]:
-    """A Spotify connect start (ADR 0009 section 4): per user and per IP."""
-    return [Bucket(SPOTIFY_START_USER, user_id), Bucket(SPOTIFY_START_IP, bucket_ip(ip))]
-
-
-def admin_buckets(user_id: str) -> list[Bucket]:
-    """An admin area request (ADR 0011 section 6): 60 per admin and minute."""
-    return [Bucket(ADMIN_USER, user_id)]
-
-
-def redeem_buckets(user_id: str, ip: str) -> list[Bucket]:
-    """A redeem-code attempt (ADR 0011 section 2): per user and per IP."""
-    return [Bucket(REDEEM_USER, user_id), Bucket(REDEEM_IP, bucket_ip(ip))]

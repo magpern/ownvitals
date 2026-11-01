@@ -1,10 +1,12 @@
-"""Migration 0002_auth: the M1 system tables, their grants and their ON DELETE rules."""
+"""Migration 0005_auth: the account tables (system tables), their grants and their ON DELETE
+rules, and the owner foreign keys it adds to ``jobs`` and ``job_events``."""
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
+from authtools import auth_schema_fixture  # noqa: F401 - fixtures
 from ownvitals.auth.tables import metadata
 from ownvitals.db import SYSTEM_TABLES
 from rls_guard import check_tables
@@ -107,9 +109,14 @@ def test_on_delete_rules(admin: Connection) -> None:
             "WHERE contype = 'f' AND connamespace = 'public'::regnamespace "
             "AND conrelid::regclass::text = ANY(:tables)"
         ),
-        {"tables": [*metadata.tables, "connections"]},
+        {"tables": [*metadata.tables, "jobs", "job_events"]},
     ).all()
-    rules = {(r[0], r[1]): (r[2], r[3]) for r in rows}
+    # Of jobs and job_events, only the owner keys #10 adds (job_events.job_id is #9's).
+    rules = {
+        (r[0], r[1]): (r[2], r[3])
+        for r in rows
+        if r[0] not in ("jobs", "job_events") or r[1] == "owner_id"
+    }
     set_null = {("invites", "created_by"), ("invites", "used_by"), ("auth_events", "user_id")}
     for (table, column), (target, action) in rules.items():
         expected = "n" if (table, column) in set_null else "c"
@@ -118,8 +125,10 @@ def test_on_delete_rules(admin: Connection) -> None:
     assert set_null <= set(rules)
     assert ("pending_signups", "invite_id") in rules
     assert ("oauth_flows", "invite_id") in rules
-    assert rules[("connections", "owner_id")] == ("users", "c")  # ADR 0004 section 1
-    assert len(rules) == 13
+    # #10 replaces #9's seam: a job and its events go with their owner (ADR 0005).
+    assert rules[("jobs", "owner_id")] == ("users", "c")
+    assert rules[("job_events", "owner_id")] == ("users", "c")
+    assert len(rules) == 14
 
 
 def test_deleting_a_user_cascades_except_events_and_invites(admin: Connection) -> None:
@@ -131,15 +140,17 @@ def test_deleting_a_user_cascades_except_events_and_invites(admin: Connection) -
     ).scalar_one()
     for statement in (
         "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (:u, 's', now())",
-        "INSERT INTO identities (user_id, provider, subject) VALUES (:u, 'github', '1')",
+        "INSERT INTO identities (user_id, provider, subject) VALUES (:u, 'google', '1')",
         "INSERT INTO known_devices (user_id, device_hash) VALUES (:u, 'd')",
         "INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) "
         "VALUES (:u, 'reset_password', 't', now())",
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id) "
-        "VALUES (:u, 'c', 'n', 'app-v1')",
+        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, dek_nonce) "
+        "VALUES (:u, 'c', decode(repeat('00', 12), 'hex'), 'kek-1', "
+        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex'))",
         "INSERT INTO mfa_recovery_codes (user_id, code_hash) VALUES (:u, 'r')",
         "INSERT INTO oauth_flows (flow_hash, provider, purpose, state_hash, pkce_verifier, "
-        "user_id, expires_at) VALUES ('f', 'github', 'link', 's', 'v', :u, now())",
+        "nonce, user_id, expires_at) VALUES ('f', 'google', 'link', 's', repeat('v', 64), 'n', "
+        ":u, now())",
         "INSERT INTO auth_events (user_id, kind) VALUES (:u, 'sign_in')",
         "INSERT INTO invites (code_hash, created_by, used_by, expires_at) "
         "VALUES ('i', :u, :u, now())",
@@ -169,7 +180,8 @@ def test_deleting_an_invite_cascades_to_pending_signups_and_flows(admin: Connect
     admin.execute(
         text(
             "INSERT INTO oauth_flows (flow_hash, provider, purpose, state_hash, pkce_verifier, "
-            "invite_id, expires_at) VALUES ('f', 'google', 'sign_in', 's', 'v', :i, now())"
+            "nonce, invite_id, expires_at) "
+            "VALUES ('f', 'google', 'sign_in', 's', repeat('v', 64), 'n', :i, now())"
         ),
         {"i": invite},
     )
@@ -207,13 +219,31 @@ def test_uniqueness_rules(admin: Connection) -> None:
 
 
 def test_check_constraints(admin: Connection) -> None:
+    admin.execute(
+        text(
+            "INSERT INTO users (email, email_normalized, email_verified_at) "
+            "VALUES ('c@x.se', 'c@x.se', now())"
+        )
+    )
+    admin.commit()
     bad = [
         "INSERT INTO users (email, email_normalized, email_verified_at, role) "
         "VALUES ('a', 'a', now(), 'root')",
         "INSERT INTO pending_signups (provider, expires_at) VALUES ('google', now())",
         "INSERT INTO pending_signups (email, expires_at) VALUES ('a@x.se', now())",
         "INSERT INTO oauth_flows (flow_hash, provider, purpose, state_hash, pkce_verifier, "
-        "expires_at) VALUES ('f', 'myspace', 'sign_in', 's', 'v', now())",
+        "nonce, expires_at) VALUES ('f', 'myspace', 'sign_in', 's', repeat('v', 64), 'n', now())",
+        # #10: Google only, a nonce and a full-length PKCE verifier on every flow.
+        "INSERT INTO identities (user_id, provider, subject) "
+        "SELECT id, 'github', '1' FROM users LIMIT 1",
+        "INSERT INTO pending_signups (provider, subject, expires_at) "
+        "VALUES ('microsoft', 's', now())",
+        "INSERT INTO oauth_flows (flow_hash, provider, purpose, state_hash, pkce_verifier, "
+        "nonce, expires_at) VALUES ('f', 'github', 'sign_in', 's', repeat('v', 64), 'n', now())",
+        "INSERT INTO oauth_flows (flow_hash, provider, purpose, state_hash, pkce_verifier, "
+        "expires_at) VALUES ('f', 'google', 'sign_in', 's', repeat('v', 64), now())",
+        "INSERT INTO oauth_flows (flow_hash, provider, purpose, state_hash, pkce_verifier, "
+        "nonce, expires_at) VALUES ('f', 'google', 'sign_in', 's', 'short', 'n', now())",
     ]
     for statement in bad:
         with pytest.raises(IntegrityError):

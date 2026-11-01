@@ -1,27 +1,35 @@
-"""Helpers for the account and session tests: an app on the app role, users, sessions, cookies."""
+"""Helpers and fixtures of the account and session tests: an app on the app role, users,
+sessions, cookies.
 
-from collections.abc import AsyncIterator
+The fixtures (``auth_schema``, ``clean_auth``, ``env``, ``smtp``, ``menv``) live here, not in
+``conftest.py``: a test module imports the ones it uses (``# noqa: F401 - fixtures``), as the jobs
+tests do with ``jobapi``. Every account and address is synthetic.
+"""
+
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
 import httpx
+import pytest
 from fastapi import FastAPI
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ownvitals import auth
+from ownvitals.auth.accounts import create_user
+from ownvitals.auth.cookies import SESSION_COOKIE
+from ownvitals.auth.sessions import IssuedSession, start_session
+from ownvitals.auth.tables import TABLE_NAMES
 from ownvitals.config import Settings
 from ownvitals.db import system_session
 from ownvitals.web import create_app
+from smtpfake import SmtpFake
 
 ORIGIN = "https://ownvitals.test"
 APP_SECRET = "test-app-secret-key-0123456789abcdef0123456789abcdef"
 ADMIN_EMAIL = "Owner@Example.com"
-# A fixed, public test KEK (ADR 0004 section 2), built at run time; never a real key. The autouse
-# ``kek_dir`` fixture (conftest) writes it as ``connection_kek``.
-TEST_KEK = bytes(range(32))
 
 
 def make_settings(database_url: str, **overrides: object) -> Settings:
@@ -50,13 +58,13 @@ class Env:
 
     async def user(self, email: str = "user@example.com", **kwargs: object) -> UUID:
         async with self.db() as db:
-            return await auth.create_user(db, email, **kwargs)  # pyright: ignore[reportArgumentType]
+            return await create_user(db, email, **kwargs)  # pyright: ignore[reportArgumentType]
 
     async def login(
         self, user_id: UUID, *, mfa: bool = False, ip: str = "203.0.113.5"
-    ) -> auth.IssuedSession:
+    ) -> IssuedSession:
         async with self.db() as db:
-            return await auth.start_session(
+            return await start_session(
                 db, self.settings, user_id, user_agent="pytest", ip=ip, mfa=mfa
             )
 
@@ -74,7 +82,7 @@ class Env:
 
 
 def session_cookie(token: str) -> dict[str, str]:
-    return {"Cookie": f"{auth.SESSION_COOKIE}={token}"}
+    return {"Cookie": f"{SESSION_COOKIE}={token}"}
 
 
 def unsafe_headers(token: str | None = None, csrf: str | None = None) -> dict[str, str]:
@@ -99,3 +107,53 @@ async def running_env(database_url: str, **overrides: object) -> AsyncIterator[E
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url=ORIGIN) as client:
             yield Env(app, client, settings)
+
+
+def truncate_auth(admin_url: str) -> None:
+    """Empty every account table (and so, by cascade, every job of a user), as the superuser."""
+    engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            connection.execute(text(f"TRUNCATE {', '.join(TABLE_NAMES)} CASCADE"))
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture(name="auth_schema", scope="module")
+def auth_schema_fixture(role_urls: Any) -> Iterator[None]:
+    """The migrated schema (every revision) for the tests of one module."""
+    from dbtools import migrated
+
+    with migrated(role_urls.owner):
+        yield
+
+
+@pytest.fixture(name="clean_auth")
+def clean_auth_fixture(auth_schema: None, database_url: str) -> None:
+    """The migrated schema with every account table empty."""
+    truncate_auth(database_url)
+
+
+@pytest.fixture(name="env")
+async def env_fixture(clean_auth: None, app_database_url: str) -> AsyncIterator[Env]:
+    """A running app on the app role over an empty, migrated database."""
+    async with running_env(app_database_url) as running:
+        yield running
+
+
+@pytest.fixture(name="smtp")
+async def smtp_fixture() -> AsyncIterator[SmtpFake]:
+    """An in-process SMTP server on loopback that keeps every message."""
+    async with SmtpFake() as fake:
+        yield fake
+
+
+@pytest.fixture(name="menv")
+async def menv_fixture(
+    clean_auth: None, app_database_url: str, smtp: SmtpFake
+) -> AsyncIterator[Env]:
+    """A running app whose mail goes to the SMTP fake."""
+    async with running_env(
+        app_database_url, smtp_host="127.0.0.1", smtp_port=smtp.port, smtp_tls="none"
+    ) as running:
+        yield running

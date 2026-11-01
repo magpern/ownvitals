@@ -6,10 +6,11 @@ from typing import Any
 
 import pytest
 
+from oauthtools import fake_fixture  # noqa: F401 - fixtures
+from oidcfake import DROP, GOOGLE_JWKS, FakeProviders
 from ownvitals.auth.oauth_idtoken import IdTokenError, Jwks, JwksCache, verify_id_token
 from ownvitals.auth.oauth_providers import Provider, enabled_providers
 from ownvitals.config import Settings
-from oidcfake import DROP, GOOGLE_JWKS, MICROSOFT_JWKS, TENANT, FakeProviders
 
 NONCE = "the-nonce"
 URL = "https://x/auth?client_id={cid}&nonce=" + NONCE
@@ -43,7 +44,7 @@ def token(fake: FakeProviders, provider: Provider, **kwargs: Any) -> str:
     sign_args = {k: kwargs.pop(k) for k in ("alg", "key", "kid") if k in kwargs}
     url = URL.format(cid=provider.client_id)
     kwargs.setdefault("nonce", NONCE)
-    return fake.sign(fake.claims_for(provider.name, url, **kwargs), **sign_args)
+    return fake.sign(fake.claims_for(url, **kwargs), **sign_args)
 
 
 async def test_a_good_google_token_is_accepted(fake: FakeProviders, providers) -> None:
@@ -51,19 +52,12 @@ async def test_a_good_google_token_is_accepted(fake: FakeProviders, providers) -
     assert (claims.subject, claims.email, claims.email_verified) == ("sub-1", "g@example.com", True)
 
 
-async def test_microsoft_subject_is_tid_slash_oid_and_the_email_is_never_verified(
-    fake: FakeProviders, providers
-) -> None:
-    claims = await verify(fake, providers["microsoft"], token(fake, providers["microsoft"]))
-    assert claims.subject == f"{TENANT}/oid-1"
-    assert claims.email_verified is False
-
-
 @pytest.mark.parametrize(
     ("name", "override"),
     [
         ("aud", {"aud": "someone-else"}),
         ("iss", {"iss": "https://evil.example"}),
+        ("iss of another provider", {"iss": "https://login.microsoftonline.com/t/v2.0"}),
         ("nonce", {"nonce": "other"}),
         ("nonce missing", {"nonce": DROP}),
         ("expired", {"exp": int(time.time()) - 3600}),
@@ -75,14 +69,6 @@ async def test_microsoft_subject_is_tid_slash_oid_and_the_email_is_never_verifie
 async def test_bad_claims_are_refused(fake: FakeProviders, providers, name: str, override) -> None:
     with pytest.raises(IdTokenError):
         await verify(fake, providers["google"], token(fake, providers["google"], **override))
-
-
-async def test_microsoft_issuer_must_match_the_tokens_own_tenant(fake, providers) -> None:
-    other = {"iss": "https://login.microsoftonline.com/another-tenant/v2.0"}
-    with pytest.raises(IdTokenError, match="tenant"):
-        await verify(fake, providers["microsoft"], token(fake, providers["microsoft"], **other))
-    with pytest.raises(IdTokenError, match="tid"):
-        await verify(fake, providers["microsoft"], token(fake, providers["microsoft"], oid=DROP))
 
 
 @pytest.mark.parametrize("alg", ["none", "HS256"])
@@ -150,9 +136,11 @@ async def test_jwks_is_refetched_on_an_unknown_kid_at_most_once_a_minute(
     assert fake.jwks_fetches == 3
 
 
-def test_the_jwks_urls_are_the_providers_own() -> None:
+def test_google_is_the_only_provider_and_its_jwks_url_is_googles_own(providers) -> None:
+    """#10 drops GitHub and Microsoft: Google is the one sign-in provider."""
+    assert list(providers) == ["google"]
+    assert providers["google"].jwks_url == GOOGLE_JWKS
     assert GOOGLE_JWKS.startswith("https://www.googleapis.com/")
-    assert MICROSOFT_JWKS.startswith("https://login.microsoftonline.com/")
 
 
 # --- review of #53: concurrency, key lifetime, azp --------------------------------------------
@@ -350,8 +338,8 @@ async def test_the_fetch_sends_the_header_through_to_the_cache_lifetime(
     fake: FakeProviders, providers, header: str | None, lifetime: int
 ) -> None:
     """End to end: a real HTTP response (the fake JWKS endpoint) -> _fetch_jwks_with -> cache."""
-    from ownvitals.auth.oauth_client import _fetch_jwks_with
     from oidcfake import GOOGLE_JWKS
+    from ownvitals.auth.oauth_client import _fetch_jwks_with
 
     fake.jwks_cache_control = header
     now = [1000.0]
@@ -374,8 +362,8 @@ async def test_the_fetch_sends_the_header_through_to_the_cache_lifetime(
 async def test_the_fetch_returns_the_document_and_refuses_an_error_status(
     fake: FakeProviders,
 ) -> None:
-    from ownvitals.auth.oauth_client import _fetch_jwks_with
     from oidcfake import GOOGLE_JWKS
+    from ownvitals.auth.oauth_client import _fetch_jwks_with
 
     fake.jwks_cache_control = "max-age=77"
     jwks = await _fetch_jwks_with(fake.transport, GOOGLE_JWKS)

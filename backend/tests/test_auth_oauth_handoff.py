@@ -1,26 +1,29 @@
-"""The hand-off for an unverified or missing provider email (ADR 0003 section 5)."""
+"""The hand-off for an unverified or missing Google email (ADR 0003 section 5). Classbeat's
+Microsoft and GitHub cases became Google ones in #10: Google with ``email_verified`` false or no
+``email`` is the hand-off case now."""
 
 import asyncio
 from typing import Any
 
 import pytest
 
-from authtools import Env
-from ownvitals.auth.cookies import PENDING_COOKIE
+from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture, smtp_fixture  # noqa: F401 - fixtures
 from flows import Browser, reason
-from oauthtools import location, make_invite, sign_in_with
-from oidcfake import DROP, TENANT, FakeProviders
+from oauthtools import fake_fixture, location, make_invite, oenv_fixture, sign_in_with  # noqa: F401 - fixtures
+from oidcfake import DROP, FakeProviders
+from ownvitals.auth.cookies import PENDING_COOKIE
 from smtpfake import SmtpFake
 
-SUBJECT = f"{TENANT}/oid-1"
+SUBJECT = "sub-1"
 NEEDS_EMAIL = "/signin?oauth=email_needed"
 
 
 async def hand_off(env: Env, fake: FakeProviders, browser: Browser | None = None, **kwargs: Any):
     browser = browser or Browser(env)
     invite = kwargs.pop("invite", None) or await make_invite(env)
-    provider = kwargs.pop("provider", "microsoft")
-    response = await sign_in_with(browser, fake, provider, invite=invite, **kwargs)
+    if "email" not in kwargs:
+        kwargs.setdefault("email_verified", False)
+    response = await sign_in_with(browser, fake, "google", invite=invite, **kwargs)
     return browser, response
 
 
@@ -28,13 +31,13 @@ async def submit(browser: Browser, email: str, **extra: Any):
     return await browser.post("/api/auth/oauth/pending/email", {"email": email, **extra})
 
 
-async def test_microsoft_creates_a_server_side_row_bound_to_the_browser(
+async def test_an_unverified_email_creates_a_server_side_row_bound_to_the_browser(
     oenv: Env, fake: FakeProviders
 ) -> None:
     browser, response = await hand_off(oenv, fake)
     assert location(response) == NEEDS_EMAIL
     assert await oenv.scalar("SELECT count(*) FROM users") == 0
-    assert await oenv.scalar("SELECT provider FROM pending_signups") == "microsoft"
+    assert await oenv.scalar("SELECT provider FROM pending_signups") == "google"
     assert await oenv.scalar("SELECT subject FROM pending_signups") == SUBJECT
     assert await oenv.scalar("SELECT invite_id IS NOT NULL FROM pending_signups") is True
     assert await oenv.scalar("SELECT email IS NULL AND token_hash IS NULL FROM pending_signups")
@@ -44,30 +47,23 @@ async def test_microsoft_creates_a_server_side_row_bound_to_the_browser(
     cookie = browser.cookies[PENDING_COOKIE]
     assert await oenv.scalar("SELECT browser_hash FROM pending_signups") != cookie.encode()
     state = (await browser.get("/api/auth/oauth/pending")).json()
-    assert state == {"pending": True, "provider": "microsoft", "awaiting_email": True}
+    assert state == {"pending": True, "provider": "google", "awaiting_email": True}
     assert (await Browser(oenv).get("/api/auth/oauth/pending")).json()["pending"] is False
 
 
 @pytest.mark.parametrize(
-    ("provider", "options"),
+    "options",
     [
-        ("google", {"email_verified": False}),
-        ("google", {"email": DROP}),
-        (
-            "github",
-            {"github_emails": [{"email": "u@example.com", "primary": True, "verified": False}]},
-        ),
-        ("github", {"github_emails": []}),
-        (
-            "github",
-            {"github_emails": [{"email": "u@example.com", "primary": False, "verified": True}]},
-        ),
+        {"email_verified": False},
+        {"email_verified": DROP},
+        {"email": DROP},
+        {"email": DROP, "email_verified": True},
     ],
 )
 async def test_an_unverified_or_missing_provider_email_hands_off_too(
-    oenv: Env, fake: FakeProviders, provider: str, options: dict[str, Any]
+    oenv: Env, fake: FakeProviders, options: dict[str, Any]
 ) -> None:
-    browser, response = await hand_off(oenv, fake, provider=provider, **options)
+    browser, response = await hand_off(oenv, fake, **options)
     assert location(response) == NEEDS_EMAIL
     assert await oenv.scalar("SELECT count(*) FROM users") == 0
     assert await oenv.scalar("SELECT count(*) FROM identities") == 0
@@ -76,23 +72,24 @@ async def test_an_unverified_or_missing_provider_email_hands_off_too(
 
 async def test_the_hand_off_still_needs_an_invite(oenv: Env, fake: FakeProviders) -> None:
     browser = Browser(oenv)
-    response = await sign_in_with(browser, fake, "microsoft")
+    response = await sign_in_with(browser, fake, "google", email_verified=False)
     assert location(response) == "/signin?oauth=invite_required"
     assert await oenv.scalar("SELECT count(*) FROM pending_signups") == 0
     assert PENDING_COOKIE not in browser.cookies
 
 
-async def test_an_existing_microsoft_identity_signs_in_instead(
+async def test_an_existing_identity_with_an_unverified_email_signs_in_instead(
     oenv: Env, fake: FakeProviders
 ) -> None:
     user = await oenv.user("me@example.com")
     await oenv.run(
-        "INSERT INTO identities (user_id, provider, subject) VALUES (:u, 'microsoft', :s)",
+        "INSERT INTO identities (user_id, provider, subject) VALUES (:u, 'google', :s)",
         u=user,
         s=SUBJECT,
     )
     browser = Browser(oenv)
-    assert location(await sign_in_with(browser, fake, "microsoft")) == "/"
+    response = await sign_in_with(browser, fake, "google", email_verified=False)
+    assert location(response) == "/"
     assert browser.signed_in
     assert await oenv.scalar("SELECT count(*) FROM pending_signups") == 0
 
@@ -100,10 +97,10 @@ async def test_an_existing_microsoft_identity_signs_in_instead(
 async def test_a_second_pending_sign_up_in_the_same_browser_replaces_the_first(
     oenv: Env, fake: FakeProviders
 ) -> None:
-    browser, _ = await hand_off(oenv, fake, oid="first")
-    await hand_off(oenv, fake, browser, oid="second")
+    browser, _ = await hand_off(oenv, fake, sub="first")
+    await hand_off(oenv, fake, browser, sub="second")
     assert await oenv.scalar("SELECT count(*) FROM pending_signups") == 1
-    assert await oenv.scalar("SELECT subject FROM pending_signups") == f"{TENANT}/second"
+    assert await oenv.scalar("SELECT subject FROM pending_signups") == "second"
 
 
 async def test_the_email_form_ignores_provider_subject_and_invite_from_the_client(
@@ -112,7 +109,7 @@ async def test_the_email_form_ignores_provider_subject_and_invite_from_the_clien
     browser, _ = await hand_off(oenv, fake)
     other_invite = await make_invite(oenv)
     forged = {
-        "provider": "google",
+        "provider": "github",
         "subject": "victims-subject",
         "invite_code": other_invite,
         "invite_id": "00000000-0000-0000-0000-000000000000",
@@ -120,14 +117,14 @@ async def test_the_email_form_ignores_provider_subject_and_invite_from_the_clien
     }
     response = await submit(browser, "new@example.com", **forged)
     assert (response.status_code, response.json()) == (202, {"status": "check_your_inbox"})
-    assert await oenv.scalar("SELECT provider FROM pending_signups") == "microsoft"
+    assert await oenv.scalar("SELECT provider FROM pending_signups") == "google"
     assert await oenv.scalar("SELECT subject FROM pending_signups") == SUBJECT
     await asyncio.sleep(0.3)
     [mail] = smtp.to("new@example.com")
     assert (
         await browser.post("/api/auth/signup/confirm", {"token": mail.token(), **forged})
     ).status_code == 200
-    assert await oenv.scalar("SELECT provider FROM identities") == "microsoft"
+    assert await oenv.scalar("SELECT provider FROM identities") == "google"
     assert await oenv.scalar("SELECT subject FROM identities") == SUBJECT
     assert await oenv.scalar("SELECT email FROM users") == "new@example.com"
     # The invite of the row was consumed, the one the client sent was not.
@@ -220,7 +217,7 @@ async def test_an_identity_linked_elsewhere_in_the_meantime_creates_nothing(
     token = smtp.to("new@example.com")[0].token()
     other = await oenv.user("other@example.com")
     await oenv.run(
-        "INSERT INTO identities (user_id, provider, subject) VALUES (:u, 'microsoft', :s)",
+        "INSERT INTO identities (user_id, provider, subject) VALUES (:u, 'google', :s)",
         u=other,
         s=SUBJECT,
     )

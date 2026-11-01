@@ -8,9 +8,17 @@ from uuid import UUID
 import httpx
 import pytest
 
-from authtools import ORIGIN, Env, session_cookie
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    ORIGIN,
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+    session_cookie,
+)
 from ownvitals.auth import totp
+from ownvitals.auth.cookies import SESSION_COOKIE
+from ownvitals.auth.notices import register_security_notifier
 
 T0 = 1_700_000_010  # a fixed instant; step = T0 // 30
 
@@ -27,16 +35,16 @@ class FakeNotifier:
         self.failures.append(user_id)
 
 
-@pytest.fixture
-def notifier() -> Iterator[FakeNotifier]:
+@pytest.fixture(name="notifier")
+def notifier_fixture() -> Iterator[FakeNotifier]:
     fake = FakeNotifier()
-    auth.register_security_notifier(fake)
+    register_security_notifier(fake)
     yield fake
-    auth.register_security_notifier(None)
+    register_security_notifier(None)
 
 
-@pytest.fixture
-def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+@pytest.fixture(name="clock")
+def clock_fixture(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """The TOTP clock; ``clock[0] = ...`` moves it."""
     now = [float(T0)]
     monkeypatch.setattr(totp, "clock", lambda: now[0])
@@ -65,7 +73,7 @@ class Actor:
         response = await self.client.request(method, path, headers=headers, json=json)
         self.client.cookies.clear()
         for cookie in response.headers.get_list("set-cookie"):
-            if cookie.startswith(f"{auth.SESSION_COOKIE}=") and "Max-Age=0" not in cookie:
+            if cookie.startswith(f"{SESSION_COOKIE}=") and "Max-Age=0" not in cookie:
                 self.token = cookie.split(";")[0].split("=", 1)[1]
         return response
 
@@ -90,8 +98,8 @@ class Actor:
         return body["secret"], done.json()["recovery_codes"]
 
 
-@pytest.fixture
-async def make_actor(env: Env) -> AsyncIterator[Any]:
+@pytest.fixture(name="make_actor")
+async def make_actor_fixture(env: Env) -> AsyncIterator[Any]:
     clients: list[httpx.AsyncClient] = []
 
     async def make(user_id: UUID, *, mfa: bool = False) -> Actor:

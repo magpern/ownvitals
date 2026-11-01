@@ -7,12 +7,25 @@ from typing import Any
 
 import pytest
 
-from authtools import Env
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+)
+from mfatools import (  # noqa: F401 - fixtures
+    FakeNotifier,
+    admin_with_totp,
+    clock_fixture,
+    make_actor_fixture,
+    notifier_fixture,
+    step_of,
+)
 from ownvitals.auth import totp
+from ownvitals.auth.notices import register_security_notifier
+from ownvitals.auth.ratelimit import mfa_buckets
 from ownvitals.auth.sessions import SessionGone
 from ownvitals.log import configure_logging
-from mfatools import FakeNotifier, admin_with_totp, step_of
 
 VERIFY = "/api/auth/mfa/verify"
 START = "/api/auth/mfa/totp/start"
@@ -192,12 +205,12 @@ async def test_mfa_is_limited_per_account_across_ips_and_per_ip_across_accounts(
     limiter = env.app.state.limiter
     account = str(uuid.uuid4())
     for n in range(20):
-        attempt = await limiter.begin(auth.mfa_buckets(account, f"203.0.113.{n + 1}"))
+        attempt = await limiter.begin(mfa_buckets(account, f"203.0.113.{n + 1}"))
         assert attempt.allowed
-    assert not (await limiter.begin(auth.mfa_buckets(account, "203.0.113.99"))).allowed
+    assert not (await limiter.begin(mfa_buckets(account, "203.0.113.99"))).allowed
     for _ in range(20):
-        assert (await limiter.begin(auth.mfa_buckets(str(uuid.uuid4()), "198.51.100.7"))).allowed
-    refused = await limiter.begin(auth.mfa_buckets(str(uuid.uuid4()), "198.51.100.7"))
+        assert (await limiter.begin(mfa_buckets(str(uuid.uuid4()), "198.51.100.7"))).allowed
+    refused = await limiter.begin(mfa_buckets(str(uuid.uuid4()), "198.51.100.7"))
     assert not refused.allowed
     assert refused.retry_after > 0
 
@@ -230,7 +243,7 @@ async def test_totp_material_never_reaches_the_logs(
         async def mfa_failures(self, user_id: Any, email: str) -> None:
             raise RuntimeError(f"smtp failure for {email}")
 
-    auth.register_security_notifier(Leaky())
+    register_security_notifier(Leaky())
     try:
         actor = await make_actor(await env.user("planted.address@example.com"))
         body = await start_and_code(actor, clock)
@@ -240,7 +253,7 @@ async def test_totp_material_never_reaches_the_logs(
             await actor.post(VERIFY, {"code": "000000"})
         await actor.post(VERIFY, {"code": codes[0]})
     finally:
-        auth.register_security_notifier(None)
+        register_security_notifier(None)
     out = stream.getvalue()
     assert "request" in out  # the access log ran
     planted = [body["secret"], body["otpauth_uri"], body["pending"], body["code"], *codes]

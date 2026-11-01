@@ -8,9 +8,18 @@ from typing import Any
 
 import pytest
 
-from authtools import ADMIN_EMAIL, Env, make_settings
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    ADMIN_EMAIL,
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+    make_settings,
+)
 from ownvitals.__main__ import main
+from ownvitals.auth.accounts import grant_admin_if_listed
+from ownvitals.auth.devices import remember_device
+from ownvitals.auth.hooks import register_reset_link_sender, send_reset_link
 from ownvitals.cli import add_subcommands, parse_duration, run_command
 
 
@@ -145,12 +154,13 @@ async def test_mfa_reset_removes_totp_and_recovery_codes_revokes_sessions_and_ma
     other = await env.user("other@example.com")
     await env.login(user_id, mfa=True)
     await env.run(
-        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id) "
-        "SELECT id, 'x', 'y', 'app-v1' FROM users"
+        "INSERT INTO mfa_totp (user_id, secret_ciphertext, nonce, key_id, wrapped_dek, "
+        "dek_nonce) SELECT id, 'x', decode(repeat('00', 12), 'hex'), 'kek-1', "
+        "decode(repeat('00', 48), 'hex'), decode(repeat('00', 12), 'hex') FROM users"
     )
     await env.run("INSERT INTO mfa_recovery_codes (user_id, code_hash) SELECT id, 'h' FROM users")
     async with env.db() as db:
-        await auth.remember_device(db, env.app.state.keys, user_id, None)
+        await remember_device(db, env.app.state.keys, user_id, None)
     async with SmtpFake() as smtp:
         settings = make_settings(
             app_database_url, smtp_host="127.0.0.1", smtp_port=smtp.port, smtp_tls="none"
@@ -194,11 +204,11 @@ async def test_send_reset_link_calls_a_registered_sender(env: Env) -> None:
         sent.append((user_id, email))
 
     user_id = await env.user("lost@example.com")
-    auth.register_reset_link_sender(sender)
+    register_reset_link_sender(sender)
     try:
-        assert await auth.send_reset_link(user_id, "lost@example.com") is True
+        assert await send_reset_link(user_id, "lost@example.com") is True
     finally:
-        auth.register_reset_link_sender(None)
+        register_reset_link_sender(None)
     assert sent == [(user_id, "lost@example.com")]
 
 
@@ -208,12 +218,12 @@ async def test_the_admin_emails_bootstrap_grants_at_sign_in(env: Env) -> None:
     settings = make_settings("postgresql+psycopg://x@h/d", admin_emails=ADMIN_EMAIL.upper())
     await env.login(listed)
     async with env.db() as db:
-        assert await auth.grant_admin_if_listed(db, settings, listed) is True
-        assert await auth.grant_admin_if_listed(db, settings, plain) is False
+        assert await grant_admin_if_listed(db, settings, listed) is True
+        assert await grant_admin_if_listed(db, settings, plain) is False
     assert await env.scalar("SELECT role FROM users WHERE id = :u", u=listed) == "admin"
     assert await env.scalar("SELECT count(*) FROM sessions") == 0  # the sign-in makes a new one
     async with env.db() as db:
-        assert await auth.grant_admin_if_listed(db, settings, listed) is False
+        assert await grant_admin_if_listed(db, settings, listed) is False
 
 
 def test_main_runs_a_subcommand_instead_of_the_server(

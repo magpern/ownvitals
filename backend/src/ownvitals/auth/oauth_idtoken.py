@@ -7,8 +7,8 @@ so ``0``, ``no-cache`` and ``no-store`` give a minute; at most 24 h),
 so a key the provider retired stops being accepted; a token naming an unknown ``kid`` triggers
 one refetch, at most once a minute per URL, and concurrent sign-ins share that fetch. Claims:
 ``iss``, ``aud`` (with ``azp`` equal to our client id when ``aud`` has several values), ``exp``,
-``iat`` (60 s leeway) and ``nonce``. Microsoft's issuer must equal ``.../{tid}/v2.0`` for the
-token's own ``tid`` and its subject is ``{tid}/{oid}``; its email is always unverified.
+``iat`` (60 s leeway) and ``nonce``. Google is the only provider (ADR 0003 section 6): the
+identity is ``sub``, and the email counts as verified only when ``email_verified`` says so.
 """
 
 import asyncio
@@ -25,7 +25,7 @@ from joserfc import jwt
 from joserfc.errors import JoseError
 from joserfc.jwk import KeySet
 
-from ownvitals.auth.oauth_providers import MICROSOFT, MICROSOFT_ISSUER, Provider
+from ownvitals.auth.oauth_providers import Provider
 
 LEEWAY = 60  # seconds
 JWKS_REFETCH_INTERVAL = 60.0  # seconds
@@ -141,8 +141,6 @@ async def verify_id_token(
     cache: JwksCache,
     now: float | None = None,
 ) -> IdentityClaims:
-    if provider.jwks_url is None:
-        raise IdTokenError("not an OIDC provider")
     now = time.time() if now is None else now
     header = _header(token)
     if header.get("alg") != ALGORITHM:
@@ -173,16 +171,6 @@ async def verify_id_token(
     raw_auth_time = claims.get("auth_time")
     auth_time = int(_number(raw_auth_time, "auth_time")) if raw_auth_time is not None else None
     issuer, email = claims.get("iss"), _text(claims.get("email"))
-
-    if provider.name == MICROSOFT:
-        tid, oid = _text(claims.get("tid")), _text(claims.get("oid"))
-        if tid is None or oid is None:
-            raise IdTokenError("missing tid or oid")
-        if issuer != MICROSOFT_ISSUER.format(tid=tid):
-            raise IdTokenError("issuer does not match the tenant")
-        # Anyone can create a tenant claiming any address: never verified.
-        return IdentityClaims(f"{tid}/{oid}", email, False, auth_time)
-
     if issuer not in provider.issuers:
         raise IdTokenError("wrong issuer")
     subject = _text(claims.get("sub"))

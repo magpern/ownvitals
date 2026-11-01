@@ -2,7 +2,9 @@
 
 A flow is created at the start and taken exactly once at the callback with
 ``DELETE ... RETURNING``, so a replayed or parallel callback finds nothing. The flow id, like the
-state, is stored only as a SHA-256.
+state, is stored only as a SHA-256. Every flow has its own nonce and PKCE ``code_verifier``
+(RFC 7636, 64 characters), stored with the state and read back only by ``take_flow``; the
+callback sends the verifier with the code exchange (``oauth_client.identify``).
 """
 
 import hmac
@@ -43,7 +45,7 @@ def safe_return_to(value: str | None) -> str | None:
 class NewFlow:
     cookie: str  # the flow id for the __Host-ownvitals_oauth cookie
     state: str
-    nonce: str | None
+    nonce: str
     verifier: str
 
 
@@ -52,7 +54,7 @@ class Flow:
     provider: str
     purpose: str
     state_hash: bytes
-    nonce: str | None
+    nonce: str
     verifier: str
     user_id: UUID | None
     invite_id: UUID | None
@@ -67,7 +69,6 @@ async def create_flow(
     *,
     provider: str,
     purpose: str,
-    oidc: bool,
     user_id: UUID | None,
     invite_id: UUID | None,
     return_to: str | None,
@@ -75,7 +76,7 @@ async def create_flow(
     flow = NewFlow(
         cookie=new_token(),
         state=new_token(),
-        nonce=new_token() if oidc else None,
+        nonce=new_token(),
         verifier=secrets.token_urlsafe(48),  # 64 characters: within RFC 7636's 43 to 128
     )
     await db.execute(

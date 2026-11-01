@@ -6,8 +6,20 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi import Depends
 
-from authtools import ADMIN_EMAIL, Env, session_cookie, set_cookies, unsafe_headers
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    ADMIN_EMAIL,
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+    session_cookie,
+    set_cookies,
+    unsafe_headers,
+)
+from ownvitals.auth.cookies import SESSION_COOKIE, set_device_cookie, set_session_cookie
+from ownvitals.auth.deps import require_admin, require_recent_auth, require_stepup, require_user
+from ownvitals.auth.keys import token_hash
+from ownvitals.auth.sessions import SessionGone, resolve_session, rotate_session, start_session
 from ownvitals.context import UserContext
 
 
@@ -15,7 +27,7 @@ from ownvitals.context import UserContext
 def whoami(env: Env) -> None:
     @env.app.get("/api/test/whoami")
     async def whoami(  # pyright: ignore[reportUnusedFunction]
-        ctx: UserContext = Depends(auth.require_user),  # noqa: B008
+        ctx: UserContext = Depends(require_user),  # noqa: B008
     ) -> dict[str, str]:
         return {"user_id": str(ctx.user_id), "role": ctx.role}
 
@@ -43,7 +55,7 @@ async def test_an_unknown_token_is_anonymous_and_never_clears_the_cookie(
     assert set_cookies(response) == []
     session = await env.client.get("/api/auth/session", headers=session_cookie("never-issued"))
     assert session.json()["authenticated"] is False
-    assert not any(auth.SESSION_COOKIE in c for c in set_cookies(session))
+    assert not any(SESSION_COOKIE in c for c in set_cookies(session))
 
 
 async def test_idle_expiry_refuses_deletes_and_clears_the_cookie(env: Env, whoami: None) -> None:
@@ -51,7 +63,7 @@ async def test_idle_expiry_refuses_deletes_and_clears_the_cookie(env: Env, whoam
     await env.run("UPDATE sessions SET last_seen_at = now() - make_interval(days => :days)", days=8)
     response = await env.client.get("/api/test/whoami", headers=session_cookie(issued.token))
     assert response.status_code == 401
-    cleared = [c for c in set_cookies(response) if c.startswith(auth.SESSION_COOKIE)]
+    cleared = [c for c in set_cookies(response) if c.startswith(SESSION_COOKIE)]
     assert cleared
     assert "Max-Age=0" in cleared[0]
     assert await env.scalar("SELECT count(*) FROM sessions") == 0
@@ -78,7 +90,7 @@ async def test_absolute_expiry_refuses_even_an_active_session(env: Env, whoami: 
     await env.run("UPDATE sessions SET expires_at = now() - interval '1 second'")
     response = await env.client.get("/api/test/whoami", headers=session_cookie(issued.token))
     assert response.status_code == 401
-    assert any(c.startswith(auth.SESSION_COOKIE) for c in set_cookies(response))
+    assert any(c.startswith(SESSION_COOKIE) for c in set_cookies(response))
     assert await env.scalar("SELECT count(*) FROM sessions") == 0
 
 
@@ -88,14 +100,14 @@ async def test_a_disabled_user_is_refused(env: Env, whoami: None) -> None:
     await env.run("UPDATE users SET disabled_at = now()")
     response = await env.client.get("/api/test/whoami", headers=session_cookie(issued.token))
     assert response.status_code == 401
-    assert any(c.startswith(auth.SESSION_COOKIE) for c in set_cookies(response))
+    assert any(c.startswith(SESSION_COOKIE) for c in set_cookies(response))
 
 
 async def test_the_session_has_the_limits_and_the_cookie_lifetime_of_the_adr(env: Env) -> None:
     issued = await env.login(await env.user())
     assert abs(issued.max_age - 30 * 24 * 3600) < 5
     async with env.db() as db:
-        issued2 = await auth.start_session(
+        issued2 = await start_session(
             db, env.settings, await env.user("b@example.com"), user_agent="x" * 500, ip=None
         )
     assert issued2.token != issued.token
@@ -106,7 +118,7 @@ async def test_the_session_has_the_limits_and_the_cookie_lifetime_of_the_adr(env
 async def test_only_the_hash_of_the_token_is_stored(env: Env) -> None:
     issued = await env.login(await env.user())
     stored = await env.scalar("SELECT token_hash FROM sessions")
-    assert stored == auth.token_hash(issued.token)
+    assert stored == token_hash(issued.token)
     assert issued.token.encode() not in bytes(stored)  # pyright: ignore[reportArgumentType]
 
 
@@ -115,14 +127,14 @@ async def test_cookie_attributes(env: Env) -> None:
 
     issued = await env.login(await env.user())
     response = Response()
-    auth.set_session_cookie(response, issued)
+    set_session_cookie(response, issued)
     header = response.headers["set-cookie"]
-    assert header.startswith(f"{auth.SESSION_COOKIE}={issued.token}")
+    assert header.startswith(f"{SESSION_COOKIE}={issued.token}")
     for attribute in ("HttpOnly", "Secure", "SameSite=lax", "Path=/", f"Max-Age={issued.max_age}"):
         assert attribute in header
     assert "Domain" not in header
     device = Response()
-    auth.set_device_cookie(device, "d")
+    set_device_cookie(device, "d")
     assert "HttpOnly" in device.headers["set-cookie"]
     assert f"Max-Age={365 * 24 * 3600}" in device.headers["set-cookie"]
     anon = (await env.client.get("/api/auth/session")).headers["set-cookie"]
@@ -135,14 +147,14 @@ async def test_cookie_attributes(env: Env) -> None:
 async def test_rotation_issues_a_new_token_and_keeps_expires_at(env: Env, whoami: None) -> None:
     user_id = await env.user()
     old = await env.login(user_id)
-    resolution = await auth.resolve_session(env.factory, env.settings, old.token)
+    resolution = await resolve_session(env.factory, env.settings, old.token)
     assert resolution.info is not None
     await env.run("UPDATE sessions SET expires_at = expires_at - interval '10 days'")
     expires = await env.scalar("SELECT expires_at FROM sessions")
     async with env.db() as db:
-        info = (await auth.resolve_session(env.factory, env.settings, old.token)).info
+        info = (await resolve_session(env.factory, env.settings, old.token)).info
         assert info is not None
-        new = await auth.rotate_session(db, info, mfa=True)
+        new = await rotate_session(db, info, mfa=True)
     assert new.token != old.token
     assert new.expires_at == expires  # never extended past the original 30 days
     assert await env.scalar("SELECT count(*) FROM sessions") == 1
@@ -160,9 +172,9 @@ async def test_rotation_carries_over_reauth_and_mfa_unless_it_sets_them(env: Env
     await env.run("UPDATE sessions SET reauth_at = now() - interval '1 hour'")
     before = await env.scalar("SELECT reauth_at FROM sessions")
     async with env.db() as db:
-        info = (await auth.resolve_session(env.factory, env.settings, old.token)).info
+        info = (await resolve_session(env.factory, env.settings, old.token)).info
         assert info is not None
-        await auth.rotate_session(db, info, stepup=True)
+        await rotate_session(db, info, stepup=True)
     assert await env.scalar("SELECT reauth_at FROM sessions") == before
     assert await env.scalar("SELECT mfa_at IS NOT NULL FROM sessions") is True
     assert await env.scalar("SELECT stepup_at IS NOT NULL FROM sessions") is True
@@ -170,14 +182,14 @@ async def test_rotation_carries_over_reauth_and_mfa_unless_it_sets_them(env: Env
 
 async def test_two_parallel_rotations_leave_exactly_one_session(env: Env) -> None:
     old = await env.login(await env.user())
-    info = (await auth.resolve_session(env.factory, env.settings, old.token)).info
+    info = (await resolve_session(env.factory, env.settings, old.token)).info
     assert info is not None
 
     async def rotate() -> bool:
         try:
             async with env.db() as db:
-                await auth.rotate_session(db, info)
-        except auth.SessionGone:
+                await rotate_session(db, info)
+        except SessionGone:
             return False
         return True
 
@@ -194,7 +206,7 @@ async def test_sign_in_replaces_the_browsers_old_session(env: Env) -> None:
     await env.run("UPDATE sessions SET expires_at = expires_at - interval '20 days'")
     kept = await env.scalar("SELECT expires_at FROM sessions")
     async with env.db() as db:
-        second = await auth.start_session(
+        second = await start_session(
             db, env.settings, user_id, user_agent="b", ip=None, replacing_token=first.token
         )
     assert second.expires_at == kept
@@ -202,7 +214,7 @@ async def test_sign_in_replaces_the_browsers_old_session(env: Env) -> None:
     # Another user signing in on the same browser starts clean, and the old session is gone.
     other = await env.user("other@example.com")
     async with env.db() as db:
-        third = await auth.start_session(
+        third = await start_session(
             db, env.settings, other, user_agent="b", ip=None, replacing_token=second.token
         )
     assert third.expires_at > kept  # type: ignore[operator]
@@ -285,7 +297,7 @@ async def test_an_admin_is_admin_only_after_totp_within_12_hours(env: Env) -> No
 
     @env.app.get("/api/test/admin")
     async def admin_only(  # pyright: ignore[reportUnusedFunction]
-        ctx: UserContext = Depends(auth.require_admin),  # noqa: B008
+        ctx: UserContext = Depends(require_admin),  # noqa: B008
     ) -> dict[str, str]:
         return {"role": ctx.role}
 
@@ -308,13 +320,13 @@ async def test_an_admin_is_admin_only_after_totp_within_12_hours(env: Env) -> No
 async def test_recent_auth_and_stepup_have_machine_readable_reasons(env: Env) -> None:
     @env.app.get("/api/test/recent")
     async def recent(  # pyright: ignore[reportUnusedFunction]
-        ctx: UserContext = Depends(auth.require_recent_auth),  # noqa: B008
+        ctx: UserContext = Depends(require_recent_auth),  # noqa: B008
     ) -> dict[str, bool]:
         return {"ok": ctx is not None}
 
     @env.app.get("/api/test/stepup")
     async def stepup(  # pyright: ignore[reportUnusedFunction]
-        ctx: UserContext = Depends(auth.require_stepup),  # noqa: B008
+        ctx: UserContext = Depends(require_stepup),  # noqa: B008
     ) -> dict[str, bool]:
         return {"ok": ctx is not None}
 
@@ -358,7 +370,7 @@ async def test_sign_in_inherits_nothing_from_an_old_session_that_is_no_longer_va
         await env.run("UPDATE sessions SET stepup_at = now()")
         await env.run(breakage)
         async with env.db() as db:
-            new = await auth.start_session(
+            new = await start_session(
                 db, env.settings, user_id, user_agent="b", ip=None, replacing_token=old.token
             )
         assert abs(new.max_age - 30 * 24 * 3600) < 5, name  # a fresh 30 days

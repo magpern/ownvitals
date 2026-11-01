@@ -7,22 +7,29 @@ from typing import Any
 import httpx
 import pytest
 
-from authtools import Env, running_env
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+    running_env,
+    smtp_fixture,
+)
 from flows import Browser
 from oidcfake import FakeProviders
+from ownvitals.auth.accounts import create_invite
 from smtpfake import SmtpFake
 
-CLIENT_IDS = {"google": "google-client", "github": "github-client", "microsoft": "ms-client"}
+CLIENT_IDS = {"google": "google-client"}
 
 
-@pytest.fixture
-def fake() -> FakeProviders:
+@pytest.fixture(name="fake")
+def fake_fixture() -> FakeProviders:
     return FakeProviders(CLIENT_IDS)
 
 
-@pytest.fixture
-async def oenv(
+@pytest.fixture(name="oenv")
+async def oenv_fixture(
     clean_auth: None, app_database_url: str, smtp: SmtpFake, fake: FakeProviders
 ) -> AsyncIterator[Env]:
     """A running app with all three providers on, talking to the fake and the SMTP fake."""
@@ -42,7 +49,7 @@ async def oenv(
 
 async def make_invite(env: Env) -> str:
     async with env.db() as db:
-        return await auth.create_invite(db, timedelta(days=1))
+        return await create_invite(db, timedelta(days=1))
 
 
 async def start(

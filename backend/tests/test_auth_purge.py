@@ -2,8 +2,14 @@
 
 import asyncio
 
-from authtools import Env
-from ownvitals import auth
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    env_fixture,
+)
+from jobtools import admin_url, install_queue, uninstall_queue
+from ownvitals.auth.purge import purge_expired
 from ownvitals.worker.loop import run_worker
 
 
@@ -28,9 +34,11 @@ async def seed(env: Env) -> None:
         "INSERT INTO auth_tokens (purpose, token_hash, user_id, expires_at) "
         "SELECT 'change_email', 'l', id, now() + interval '1 hour' FROM users",
         "INSERT INTO oauth_flows (flow_hash, provider, purpose, state_hash, pkce_verifier, "
-        "expires_at) VALUES ('f1', 'google', 'sign_in', 's', 'v', now() - interval '1 minute')",
+        "nonce, expires_at) VALUES ('f1', 'google', 'sign_in', 's', repeat('v', 64), 'n', "
+        "now() - interval '1 minute')",
         "INSERT INTO oauth_flows (flow_hash, provider, purpose, state_hash, pkce_verifier, "
-        "expires_at) VALUES ('f2', 'google', 'sign_in', 's', 'v', now() + interval '5 minutes')",
+        "nonce, expires_at) VALUES ('f2', 'google', 'sign_in', 's', repeat('v', 64), 'n', "
+        "now() + interval '5 minutes')",
         "INSERT INTO rate_limits VALUES ('old', now() - interval '3 hours', 1)",
         "INSERT INTO rate_limits VALUES ('new', now(), 1)",
         "INSERT INTO invites (code_hash, expires_at, used_at) "
@@ -61,7 +69,7 @@ async def remaining(env: Env, column: str, table: str) -> set[str]:
 
 async def test_purge_deletes_what_is_expired_or_used_and_keeps_the_rest(env: Env) -> None:
     await seed(env)
-    counts = await auth.purge_expired(env.factory, env.settings)
+    counts = await purge_expired(env.factory, env.settings)
     assert counts == {
         "sessions": 2,
         "pending_signups": 1,
@@ -72,7 +80,6 @@ async def test_purge_deletes_what_is_expired_or_used_and_keeps_the_rest(env: Env
         "known_devices": 1,
         "auth_events": 1,
         "sessions_ip_cleared": 1,
-        "spotify_oauth_flows": 0,  # planted in test_spotify_forget.py
     }
     assert await env.scalar("SELECT count(*) FROM sessions") == 1
     assert await env.scalar("SELECT ip FROM sessions") is None  # cleared after 30 days
@@ -88,8 +95,8 @@ async def test_purge_deletes_what_is_expired_or_used_and_keeps_the_rest(env: Env
 
 async def test_purge_twice_is_a_no_op(env: Env) -> None:
     await seed(env)
-    await auth.purge_expired(env.factory, env.settings)
-    again = await auth.purge_expired(env.factory, env.settings)
+    await purge_expired(env.factory, env.settings)
+    again = await purge_expired(env.factory, env.settings)
     assert set(again.values()) == {0}
 
 
@@ -102,6 +109,7 @@ async def test_the_worker_runs_the_purge_on_its_interval(env: Env) -> None:
         purge_interval_seconds=0.05,
         worker_poll_seconds=0.05,
     )
+    install_queue(admin_url())  # the worker checks the queue before it runs (ADR 0005)
     stop = asyncio.Event()
     task = asyncio.create_task(run_worker(settings, stop))
     try:
@@ -112,6 +120,7 @@ async def test_the_worker_runs_the_purge_on_its_interval(env: Env) -> None:
     finally:
         stop.set()
         await asyncio.wait_for(task, timeout=5)
+        uninstall_queue(admin_url())
     assert await env.scalar("SELECT count(*) FROM sessions") == 1
     assert await env.scalar("SELECT count(*) FROM auth_events") == 1
 
