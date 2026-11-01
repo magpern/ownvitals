@@ -123,7 +123,7 @@ async def test_a_token_without_the_cookie_is_refused(env: Env, write_route: None
 async def test_a_session_requires_its_own_hmac_token_not_the_cookie_value(
     env: Env, write_route: None
 ) -> None:
-    issued = await env.login(await env.user())
+    issued = await env.full_login(await env.user())
     state = (await env.client.get("/api/auth/session", headers=session_cookie(issued.token))).json()
     token = state["csrf_token"]
     assert token == auth_token(env, issued.id)
@@ -137,7 +137,7 @@ async def test_a_session_requires_its_own_hmac_token_not_the_cookie_value(
 
 
 async def test_rotation_changes_the_session_token(env: Env, write_route: None) -> None:
-    issued = await env.login(await env.user())
+    issued = await env.full_login(await env.user())
     old = auth_token(env, issued.id)
     async with env.db() as db:
         info = (await resolve_session(env.factory, env.settings, issued.token)).info

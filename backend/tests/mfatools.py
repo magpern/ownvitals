@@ -103,7 +103,9 @@ async def make_actor_fixture(env: Env) -> AsyncIterator[Any]:
     clients: list[httpx.AsyncClient] = []
 
     async def make(user_id: UUID, *, mfa: bool = False) -> Actor:
-        issued = await env.login(user_id, mfa=mfa)
+        """``mfa``: a full session (#11: the user gets a TOTP through ``Env.enrol`` if it has
+        none); without it, a session that has not passed its second factor."""
+        issued = await (env.full_login(user_id) if mfa else env.login(user_id))
         client = httpx.AsyncClient(transport=httpx.ASGITransport(app=env.app), base_url=ORIGIN)
         clients.append(client)
         return Actor(env, issued.token, client)

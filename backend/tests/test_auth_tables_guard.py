@@ -58,6 +58,8 @@ ALLOWED = [
     "from ownvitals.auth.setup import attach_state, detach_state, install",
     "from ownvitals.auth.setup import install as install_auth",
     "from ownvitals.auth.deps import Probe, require_user, session_probe",
+    # the step-up dependencies (#11), for #12 and #13
+    "from ownvitals.auth.deps import require_admin_stepup, require_sensitive, require_stepup",
     "from ownvitals.auth.owners import ACCOUNTS",
     "from ownvitals.auth.purge import purge_expired",
     "from ownvitals.auth.operator import AccountError, create_invite, mfa_reset",
@@ -70,6 +72,7 @@ REFUSED = {
     "submodule import": "from ownvitals.auth.sessions import SessionInfo",
     "entry point module, other name": "from ownvitals.auth.purge import sessions",
     "entry point module, unlisted name": "from ownvitals.auth.deps import resolve_request",
+    "entry point module, unlisted dependency": "from ownvitals.auth.deps import require_session",
     "entry point module, star": "from ownvitals.auth.setup import *",
     "entry point module, relative": "from .auth.purge import purge_expired",
     "entry point module, imported whole": "import ownvitals.auth.setup",

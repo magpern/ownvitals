@@ -85,10 +85,10 @@ async def test_concurrent_first_enrollments_let_exactly_one_win(
         )
     )
     # A loser is refused either in the route (409 totp_changed: its session was resolved before the
-    # winner committed) or by ``require_recent_auth`` (403 stepup_required: it was resolved after,
-    # and the user then has a confirmed TOTP and the session no step-up). Which one depends on
-    # timing; both write nothing, and the first is tested without a race below.
-    refusals = {(409, "totp_changed"), (403, "stepup_required")}
+    # winner committed) or by the second-factor gate (403 two_factor_required, #11: it was
+    # resolved after, so the account has a confirmed TOTP and the session must verify a code
+    # instead). Which one depends on timing; both write nothing.
+    refusals = {(409, "totp_changed"), (403, "two_factor_required")}
     assert [r.status_code for r in results].count(200) == 1
     assert {(r.status_code, reason(r)) for r in results if r.status_code != 200} <= refusals
     assert len([r for r in results if r.status_code != 200]) == 3
@@ -97,23 +97,22 @@ async def test_concurrent_first_enrollments_let_exactly_one_win(
     assert notifier.enrolled == [user_id]
 
 
-async def test_a_first_enrollment_that_lost_to_another_is_refused_totp_changed(
+async def test_a_first_enrollment_that_lost_to_another_is_refused(
     env: Env, make_actor: Any, clock: list[float], notifier: FakeNotifier
 ) -> None:
-    """The race of the test above without the race: the loser's session passes
-    ``require_recent_auth`` (it has a step-up) and the route finds the TOTP changed."""
+    """The race of the test above without the race (#11): once the account has a confirmed
+    TOTP, the loser's session is one that must verify a code, so the gate refuses its enrolment
+    and nothing changes."""
     user_id = await env.user("a@example.com")
     winner, loser = [await make_actor(user_id) for _ in range(2)]
     won = await start_and_code(winner, clock)
     lost = await start_and_code(loser, clock)
     first = await winner.post(CONFIRM, {"pending": won["pending"], "code": won["code"]})
     assert first.status_code == 200
-    await env.run(
-        "UPDATE sessions SET stepup_at = now()"
-    )  # every session, so the dependency passes
+    await env.run("UPDATE sessions SET stepup_at = now()")  # a step-up changes nothing here
     nonce = await env.scalar("SELECT nonce FROM mfa_totp")
     second = await loser.post(CONFIRM, {"pending": lost["pending"], "code": lost["code"]})
-    assert (second.status_code, reason(second)) == (409, "totp_changed")
+    assert (second.status_code, reason(second)) == (403, "two_factor_required")
     assert await env.scalar("SELECT nonce FROM mfa_totp") == nonce
     assert await env.scalar("SELECT count(*) FROM mfa_totp") == 1
     assert await env.scalar("SELECT count(*) FROM mfa_recovery_codes") == 10
@@ -125,11 +124,11 @@ async def test_confirming_a_replacement_needs_stepup(
 ) -> None:
     actor, _, _, _ = await admin_with_totp(env, make_actor)
     body = await start_and_code(actor, clock)
-    await env.run("UPDATE sessions SET stepup_at = now() - interval '6 minutes'")
+    await env.run("UPDATE sessions SET stepup_at = now() - interval '11 minutes'")
     before = await env.scalar("SELECT nonce FROM mfa_totp")
     response = await actor.post(CONFIRM, {"pending": body["pending"], "code": body["code"]})
     assert response.status_code == 403
-    assert reason(response) == "stepup_required"
+    assert reason(response) == "step_up_required"
     assert await env.scalar("SELECT nonce FROM mfa_totp") == before
 
 
@@ -172,14 +171,15 @@ async def test_removing_totp_clears_mfa_on_this_session_and_revokes_the_others(
     assert (await actor.call("DELETE", "/api/auth/mfa/totp")).status_code == 204
     assert (await other.get("/api/auth/session")).json()["authenticated"] is False
     assert (await actor.get("/api/auth/session")).json()["authenticated"] is True
-    assert reason(await actor.get("/api/admin/whoami")) == "mfa_required"
+    # #11: this session goes back to enrolment, so the gate stops it before the admin check.
+    assert reason(await actor.get("/api/admin/whoami")) == "two_factor_required"
 
 
 async def test_concurrent_regenerations_leave_exactly_ten_codes(
     env: Env, make_actor: Any, clock: list[float]
 ) -> None:
     _, _, _, user_id = await admin_with_totp(env, make_actor)
-    actors = [await make_actor(user_id) for _ in range(4)]
+    actors = [await make_actor(user_id, mfa=True) for _ in range(4)]
     await env.run("UPDATE sessions SET stepup_at = now()")
     results = await asyncio.gather(*(a.post("/api/auth/mfa/recovery-codes") for a in actors))
     assert [r.status_code for r in results] == [200] * 4

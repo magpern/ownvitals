@@ -29,13 +29,28 @@ export const SIGNED_IN = {
   authenticated: true,
   csrf_token: 'csrf-session',
   user: { id: 'u1', email: 'ann@example.test', role: 'user' },
-  session: { id: 's1', expires_at: '2030-01-01T00:00:00Z', recent_auth: true, mfa: true, stepup: true },
+  session: {
+    id: 's1',
+    expires_at: '2030-01-01T00:00:00Z',
+    recent_auth: true,
+    mfa: true,
+    stepup: true,
+    totp_enabled: true,
+    second_factor: null,
+    admin_pending_mfa: false,
+  },
 }
 
 /** Signed in, but this session has not passed its second factor yet. */
 export const SIGNED_IN_NO_CODE = {
   ...SIGNED_IN,
-  session: { ...SIGNED_IN.session, mfa: false, stepup: false },
+  session: { ...SIGNED_IN.session, mfa: false, stepup: false, second_factor: 'verify' },
+}
+
+/** Signed in to an account without an authenticator app yet: only enrolment is open. */
+export const SIGNED_IN_NO_TOTP = {
+  ...SIGNED_IN,
+  session: { ...SIGNED_IN.session, mfa: false, stepup: false, totp_enabled: false, second_factor: 'enrol' },
 }
 
 export const MFA_ON = { totp_enabled: true, recovery_codes_left: 8 }

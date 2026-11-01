@@ -185,6 +185,12 @@ TABLE: dict[str, Entry] = {
         "never echoed (auth.setup)",
         "request_validation_exception_handler",
     ),
+    "fastapi.routing": _allowed(
+        "the admin route guard and gate (#12, ownvitals.admin.routes): the route class and the "
+        "iterator over the app's registered routes; neither opens a connection",
+        "APIRoute",
+        "iter_route_contexts",
+    ),
     "fastapi.exceptions": _allowed(
         "the web framework's validation error class (auth.setup)",
         "RequestValidationError",

@@ -8,6 +8,9 @@ because this is a middleware no route can forget them.
 - ``X-CSRF-Token`` must match ``HMAC(csrf_key, session.id)`` when the request carries a valid
   session, else the value of the ``__Host-ownvitals_csrf`` cookie (double submit).
 
+ownvitals ADR 0003 section 2: the second-factor gate (``gate.py``) runs here too, after the
+CSRF check, so no route can forget it either.
+
 Section 10: the access log replaces uvicorn's. It records method, path, status and time, never
 the query string, headers, cookies or body.
 """
@@ -20,6 +23,7 @@ from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from ownvitals.auth import gate
 from ownvitals.auth.cookies import CSRF_COOKIE, SESSION_COOKIE, clear_session_cookie
 from ownvitals.auth.deps import resolve_request
 from ownvitals.auth.keys import Keys, hmac_digest
@@ -71,6 +75,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method not in SAFE_METHODS:
             reason = await check_csrf(request, request.app.state.settings, request.app.state.keys)
             if reason is not None:
+                response = JSONResponse({"detail": {"reason": reason}}, status_code=403)
+        if (
+            response is None
+            and request.cookies.get(SESSION_COOKIE)
+            and gate.gated(request.method, request.url.path)
+        ):
+            # The second-factor gate (gate.py): a session that has not passed TOTP reaches only
+            # enrolment or verification, the session answer, sign-out and health.
+            info = (await resolve_request(request)).info
+            if (reason := gate.refusal(request.method, request.url.path, info)) is not None:
                 response = JSONResponse({"detail": {"reason": reason}}, status_code=403)
         if response is None:
             response = await call_next(request)

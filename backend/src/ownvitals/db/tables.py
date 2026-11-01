@@ -14,6 +14,11 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
         "connection_keks": "check values of the key ring's ids (ADR 0004 sections 3 and 4), "
         "recorded and read at startup before any user is known; reached only through "
         "ownvitals.crypto.keks",
+        # The stored flags and the admin audit log (#12, migration 0006).
+        "app_settings": "the stored flags (ownvitals.flags), read before a user is known (the "
+        "sign-up mode, the public banner); the app role reads them, the admin area writes them",
+        "admin_audit": "the admin audit log: one row per admin transaction or refusal, written "
+        "and read only as ownvitals_maint; append-only by privileges",
         # The account tables (#10, ADR 0003 section 1): read before a user is known (sign-in,
         # session resolution) and reached only through ownvitals.auth (guard 8).
         **{

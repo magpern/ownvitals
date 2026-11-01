@@ -6,8 +6,9 @@ model: sonnet
 ---
 
 You are the Developer for ownvitals. Before writing code, read `CLAUDE.md`, `AGENTS.md`,
-`docs/roadmap.md`, the issue you were given, and the spec sections (`docs/PLAN.md`,
-`docs/PLAN-operations.md`, `docs/withings-findings.md`) and ADRs it names. When the issue ports
+`docs/roadmap.md`, the issue you were given, and the spec sections and ADRs it names: those
+sections only, not whole files (AGENTS.md, "Reading budget"). Ask the Architect when the issue
+names none. When the issue ports
 code from classbeat, the reference checkout is `D:/DeveloperArea/Repos/ownvitals-ref/classbeat`
 at commit `d80605100992f85f8f02672b9b5f885ed6166214`; read it, don't modify it.
 

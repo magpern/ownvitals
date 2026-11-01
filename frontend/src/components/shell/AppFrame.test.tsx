@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { APP_ROUTES } from '../../router/appRoutes'
-import { MFA_OFF, SIGNED_IN, SIGNED_IN_NO_CODE, fakeApi } from '../../test/fakeApi'
+import { SIGNED_IN, SIGNED_IN_NO_TOTP, fakeApi } from '../../test/fakeApi'
 import { renderAt } from '../../test/render'
 
 // The app frame, end to end: what a signed-in user gets around every screen (the rail, the top
@@ -29,7 +29,10 @@ describe('the app frame', () => {
     expect(within(screen.getByRole('banner')).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/')
   })
 
-  it.each(APP_ROUTES.map((route) => [route.id, route] as const))(
+  // The screens built so far (src/pages/appPages.tsx) have their own tests.
+  const BUILT_SCREENS = new Set(['security'])
+
+  it.each(APP_ROUTES.filter((route) => !BUILT_SCREENS.has(route.id)).map((route) => [route.id, route] as const))(
     'shows the page header and "Coming later" on the %s screen',
     async (_id, route) => {
       fakeApi({ 'GET /api/auth/session': ADMIN })
@@ -56,7 +59,7 @@ describe('the app frame', () => {
   })
 
   it('shows Security as the current item of its own page, and the Settings tab on the phone', async () => {
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN })
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN, 'GET /api/auth/sessions': [] })
     renderAt('/settings/security')
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument()
     const rail = screen.getByRole('navigation', { name: 'Main' })
@@ -66,7 +69,7 @@ describe('the app frame', () => {
       'aria-current',
       'true',
     )
-    expect(within(screen.getByRole('main')).getByText('Sign-in and security')).toBeInTheDocument()
+    expect(within(screen.getByRole('main')).getByRole('heading', { name: "Where you're signed in" })).toBeInTheDocument()
   })
 
   it('moves to another screen from the rail, without a reload', async () => {
@@ -162,9 +165,9 @@ describe('outside the app frame', () => {
   })
 
   it('keeps the second-factor pages in the plain frame, with Sign out, and sends a user with no app there', async () => {
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN_NO_CODE, 'GET /api/auth/mfa': MFA_OFF })
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN_NO_TOTP })
     renderAt('/connections')
-    expect(await screen.findByRole('heading', { name: 'Set up two-factor' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Set up your authenticator app' })).toBeInTheDocument()
     expect(here()).toBe('/two-factor/setup')
     expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
