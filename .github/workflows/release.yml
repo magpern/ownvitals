@@ -33,6 +33,7 @@ jobs:
 
       # SemVer 2.0.0 without build metadata (a Docker tag cannot hold "+"): numeric parts without
       # leading zeros; pre-release identifiers are non-empty, and numeric ones have no leading zero.
+      # scripts/test-release.sh runs this step (and the steps below) against a scratch repository.
       - name: Tag is a SemVer version on main
         env:
           TAG: ${{ github.ref_name }}
@@ -60,7 +61,21 @@ jobs:
             echo "::error::Tag commit $GITHUB_SHA is not on main"
             exit 1
           fi
-          echo "$TAG ($GITHUB_SHA) is a SemVer tag on main"
+          # The tag names the package's version: project.version of backend/pyproject.toml, read
+          # from the tagged commit, spelled exactly as the tag without its "v" (a pre-release
+          # too: v1.2.0-rc.1 needs "1.2.0-rc.1"). A missing or dynamic version refuses the tag.
+          pyver='import sys, tomllib
+          v = tomllib.load(sys.stdin.buffer)["project"]["version"]
+          print(v) if isinstance(v, str) else sys.exit("project.version is not a string")'
+          if ! version="$(git show "$GITHUB_SHA:backend/pyproject.toml" | python3 -I -c "$pyver")"; then
+            echo "::error::no project.version in backend/pyproject.toml at $GITHUB_SHA"
+            exit 1
+          fi
+          if [[ "$version" != "${TAG#v}" ]]; then
+            echo "::error::Tag '$TAG' does not match version '$version' in backend/pyproject.toml"
+            exit 1
+          fi
+          echo "$TAG ($GITHUB_SHA) is a SemVer tag on main and the package version"
 
   image:
     name: Image
@@ -126,7 +141,9 @@ jobs:
           sbom: generator=docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
 
   # Separate from the build so the OIDC token (id-token: write) is never available while the
-  # build runs; this job runs only first-party actions and gh.
+  # build runs. Besides gh and the first-party attest action, this job runs docker/login-action
+  # (SHA-pinned, and already trusted by `image`) so the attestation can be pushed to GHCR.
+  # scripts/test-release.sh (in CI's `checks` job) tests this workflow's guards.
   attest:
     name: Attest
     needs: image
