@@ -227,7 +227,14 @@ What else the guard refuses outside the package:
 - an import that does **not resolve** in the locked environment ("not in the locked
   environment"), except inside `if TYPE_CHECKING:`;
 - **dynamic imports** with a computed name, a `package` or a `fromlist` (a constant name is an
-  ordinary import), and `pkgutil.resolve_name`. `getattr(x, "name")` is the reference `x.name`;
+  ordinary import). `getattr(x, "name")` is the reference `x.name`;
+- **a module looked up by name**: any reference to `sys.modules` (a subscript, `.get(...)`, an
+  `in` test, a variable holding it) and `pkgutil.resolve_name`, under any alias of `sys`, as
+  `from sys import modules` and through a chain (`os.sys.modules`). `subprocess` imports
+  `_posixsubprocess`, so `sys.modules["_posixsubprocess"]` would hand out a process route every
+  other rule misses (`REFLECTION_NAMES`, `tests/test_egress_reflection.py`);
+- **`ctypes` and `_ctypes`** (`NATIVE_MODULES`), under any alias or `from` form: they reach the
+  C library's process and socket functions, which raise no audit event the hook sees;
 - **assigning to** or deleting any attribute of `ownvitals.egress` or `ownvitals.mail` (also by
   `setattr`/`delattr`), and any private name of either;
 - building an `Allowlist`, `AllowlistTransport`, opener or deadline handler, or handing an entry
@@ -237,7 +244,14 @@ What else the guard refuses outside the package:
   `ownvitals.cli`, `ownvitals.web`), or `smtp_session` outside `ownvitals.mail`;
 - star-importing anything.
 
-An import inside `if TYPE_CHECKING:` is allowed when its names appear only in annotations.
+An import inside `if TYPE_CHECKING:` (`typing`'s, by any alias) passes every rule, `ctypes` and
+the process routes included, when its names appear only in annotations. Such an import never
+runs: `typing.TYPE_CHECKING` is `False` at run time, so it only tells the type checker what a
+name is. A name it binds is judged as a run-time reference anywhere outside an annotation, and
+inside an annotation it resolves only through the run-time imports, so an annotation that is
+evaluated cannot reach the module unless a run-time import binds it, which the guard sees. An
+`else:` branch runs and is scanned. Rebinding `TYPE_CHECKING` itself is deliberate indirection,
+left to review (N9).
 
 **Adding a dependency or an import.** The guard names the path to the network
 (`x can reach the network (x -> y -> socket); not classified`). The PR adds a table entry with
@@ -271,21 +285,23 @@ cd backend
 uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_closure.py tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
   tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py \
-  tests/test_egress_scope.py tests/test_egress_process.py
+  tests/test_egress_scope.py tests/test_egress_process.py tests/test_egress_reflection.py
 ```
 
 ## Known limits
 
 - The hook sees only Python's `socket` module. It cannot see C extensions that open sockets
   themselves (libpq, the database driver, by design: it connects only to the configured
-  database; a new dependency with native networking is caught by dependency review), `ctypes`,
-  or code that already runs in the process: it is a control on our code and our libraries, not
+  database; a new dependency with native networking is caught by dependency review), `ctypes`
+  (refused statically in `src/`; a dependency's use is trusted code), or code that already runs
+  in the process: it is a control on our code and our libraries, not
   a sandbox. A network-level egress rule stays the deployment's (M2).
 - The hook refuses the process-creation routes that raise audit events. `_posixsubprocess.fork_exec`
   raises none: the `multiprocessing` `spawn` and `forkserver` methods (and uvicorn's
   `workers > 1` and `reload`) use it, and `ctypes` can start a process too. The guard refuses
   `_posixsubprocess`, `_winapi`, `multiprocessing` and `concurrent.futures.ProcessPoolExecutor`
-  in `src/` under any name (`tests/test_egress_process.py`); dependencies are trusted code.
+  in `src/` under any name (`tests/test_egress_process.py`), and `ctypes`, `_ctypes` and
+  `sys.modules` too (`tests/test_egress_reflection.py`); dependencies are trusted code.
   Web runs as one uvicorn process (#77).
 - The inherited-scope check (`tests/test_egress_scope.py`) is lexical: a helper called inside a
   scope that starts a task itself is not seen; the four modules that open a scope are reviewed.
@@ -293,9 +309,11 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   deployment's rule.
 - The guard is static; the hook covers at run time what it cannot see, and the review gate the
   rest:
-  - deliberate indirection (N9): `sys.modules`, a computed `getattr`, `exec`/`eval`,
-    `importlib.util` loaders, `ctypes`. The cheap partial closes are in: dynamic imports,
-    `pkgutil.resolve_name`, constant `getattr`, and `_socket`/`_ssl` as seeds. The `module:attr`
+  - deliberate indirection (N9): a computed `getattr`, `vars(sys)`, `sys.__dict__`, a module
+    an expression returns (`importlib.import_module("sys").modules`), `exec`/`eval`,
+    `importlib.util` loaders, rebinding `TYPE_CHECKING`. The cheap partial closes are in:
+    dynamic imports, `sys.modules`, `pkgutil.resolve_name`, `ctypes`, constant `getattr`, and
+    `_socket`/`_ssl` as seeds. The `module:attr`
     string form (pydantic's `ImportString`, `"socket:create_connection"`) is not read by the
     string rule (N18): indirection of this kind, refused by the hook when it connects;
   - process execution (N10): `subprocess` is capable (it imports `select`) and so refused, as

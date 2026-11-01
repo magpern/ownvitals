@@ -165,6 +165,12 @@ PROCESS_MODULES: tuple[str, ...] = (
     "concurrent.futures.process",
 )
 PROCESS_NAMES: frozenset[str] = frozenset({"concurrent.futures.ProcessPoolExecutor"})
+# Native calls (ADR 0009 item 7): ``ctypes`` reaches the C library's own process and socket
+# functions, which raise no audit event the hook sees. Refused in ``src/`` under any name.
+NATIVE_MODULES: tuple[str, ...] = ("ctypes", "_ctypes")
+# Reflection by name: ``sys.modules`` hands out any loaded module past every rule that reads
+# names (``_posixsubprocess`` is always loaded: ``subprocess`` imports it). Refused in ``src/``.
+REFLECTION_NAMES: tuple[str, ...] = ("sys.modules", "pkgutil.resolve_name")
 
 LOOP_METHODS: frozenset[str] = frozenset(
     {

@@ -13,8 +13,9 @@ name under ``ownvitals``) may not do outside the egress package:
   ``typing_extensions._socket``, ``ownvitals.mail.smtplib``), and through any ``ownvitals``
   module's re-exports, is judged where it lands. ``getattr`` with a constant name counts;
 - import a module **not in the locked environment**, import dynamically (``import_module`` or
-  ``__import__`` with a name that is not a constant, a ``package`` or a ``fromlist``), use
-  ``pkgutil.resolve_name``, or star-import;
+  ``__import__`` with a name that is not a constant, a ``package`` or a ``fromlist``), look a
+  module up by name (``sys.modules``, ``pkgutil.resolve_name``), use ``ctypes`` or a process
+  route the hook cannot see (``PROCESS_MODULES``) by any spelling, or star-import;
 - name a classified-out dotted path in a **string** (``"logging.handlers.SysLogHandler"`` for
   ``dictConfig``, ``"handlers.SysLogHandler"`` for ``fileConfig``, ``"ext://socket.socket"``);
 - use an ``asyncio`` event-loop network method on any object (``.create_connection``,
@@ -25,9 +26,8 @@ name under ``ownvitals``) may not do outside the egress package:
 - use ``install_worker_allowlist``, which makes a process the worker: only the worker's entry
   point and the probe CLI may (``WORKER_ROLE_MODULES``), and tests.
 
-Imports inside ``if TYPE_CHECKING:`` are allowed when their names appear only in annotations.
-Like the other guards this catches ordinary code and makes the rest visible in review; deliberate
-indirection (``sys.modules``, a computed ``getattr``, ``exec``) is the review gate's (N9).
+Type-only imports (``if TYPE_CHECKING:``) pass when their names appear only in annotations. The
+rest of deliberate indirection (``vars(sys)``, a computed ``getattr``, ``exec``) is review's (N9).
 
 A worker module never imports ``ownvitals.mail`` (``egress_worker``: ``WORKER_PACKAGES``,
 ``WORKER_ENTRYPOINTS``, checked by the tests), and every web-only site calls
@@ -43,8 +43,10 @@ from pathlib import Path
 from egress_classified import (
     EDGE_CUTS,
     LOOP_METHODS,
+    NATIVE_MODULES,
     PROCESS_MODULES,
     PROCESS_NAMES,
+    REFLECTION_NAMES,
     TABLE,
     Entry,
 )
@@ -324,11 +326,20 @@ def _internal(name: str, module: str, verb: str) -> list[str]:
         found.append(f"{verb} {name}: only a process entry point installs the egress hook")
     if name == SMTP_SESSION and module != MAIL:
         found.append(f"{verb} {name}: only the mail module opens an SMTP session")
-    if under(name, PROCESS_MODULES) or name in PROCESS_NAMES:
+    spelled = _landings(name)
+    if any(under(n, PROCESS_MODULES) or n in PROCESS_NAMES for n in spelled):
         found.append(f"{verb} {name}: starts a process the egress hook cannot see (ADR 0009)")
-    if name == "pkgutil.resolve_name":
+    if any(under(n, NATIVE_MODULES) for n in spelled):
+        found.append(f"{verb} {name}: calls native code the egress hook cannot see (ADR 0009)")
+    if any(under(n, REFLECTION_NAMES) for n in spelled):
         found.append(f"{verb} {name}: resolves a module by name at run time")
     return found
+
+
+@cache
+def _landings(name: str) -> frozenset[str]:
+    """``name`` and where import bindings take it (``os.sys.modules`` is ``sys.modules``)."""
+    return frozenset({name, *(".".join([m, *rest]) for m, rest in visits(name))})
 
 
 def _imports(tree: ast.AST, module: str, skip: set[int]) -> list[tuple[int, str, bool]]:
