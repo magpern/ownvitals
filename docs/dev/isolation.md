@@ -168,6 +168,19 @@ Python builds) and by the role checks. A further route of the same kind (reflect
 token in process) goes under "Known limits" below, not into a new rule, unless it is a plain
 import or a call that code review could miss.
 
+**Guard 5's scope (Architect, the eleventh #115 review).** Reviewers of guard 5 classify every
+finding against this text:
+
+- **Blocking:** a route written in plain code that names the token, the context module (by any
+  spelling), or a dunder outside its pinned use, in any construct code can read: code, strings,
+  docstrings and comments.
+- **Known limits (non-blocking):**
+  - (a) names built at run time from allowed pieces;
+  - (b) objects written to intercept the guard's own allowed comparisons or calls (a recording
+    `__eq__`, mocks);
+  - (c) reading source text from disk through allowed file APIs;
+  - (d) reflection with no such name written.
+
 Only `ownvitals/context.py`, `ownvitals/auth/deps.py` (#10) and `ownvitals/jobs/issuer.py` (#9)
 may build a `UserContext` (`user_context_scan.py`); handlers get it through the auth dependency,
 never from a path, query, body or header. The same scan refuses, in every module:
@@ -231,35 +244,54 @@ of the form `__x__` is refused wherever the source can name an attribute, a modu
 builtin with it:
 
 - an attribute (`f.__globals__`), an f-string's included;
-- a name (`__import__`, `__builtins__`, `__module__` in a class body), and a `global` or
-  `nonlocal` declaration;
+- a name (`__import__`, `__builtins__`, `__module__` in a class body), a `global` or
+  `nonlocal` declaration, a parameter (`lambda __name__: ...`), and an `except ... as` or
+  `match` capture;
 - every identifier-shaped segment of every `str` and `bytes` constant (split on `.`, `:`, `/`
   and any other character that can't be in an identifier), f-string text included. Several
   standard-library calls look a dotted or colon path up themselves:
   `string.Formatter().get_field("0.__globals__", ...)`, `"{0.__module__}".format(x)`,
-  `operator.attrgetter("f.__globals__")`, `getattr(f, b"__globals__".decode())`. A string that
-  is a whole statement (a docstring) is not judged for dunders: it never runs, and nothing in
-  `src` may read it back, since `inspect` and `pydoc` (any import form, name, attribute or the
-  module's name as a string) and `__doc__` are refused. `inspect.getdoc` and
-  `inspect.getcomments` would otherwise hand a docstring or a comment back as a value;
+  `operator.attrgetter("f.__globals__")`, `getattr(f, b"__globals__".decode())`;
+- a docstring (a string that is a whole statement): it never runs, but source text can be read
+  back, so a dunder in one needs a `docstring` row in the table like any other use. The readers
+  of source text are refused outright: `inspect`, `pydoc`, `linecache` and `tokenize` (any
+  import form, name, attribute, or the module's name as a string), `__doc__`, and
+  `importlib.util` (`find_spec(...).origin` finds a module's file), which is allowed only as
+  `import importlib.util` and the one call `importlib.util.find_spec('uvloop')` in
+  `egress/hook.py`. Reading a file with `open` stays allowed (`src` reads its key and SQL files);
+  that is Known limit (c);
 - a keyword argument, and a `match` class-pattern keyword: `case object(__globals__=g)` reads
   the attribute and binds it;
 - an imported name (`from ownvitals import __version__`).
 
 The same segments are checked against the issuer token's names and the module, in every
-string, docstrings included: a string with a segment `_ISSUER` or `issuer_token`, or naming the
+string, docstrings and comments included (comments through `tokenize`; a dunder in a comment is
+not judged): a string with a segment `_ISSUER` or `issuer_token`, or naming the
 module `ownvitals.context` with `.` or `:` on either side (`"ownvitals.context"`,
 `"ownvitals:context"`, `"ownvitals.context:_ISSUER"`), is refused
 (`pkgutil.resolve_name("ownvitals:context")`, `pydoc.locate("ownvitals.context._ISSUER")`). A
 dotted logger name such as `"ownvitals.db.engine"`, another name (`"ownvitals.contexts"`) or SQL
 text stays allowed.
 
+The module is refused as an attribute of its package too, however the package is reached:
+`importlib.import_module("ownvitals").context`, `pkgutil.resolve_name("ownvitals").context`,
+`sys.modules["ownvitals"].context` (the attribute `context` of a looked-up module), the bare
+`"ownvitals"` as a lookup argument (`import_module`, `resolve_name`, `locate`, `find_spec`,
+`sys.modules[...]`, `.get`), `"context"` as a `getattr`/`hasattr`/`setattr`/`delattr` name, a
+subscript key or a `.get` argument (`getattr(o, "context")`, `vars(o)["context"]`), and a
+relative module name ending in `context` (`"..context"`). A plain `import ownvitals.context`
+stays allowed, and so does another object's `context` (`self.context.wrap_socket`).
+
 **A dunder inside a string is pinned to its exact use.** A string's form is its syntactic
-position: the name argument of one exact `getattr` call, a direct operand of one exact comparison
-(`event == "socket.__new__"`, `__name__ == "__main__"`), the value of one assignment (the SQL
-placeholders' `QUEUE_QUERY = ...`), or anywhere else. The table allows each such dunder in one
-position only, so the same constant passed on, sliced or partitioned
-(`"socket.__new__".partition(".")[2]` fed to `setattr`) is refused.
+position: the name argument of one exact `getattr` call, a direct operand of one exact comparison,
+the value of one assignment (the SQL placeholders' `QUEUE_QUERY = ...`), or anywhere else. A
+comparison whose other operand is its function's own first parameter, never rebound there, is
+pinned to that function too: `"socket.__new__"` is allowed only as `event == "socket.__new__"` in
+`_audit(event, args)`, so an object written next to the string (a recording `__eq__`, a
+`MagicMock`) can't receive it. The table allows each such dunder in one position, once per
+module, so the same constant passed on, sliced, partitioned
+(`"socket.__new__".partition(".")[2]` fed to `setattr`) or compared a second time is refused.
+Calling the real `_audit` with a recording object writes no dunder: that is Known limit (b).
 
 **An allowed dunder is read, never written.** Assigning, augmenting or deleting one as an
 attribute (`require_context.__code__ = (lambda c: c).__code__` makes `require_context` accept
@@ -284,15 +316,16 @@ aside, which are not scanned); a name used in one module is allowed only there.
 | Name | Forms | Where | Why |
 |---|---|---|---|
 | `__name__` | attribute and name read | everywhere | a module's or a function's name, for loggers and `__main__` checks |
-| `__main__` | the comparison `__name__ == "__main__"` | everywhere | the `if __name__ == "__main__"` entry points |
+| `__main__` | the comparison `__name__ == "__main__"`; docstring | everywhere | the `if __name__ == "__main__"` entry points |
 | `__all__` | definition | everywhere | a package's public names |
 | `__init__` | attribute read | everywhere | `super().__init__(...)`; the hook rule above refuses any other use |
 | `__aiter__` | attribute read | `egress/clients.py` | delegating `async for` to a wrapped stream |
-| `__cause__`, `__context__`, `__suppress_context__` | attribute read | `log.py` | walking an exception chain |
+| `__cause__`, `__context__`, `__suppress_context__` | attribute read (the first two also docstring) | `log.py` | walking an exception chain |
+| `__str__` | docstring | `log.py` | a docstring naming the method |
 | `__dict__` | attribute read | `log.py` | a log record's extra fields |
 | `__version__` | definition, import, name read | `__init__.py`, `web.py` | the package version |
 | `__code__` | `getattr(socket.socketpair, "__code__", None)` only | `egress/hook.py` | recognising `socket.socketpair`'s own code |
-| `__new__` | the comparison `event == "socket.__new__"` | `egress/hook.py` | the audit event name `"socket.__new__"` |
+| `__new__` | the comparison `event == "socket.__new__"` in `_audit(event, ...)`; docstring | `egress/hook.py` | the audit event name `"socket.__new__"` |
 | `__setattr__` | attribute read | `analysis/methods/series.py`, `analysis/quality.py` | the frozen-dataclass idiom in `__post_init__`; the idiom rule above refuses any other use |
 | `__NAMES__`, `__SQL_TEXT_BUILTINS__` | the assignment `QUEUE_QUERY = ...` | `db/queue_check.py` | placeholders in SQL text, replaced before the query runs |
 
@@ -385,15 +418,17 @@ leaves to the review gate. Known limits:
   (`f"__glo{''}bals__"`), bytes in another encoding decoded at run time (`utf-16`), or a module
   name built the same way for `sys.modules` bound to another name or copied
   (`mods = sys.modules; mods[name]`, `dict(sys.modules)[name]`, `sys.modules.__getitem__` is a
-  dunder and refused). The bound (Architect, the tenth #115 review): such a name is reflection,
-  non-blocking and listed here; a dunder, a token name or a path to the context module written
-  whole in source, in any string, docstring or comment that code can read, is refused. Reading a
-  source file and slicing it (`open`, `linecache`) is reflection too;
-- the module reached through the package object, literally or not: `getattr(ownvitals,
-  "context")`, `vars(ownvitals)["context"]`, `sys.modules["ownvitals"].context`,
-  `vars(sys.modules["ownvitals"])`, `getattr(ownvitals, "con" + "text")`. With the module,
-  `vars(m)` gives the token, and it can't be refused outright: other code uses it
-  (`m.__dict__` is a dunder, allowed only in `ownvitals/log.py`);
+  dunder and refused). Scope (a);
+- objects written to intercept the guard's own allowed comparisons or calls: calling the real
+  `_audit` in `egress/hook.py` with a recording object or a mock as `event` hands it
+  `"socket.__new__"` without writing the name. Scope (b);
+- reading source text from disk through an allowed file API: `open` on a module's own file
+  (found without `importlib.util`), then slicing a line that holds an allowed docstring dunder.
+  Scope (c);
+- the module reached through the package object without a written name: `getattr(ownvitals,
+  "con" + "text")`, walking `vars(ownvitals)`. With the module, `vars(m)` gives the token, and
+  it can't be refused outright: other code uses it (`m.__dict__` is a dunder, allowed only in
+  `ownvitals/log.py`). Scope (d);
 - the general class, reflection in the process: walking package or module objects, searching
   `sys.modules`, `gc.get_referrers`/`gc.get_objects`, `inspect` (`inspect.getmodule(K)`, a
   function's closure or frame), and `ctypes`;

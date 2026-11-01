@@ -25,10 +25,18 @@ annotations included:
 - an ``issuer=`` keyword in any call, and a ``**`` argument that spells ``"issuer"`` anywhere in
   it (``**{"issuer": t}``, ``**{k: t for k in ["issuer"]}``, ``**dict([("issuer", t)])``,
   ``**({} | {"issuer": t})``): only the issuer modules pass the token;
-- ``inspect`` and ``pydoc`` as an import (any alias or ``from`` form), a name, an attribute or a
-  string (``importlib.import_module("inspect")``): ``inspect.getdoc``, ``inspect.getcomments``
-  and ``pydoc.getdoc`` turn a docstring or a comment into a value, so a dunder or a path written
-  there would run (``pkgutil.resolve_name(inspect.getdoc(h))``);
+- ``inspect``, ``pydoc``, ``linecache`` and ``tokenize`` as an import (any alias or ``from``
+  form), a name, an attribute or a string (``importlib.import_module("inspect")``): they turn a
+  docstring, a comment or a line of source into a value (``pkgutil.resolve_name(
+  inspect.getdoc(h))``, ``linecache.getline(path, 3)``). ``importlib.util`` likewise
+  (``find_spec(...).origin`` finds a module's file): refused except ``import importlib.util``
+  and the one call ``importlib.util.find_spec('uvloop')`` in ``egress/hook.py``;
+- the module ``ownvitals.context`` as the attribute ``context`` of a looked-up module
+  (``importlib.import_module("ownvitals").context``, ``sys.modules["ownvitals"].context``),
+  ``"context"`` as a ``getattr``/``hasattr``/``setattr`` name, a subscript key or a ``.get``
+  argument (``vars(o)["context"]``), the bare ``"ownvitals"`` as a lookup argument
+  (``import_module``, ``resolve_name``, ``locate``, ``find_spec``, ``sys.modules[...]``,
+  ``.get``), and relative module names ending in ``context`` (``"..context"``);
 - ``copyreg`` as an import, a name, an attribute or a string: ``copyreg.__newobj__(K)`` makes a
   blank context without the token.
 
@@ -45,6 +53,7 @@ with code review, RLS and the role checks (ADR 0002 section 1).
 """
 
 import ast
+import re
 
 CONTEXT_MODULE = "ownvitals.context"
 PACKAGE = "ownvitals"
@@ -52,8 +61,26 @@ PACKAGE = "ownvitals"
 # ``__defaults__`` would make it a default (``K.__init__.__kwdefaults__["issuer"] = tok``);
 # ``copyreg`` builds a blank instance without calling ``__init__``.
 # ``inspect`` and ``pydoc`` read docstrings and comments back as values.
-SOURCE_READERS = {"inspect", "pydoc"}
+SOURCE_READERS = {"inspect", "pydoc", "linecache", "tokenize"}
 NEVER_NAMED = {"__globals__", "__kwdefaults__", "__defaults__", "copyreg", *SOURCE_READERS}
+# ``importlib.util``: only ``import importlib.util`` and this one call, in ``egress/hook.py``.
+IMPORTLIB_UTIL = "importlib.util"
+HOOK = "ownvitals/egress/hook.py"
+UVLOOP_CHECK = "importlib.util.find_spec('uvloop')"
+# Calls that look a module up by its name (and ``sys.modules``' own lookups).
+PACKAGE_LOOKUPS = {
+    "import_module",
+    "resolve_name",
+    "locate",
+    "find_spec",
+    "get",
+    "pop",
+    "setdefault",
+}
+# The attribute and module names that reach the context module from its package.
+CONTEXT_ATTRIBUTE = "context"
+ATTRIBUTE_NAMES = {"getattr", "hasattr", "setattr", "delattr"}
+RELATIVE_CONTEXT = re.compile(r"^\.+context(\.|$)")
 # ``sys.modules`` methods that take a module name.
 MODULES_LOOKUPS = {"get", "pop", "setdefault"}
 # ``importlib.import_module`` under any spelling: only with a literal module name.
@@ -202,11 +229,95 @@ def _literal_imports(tree: ast.AST, names: set[str]) -> set[int]:
     return ids
 
 
-def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]:
+def _importlib_util_findings(tree: ast.AST, module: str | None) -> list[tuple[int, str]]:
+    """``importlib.util`` outside its one use (see ``IMPORTLIB_UTIL``)."""
+    found: list[tuple[int, str]] = []
+    importlib_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "importlib" or (alias.name == IMPORTLIB_UTIL and not alias.asname):
+                    importlib_names.add(alias.asname or "importlib")
+                if _within(alias.name, IMPORTLIB_UTIL) and (alias.asname or module != HOOK):
+                    found.append((node.lineno, f"import of {IMPORTLIB_UTIL}"))
+        elif isinstance(node, ast.ImportFrom) and (
+            _within(node.module, IMPORTLIB_UTIL)
+            or (node.module == "importlib" and any(a.name in {"util", "*"} for a in node.names))
+        ):
+            found.append((node.lineno, f"import from {IMPORTLIB_UTIL}"))
+    allowed: set[int] = set()
+    if module == HOOK:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and ast.unparse(node) == UVLOOP_CHECK:
+                assert isinstance(node.func, ast.Attribute)
+                allowed.add(id(node.func.value))
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "util"
+            and isinstance(node.value, ast.Name)
+            and node.value.id in importlib_names
+            and id(node) not in allowed
+        ):
+            found.append((node.lineno, f"use of {IMPORTLIB_UTIL}"))
+    return found
+
+
+def _first_argument(node: ast.Call) -> ast.AST | None:
+    return node.args[0] if node.args else next((k.value for k in node.keywords), None)
+
+
+def _is_string(node: ast.AST | None, value: str) -> bool:
+    return isinstance(node, ast.Constant) and node.value == value
+
+
+def _package_findings(tree: ast.AST) -> list[tuple[int, str]]:
+    """The context module reached from its package: ``<looked-up module>.context``,
+    ``"context"`` as an attribute name, key or ``.get`` argument, the bare ``"ownvitals"`` as a
+    lookup argument, and relative names ending in ``context``."""
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == CONTEXT_ATTRIBUTE
+            and isinstance(node.value, ast.Call | ast.Subscript)
+        ):
+            found.append((line, "the attribute context of a looked-up module"))
+        elif isinstance(node, ast.Subscript) and (
+            _is_string(node.slice, CONTEXT_ATTRIBUTE) or _is_string(node.slice, PACKAGE)
+        ):
+            found.append((line, "a lookup of the package or its attribute context"))
+        elif isinstance(node, ast.Call):
+            func = node.func
+            called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if called in ATTRIBUTE_NAMES and len(node.args) >= 2:
+                if _is_string(node.args[1], CONTEXT_ATTRIBUTE):
+                    found.append((line, f"{called} of the attribute context"))
+            elif called in PACKAGE_LOOKUPS:
+                first = _first_argument(node)
+                if _is_string(first, PACKAGE) or _is_string(first, CONTEXT_ATTRIBUTE):
+                    found.append((line, f"{called} of the package or its attribute context"))
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and RELATIVE_CONTEXT.match(node.value)
+        ):
+            found.append((line, "a relative module name ending in context"))
+    return found
+
+
+def findings(
+    tree: ast.AST, annotation_nodes: set[int], module: str | None = None
+) -> list[tuple[int, str]]:
     """What these rules refuse in ``tree``, annotations included (they run on 3.12).
     ``annotation_nodes`` are the ids of the nodes inside type annotations, where the package
-    attribute ``ownvitals.context`` may name a type (``ownvitals.context.UserContext``)."""
-    found: list[tuple[int, str]] = []
+    attribute ``ownvitals.context`` may name a type (``ownvitals.context.UserContext``).
+    ``module`` is the path under ``src`` (``importlib.util``'s one use is in ``hook.py``)."""
+    found: list[tuple[int, str]] = [
+        *_importlib_util_findings(tree, module),
+        *_package_findings(tree),
+    ]
     package = _package_names(tree)
     builtins = _builtins_names(tree)
     modules = _sys_modules_names(tree)

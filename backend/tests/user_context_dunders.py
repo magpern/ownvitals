@@ -15,9 +15,14 @@ attribute, a module global or a builtin. Each place is a **form**:
   (``_string_forms``): ``write`` as the name argument of ``setattr``/``delattr``,
   ``getattr:<the call>``, ``compare:<the comparison>``, ``assign:<the targets>``, or ``string``
   anywhere else; so an entry allows one exact constant in one place, and the same constant passed
-  on, sliced or partitioned is refused. A string that is a whole statement (a docstring) is not
-  judged for dunders: nothing in ``src`` may read it back (``inspect``, ``pydoc`` and ``__doc__``
-  are refused), and it is still judged for the token's names and the context module;
+  on, sliced or partitioned is refused. A comparison with its function's own unrebound first
+  parameter is pinned to that function (``compare:_audit(event):...``), and a pinned position is
+  allowed once per module;
+- ``docstring``: a segment of a string that is a whole statement: it never runs, but ``open``
+  can read source text back, so it needs its own row. Docstrings and comments (``tokenize``) are
+  also judged for the token's names and the context module (``comment_findings``);
+- ``parameter``: a parameter's name; ``define`` also covers an ``except ... as`` or ``match``
+  capture;
 - ``keyword``: a keyword argument; ``match``: a ``match`` class-pattern keyword (``case
   object(__globals__=g)`` reads the attribute); ``import``: a part of an imported name or its
   ``as`` name; ``global``: a ``global`` or ``nonlocal`` declaration.
@@ -38,7 +43,9 @@ dunder: that is reflection, outside this rule's bound (``docs/dev/isolation.md``
 """
 
 import ast
+import io
 import re
+import tokenize
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -75,7 +82,8 @@ ALLOWED: dict[str, Allowed] = {
         _forms("read", "name"),
     ),
     "__main__": Allowed(
-        "the `if __name__ == '__main__'` entry points", _forms("compare:__name__ == '__main__'")
+        "the `if __name__ == '__main__'` entry points",
+        _forms("compare:__name__ == '__main__'", "docstring"),
     ),
     "__all__": Allowed("a package's public names", _forms("define")),
     "__init__": Allowed(
@@ -84,8 +92,9 @@ ALLOWED: dict[str, Allowed] = {
     "__aiter__": Allowed(
         "delegating `async for` to a wrapped stream", _forms("read"), _modules("egress/clients.py")
     ),
-    "__cause__": Allowed("walking an exception chain", _forms("read"), LOG),
-    "__context__": Allowed("walking an exception chain", _forms("read"), LOG),
+    "__cause__": Allowed("walking an exception chain", _forms("read", "docstring"), LOG),
+    "__context__": Allowed("walking an exception chain", _forms("read", "docstring"), LOG),
+    "__str__": Allowed("a docstring naming the method", _forms("docstring"), LOG),
     "__suppress_context__": Allowed(
         "`raise ... from` hides the context on purpose", _forms("read"), LOG
     ),
@@ -100,7 +109,7 @@ ALLOWED: dict[str, Allowed] = {
     ),
     "__new__": Allowed(
         "the audit event name `socket.__new__`",
-        _forms("compare:event == 'socket.__new__'"),
+        _forms("compare:_audit(event):event == 'socket.__new__'", "docstring"),
         _modules("egress/hook.py"),
     ),
     "__setattr__": Allowed(
@@ -136,24 +145,87 @@ def _text(node: ast.AST) -> str | None:
     return None
 
 
-def _string_forms(tree: ast.AST) -> tuple[set[int], dict[int, str]]:
-    """The ids of the inert strings (a whole statement), and the form of every other string:
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+_FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _own_nodes(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.AST]:
+    """The nodes of ``function``'s body, not those of functions, lambdas or classes inside it."""
+    found: list[ast.AST] = []
+    pending: list[ast.AST] = list(function.body)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, _SCOPES):
+            continue
+        found.append(node)
+        pending.extend(ast.iter_child_nodes(node))
+    return found
+
+
+def _binds(node: ast.AST, name: str) -> bool:
+    """Any binding of ``name``: assignment, ``for``, ``with``, walrus, ``del``, ``except ...
+    as``, ``import ... as``, a ``match`` capture, a ``global``/``nonlocal`` declaration."""
+    if isinstance(node, ast.Name):
+        return node.id == name and not isinstance(node.ctx, ast.Load)
+    if isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar):
+        return node.name == name
+    if isinstance(node, ast.MatchMapping):
+        return node.rest == name
+    if isinstance(node, ast.alias):
+        return (node.asname or node.name.split(".")[0]) == name
+    if isinstance(node, ast.Global | ast.Nonlocal):
+        return name in node.names
+    return False
+
+
+def _own_parameter_comparisons(tree: ast.AST) -> dict[int, str]:
+    """``compare:<function>(<parameter>):<comparison>`` for each comparison whose operands are
+    string constants and the function's own first parameter, never rebound in the function
+    (``event == "socket.__new__"`` in ``_audit(event, args)``): the other operand is then
+    whatever the function's callers pass, not an object written next to the string."""
+    forms: dict[int, str] = {}
+    for function in ast.walk(tree):
+        if not isinstance(function, _FUNCTIONS):
+            continue
+        positional = [*function.args.posonlyargs, *function.args.args]
+        if not positional:
+            continue
+        first = positional[0].arg
+        nodes = _own_nodes(function)
+        if any(_binds(node, first) for node in nodes):
+            continue
+        for node in nodes:
+            operands = [node.left, *node.comparators] if isinstance(node, ast.Compare) else []
+            if operands and all(
+                _text(o) is not None or (isinstance(o, ast.Name) and o.id == first)
+                for o in operands
+            ):
+                forms[id(node)] = f"compare:{function.name}({first}):{ast.unparse(node)}"
+    return forms
+
+
+def _string_forms(tree: ast.AST) -> tuple[set[int], dict[int, str], dict[int, int]]:
+    """The ids of the inert strings (a whole statement), the form of every other string, and
+    the node each pinned string is anchored to (its call, comparison or assignment):
 
     - ``write``: the name argument of ``setattr``/``delattr``;
     - ``getattr:<the call>``: the name argument of ``getattr``/``hasattr``;
-    - ``compare:<the comparison>``: a direct operand of a comparison (``event ==
-      "socket.__new__"``);
+    - ``compare:<function>(<parameter>):<the comparison>``: a direct operand of a comparison
+      with a function's own unrebound first parameter (``_own_parameter_comparisons``);
+    - ``compare:<the comparison>``: a direct operand of any other comparison;
     - ``assign:<the targets>``: anywhere in the value of an assignment (``_SQL = "..."``);
     - ``string``: anywhere else (passed on, sliced, partitioned).
 
-    So an entry pins a string to one exact constant in one syntactic position."""
+    So an entry pins a string to one exact constant in one syntactic position, and
+    ``dunder_findings`` allows that position once per module."""
     inert: set[int] = set()
     forms: dict[int, str] = {}
+    anchors: dict[int, int] = {}
 
-    def mark(root: ast.AST, form: str) -> None:
-        for sub in ast.walk(root):
-            if _text(sub) is not None:
-                forms.setdefault(id(sub), form)
+    def pin(sub: ast.AST, form: str, anchor: ast.AST) -> None:
+        if id(sub) not in forms:
+            forms[id(sub)] = form
+            anchors[id(sub)] = id(anchor)
 
     # The most specific position first: ``setdefault`` keeps the first form a string gets.
     for node in ast.walk(tree):
@@ -164,23 +236,29 @@ def _string_forms(tree: ast.AST) -> tuple[set[int], dict[int, str]]:
             called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
             if called in ATTRIBUTE_SETTERS:
                 forms[id(node.args[1])] = WRITE
+                anchors[id(node.args[1])] = id(node)
             elif called in ATTRIBUTE_GETTERS:
-                forms.setdefault(id(node.args[1]), f"getattr:{ast.unparse(node)}")
+                pin(node.args[1], f"getattr:{ast.unparse(node)}", node)
+    own = _own_parameter_comparisons(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Compare):
+            form = own.get(id(node), f"compare:{ast.unparse(node)}")
             for operand in (node.left, *node.comparators):
                 if _text(operand) is not None:
-                    forms.setdefault(id(operand), f"compare:{ast.unparse(node)}")
+                    pin(operand, form, node)
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
-            mark(node.value, f"assign:{' = '.join(ast.unparse(t) for t in node.targets)}")
-    return inert, forms
+            targets = " = ".join(ast.unparse(t) for t in node.targets)
+            for sub in ast.walk(node.value):
+                if _text(sub) is not None:
+                    pin(sub, f"assign:{targets}", node)
+    return inert, forms, anchors
 
 
 def strings(tree: ast.AST, *, inert_too: bool = False) -> Iterator[tuple[ast.AST, str]]:
     """Every ``str``/``bytes`` constant with its text; docstrings and other strings that are a
     whole statement only with ``inert_too``."""
-    inert, _ = _string_forms(tree)
+    inert, _, _ = _string_forms(tree)
     for node in ast.walk(tree):
         text = _text(node)
         if text is not None and (inert_too or id(node) not in inert):
@@ -204,25 +282,37 @@ def _named(node: ast.AST) -> list[tuple[str, str]]:
         return [(name, "import") for name in names]
     if isinstance(node, ast.Global | ast.Nonlocal):
         return [(name, "global") for name in node.names]
+    if isinstance(node, ast.arg):
+        return [(node.arg, "parameter")]
+    if isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar) and node.name:
+        return [(node.name, "define")]
+    if isinstance(node, ast.MatchMapping) and node.rest:
+        return [(node.rest, "define")]
     return []
 
 
-def named_dunders(tree: ast.AST) -> list[tuple[int, str, str]]:
-    """Every dunder ``tree`` names, allowed or not, with its line and form."""
-    _, string_forms = _string_forms(tree)
-    found: list[tuple[int, str, str]] = []
+def _anchored_dunders(tree: ast.AST) -> list[tuple[int, str, str, int | None]]:
+    """Every dunder ``tree`` names with its line, form and, for a pinned string, its anchor."""
+    inert, string_forms, anchors = _string_forms(tree)
+    found: list[tuple[int, str, str, int | None]] = []
     for node in ast.walk(tree):
         for name, form in _named(node):
             if is_dunder(name):
-                found.append((getattr(node, "lineno", 0), name, form))
-    for node, text in strings(tree):
-        form = string_forms.get(id(node), "string")
+                found.append((getattr(node, "lineno", 0), name, form, None))
+    for node, text in strings(tree, inert_too=True):
+        form = "docstring" if id(node) in inert else string_forms.get(id(node), "string")
         found += [
-            (getattr(node, "lineno", 0), segment, form)
+            (getattr(node, "lineno", 0), segment, form, anchors.get(id(node)))
             for segment in SEGMENT.findall(text)
             if is_dunder(segment)
         ]
     return found
+
+
+def named_dunders(tree: ast.AST) -> list[tuple[int, str, str]]:
+    """Every dunder ``tree`` names, allowed or not, with its line and form (``docstring`` for
+    a string that is a whole statement: ``open`` and ``linecache`` could read it back)."""
+    return [(line, name, form) for line, name, form, _ in _anchored_dunders(tree)]
 
 
 def allowed_in(name: str, form: str, module: str | None) -> bool:
@@ -238,11 +328,15 @@ def allowed_in(name: str, form: str, module: str | None) -> bool:
 def dunder_findings(tree: ast.AST, module: str | None) -> list[tuple[int, str]]:
     """Every dunder ``tree`` names outside ``ALLOWED`` (``module`` is the path under ``src``,
     ``ownvitals/log.py``; None for source that is no module of ``src``)."""
-    return [
-        (line, f"the dunder {name} as {form.split(':')[0]} (not allow-listed)")
-        for line, name, form in named_dunders(tree)
-        if not allowed_in(name, form, module)
-    ]
+    found: list[tuple[int, str]] = []
+    seen: dict[tuple[str, str], int] = {}
+    for line, name, form, anchor in _anchored_dunders(tree):
+        if not allowed_in(name, form, module):
+            found.append((line, f"the dunder {name} as {form.split(':')[0]} (not allow-listed)"))
+        elif anchor is not None and seen.setdefault((name, form), anchor) != anchor:
+            # A pinned position is allowed once: a second copy of it is another use.
+            found.append((line, f"the dunder {name} pinned once, here again (not allow-listed)"))
+    return found
 
 
 def string_findings(tree: ast.AST, token_names: set[str]) -> list[tuple[int, str]]:
@@ -256,6 +350,24 @@ def string_findings(tree: ast.AST, token_names: set[str]) -> list[tuple[int, str
             found.append((line, "a string naming the issuer token"))
         if CONTEXT_PATH.search(text):
             found.append((line, "a string with a path into ownvitals.context"))
+    return found
+
+
+def comment_findings(source: str, token_names: set[str]) -> list[tuple[int, str]]:
+    """Comments (``tokenize``) naming the issuer token or the module ``ownvitals.context``:
+    ``linecache`` or ``open`` reads a comment back as a value."""
+    found: list[tuple[int, str]] = []
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, SyntaxError):
+        return [(0, "source that tokenize refuses")]
+    for token in tokens:
+        if token.type != tokenize.COMMENT:
+            continue
+        if any(segment in token_names for segment in SEGMENT.findall(token.string)):
+            found.append((token.start[0], "a comment naming the issuer token"))
+        if CONTEXT_PATH.search(token.string):
+            found.append((token.start[0], "a comment naming ownvitals.context"))
     return found
 
 

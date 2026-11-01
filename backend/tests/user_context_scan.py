@@ -68,7 +68,7 @@ review gate. ``docs/dev/isolation.md`` lists these limits.
 
 import ast
 
-from user_context_dunders import dunder_findings, string_findings
+from user_context_dunders import comment_findings, dunder_findings, string_findings
 from user_context_rules import CONTEXT_FIELDS, MODULE_STRINGS, NEVER_NAMED
 from user_context_rules import findings as token_route_findings
 from user_context_types import Spellings, metadata, splice_strings, type_findings
@@ -412,7 +412,8 @@ def scan_source(source: str, module: str | None = None) -> list[tuple[int, str]]
                     found.append((node.lineno, f"import of {alias.name}"))
 
     found += _depends_findings(tree, aliases)
-    found += token_route_findings(tree, annotation_nodes)
+    found += token_route_findings(tree, annotation_nodes, module)
+    found += comment_findings(source, TOKEN_NAMES)
     found += dunder_findings(tree, module)
     found += string_findings(tree, TOKEN_NAMES)
     found += splice_refused

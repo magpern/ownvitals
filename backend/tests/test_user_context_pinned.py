@@ -21,6 +21,8 @@ from user_context_scan import scan_source
 
 HOOK = "ownvitals/egress/hook.py"
 LOG = "ownvitals/log.py"
+# ``hook.py``'s one comparison with the audit event name, in ``_audit`` on its own parameter.
+AUDIT = "def _audit(event, args):\n    if event == 'socket.__new__':\n        return args\n"
 
 
 def _admin(ctx: Any, tok: object) -> Any:
@@ -118,7 +120,7 @@ REFUSED = {
     "a dunder keyword": body("return f(__name__=x)"),
 }
 NEAR_MISSES = {
-    "the event comparison in hook.py": body("return event == 'socket.__new__'"),
+    "the event comparison in hook.py": AUDIT,
     "the entry point": "if __name__ == '__main__':\n    main()\n",
     "another module of the package": body("return resolve_name('ownvitals:db')"),
     "a longer name": body("return getLogger('ownvitals.contexts')"),
