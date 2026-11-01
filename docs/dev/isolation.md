@@ -212,22 +212,46 @@ never from a path, query, body or header. The same scan refuses, in every module
 - `copyreg` as an import, a name, an attribute or a string (`importlib.import_module("copyreg")`):
   `copyreg.__newobj__(type(ctx))` and `copyreg._reconstructor` make a blank context without the
   token (#89);
-- code inside an annotation (#89): parameter, return and variable annotations run when the
-  `def` or the statement runs on Python 3.12, so `def f(t: require_context.__globals__["_ISSUER"])`
-  puts the token in `f.__annotations__`. Every rule above applies inside annotations too (a
-  type may still name the module: `ownvitals.context.UserContext`), and an annotation may hold
-  only a type: names, attribute chains, a subscript of a type name (a generic), `|`, literals,
-  and tuples or lists of these. Refused inside one: a call, a subscript of anything else, an
-  attribute starting with `_`, the token's names (also as strings), and lambdas, comprehensions
-  and the like. A whole-string annotation is parsed and checked the same way
-  (`typing.get_type_hints` evaluates it);
-- `Annotated`'s metadata as code (#89): in `Annotated[T, m1, m2]`, `T` is the annotation and
-  `m1, m2` are ordinary code, evaluated with it, so every rule in this section applies to them
-  as it does outside an annotation (`Depends(get)`, `Header()` and `Field(ge=1)` pass;
-  `getattr(object, "__setattr__")(...)`, `vars(ownvitals.context)` and `UserContext(...)` don't).
-  Only `typing`'s or `typing_extensions`' `Annotated`, under any import alias, has metadata.
-  A name the module binds another way (`Annotated = dict`, another module's `Annotated`) is a
-  plain generic, where a call is refused.
+- `eval`, `exec` and `compile`, the builtins (#89): as a name, imported from `builtins` under
+  any alias, or as an attribute of `builtins` or `__builtins__`. Code in a string runs unseen.
+  `re.compile`, `ast.literal_eval` and other objects' methods of those names stay allowed.
+
+**Annotations follow an allow-list type grammar** (#89, Architect's decision on #115,
+`tests/user_context_types.py`). Annotations run on Python 3.12: parameter, return and variable
+annotations when the `def` or the statement runs, and every string in one when
+`typing.get_type_hints` resolves it. So every annotation position (parameters, returns,
+variable annotations, the value of `X: TypeAlias = ...`, PEP 695 `type` aliases and
+type-parameter bounds) may hold only a type expression:
+
+```
+type  := name | name.name...          (no part starting with _, never the token's names)
+       | name[ type-args ]            (a subscript of a dotted name)
+       | type | type                  (X | Y)
+       | *type                        (*Ts)
+       | constant                     (None, ..., numbers)
+       | "string"                     (parsed and checked as a type, in its place, recursively)
+type-args := type | (type, ...) | [type, ...]
+```
+
+- `Literal[...]`'s arguments are values: constants, dotted names (`Color.RED`) and nested
+  `Literal`s. They are never parsed (`Literal["a", "b"]` passes).
+- In `Annotated[T, m1, m2]`, `T` is a type and the metadata `m1, m2` is ordinary code, the one
+  place in an annotation where a call is allowed (FastAPI's `Depends(get)`, `Header()`,
+  `Field(ge=1)`). Every rule in this section applies to the metadata as it does outside an
+  annotation, so `getattr(object, "__setattr__")(...)`, `vars(ownvitals.context)` and
+  `UserContext(...)` are refused there. A string in the metadata is a value, not parsed.
+- `Literal` and `Annotated` count only when imported from `typing` or `typing_extensions`,
+  under any alias, and not rebound in the module (an assignment, a `def` or `class`, another
+  import, or the module alias rebound: `import typing as t; t = dict`). Anything else named so
+  is a plain generic, where a call is refused.
+- A string in a type position, nested ones included (`list["..."]`, `X | "..."`, a string in a
+  string), is parsed **into the module's tree** before any rule runs, so its code is judged with
+  the module's own imports and aliases: `"Annotated[int, vars(ownvitals.context)]"` after
+  `import ownvitals.context`, an aliased `UserContext` and `dataclasses.replace` are refused as
+  they are unquoted. A string that doesn't parse stays a string (`get_type_hints` would raise on
+  it); strings nested more than 8 deep are refused.
+- Anything else in a type position is refused: a call, an attribute of a call, a subscript of a
+  non-name, a lambda, a comprehension, a walrus.
 
 The guard reads "anywhere" with one exception (Architect, 2026-10-31): the frozen-dataclass idiom
 `object.__setattr__(self, "field", value)` written directly in a class's undecorated
@@ -255,6 +279,9 @@ leaves to the review gate. Known limits:
   `sys.modules`, `gc.get_referrers`/`gc.get_objects`, `inspect` (`inspect.getmodule(K)`, a
   function's closure or frame), and `ctypes`;
 - a keyword dict bound to a name first: `kw = {"issuer": tok}`, then `K(..., **kw)`;
+- code evaluated from a string outside annotations, other than through `eval`, `exec` and
+  `compile`: `typing.get_type_hints` on a string built at run time, `pickle`, `pydoc.locate` and
+  the like are reflection under the threat model;
 - class-level patching: `type(ctx).role = property(...)` changes what every context reads
   (accepted by the Architect);
 - a hook reached without its name, as above, when it sets a field that isn't one of the context's:
@@ -268,7 +295,7 @@ leaves to the review gate. Known limits:
 | 2 | roles and every privilege as an allowlist | `test_role_guard.py` (`role_guard.check_roles`), `test_roles_rerun.py` |
 | 3 | two users on test-only owned tables: no cross-user read, write, move, child reference or unique-value probe; no rows without a context; the app role can't change the schema | `test_isolation.py` |
 | 4 | no `app.user_id` or held cursor left on a pooled connection; `commit()` inside a session raises | `test_isolation.py` |
-| 5 | `UserContext` only from its issuers | `test_user_context_guard.py`, `test_user_context_writers.py`, `test_user_context_routes.py`, `test_context.py` |
+| 5 | `UserContext` only from its issuers | `test_user_context_guard.py`, `test_user_context_writers.py`, `test_user_context_routes.py`, `test_user_context_types.py`, `test_context.py` |
 | 6 | startup refusal of a privileged role, and of a login the database refuses | `test_role_check.py`, `test_role_check_login.py`, `test_role_check_refused.py` |
 | — | only allowlisted modules open a session | `test_session_guard.py` |
 

@@ -22,8 +22,11 @@ annotations included:
 - ``copyreg`` as an import, a name, an attribute or a string: ``copyreg.__newobj__(K)`` makes a
   blank context without the token.
 
-``annotation_findings`` keeps annotations, which run on Python 3.12, to type expressions, and
-``Annotated``'s metadata (``typing``'s only) is judged as ordinary code (see its docstring).
+- ``eval``, ``exec`` and ``compile``, the builtins: as a name, imported from ``builtins`` under
+  any alias, or as an attribute of ``builtins`` or ``__builtins__``. Code in a string runs
+  unseen by the scan. ``re.compile`` and other modules' functions of those names stay allowed.
+
+Annotations follow the type grammar of ``user_context_types``.
 
 Threat model (``docs/dev/isolation.md``): these rules stop plausible, review-visible forgeries;
 they are not a sandbox. Reflection in the process (the package object, ``sys.modules``, ``gc``,
@@ -32,7 +35,6 @@ with code review, RLS and the role checks (ADR 0002 section 1).
 """
 
 import ast
-from collections.abc import Callable
 
 CONTEXT_MODULE = "ownvitals.context"
 PACKAGE = "ownvitals"
@@ -40,6 +42,9 @@ PACKAGE = "ownvitals"
 # ``__defaults__`` would make it a default (``K.__init__.__kwdefaults__["issuer"] = tok``);
 # ``copyreg`` builds a blank instance without calling ``__init__``.
 NEVER_NAMED = {"__globals__", "__module__", "__kwdefaults__", "__defaults__", "copyreg"}
+# Builtins that run code given as a string.
+CODE_BUILTINS = {"eval", "exec", "compile"}
+BUILTINS_MODULES = {"builtins", "__builtins__"}
 # Strings that name the context module, for ``sys.modules`` and ``importlib``.
 MODULE_STRINGS = {CONTEXT_MODULE, ".context"}
 # The issuer token's keyword (``UserContext(..., issuer=...)``).
@@ -76,6 +81,8 @@ def _import_finding(node: ast.Import | ast.ImportFrom) -> str | None:
         return None
     if _within(node.module, "copyreg"):
         return "import of copyreg"
+    if node.module == "builtins" and any(a.name in CODE_BUILTINS for a in node.names):
+        return "import of eval, exec or compile"
     if any(a.name == "*" for a in node.names) and (node.level > 0 or _within(node.module, PACKAGE)):
         # ``ownvitals`` has no ``__all__``: a star import binds every loaded submodule, the
         # module object ``context`` among them.
@@ -100,14 +107,33 @@ def _package_names(tree: ast.AST) -> set[str]:
     return names
 
 
+def _builtins_names(tree: ast.AST) -> set[str]:
+    """Local names bound to the ``builtins`` module, plus ``__builtins__``."""
+    names = {"__builtins__"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {a.asname or a.name for a in node.names if a.name in BUILTINS_MODULES}
+    return names
+
+
 def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]:
     """What these rules refuse in ``tree``, annotations included (they run on 3.12).
     ``annotation_nodes`` are the ids of the nodes inside type annotations, where the package
     attribute ``ownvitals.context`` may name a type (``ownvitals.context.UserContext``)."""
     found: list[tuple[int, str]] = []
     package = _package_names(tree)
+    builtins = _builtins_names(tree)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import | ast.ImportFrom):
+        if isinstance(node, ast.Name) and node.id in CODE_BUILTINS:
+            found.append((node.lineno, f"use of {node.id}"))
+        elif (
+            isinstance(node, ast.Attribute)
+            and node.attr in CODE_BUILTINS
+            and isinstance(node.value, ast.Name)
+            and node.value.id in builtins
+        ):
+            found.append((node.lineno, f"use of builtins.{node.attr}"))
+        elif isinstance(node, ast.Import | ast.ImportFrom):
             if (why := _import_finding(node)) is not None:
                 found.append((node.lineno, why))
         elif isinstance(node, ast.Call) and passes_issuer(node):
@@ -130,138 +156,3 @@ def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]
             elif node.value in MODULE_STRINGS:
                 found.append((node.lineno, f"string naming the module {CONTEXT_MODULE}"))
     return found
-
-
-# Expressions a type never needs, refused inside an annotation.
-NOT_A_TYPE = (
-    ast.Lambda,
-    ast.NamedExpr,
-    ast.ListComp,
-    ast.SetComp,
-    ast.DictComp,
-    ast.GeneratorExp,
-    ast.Await,
-    ast.Yield,
-    ast.YieldFrom,
-)
-
-
-def _type_name(node: ast.AST) -> bool:
-    """A dotted name with no ``_``-prefixed part: what a generic's subscript is taken of."""
-    while isinstance(node, ast.Attribute):
-        if node.attr.startswith("_"):
-            return False
-        node = node.value
-    return isinstance(node, ast.Name)
-
-
-def _as_expression(annotation: ast.AST) -> ast.AST:
-    """A whole-string annotation parsed (``typing.get_type_hints`` evaluates it), else itself."""
-    if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
-        try:
-            parsed = ast.parse(annotation.value.strip(), mode="eval").body
-        except SyntaxError:
-            return annotation
-        for sub in ast.walk(parsed):
-            ast.copy_location(sub, annotation)
-        return parsed
-    return annotation
-
-
-TYPING_MODULES = {"typing", "typing_extensions"}
-
-
-def typing_annotated(tree: ast.AST) -> set[str]:
-    """The module's spellings of ``typing.Annotated``: imported from ``typing`` or
-    ``typing_extensions`` under any alias (``from typing import Annotated as A``, ``import typing
-    as t`` gives ``t.Annotated``). A bare name the module also binds another way (``Annotated =
-    dict``, a ``def`` or another import) is not one."""
-    names: set[str] = set()
-    other: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name in TYPING_MODULES:
-                    names.add(f"{alias.asname or alias.name}.Annotated")
-        elif isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                bound = alias.asname or alias.name
-                if node.module in TYPING_MODULES and alias.name == "Annotated":
-                    names.add(bound)
-                else:
-                    other.add(bound)
-        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
-            other.add(node.id)
-        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-            other.add(node.name)
-    return {name for name in names if name.split(".")[0] not in other}
-
-
-def annotated_metadata(root: ast.AST, annotated: set[str]) -> list[ast.expr]:
-    """The metadata (``elts[1:]``) of every ``Annotated[T, ...]`` in ``root``. The type position
-    stays an annotation; the metadata is ordinary code, evaluated with the annotation."""
-    found: list[ast.expr] = []
-    for node in ast.walk(root):
-        if (
-            isinstance(node, ast.Subscript)
-            and _dotted(node.value) in annotated
-            and isinstance(node.slice, ast.Tuple)
-        ):
-            found += node.slice.elts[1:]
-    return found
-
-
-def annotation_findings(
-    annotations: list[ast.AST],
-    token_names: set[str],
-    annotated: set[str],
-    scan_code: Callable[[str], list[tuple[int, str]]],
-) -> list[tuple[int, str]]:
-    """Annotations are evaluated at run time (Python 3.12), so one may hold only a type: a name,
-    an attribute chain, a subscript of a type name (a generic), ``|``, literals and tuples or
-    lists of these. Refused inside one: a call, a subscript of anything else, an attribute
-    starting with ``_`` (``__globals__``, ``_ISSUER``), the token's names, and lambdas,
-    comprehensions and the like.
-
-    ``Annotated``'s metadata (``annotated`` holds its spellings) is not part of the type: it is
-    code, judged by every rule for code. ``scan_source`` takes it out of the annotation; here it
-    is skipped, except in a whole-string annotation, whose metadata ``scan_code`` (the whole
-    scan) judges."""
-    found: list[tuple[int, str]] = []
-    for annotation in annotations:
-        root = _as_expression(annotation)
-        metadata = annotated_metadata(root, annotated)
-        skipped = {id(n) for e in metadata for n in ast.walk(e)}
-        if root is not annotation:  # a parsed string: its nodes are not in the module's tree
-            line = getattr(annotation, "lineno", 0)
-            for element in metadata:
-                found += [(line, why) for _, why in scan_code(ast.unparse(element))]
-        for node in ast.walk(root):
-            why = None
-            if id(node) in skipped:
-                continue
-            if isinstance(node, ast.Call):
-                why = "a call inside an annotation"
-            elif isinstance(node, ast.Subscript) and not _type_name(node.value):
-                why = "a subscript of a non-type inside an annotation"
-            elif isinstance(node, ast.Attribute) and node.attr.startswith("_"):
-                why = f"use of {node.attr} inside an annotation"
-            elif isinstance(node, NOT_A_TYPE):
-                why = "an expression that is not a type inside an annotation"
-            elif (isinstance(node, ast.Name) and node.id in token_names) or (
-                isinstance(node, ast.Attribute) and node.attr in token_names
-            ):
-                why = "reference to the issuer token inside an annotation"
-            elif isinstance(node, ast.Constant) and node.value in token_names:
-                why = "string naming the issuer token inside an annotation"
-            if why is not None:
-                found.append((getattr(node, "lineno", 0), why))
-    return found
-
-
-def _dotted(node: ast.AST) -> str:
-    parts: list[str] = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    return ".".join([getattr(node, "id", ""), *reversed(parts)])

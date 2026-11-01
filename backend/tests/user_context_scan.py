@@ -30,7 +30,9 @@
 - (#89, ``user_context_rules``) ``__globals__``, ``__module__``, the module object
   ``ownvitals.context`` (imports, the package attribute, the strings for ``sys.modules`` and
   ``importlib``), an ``issuer=`` keyword or a ``**`` argument spelling ``"issuer"``, and
-  ``copyreg``: the other routes to the issuer token or to a blank instance.
+  ``copyreg``: the other routes to the issuer token or to a blank instance; and ``eval``,
+  ``exec`` and ``compile``. Annotations follow the allow-list type grammar of
+  ``user_context_types`` (strings in type positions parsed into the tree first).
 
 One exception (Architect, 2026-10-31): the frozen-dataclass idiom ``object.__setattr__(self,
 "field", value)`` written directly in the undecorated ``__post_init__(self, ...)`` method of a
@@ -60,13 +62,9 @@ review gate. ``docs/dev/isolation.md`` lists these limits.
 
 import ast
 
-from user_context_rules import (
-    CONTEXT_FIELDS,
-    annotated_metadata,
-    annotation_findings,
-    typing_annotated,
-)
+from user_context_rules import CONTEXT_FIELDS
 from user_context_rules import findings as token_route_findings
+from user_context_types import Spellings, metadata, splice_strings, type_findings
 
 NAME = "UserContext"
 TOKEN_NAMES = {"issuer_token", "_ISSUER"}
@@ -380,23 +378,16 @@ def _forging_call(node: ast.Call) -> str | None:
 
 def scan_source(source: str) -> list[tuple[int, str]]:
     tree = ast.parse(source)
-    annotation_nodes: set[int] = set()
-    annotations: list[ast.AST] = []
-
-    def mark(annotation: ast.AST | None) -> None:
-        if annotation is not None:
-            annotations.append(annotation)
-            annotation_nodes.update(id(n) for n in ast.walk(annotation))
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.arg | ast.AnnAssign):
-            mark(node.annotation)
-        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            mark(node.returns)
+    # Annotations follow the type grammar of ``user_context_types``: strings in a type position
+    # are parsed into the tree first, so every rule below judges them with the module's imports.
     # ``Annotated``'s metadata is code, evaluated with the annotation: every rule applies to it.
-    annotated = typing_annotated(tree)
-    for annotation in annotations:
-        for element in annotated_metadata(annotation, annotated):
+    types = Spellings(tree)
+    roots, too_deep = splice_strings(tree, types)
+    annotation_nodes: set[int] = set()
+    for root in roots:
+        annotation_nodes.update(id(n) for n in ast.walk(root))
+    for root in roots:
+        for element in metadata(root, types):
             annotation_nodes.difference_update(id(n) for n in ast.walk(element))
 
     aliases = {NAME}  # local names bound to the class by an import
@@ -413,7 +404,9 @@ def scan_source(source: str) -> list[tuple[int, str]]:
 
     found += _depends_findings(tree, aliases)
     found += token_route_findings(tree, annotation_nodes)
-    found += annotation_findings(annotations, TOKEN_NAMES, annotated, scan_source)
+    found += [(line, "a string nested too deep in an annotation") for line in too_deep]
+    for root in roots:
+        found += type_findings(root, types, TOKEN_NAMES)
     refused = _spellings(tree, ALWAYS_REFUSED) | (
         _spellings(tree, REFUSED_WITH_CONTEXT) if NAME in source else set()
     )
