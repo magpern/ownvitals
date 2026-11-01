@@ -15,7 +15,7 @@ from ownvitals.config import Settings
 from ownvitals.flags import core
 from ownvitals.flags.core import Banner, SignupMode
 
-_ONE = text("SELECT value FROM app_settings WHERE key = :key")
+_ONE = text("SELECT value FROM app_settings WHERE flag = :key")
 
 
 async def _stored(db: AsyncSession, key: str) -> Any:

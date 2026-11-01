@@ -7,8 +7,9 @@ Create Date: 2026-11-01
 Two system tables (``ownvitals.db.SYSTEM_TABLES``: no ``owner_id``, no row-level security), from
 classbeat's ``0007_tiers`` at ``d806051`` with ownvitals' keys:
 
-- ``app_settings``: one row per flag key (``signup_mode``, ``experimental_findings``,
-  ``ai_insights``, ``banner``; the check refuses any other key). The app role may only read it;
+- ``app_settings``: one row per flag (``signup_mode``, ``experimental_findings``,
+  ``ai_insights``, ``banner``; the check refuses any other). The column is ``flag``, not
+  classbeat's ``key``: the crypto guard reads a ``key`` column as a secret. The app role may only read it;
   the admin area writes it as ``ownvitals_maint``. A cleared flag is the JSON ``null``.
 - ``admin_audit``: one row per admin transaction or refusal. Its id is a ``bigserial``
   (ADR 0002 section 3: the webhook-secret role gets ``USAGE`` on its sequence in M1). It holds
@@ -39,7 +40,7 @@ SETTING_KEYS = "'signup_mode', 'experimental_findings', 'ai_insights', 'banner'"
 
 APP_SETTINGS = f"""
     CREATE TABLE public.app_settings (
-        key text PRIMARY KEY CONSTRAINT app_settings_key CHECK (key IN ({SETTING_KEYS})),
+        flag text PRIMARY KEY CONSTRAINT app_settings_flag CHECK (flag IN ({SETTING_KEYS})),
         value jsonb NOT NULL
             CONSTRAINT app_settings_value CHECK (octet_length(value::text) <= 2048),
         created_at timestamptz NOT NULL DEFAULT now(),

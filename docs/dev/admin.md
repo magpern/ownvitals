@@ -39,7 +39,7 @@ Its privileges, all of them (guard 11 compares the catalog with this list):
 | the database | `CONNECT` | |
 | schema `public` | `USAGE` | |
 | `admin_audit` | `INSERT`; `SELECT` on every column but `ip_hash`; `USAGE` on `admin_audit_id_seq` | write and read the log |
-| `app_settings` | `SELECT` (all columns), `INSERT (key, value, updated_by)`, `UPDATE (value, updated_at, updated_by)` | read, set and clear flags (clearing stores the JSON `null`: no `DELETE`) |
+| `app_settings` | `SELECT` (all columns), `INSERT (flag, value, updated_by)`, `UPDATE (value, updated_at, updated_by)` | read, set and clear flags (clearing stores the JSON `null`: no `DELETE`) |
 | `jobs` | `SELECT (id, kind, state, error_category, created_at, finished_at)` | counts per state, failures by category; never the owner, input, keys or hashes |
 
 Nothing on any account table, `job_events`, `connection_keks` or any health-data table. The
@@ -93,7 +93,7 @@ route template and method. A body is refused 413 over 16 KiB. Every response is 
 
 ## Flags
 
-Stored in `app_settings` (the table's check refuses any other key), joined with the environment per
+Stored in `app_settings`, one row per `flag` (the table's check refuses any other), joined with the environment per
 request; the database tightens, never loosens:
 
 | Key | Stored | Effective |

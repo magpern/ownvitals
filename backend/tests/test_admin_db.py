@@ -77,7 +77,7 @@ async def test_a_read_writes_its_row_first_and_cannot_write(db: AdminDb, actor: 
             assert (await session.execute(text("SHOW transaction_read_only"))).scalar() == "on"
             with pytest.raises(DBAPIError, match="read-only transaction"):
                 await session.execute(
-                    text("INSERT INTO app_settings (key, value) VALUES ('banner', 'null')")
+                    text("INSERT INTO app_settings (flag, value) VALUES ('banner', 'null')")
                 )
     # The failed statement aborted the transaction (its ``ok`` row goes with it), and the caught
     # error does not turn into a silent commit: one error row.
@@ -106,7 +106,7 @@ async def test_a_write_commits_with_its_row(db: AdminDb, actor: Actor) -> None:
         db, actor, "setting.set", write=True, params={"key": "signup_mode", "value": "closed"}
     ) as session:
         await session.execute(
-            text("INSERT INTO app_settings (key, value) VALUES ('signup_mode', '\"closed\"')")
+            text("INSERT INTO app_settings (flag, value) VALUES ('signup_mode', '\"closed\"')")
         )
     assert [r.outcome for r in _rows()] == ["ok"]
     assert _superuser("SELECT value FROM app_settings")[0].value == "closed"
@@ -120,7 +120,7 @@ async def test_a_refused_write_changes_nothing_and_leaves_a_refused_row(
             db, actor, "setting.set", write=True, params={"key": "banner"}
         ) as session:
             await session.execute(
-                text("INSERT INTO app_settings (key, value) VALUES ('banner', 'null')")
+                text("INSERT INTO app_settings (flag, value) VALUES ('banner', 'null')")
             )
             raise AdminRefused("invalid_value", 422)
     assert refused.value.audited

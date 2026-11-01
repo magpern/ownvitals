@@ -21,8 +21,8 @@ from jobtools import engine_for
 
 
 async def _stored(aenv: AdminEnv) -> dict[str, Any]:
-    rows = await aenv.superuser("SELECT key, value FROM app_settings")
-    return {r.key: r.value for r in rows.all()}
+    rows = await aenv.superuser("SELECT flag, value FROM app_settings")
+    return {r.flag: r.value for r in rows.all()}
 
 
 def _flag(body: dict[str, Any], key: str) -> dict[str, Any]:
@@ -148,7 +148,7 @@ async def test_a_stored_flag_tightens_but_never_loosens_the_environment(
             "database",
         )
         await other.superuser(
-            "UPDATE app_settings SET value = '\"bogus\"' WHERE key = 'ai_insights'"
+            "UPDATE app_settings SET value = '\"bogus\"' WHERE flag = 'ai_insights'"
         )
         body = (await admin.get("/api/admin/settings")).json()
         assert _flag(body, "ai_insights")["effective"] == "off"  # invalid: the stricter default
@@ -192,7 +192,7 @@ async def test_the_app_role_can_only_read_the_flags(aenv: AdminEnv, app_database
     with engine_for(app_database_url) as engine, engine.connect() as connection:
         assert connection.execute(text("SELECT count(*) FROM app_settings")).scalar() == 0
         for statement in (
-            "INSERT INTO app_settings (key, value) VALUES ('signup_mode', '\"invite\"')",
+            "INSERT INTO app_settings (flag, value) VALUES ('signup_mode', '\"invite\"')",
             "UPDATE app_settings SET value = 'null'",
             "DELETE FROM app_settings",
         ):

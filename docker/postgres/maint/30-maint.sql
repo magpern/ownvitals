@@ -108,9 +108,9 @@ GRANT INSERT ON public.admin_audit TO ownvitals_maint;
 GRANT USAGE ON SEQUENCE public.admin_audit_id_seq TO ownvitals_maint;
 
 -- The stored flags: read, set and clear (clearing stores the JSON null: no DELETE).
-GRANT SELECT (key, value, created_at, updated_at, updated_by) ON public.app_settings
+GRANT SELECT (flag, value, created_at, updated_at, updated_by) ON public.app_settings
   TO ownvitals_maint;
-GRANT INSERT (key, value, updated_by) ON public.app_settings TO ownvitals_maint;
+GRANT INSERT (flag, value, updated_by) ON public.app_settings TO ownvitals_maint;
 GRANT UPDATE (value, updated_at, updated_by) ON public.app_settings TO ownvitals_maint;
 
 -- Jobs: counts per state and failures by kind and category; never the owner, input, keys or

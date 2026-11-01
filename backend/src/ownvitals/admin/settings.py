@@ -42,15 +42,15 @@ router = admin_router()
 SETTINGS = "/settings"
 MAX_VALUE_BYTES = 2048  # the app_settings_value check
 
-_ALL_SETTINGS = text("SELECT key, value, updated_at, updated_by FROM app_settings")
+_ALL_SETTINGS = text("SELECT flag, value, updated_at, updated_by FROM app_settings")
 _UPSERT = text(
-    "INSERT INTO app_settings (key, value, updated_by) VALUES (:k, CAST(:v AS jsonb), :by) "
-    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now(), "
+    "INSERT INTO app_settings (flag, value, updated_by) VALUES (:k, CAST(:v AS jsonb), :by) "
+    "ON CONFLICT (flag) DO UPDATE SET value = EXCLUDED.value, updated_at = now(), "
     "updated_by = EXCLUDED.updated_by"
 )
 _CLEAR = text(
     "UPDATE app_settings SET value = 'null'::jsonb, updated_at = now(), updated_by = :by "
-    "WHERE key = :k AND value <> 'null'::jsonb RETURNING key"
+    "WHERE flag = :k AND value <> 'null'::jsonb RETURNING flag"
 )
 
 
@@ -123,7 +123,7 @@ def _flag(key: str, settings: Settings, row: Any) -> FlagOut:
 
 
 async def _view(session: AsyncSession, settings: Settings) -> SettingsOut:
-    rows = {r.key: r for r in (await session.execute(_ALL_SETTINGS)).all()}
+    rows = {r.flag: r for r in (await session.execute(_ALL_SETTINGS)).all()}
     return SettingsOut(flags=[_flag(k, settings, rows.get(k)) for k in core.KEYS])
 
 

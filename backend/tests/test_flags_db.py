@@ -26,7 +26,7 @@ def _store(key: str, value: Any) -> None:
         connection.execute(text("DELETE FROM app_settings"))
         if value is not ABSENT:
             connection.execute(
-                text("INSERT INTO app_settings (key, value) VALUES (:k, CAST(:v AS jsonb))"),
+                text("INSERT INTO app_settings (flag, value) VALUES (:k, CAST(:v AS jsonb))"),
                 {"k": key, "v": json.dumps(value)},
             )
 
@@ -81,7 +81,7 @@ async def test_banner(env: Env) -> None:
 
 async def test_the_table_refuses_an_unknown_key(env: Env) -> None:
     del env
-    with pytest.raises(IntegrityError, match="app_settings_key"):
+    with pytest.raises(IntegrityError, match="app_settings_flag"):
         _store("theme", "dark")
 
 

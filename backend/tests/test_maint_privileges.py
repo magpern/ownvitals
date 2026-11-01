@@ -33,9 +33,9 @@ EXPECTED: frozenset[tuple[str, str]] = frozenset(
     | {("admin_audit", "INSERT"), ("admin_audit_id_seq", "USAGE")}
     | {
         (f"app_settings.{c}", "SELECT")
-        for c in ("key", "value", "created_at", "updated_at", "updated_by")
+        for c in ("flag", "value", "created_at", "updated_at", "updated_by")
     }
-    | {(f"app_settings.{c}", "INSERT") for c in ("key", "value", "updated_by")}
+    | {(f"app_settings.{c}", "INSERT") for c in ("flag", "value", "updated_by")}
     | {(f"app_settings.{c}", "UPDATE") for c in ("value", "updated_at", "updated_by")}
     | {
         (f"jobs.{c}", "SELECT")
