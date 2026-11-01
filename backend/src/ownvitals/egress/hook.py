@@ -103,9 +103,6 @@ _PROCESS: Final = frozenset(
 )
 # A Python function only where the platform has no socketpair (Windows); None elsewhere.
 _SOCKETPAIR_CODE: Final = getattr(socket.socketpair, "__code__", None)
-_STANDARD_LOOP_MODULES: Final = frozenset(
-    {"asyncio.unix_events", "asyncio.windows_events", "asyncio.selector_events"}
-)
 
 
 class EgressRefused(PermissionError):
@@ -218,9 +215,10 @@ def require_standard_event_loop() -> None:
     selector loop fires the socket audit events (ADR 0009's probe; uvloop and the proactor loop
     connect in C)."""
     loop = asyncio.get_running_loop()
-    cls = type(loop)
-    if cls.__module__ not in _STANDARD_LOOP_MODULES or not isinstance(loop, BaseSelectorEventLoop):
-        raise RuntimeError(f"refusing to run on {cls!r}")
+    # The class itself, never a subclass: uvloop's loop or another library's subclass of the
+    # standard one may connect without the audit events.
+    if type(loop) is not asyncio.SelectorEventLoop or not isinstance(loop, BaseSelectorEventLoop):
+        raise RuntimeError(f"refusing to run on {type(loop)!r}")
 
 
 def _family(sock: Any) -> int | None:

@@ -44,7 +44,7 @@ MODULE_ROUTES = {
     "from ownvitals import context": (FORGERY, NEAR_MISS),
     "module.__dict__": (
         FORGERY.replace("vars(c)", "c.__dict__"),
-        NEAR_MISS.replace("vars(obj)", "obj.__dict__"),
+        NEAR_MISS,  # ``__dict__`` is allow-listed only in ``log.py``
     ),
     "sys.modules": (
         FORGERY.replace("from ownvitals import context as c", "import sys")
@@ -154,7 +154,7 @@ ANNOTATION_ROUTES: dict[str, tuple[str, str]] = {
     ),
     "a relative star import": ("from .. import *\n", "from .. import db\n"),
     "a relative star import, one level": ("from .jobs import *\n", "from .jobs import run\n"),
-    "__kwdefaults__": (body("f.__kwdefaults__['issuer'] = t"), body("return f.__doc__")),
+    "__kwdefaults__": (body("f.__kwdefaults__['issuer'] = t"), body("return f.kwdefaults")),
     "__defaults__": (body("f.__defaults__ = (t,)"), body("return f.defaults")),
 }
 

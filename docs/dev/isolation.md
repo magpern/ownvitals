@@ -194,16 +194,14 @@ never from a path, query, body or header. The same scan refuses, in every module
   K(uid, "admin", issuer=tok)` builds an admin context. So the scan refuses:
   - `__globals__`, `__kwdefaults__` and `__defaults__` as an attribute, a name or a string
     (`require_context.__globals__`, `K.__init__.__kwdefaults__["issuer"] = tok`);
-  - `__module__` as an attribute, a name or a string, except an attribute that is a direct
-    operand of `==`, `!=`, `in`, `not in`, `is` or `is not`. `require_context.__module__` (or
-    `ctx.__class__.__module__`) names the module that holds the token, and
-    `importlib.import_module`, `__import__`, `sys.modules` under any name, `__getitem__` or a
-    copy (`dict(sys.modules)[...]`) turn it into the module. A comparison yields only a bool, so
-    `egress.hook`'s `type(loop).__module__ not in (...)` stays allowed; an f-string, an
-    assignment or an ordering comparison does not;
-  - `sys.modules` looked up by a computed key (`sys.modules[name]`, `sys.modules.get(name)`,
-    any alias of `sys` or `modules`), against a module name built some other way. A literal key
-    is judged by the string rules;
+  - `import_module` (any module's, under any import alias) other than called directly with a
+    string literal (by position or as `name=`): `importlib.import_module(name)`, `load =
+    importlib.import_module`. And `sys.modules` looked up by a computed key
+    (`sys.modules[name]`, `sys.modules.get(name)`, any alias of `sys` or `modules`). A module name
+    built at run time (`repr(type(ctx))` sliced to it) turns into the module that holds the
+    token. A literal is judged by the string rules. `__import__` and `__module__` are dunders,
+    refused by the attribute rule below. `sys.modules` bound to another name
+    (`mods = sys.modules; mods[name]`) or copied stays with code review (Known limits);
   - every import that binds the module object `ownvitals.context` (`import ownvitals.context as
     c`, `from ownvitals import context`, `from .. import context`), `ownvitals.context` as an
     attribute of the package outside a type annotation, and the strings `"ownvitals.context"`
@@ -224,6 +222,51 @@ never from a path, query, body or header. The same scan refuses, in every module
 - `eval`, `exec` and `compile`, the builtins (#89): as a name, imported from `builtins` under
   any alias, or as an attribute of `builtins` or `__builtins__`. Code in a string runs unseen.
   `re.compile`, `ast.literal_eval` and other objects' methods of those names stay allowed.
+
+**Dunder names follow an allow-list: guard 5's attribute rule** (#89, Architect's decision on
+the eighth #115 review, `tests/user_context_dunders.py`). Every route the reviews found to the
+token's module, class or setter named a dunder (`__globals__`, `__module__`, `__setattr__`,
+`__dict__`), and refusing them one spelling at a time let each new syntax reopen them. So a name
+of the form `__x__` is refused wherever the source can name an attribute, a module global or a
+builtin with it:
+
+- an attribute (`f.__globals__`), an f-string's included;
+- a name (`__import__`, `__builtins__`, `__module__` in a class body), and a `global` or
+  `nonlocal` declaration;
+- a string constant, so the name argument of `getattr`, `setattr`, `hasattr` and `delattr`,
+  `vars(K)["__init__"]` and `operator.attrgetter("__dict__")`, and f-string text;
+- a keyword argument, and a `match` class-pattern keyword: `case object(__globals__=g)` reads
+  the attribute and binds it;
+- an imported name (`from ownvitals import __version__`).
+
+A comparison is no exception: `x.__module__ == r` calls `r.__eq__` with the name when `str`'s
+returns `NotImplemented`, and `x.__module__ in r` calls `r.__contains__` (a list compares each
+element), so the other operand receives the value. Defining a dunder method or parameter
+(`def __eq__(self, other)`) names no attribute and stays allowed; assigning one in a class body
+(`__eq__ = list.append`) does not.
+
+The exceptions, each with its reason, are exactly what `src` uses today (the issuer modules
+aside, which are not scanned); a name used in one module is allowed only there.
+`test_user_context_dunders.py` fails if an entry is unused or `src` uses one elsewhere:
+
+| Name | Where | Why |
+|---|---|---|
+| `__name__` | everywhere | a module's or a function's name, for loggers and `__main__` checks |
+| `__main__` | everywhere | the `if __name__ == "__main__"` entry points |
+| `__all__` | everywhere | a package's public names |
+| `__init__` | everywhere | `super().__init__(...)`; the hook rule above refuses any other use |
+| `__aiter__` | `egress/clients.py` | delegating `async for` to a wrapped stream |
+| `__cause__`, `__context__`, `__suppress_context__` | `log.py` | walking an exception chain |
+| `__dict__` | `log.py` | a log record's extra fields |
+| `__version__` | `__init__.py`, `web.py` | the package version |
+| `__code__` | `egress/hook.py` | recognising `socket.socketpair`'s own code |
+| `__setattr__` | `analysis/methods/series.py`, `analysis/quality.py` | the frozen-dataclass idiom in `__post_init__`; the idiom rule above refuses any other use |
+| `__NAMES__`, `__SQL_TEXT_BUILTINS__` | `db/queue_check.py` | placeholders in SQL text, replaced before the query runs |
+
+An exception lifts only this rule: the rules above still judge the same name. A new use of a
+dunder in `src` needs the Architect and a new row. Because `__module__` is not on the list,
+`egress.hook` checks the running loop by its class (`type(loop) is asyncio.SelectorEventLoop`),
+not by its module's name.
 
 **Annotations follow an allow-list type grammar** (#89, Architect's decision on #115,
 `tests/user_context_types.py`). Annotations run on Python 3.12: parameter, return and variable
@@ -267,7 +310,9 @@ library type (`mod._Hidden`) is too; if `src` ever needs one, it goes to the Arc
   import, and `global`/`nonlocal` declarations). A star import from any module other than
   `typing` or `typing_extensions` (relative ones included) binds names neither view sees, so it
   counts as a binding of every name: after `from somelib import *` no spelling of `Literal`,
-  `Annotated` or `TypeAlias` resolves.
+  `Annotated` or `TypeAlias` resolves. A star import from `typing` is trusted but binds no
+  spelling either: `from typing import *` alone doesn't make `Literal` resolve, so its
+  `Literal["a"]` is refused (fails closed); import the name explicitly.
 - **A misread exemption fails closed** (#89, the sixth #115 review): a subscript named `Literal`
   or `Annotated`, by its last name part or as an imported alias of either, that doesn't resolve
   to `typing`'s as above is refused, never read as a plain generic. A `def make(Literal):` whose
@@ -302,12 +347,15 @@ leaves to the review gate. Known limits:
 
 - a name built at run time: `getattr(K, "__post_" + "init__")`,
   `getattr(super(type(ctx), ctx), "__SETATTR__".lower())`, `b"__setattr__".decode()`, or a
-  module name built the same way for `importlib` or `sys.modules`;
+  module name built the same way for `sys.modules` bound to another name or copied
+  (`mods = sys.modules; mods[name]`, `dict(sys.modules)[name]`, `sys.modules.__getitem__` is a
+  dunder and refused). Under the bound set with the dunder allow-list, a route through
+  reflection or a run-time namespace change that writes no dunder and no token name goes here;
 - the module reached through the package object, literally or not: `getattr(ownvitals,
   "context")`, `vars(ownvitals)["context"]`, `sys.modules["ownvitals"].context`,
   `vars(sys.modules["ownvitals"])`, `getattr(ownvitals, "con" + "text")`. With the module,
-  `vars(m)` and `m.__dict__` give the token, and neither can be refused outright: other code
-  (`ownvitals/log.py`) uses both;
+  `vars(m)` gives the token, and it can't be refused outright: other code uses it
+  (`m.__dict__` is a dunder, allowed only in `ownvitals/log.py`);
 - the general class, reflection in the process: walking package or module objects, searching
   `sys.modules`, `gc.get_referrers`/`gc.get_objects`, `inspect` (`inspect.getmodule(K)`, a
   function's closure or frame), and `ctypes`;

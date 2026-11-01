@@ -6,14 +6,12 @@ annotations included:
 - the attribute, name or string ``__globals__``, ``__kwdefaults__`` and ``__defaults__``: a
   function's globals hold the issuer token (``require_context.__globals__``), and a default can
   pass it;
-- ``__module__`` as an attribute, a name or a string, except an attribute that is a direct
-  operand of a comparison (``==``, ``!=``, ``in``, ``not in``, ``is``, ``is not``):
-  ``f.__module__`` names the module that holds the token, and ``importlib.import_module``,
-  ``__import__`` or ``sys.modules`` turn the name into the module. A comparison only yields a
-  bool (``egress.hook`` checks an event loop's module with ``in``);
-- ``sys.modules`` looked up by a computed key (``sys.modules[name]``,
-  ``sys.modules.get(name)``): a second line against a module name built some other way. A literal
-  key is judged by the string rules (``"ownvitals.context"`` is refused);
+- ``import_module`` (any module's, under any import alias) other than called directly with a
+  string literal (``load = importlib.import_module`` included), and ``sys.modules`` looked up
+  by a computed key (``sys.modules[name]``, ``sys.modules.get(name)``): a module name built at
+  run time (``repr(type(ctx))`` sliced) turns into the module that holds the token. A literal
+  is judged by the string rules (``"ownvitals.context"`` is refused). ``__module__`` and
+  ``__import__`` are dunders, refused by ``user_context_dunders``;
 - the module object ``ownvitals.context``: every import that binds it (``import
   ownvitals.context as c``, ``from ownvitals import context``, a relative ``from .. import
   context``), ``ownvitals.context`` reached as an attribute of the package outside a type
@@ -52,9 +50,8 @@ PACKAGE = "ownvitals"
 NEVER_NAMED = {"__globals__", "__kwdefaults__", "__defaults__", "copyreg"}
 # ``sys.modules`` methods that take a module name.
 MODULES_LOOKUPS = {"get", "pop", "setdefault"}
-# Read only as a direct comparison operand: it names the module that holds the token.
-MODULE_NAME = "__module__"
-COMPARISONS = (ast.Eq, ast.NotEq, ast.In, ast.NotIn, ast.Is, ast.IsNot)
+# ``importlib.import_module`` under any spelling: only with a literal module name.
+IMPORT_MODULE = "import_module"
 # Builtins that run code given as a string.
 CODE_BUILTINS = {"eval", "exec", "compile"}
 BUILTINS_MODULES = {"builtins", "__builtins__"}
@@ -166,13 +163,32 @@ def _modules_by_computed_key(node: ast.AST, modules: set[str]) -> bool:
     )
 
 
-def _compared(tree: ast.AST) -> set[int]:
-    """The ids of the direct operands of comparisons whose operators are all equality,
-    membership or identity tests."""
+def _import_module_names(tree: ast.AST) -> set[str]:
+    """``import_module`` and every local name an import binds to it."""
+    return {IMPORT_MODULE} | {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.name == IMPORT_MODULE
+    }
+
+
+def _literal_imports(tree: ast.AST, names: set[str]) -> set[int]:
+    """Ids of the ``import_module`` references called directly with a literal module name, by
+    position or as ``name=``."""
     ids: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Compare) and all(isinstance(op, COMPARISONS) for op in node.ops):
-            ids |= {id(operand) for operand in (node.left, *node.comparators)}
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if (isinstance(func, ast.Attribute) and func.attr == IMPORT_MODULE) or (
+            isinstance(func, ast.Name) and func.id in names
+        ):
+            given = node.args[0] if node.args else None
+            given = next((k.value for k in node.keywords if k.arg == "name"), given)
+            if not _computed(given):
+                ids.add(id(func))
     return ids
 
 
@@ -184,8 +200,14 @@ def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]
     package = _package_names(tree)
     builtins = _builtins_names(tree)
     modules = _sys_modules_names(tree)
-    compared = _compared(tree)
+    loaders = _import_module_names(tree)
+    literal_imports = _literal_imports(tree, loaders)
     for node in ast.walk(tree):
+        if (
+            (isinstance(node, ast.Attribute) and node.attr == IMPORT_MODULE)
+            or (isinstance(node, ast.Name) and node.id in loaders)
+        ) and id(node) not in literal_imports:
+            found.append((node.lineno, "import_module other than called with a literal"))
         if _modules_by_computed_key(node, modules):
             found.append((getattr(node, "lineno", 0), "sys.modules looked up by a computed key"))
         if isinstance(node, ast.Name) and node.id in CODE_BUILTINS:
@@ -202,14 +224,6 @@ def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]
                 found.append((node.lineno, why))
         elif isinstance(node, ast.Call) and passes_issuer(node):
             found.append((node.lineno, "an issuer= keyword outside the issuer modules"))
-        elif isinstance(node, ast.Name) and node.id == MODULE_NAME:
-            found.append((node.lineno, f"use of {MODULE_NAME}"))
-        elif (
-            isinstance(node, ast.Attribute)
-            and node.attr == MODULE_NAME
-            and id(node) not in compared
-        ):
-            found.append((node.lineno, f"use of {MODULE_NAME} outside a comparison"))
         elif isinstance(node, ast.Name) and node.id in NEVER_NAMED:
             found.append((node.lineno, f"use of {node.id}"))
         elif isinstance(node, ast.Attribute) and node.attr in NEVER_NAMED:
@@ -223,7 +237,7 @@ def findings(tree: ast.AST, annotation_nodes: set[int]) -> list[tuple[int, str]]
         ):
             found.append((node.lineno, f"use of the module {CONTEXT_MODULE}"))
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if node.value in NEVER_NAMED or node.value == MODULE_NAME:
+            if node.value in NEVER_NAMED:
                 found.append((node.lineno, f"string {node.value!r}"))
             elif node.value in MODULE_STRINGS:
                 found.append((node.lineno, f"string naming the module {CONTEXT_MODULE}"))

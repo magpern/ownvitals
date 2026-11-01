@@ -330,6 +330,7 @@ def test_typing_literal_and_annotated_stay_allowed(_: str, near: str) -> None:
     ("star", "trusted"),
     [
         ("from synthetic_lib import *\n", set[str]()),
+        ("from typing_foo import *\n", set[str]()),  # named like typing, but not typing
         ("from .typing import *\n", set[str]()),  # the scan refuses it anyway (a relative star)
         ("from typing import *\n", {"Literal"}),
         ("from typing_extensions import *\n", {"Literal"}),

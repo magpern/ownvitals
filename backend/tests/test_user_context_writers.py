@@ -16,6 +16,7 @@ import pytest
 
 from ctx import make_context
 from ownvitals.context import UserContext, require_context
+from user_context_dunders import beyond_the_allow_list
 from user_context_scan import CONTEXT_FIELDS, scan_source
 
 
@@ -102,9 +103,9 @@ REFUSED = {
     "        return super(A, cls).__new__(cls)\n",
     "a class body naming __new__": "class A:\n    def __new__(cls): ...\n    make = __new__\n",
 }
+# The hook rule allows it, but ``src`` doesn't use ``__new__``: the dunder allow-list refuses it.
+SUPER_NEW = "class S(Base):\n    def __new__(cls, *args):\n        return super().__new__(cls)\n"
 ALLOWED = {
-    "super().__new__ in __new__": "class S(Base):\n    def __new__(cls, *args):\n"
-    "        return super().__new__(cls)\n",
     "defining __setattr__ and __delattr__": "class Frozen:\n"
     "    def __setattr__(self, name, value):\n        raise AttributeError(name)\n"
     "    def __delattr__(self, name):\n        raise AttributeError(name)\n",
@@ -121,6 +122,12 @@ def test_every_other_spelling_of_a_field_write_is_refused(source: str) -> None:
 @pytest.mark.parametrize("source", ALLOWED.values(), ids=ALLOWED.keys())
 def test_defining_the_methods_and_super_new_in_new_stay_allowed(source: str) -> None:
     assert scan_source(source) == []
+
+
+def test_super_new_in_new_is_refused_by_the_allow_list_alone() -> None:
+    found = scan_source(SUPER_NEW)
+    assert found != []
+    assert beyond_the_allow_list(found) == []
 
 
 # The #81 review's N2 (#89): three more constructions, each run here on a real context.
@@ -222,8 +229,9 @@ RULES: dict[str, tuple[dict[str, str], dict[str, str]]] = {
         },
     ),
     # The seventh #115 review's routes: each turns the name of the module that holds the token
-    # into the module. A comparison only yields a bool.
-    "__module__ outside a comparison": (
+    # into the module. A comparison is no exception (the eighth review): the other operand's
+    # ``__eq__`` or ``__contains__`` receives the name. ``src`` doesn't name ``__module__``.
+    "__module__": (
         {
             "import_module": body(
                 "import importlib",
@@ -248,14 +256,16 @@ RULES: dict[str, tuple[dict[str, str], dict[str, str]]] = {
             "an ordering comparison": body("return K.__module__ < 'p'"),
             "getattr with the string": body("return getattr(K, '__module__')"),
             "the class-body name": "class C:\n    where = __module__\n",
-        },
-        {
             "==": body("return type(loop).__module__ == 'asyncio'"),
             "!=": body("return type(loop).__module__ != 'asyncio'"),
             "in a set": body("return x.__module__ in {'asyncio', 'uvloop'}"),
             "not in": body("return type(loop).__module__ not in MODULES"),
             "is": body("return x.__module__ is None"),
             "is not, on the right": body("return None is not x.__module__"),
+        },
+        {
+            "the class itself": body("return type(loop) is asyncio.SelectorEventLoop"),
+            "a field named module": body("return x.module == 'asyncio'"),
         },
     ),
     "sys.modules by a computed key": (
@@ -267,7 +277,7 @@ RULES: dict[str, tuple[dict[str, str], dict[str, str]]] = {
         },
         {
             "a literal key": body("import sys", "return sys.modules['json']"),
-            "__module__ compared": body("return type(loop).__module__ in ('asyncio',)"),
+            "another method of sys.modules": body("import sys", "return sys.modules.keys()"),
             "another dict's get": body("return options.get(name)"),
         },
     ),
@@ -334,6 +344,9 @@ RULES: dict[str, tuple[dict[str, str], dict[str, str]]] = {
 }
 REFUSED_BY_RULE = {f"{rule}: {k}": v for rule, (r, _) in RULES.items() for k, v in r.items()}
 ALLOWED_BY_RULE = {f"{rule}: {k}": v for rule, (_, a) in RULES.items() for k, v in a.items()}
+# The frozen-dataclass idiom is allow-listed only in the modules of ``src`` that use it.
+IDIOM_RULE = "the idiom on a context field: "
+IDIOM_MODULE = "ownvitals/analysis/quality.py"
 
 
 @pytest.mark.parametrize("source", REFUSED_BY_RULE.values(), ids=REFUSED_BY_RULE.keys())
@@ -341,6 +354,6 @@ def test_each_new_rule_refuses_its_spellings(source: str) -> None:
     assert scan_source(source) != []
 
 
-@pytest.mark.parametrize("source", ALLOWED_BY_RULE.values(), ids=ALLOWED_BY_RULE.keys())
-def test_each_new_rule_leaves_its_near_misses_alone(source: str) -> None:
-    assert scan_source(source) == []
+@pytest.mark.parametrize(("case", "source"), ALLOWED_BY_RULE.items(), ids=ALLOWED_BY_RULE.keys())
+def test_each_new_rule_leaves_its_near_misses_alone(case: str, source: str) -> None:
+    assert scan_source(source, IDIOM_MODULE if case.startswith(IDIOM_RULE) else None) == []
