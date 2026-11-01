@@ -75,9 +75,9 @@ NOT_TYPING = [
     "import typing as TYPE_CHECKING\n" + BLOCK,  # X7: the module, not its flag
 ]
 NEAR_MISSES = [
-    FROM + BLOCK + "def f(x: 'ctypes.c_int') -> None: ...",
+    FROM + BLOCK + "def f(x: 'Node') -> None: ...",  # ('ctypes.c_int': test_egress_importers)
     FROM + BLOCK + "def f(x: ctypes.c_int) -> None: ...",
-    "import typing\n" + DOTTED + "x: 'ctypes.c_int | None' = None",
+    "import typing\n" + DOTTED + "x: 'Node | None' = None",
     "import typing as t\nif t.TYPE_CHECKING:\n    import ctypes\n",
     "from typing import TYPE_CHECKING as TC\nif TC:\n    import ctypes\n",
     "from typing_extensions import TYPE_CHECKING\n" + BLOCK,

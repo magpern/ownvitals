@@ -244,9 +244,15 @@ What else the guard refuses outside the package:
   `"ctypes.util"`, `"_posixsubprocess"`, `"multiprocessing.pool"` ...), the strings
   `"__import__"`, `"import_module"` and `"__builtins__"`, and the name or attribute
   `__builtins__`. Every importer reached by name (`__builtins__["__import__"]`,
-  `vars(builtins)["__import__"]`, `importlib.__dict__["import_module"]`) names one of them. An
-  annotation that is one string (`x: "ctypes.c_int"`) is a forward reference and passes; a
-  string nested inside an annotation expression does not;
+  `vars(builtins)["__import__"]`, `importlib.__dict__["import_module"]`) names one of them. A
+  string nested inside an annotation expression is ordinary code;
+- **string annotations** (forward references, `x: "Node"`): `typing.get_type_hints`, which
+  FastAPI and pydantic call on routes and models, evaluates them. One may hold only names,
+  dotted names, subscripts, tuples, lists, constants and `X | Y` (`ast.parse(s, mode="eval")`;
+  a nested string is a forward reference too). Anything else, a call, a lambda, a
+  comprehension, an operator or a syntax error, is refused. Each name in it is then judged as a
+  name in code, through the run-time imports or, when nothing binds it, as spelled: so
+  `"ctypes.c_int"` is refused as a reference to `ctypes`, even under a type-only import;
 - **a module looked up by name**: any reference to `sys.modules` (a subscript, `.get(...)`, an
   `in` test, a variable holding it) and `pkgutil.resolve_name`, under any alias of `sys`, as
   `from sys import modules` and through a chain (`os.sys.modules`). `subprocess` imports
@@ -269,7 +275,9 @@ included, when its names appear only in annotations (`tests/egress_typeonly.py`,
 at run time, so it only tells the type checker what a name is. A name it binds is a run-time
 reference anywhere outside an annotation, and inside an annotation it resolves only through the
 run-time imports, so an annotation that is evaluated cannot reach the module unless a run-time
-import binds it, which the guard sees. That holds only while the flag is really `typing`'s, so
+import binds it, which the guard sees. (A string annotation is the exception: its names are
+also judged as spelled, above, so `"ctypes.c_int"` is refused even then.) That holds only while
+the flag is really `typing`'s, so
 the block is skipped only when:
 
 - its test is `TYPE_CHECKING` imported from `typing` or `typing_extensions` (by any alias), or

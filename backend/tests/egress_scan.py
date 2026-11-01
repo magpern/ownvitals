@@ -54,7 +54,16 @@ from egress_classified import (
     Entry,
 )
 from egress_closure import OWN, Closure, resolve_from, under
-from egress_importers import NOT_DIRECT, direct_imports, dynamic_import, importer, loader, names
+from egress_importers import (
+    NOT_DIRECT,
+    direct_imports,
+    dynamic_import,
+    forward_references,
+    importer,
+    loader,
+    names,
+    spelled,
+)
 from egress_typeonly import annotations, assignments, type_only
 from egress_typeonly import dotted as _dotted
 
@@ -396,7 +405,12 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
                     found.append((node.lineno, f"subclasses {name}: lists live in {EGRESS}"))
     for line, text in _strings(tree):
         found += [(line, w) for w in classify(text, module, "names", used)]
-    return sorted(set(found))
+    refused, references = forward_references(tree)
+    for line, node in references:  # as bound at run time, else as spelled (``"ctypes.c_int"``)
+        name = _dotted(node, runtime) or spelled(node) or ""
+        found += [(line, w) for w in _internal(name, module, "names")]
+        found += [(line, w) for w in classify(name, module, "names", used)]
+    return sorted(set(found + refused))
 
 
 def _assigned(name: str, module: str) -> list[str]:

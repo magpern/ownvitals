@@ -81,23 +81,74 @@ def dynamic_import(
     return [(node.lineno, first.value, True)]
 
 
-def _string_annotations(tree: ast.AST) -> set[int]:
-    """``id``s of the annotations that are one string (``x: "ctypes.c_int"``): a forward
-    reference, kept as a string at run time. A string nested inside an annotation is not one."""
+def _string_annotations(tree: ast.AST) -> list[ast.Constant]:
+    """The annotations that are one string (``x: "Node"``): forward references. A string nested
+    inside an annotation expression is ordinary code, evaluated at ``def`` time."""
     roots: list[ast.expr | None] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             roots.append(node.returns)
         elif isinstance(node, ast.arg | ast.AnnAssign):
             roots.append(node.annotation)
-    return {id(r) for r in roots if isinstance(r, ast.Constant)}
+    return [r for r in roots if isinstance(r, ast.Constant) and isinstance(r.value, str)]
+
+
+_FORWARD_NODES = (ast.Expression, ast.Name, ast.Attribute, ast.Subscript, ast.Tuple, ast.List)
+_FORWARD_NODES += (ast.Constant, ast.Load, ast.BitOr)
+
+
+def _forward(text: str, depth: int = 0) -> list[ast.expr] | None:
+    """The name nodes of a forward reference, or ``None`` when it is more than names, dotted
+    names, subscripts, tuples, lists and ``X | Y`` (a nested string is a forward reference too)."""
+    try:
+        parsed = ast.parse(text, mode="eval")
+    except SyntaxError:
+        return None
+    found: list[ast.expr] = []
+    for node in ast.walk(parsed):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            continue
+        if not isinstance(node, _FORWARD_NODES):
+            return None
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            inner = _forward(node.value, depth + 1) if depth < 8 else None
+            if inner is None:
+                return None
+            found += inner
+        elif isinstance(node, ast.Name | ast.Attribute):
+            found.append(node)
+    return found
+
+
+def spelled(node: ast.expr) -> str | None:
+    """A name or dotted name as written (``ctypes.c_int``), with no alias resolved."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    return ".".join([node.id, *reversed(parts)]) if isinstance(node, ast.Name) else None
+
+
+def forward_references(tree: ast.AST) -> tuple[list[tuple[int, str]], list[tuple[int, ast.expr]]]:
+    """``typing.get_type_hints`` (FastAPI, pydantic) evaluates a string annotation, so it may
+    hold only names: ``(line, why)`` for each that holds more, and ``(line, node)`` for each name
+    in the rest, which ``egress_scan`` judges like a name in code."""
+    refused: list[tuple[int, str]] = []
+    references: list[tuple[int, ast.expr]] = []
+    for root in _string_annotations(tree):
+        found = _forward(str(root.value))
+        if found is None:
+            refused.append((root.lineno, "a string annotation holds more than names: it runs"))
+        else:
+            references += [(root.lineno, node) for node in found]
+    return refused, references
 
 
 def names(tree: ast.AST) -> list[tuple[int, str]]:
     """``(line, why)`` for each string naming a native or process module or an importer, and
-    each use of ``__builtins__``."""
+    each use of ``__builtins__``. String annotations are ``forward_references``'."""
     found: list[tuple[int, str]] = []
-    forward = _string_annotations(tree)
+    forward = {id(r) for r in _string_annotations(tree)}
     for node in ast.walk(tree):
         if id(node) in forward:
             continue

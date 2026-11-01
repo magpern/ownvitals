@@ -62,8 +62,38 @@ NEAR_MISSES = [
     "import importlib\nimportlib.import_module('json')",
     "name = 'ctypesish'\nother = 'json'\nthird = 'multiprocessingx'",
     "name = 'concurrent.futures'\npath = 'x.ctypes'\ntext = 'import modules'",
-    "def f(x: 'ctypes.c_int') -> None: ...",  # a forward reference: kept as a string
+    # Forward references that hold only names (``typing.get_type_hints`` evaluates them).
+    "class Node:\n    nxt: 'Node'\n",
+    "def f(x: 'list[Node]') -> 'Node': ...",
+    "from collections.abc import Mapping\nx: 'Mapping[str, int] | None' = None",
+    "from collections.abc import Callable\nf: 'Callable[[int], str]'",
+    "from typing import Literal\nmode: \"Literal['a', 'b']\"",
+    "x: \"tuple['Node', ...]\"",
     "builtins_ = 1\nimporter = 'import_module_x'",
+]
+# A string annotation is evaluated by ``typing.get_type_hints`` (FastAPI, pydantic): it may hold
+# only names, judged as a name in code (as bound at run time, else as spelled).
+RUNS = "a string annotation holds more than names"
+FORWARD = [
+    ("def f(x: \"__import__('ctypes').CDLL\") -> None: ...", RUNS),
+    ("x: \"__import__('json')\" = None", RUNS),
+    ("def f() -> 'run(1)': ...", RUNS),
+    ("x: 'lambda: 1'", RUNS),
+    ("x: '[n for n in y]'", RUNS),
+    ("x: 'a if b else c'", RUNS),
+    ("x: 'a + b'", RUNS),
+    ("x: 'not valid python ('", RUNS),
+    ("x: \"list['__import__(1)']\"", RUNS),  # a nested string is a forward reference too
+    ("x: 'ctypes.c_int'", NATIVE := "calls native code the egress hook cannot see"),
+    ("def f(x: 'list[_ctypes.CFuncPtr]') -> None: ...", NATIVE),
+    (
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import ctypes\n"
+        "def f(x: 'ctypes.c_int') -> None: ...",
+        NATIVE,
+    ),
+    ("x: 'sys.modules'", "resolves a module by name at run time"),
+    ("x: 'runpy.run_module'", LOADS),
+    ("x: 'socket.socket'", "can reach the network"),
 ]
 # R2 of the FAIL on #123: an unresolved ``import_module`` callee is still judged.
 UNRESOLVED = [
@@ -90,6 +120,12 @@ def test_a_name_in_a_string_or_builtins_is_refused(source: str, why: str) -> Non
 @pytest.mark.parametrize("source", NEAR_MISSES)
 def test_the_near_misses_pass(source: str) -> None:
     assert scan_source(source, "ownvitals.web.planted") == []
+
+
+@pytest.mark.parametrize(("source", "why"), FORWARD)
+def test_a_string_annotation_holds_only_names_judged_as_code(source: str, why: str) -> None:
+    found = scan_source(source, "ownvitals.web.planted")
+    assert any(why in w for _, w in found), found
 
 
 @pytest.mark.parametrize(("source", "why"), UNRESOLVED)
