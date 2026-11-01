@@ -74,6 +74,12 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   `frontend/src/components/GoogleLogo.tsx` draws the "G" from the app's bundle, with the
   `--ov-google-*` tokens and their light and dark button variants.
 
+## Mail locally
+
+The compose stack runs mailpit (`axllent/mailpit`, pinned by digest). Web sends the account
+mails to it over plain SMTP on port 1025, which only the `mailpit` host and loopback are allowed.
+The worker gets no SMTP setting. Read the mails at `http://127.0.0.1:${MAILPIT_PORT:-8025}`.
+
 ## The operator CLI
 
 These run as the app role, after the database-role check, in the web image:

@@ -90,9 +90,9 @@ def test_guard_1_requires_the_deny_policies(admin: Connection, policy: str, cmd:
     assert check_tables(admin, SYSTEM_TABLES) == []
 
 
-def test_the_owner_id_has_no_foreign_key_until_the_accounts_issue(admin: Connection) -> None:
-    """Pins the seam (#77): #10 adds the ``users`` table and ``jobs.owner_id``'s foreign key with
-    ``ON DELETE CASCADE``; until then the only foreign key is the events' owner-inclusive one."""
+def test_the_owner_id_references_the_account_and_goes_with_it(admin: Connection) -> None:
+    """#10 replaces the seam of #77: ``jobs.owner_id`` and ``job_events.owner_id`` reference
+    ``users`` with ``ON DELETE CASCADE``, beside the events' owner-inclusive key to their job."""
     keys = admin.execute(
         text(
             "SELECT conrelid::regclass::text, conname, confrelid::regclass::text, confdeltype "
@@ -100,7 +100,11 @@ def test_the_owner_id_has_no_foreign_key_until_the_accounts_issue(admin: Connect
         ),
         {"t": list(JOB_TABLES)},
     ).all()
-    assert [tuple(k) for k in keys] == [("job_events", "job_events_job_fkey", "jobs", "c")]
+    assert sorted(tuple(k) for k in keys) == [
+        ("job_events", "job_events_job_fkey", "jobs", "c"),
+        ("job_events", "job_events_owner_id_fkey", "users", "c"),
+        ("jobs", "jobs_owner_id_fkey", "users", "c"),
+    ]
 
 
 def test_job_events_are_append_only_for_every_role_but_go_with_their_job(

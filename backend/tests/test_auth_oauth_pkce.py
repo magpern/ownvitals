@@ -27,7 +27,9 @@ async def started(env: Env) -> tuple[Browser, str, str]:
     browser = Browser(env)
     response = await start(browser, "google", invite_code=await make_invite(env))
     assert response.status_code == 200, response.text
-    verifier = await env.scalar("SELECT pkce_verifier FROM oauth_flows ORDER BY created_at DESC")
+    verifier = await env.scalar(
+        "SELECT pkce_verifier FROM oauth_flows ORDER BY created_at DESC, id LIMIT 1"
+    )
     return browser, response.json()["authorization_url"], str(verifier)
 
 

@@ -199,7 +199,7 @@ def test_account_settings_defaults() -> None:
     settings = Settings()
     assert [str(n) for n in settings.trusted_proxy_networks] == ["127.0.0.0/8", "::1/128"]
     assert settings.admin_email_set == frozenset()
-    assert settings.trusted_proxy_networks == ()
+    assert settings.cf_connecting_ip_networks == ()
     assert (settings.session_idle_days, settings.session_absolute_days) == (7, 30)
     assert settings.password_hash_workers == 4
     assert settings.purge_interval_seconds == 3600

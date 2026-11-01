@@ -20,9 +20,9 @@ import httpx
 import pytest
 from fastapi import FastAPI, Header
 
-from ctx import make_context
+from ctx import make_context, same_origin_client
 from jobcore import JobsEnv, registry_for, settings_for
-from jobtools import KIND
+from jobtools import KIND, ensure_user
 from ownvitals.context import UserContext
 from ownvitals.jobs import Complete, JobRun, KindRegistry
 from ownvitals.jobs.deps import current_user
@@ -82,9 +82,14 @@ class Browser:
 class Api:
     app: FastAPI
     client: httpx.AsyncClient
+    env: JobsEnv
 
     def browser(self, user_id: UUID | None = None) -> Browser:
-        return Browser(self.client, user_id or uuid4())
+        """A signed-in user's client; the user's synthetic account exists (``jobs.owner_id``
+        references ``users`` since #10)."""
+        user_id = user_id or uuid4()
+        ensure_user(self.env.admin, user_id)
+        return Browser(self.client, user_id)
 
 
 @pytest.fixture(name="api")
@@ -95,8 +100,8 @@ async def api_fixture(jenv: JobsEnv, app_database_url: str) -> AsyncIterator[Api
     app.dependency_overrides[job_kinds] = api_registry
     async with app.router.lifespan_context(app):  # pyright: ignore[reportArgumentType]
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            yield Api(app, client)
+        async with same_origin_client(transport, app) as client:
+            yield Api(app, client, jenv)
 
 
 @pytest.fixture(name="bare_app")
@@ -107,7 +112,7 @@ async def bare_app_fixture(
     app = create_app(settings_for(app_database_url))
     async with app.router.lifespan_context(app):  # pyright: ignore[reportArgumentType]
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        async with same_origin_client(transport, app) as client:
             yield client
 
 

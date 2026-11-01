@@ -220,9 +220,16 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
     from ownvitals.flags.routes import router as flags
     from ownvitals.jobs.routes import router as jobs
 
-    routers = (auth, connections, flags, jobs, admin)
+    routers = (connections, flags, jobs, admin)
     assert all(isinstance(router, APIRouter) for router in routers)
     assert {id(router) for router in routers} == {id(router) for router in FEATURE_ROUTERS}
+    # #10: accounts and sign-in are installed by ``ownvitals.auth.setup.install`` (their routers,
+    # the Origin/CSRF middleware and the error handlers), not through FEATURE_ROUTERS.
+    assert isinstance(auth, APIRouter)
+    served = set(create_app(Settings()).openapi()["paths"])
+    auth_paths = {getattr(route, "path", None) for route in auth.routes}
+    assert "/api/auth/session" in auth_paths
+    assert auth_paths <= served
 
 
 async def test_the_app_serves_the_routes_of_its_feature_routers(
