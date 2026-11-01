@@ -26,6 +26,19 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 3 (2026-11-01, Architect): `findings.tier` gains `system`
+
+- **Changes:** PLAN §5's `findings.tier` (`device|trend|experimental`) gains a fourth value,
+  `system`, used by rule Q1 only (no weigh-in, low battery, connection needs reconnect, import
+  incomplete). Q1 findings are about the data and the connection, never about the body; every
+  other rule keeps its PLAN §7.2 tier.
+- **Evidence:** a conflict inside the frozen spec. PLAN §7.2 gives Q1 the tier "system", and
+  PLAN §5's enumeration has no such value, so the `findings` schema can't hold Q1 as specified.
+  The owner-accepted design already has a System tier (`docs/design/README.md`). Raised by the
+  first pass of ADR 0010 (#110).
+- **ADR:** ADR 0010 records the decision and Q1's rule; the M4 wiring issue adds the value to
+  the schema.
+
 ### Amendment 2 (2026-10-31, Architect): keys of partitioned owned tables
 
 - **Changes:** PLAN §5 ("Every owned table has `owner_id`, `UNIQUE (owner_id, id)` and
