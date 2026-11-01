@@ -118,6 +118,24 @@ TABLE: dict[str, Entry] = {
         "imports pydoc, whose documentation server (http.server, select) is never started",
         "rankdata",
     ),
+    # The ECG core (#114): filters and peak detection on in-memory arrays.
+    "scipy.signal": _allowed(
+        "filters and peaks on in-memory arrays; capable only through scipy's docstring tooling, "
+        "which imports pydoc, whose documentation server (http.server, select) is never started",
+        "butter",
+        "find_peaks",
+        "get_window",
+        "iirnotch",
+        "sosfiltfilt",
+        "sosfreqz",
+        "tf2sos",
+    ),
+    "scipy.ndimage": _allowed(
+        "1-D filters on in-memory arrays; capable only through scipy's docstring tooling, which "
+        "imports pydoc, whose documentation server (http.server, select) is never started",
+        "maximum_filter1d",
+        "uniform_filter1d",
+    ),
     # The migrations' RLS helpers (ownvitals.db.rls): SQL on the migration's own connection to
     # the configured database, like sqlalchemy (N13).
     "alembic": Entry("allowed", "imported for its op proxy only (alembic.op); none of its names"),
