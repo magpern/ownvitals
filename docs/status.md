@@ -9,13 +9,13 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #9 (#96), #45 (#48), #49 (#58), #52 (#64), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55) gets a root-cause change after its third FAIL (ADR 0009, runtime egress enforcement), then a fresh Opus full review; #8 (#82) renumbered its migration to `0004` and waits for a fresh Opus delta review; #42 (#106) in progress (the `ci.yml` lock); #77 and #89 wait for #8 (and #77 for #6); #57 and #101 wait for locks | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement) has five Opus FAILs, the latest on `d957d45`, and a fix round pushed as `61d7c30`; #89 (#115) has five, the latest on `bee21cf`, and #101 (#118) one on `818a0df`, each with the Architect's fix list posted; #77 and #10 wait for #6 | — |
 | M1 | Withings core | #19 (#63) and #66 (#71) merged; backlog #18, #20–#30, #36 (dependency graph below) | — |
-| M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward): the no-downgrade change is in, and the PR is in Opus review; the rest are mostly owner actions (see "Blocked on the owner") | — |
+| M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward) merged: IMPLEMENTED, not installed (installing it is the owner's); #101 (#118) is the deploy-side follow-up; the rest are mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
-| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74), #68 (#87), #76 (#94) and #99 (#102) merged; #95 in progress | — |
-| M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 in progress (it carries an ADR 0006 amendment: five unreachable assertions and the `distorted_beat` HRV rule); #47 waits for #40, #21 and #25 | — |
-| M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (#105: shell, tokens, theme, fonts and primitives; pulled forward) in review | — |
+| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74), #68 (#87), #76 (#94), #99 (#102) and #95 (#109) merged; ADR 0010, the v1 finding rules (#110, #112; accepted in #116, #117) and roadmap Amendment 3 merged | — |
+| M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 (#114, the signal-processing core, with its ADR 0006 amendments) and its follow-ups #119 (#120) merged; #47 waits for #21 and #25 | — |
+| M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (#105: shell, tokens, theme, fonts and primitives; pulled forward) merged | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
 
@@ -23,18 +23,14 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #6 | Egress allowlist and mail | Opus | #55 | third FAIL on B1 (`3f1b007`); root-cause change in the same PR (ADR 0009, runtime egress enforcement), then a fresh Opus full review |
-| #8 | Envelope encryption and KEK ring | Opus | #82 | migration renumbered to `0004_connection_keks` (`b887d95`, merges #96); a fresh Opus delta review, covering the #81 merge and the renumbering |
-| #84 | Forced-command deploy script (M2, pulled forward) | Opus | #100 | no-downgrade change pushed (`ec28cd9`, updated from `main` as `4373d2c`); in Opus review |
-| #40 | ECG signal-processing core | Sonnet | — | in progress; Architect decisions on five unreachable assertions (item 2 revised) and the `distorted_beat` HRV rule, carried by an ADR 0006 amendment in its PR (Opus review) |
-| #42 | CI dependency audits | Sonnet | #106 | PR open; the Developer is adding the planted-pin evidence |
-| #95 | Calibration and test follow-ups from the #87 review | Sonnet | — | in progress |
-| #98 | App shell, tokens, theme, Plex fonts and design primitives (M6) | Sonnet | #105 | the Architect's decisions applied (`0a6efb4`); in Sonnet review |
-| #107 | Status after the #102 and #104 merges (this update) | Architect | this PR | in review |
+| #6 | Egress allowlist and mail (ADR 0009, runtime egress enforcement) | Opus | #55 | five Opus FAILs, the latest on `d957d45` (`_posixsubprocess.fork_exec` raises no audit event); the Architect's fix list (the static refusal of `_posixsubprocess`, `multiprocessing` and `ProcessPoolExecutor`, `pyyaml` in the dev group, and non-blocking items) is posted. The head is `61d7c30` (fix commits and a merge of `main`) and has no verdict; its `Backend` job failed when this update was written (not investigated); a fresh Opus delta review follows once CI is green |
+| #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews | Opus | #115 | five Opus FAILs, the latest on `bee21cf` (the head, CI green; a string starting with `*` still reaches `get_type_hints`); the Architect's fix list (a fail-closed type grammar, one blocking item and five non-blocking) is posted; the next review is a fresh Opus delta review |
+| #101 | `db-functions` follow-ups from the #96 review (functions installed from the release image) | Opus | #118 | Opus FAIL `818a0df` (the CI filter must run the guards on Dockerfile and compose changes; compose read as YAML); the head `4ab9f85` (CI green) has no verdict yet; a fresh Opus delta review follows |
+| — | Status reconcile to 2026-11-01 (this update) | Developer (Sonnet) | this PR | in review |
 
-Ready, waiting for a free slot: none (#57 and #101 wait for the `ci.yml` and `compose.yaml`
-locks). At most five Developers work on issues at once; a fix round on an open PR may run while
-five are busy, and no new issue starts until fewer than five are.
+Ready, waiting for a free slot: none. #77 and #10 wait for #6; #11, #12 and #13 follow #10. At
+most five Developers work on issues at once; a fix round on an open PR may run while five are
+busy, and no new issue starts until fewer than five are.
 
 ## M0 dependency graph
 
@@ -61,10 +57,10 @@ five are busy, and no new issue starts until fewer than five are.
 | #57 | Release follow-ups from the #53 review (deploy recipe, guard tests in CI, version check, Dependabot cooldown and titles, base-image digests) | Opus | #7; the `ci.yml` (after #42) and `Dockerfile` locks | 3 |
 | #72 | ADR follow-ups from the #58 review: mail outbox (ADR 0007), webhook-secret lifecycle split into ADR 0008, function input rules, single flight, partitions | Opus | #49 | 3 |
 | #75 | Role-check follow-ups from the #65 review (login role, guard 5 constructions, ownership test, startup error) | Opus | #5 | 3 |
-| #77 | Wiring after #8, #9 and #6: worker allowlist and KEK ring, guard 2 learns the queue grantee, web's queue check, `transaction_timeout` on runtime roles | Opus | #6, #8, #9, #75 | 4 |
+| #77 | Wiring after #8, #9 and #6: worker allowlist and KEK ring, guard 2 learns the queue grantee, web's queue check, `transaction_timeout` on runtime roles; web's `install_egress_hook("web")` and standard-loop check, and single-process uvicorn settings (ADR 0009); the unreachable refused-login branch in `queue_check.py` (remove or test; #115 N1) | Opus | #6 (#8, #9 and #75 merged) | 4 |
 | #78 | ADR follow-ups from the #73 review; the `transaction_timeout` decision | Opus | #72 | 4 |
-| #89 | Role-check and guard 5 follow-ups from the #81 review (flag 8 pinned, a refused login fails closed, guard 5 hardening) | Opus | #75, #8 | 4 |
-| #101 | `db-functions` follow-ups from the #96 review (escaping test, exact volumes, digest pin, shellcheck of `docker/postgres`) | Opus | #9; the `compose.yaml` and `ci.yml` locks | 5 |
+| #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews (flag 8 pinned, a refused login fails closed, guard 5 hardening, `crypto.md` wording, a refused-login test) | Opus | #75, #8 (both merged) | 4 |
+| #101 | `db-functions` follow-ups from the #96 review (escaping test, exact volumes, digest pin, shellcheck of `docker/postgres`) | Opus | #9 (merged); holds the `ci.yml`, `compose.yaml`, `Dockerfile`, `AGENTS.md` and `deploy/` locks (#118) | 5 |
 
 ## M1 dependency graph
 
@@ -90,7 +86,7 @@ five are busy, and no new issue starts until fewer than five are.
 
 Pure libraries with synthetic-data tests; no database, I/O or Withings imports (purity guard in
 #37). Wiring into `observations`, `metric_daily`, findings and jobs stays in their milestones.
-Some rows are not libraries: #39 and #88 are ADR work, #84 is M2's deploy script and #98 is
+Some rows are not libraries: #39, #88 and #110 are ADR work, #84 is M2's deploy script and #98 is
 M6's frontend shell.
 
 | Issue | What | Owner model | Depends on |
@@ -103,9 +99,10 @@ M6's frontend shell.
 | #68 | Autocorrelation-robust trend test and change points (follow-up from #38; before trend or change-point findings go live) | Sonnet | #38 |
 | #95 | Calibration and test follow-ups from the #87 review | Sonnet | #68 |
 | #99 | Purity guard follow-ups from the #94 review | Sonnet | #76 |
-| #98 | M6 app shell, tokens, theme, Plex fonts and design primitives | Sonnet | #3, #85 |
+| #98 | M6 app shell, tokens, theme, Plex fonts and design primitives (merged as #105) | Sonnet | #3, #85 |
 | #76 | Purity guard and policy follow-ups from the #74 review | Sonnet | #56 |
-| #84 | M2 forced-command deploy script, the release trust boundary (installing it is the owner's) | Opus | #7 |
+| #84 | M2 forced-command deploy script, the release trust boundary (merged as #100; installing it is the owner's) | Opus | #7 |
+| #110 | M4 ADR 0010: v1 finding rules, parameters, definitions, confidence (merged as #112; accepted in #116, #117) | Opus | none (the libraries it names are merged) |
 | #88 | ADR follow-ups from the #46 and #83 reviews (ADR 0006 amendment; ADRs 0002, 0004, 0005, 0007 and the threat model) | Sonnet (Opus reviewer) | #46, #83 |
 
 Also created early in M5: #47, the owner-run `ownvitals ecg validate` command (ADR 0006 §14;
@@ -118,10 +115,21 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 
 | Date | Decision | Where |
 |---|---|---|
-| 2026-10-31 | Egress, root-cause change after three FAILs on B1 (#6, **#55 is open**; ADR 0009 in its PR): a static scan can't prove a library never reaches the network (lazy fetchers such as numpy's `DataSource`), so a PEP 578 audit hook in every process (web, worker, CLI) is the authoritative control. It resolves only the process kind's hosts (its egress hosts, the database host, and SMTP in web and the CLI), refuses every reverse lookup (the mailer passes a fixed `local_hostname`), and allows AF_INET and AF_INET6 connects only inside an egress-transport or mail context. The static closed-world guard stays the early warning for direct imports. Out of the hook's reach: C extensions with their own sockets (libpq, by design) and `ctypes`. Web's install is #55's if #82 has merged first, otherwise #77's | #6 (#55), #77 |
-| 2026-10-31 | M6 shell (#98, **#105 is open**): the reviewer's screenshots stay outside the repository; `isAdmin` lives in `auth/access.ts`; the theme flash on a cold load is accepted (the Settings issue decides on a second pinned same-origin script); the Settings tabs are `/settings/profile`, `/settings/security`, `/settings/notifications` and `/settings/data`, and `/settings` shows the first (the IA line in `docs/design/README.md`); Admin on a phone is in the account menu; the freshness line, the range selector, the rail's status marks and "This device since" wait for their data; `build.test.ts` allows `.woff` and `.woff2` under `assets/`; `index.html` asks for `viewport-fit=cover` and both frames pad by the safe-area insets | #98 (#105) |
-| 2026-10-31 | ECG (**#40 is open**; Architect decisions on five assertions the specified algorithms can't meet, carried by an ADR 0006 amendment in #40's PR): the generator scales each beat's event amplitudes by ω_k/ω̄, so R amplitude doesn't follow RR; the premature interval is max(60–70 % of the sinus interval, 250 ms); downstream beats are confirmed beats (a Pan–Tompkins detection matched by Elgendi within ± 50 ms; unmatched ones are dropped and their intervals deleted as `unconfirmed_beat`); the 20 % rule holds except within ± 0.5 % of its limit. White noise at 12 dB (revised after re-measurement: 0/15 strips at 300 Hz, 9/15 at 500 Hz): below 50 bpm it may pass or fail, at 50 bpm and above the gate passes at ≥ 95 %, and clean strips at 40–49 bpm pass at ≥ 95 %; the PR reports gate pass by heart-rate band, and the amendment records the known limitation (such strips yield no ownvitals values and hide E4/E6 when they are the trigger; §14 V2 measures it). HRV on accepted motion-burst strips: a confirmed beat whose Pearson r with its window's median beat is below a threshold taken from the clean strips (below their 0.5th percentile) is distorted, and its intervals leave the NN intervals as `distorted_beat` (HR keeps its definition; `hrv` `ALGO_VERSION` bumps). An accepted strip's floors and HR/HRV tolerances are never loosened: it meets them or its HRV is null | #40 |
-| 2026-10-31 | Deploy (**#100 is open**): `deploy` refuses a SemVer lower than the recorded current tag, and the same version with another digest; `rollback` (one step, through every check) is the only way back; pre-release tags are refused, as in `release.yml`; the script lives in `deploy/`; the state is recorded after migrations and before `up -d` | #84 (#100) |
+| 2026-11-01 | Owner: Google-branded sign-in button. Only the Google button of the `Auth` mock-up changes, to follow Google's branding guidelines: the "G" logo and an approved label, light and dark variants, a self-hosted SVG from Google's branding download (CSP stays `'self'`, nothing loads from Google until the click), a test for logo, label and local asset, and one line in the `Auth` row of `docs/design/README.md` | #10 |
+| 2026-11-01 | Owner: #113 (a sign-in look-and-feel reference with Google first, no Apple, large pill buttons) is withdrawn and closed as not planned; #10 builds from the existing `Auth` mock-up, as before | #113, #10 |
+| 2026-10-31 | Owner: in production, mail goes through the owner's Proton Mail Bridge ([magpern/proton-bridge](https://github.com/magpern/proton-bridge), `ghcr.io/magpern/proton-bridge`) on the owner's own domain. Bridge is a container on a private Docker network (SMTP on port 2025, STARTTLS, self-signed certificate), and it is the one SMTP host in web's and the CLI's resolvable set (ADR 0009). The mail module never turns TLS verification off; the deploy issue supplies Bridge's certificate as a pinned CA file or fingerprint setting. The Bridge SMTP password is a secret file under `secrets/`, never an environment value in the compose file. No change to #55's scope. Receiving mail is an open owner question (see "Blocked on the owner") | #6 |
+| 2026-11-01 | Guard 5 threat model (#89, **#115 is open**; written down after the second FAIL on the same class of finding, as for #55; five Opus FAILs so far): the scan stops plausible and review-visible ways of forging a `UserContext` (mistakes, shortcuts, copied snippets). It is not a sandbox against adversarial code in the process; code review of every PR, RLS (the database enforces `owner_id` whatever Python builds) and the role checks cover that. `isolation.md` says so in a "Threat model of guard 5" paragraph, and ADR 0002 §1's AST-guard bullet gets one sentence. A reviewer who finds a further reflection-class route to the token records it as non-blocking, for "Known limits", unless it is a plain import or a call that review could miss. Annotation allow-list grammar (the root-cause decision after the fourth FAIL, `c196da5`; it fails closed): one recursive checker covers every annotation position (arguments, returns, variables, `TypeAlias` values, PEP 695 aliases and bounds). A type expression may hold only names and dotted names (no `_` part, no token names), subscripts and tuples of type expressions, `X | Y`, constants, the constant arguments of `Literal[...]` (never parsed) and strings, which are parsed and checked recursively with the module's own import table, so an aliased `UserContext`, `vars(ownvitals.context)` or `dataclasses.replace` inside a string is refused as it is outside one. Anything else is refused: a call, a lambda, a comprehension, a walrus, `await`, `yield`. `Annotated` metadata (everything after the first element) is the only place calls are allowed and is scanned as ordinary code. After the fifth FAIL (`bee21cf`): a string in a type position is accepted only if it parses and the grammar accepts it; a string starting with `*` is parsed the way 3.12's `ForwardRef` does (drop the `*`, check the rest), so `"*Ts"` passes and `"*[getattr(...)]"` is refused; a string that doesn't parse is refused; the string rules (the `ownvitals.context` key, the token names) run before the string is parsed; `TypeAlias` counts under any alias imported from `typing` or `typing_extensions`; a plain `S = "..."` string alias used as a type, and reaching `eval` without its name (`getattr(builtins, …)`, `sys.modules`, `importlib`, `__import__`, `timeit`, `code`, `runpy`), are Known limits under the threat model; private library types in annotations are refused. `eval`, `exec` and `compile` are refused as names, as imports from `builtins` and through `builtins.` in `backend/src`. The bound: a route through string evaluation outside annotations, other than those three, is reflection and goes to Known limits. Also: a plain `import ownvitals.context` is allowed (it binds only the package, and every non-annotation use of `ownvitals.context` is refused) while every import that binds the module object is refused; star imports from `ownvitals` and its subpackages are refused; `__kwdefaults__` and `__defaults__` are refused names; a missing database (SQLSTATE 3D000) is a refused login; the server must use English messages (`lc_messages` `en_US` or `C`) for refusals to be classified, and a deferral on an unrecognised `FATAL:` answer logs one warning with the SQLSTATE class and no message text | #89 (#115), ADR 0002, `docs/dev/isolation.md` |
+| 2026-11-01 | `db-functions` (#101, **#118 is open**): the one-shot runs the release's app image, which carries the SQL and the installer, so nothing is read from a host path; the deploy runs it on the release digest, so a deploy installs that release's functions and a rollback re-installs the previous release's. The only host SQL mount allowed is `db`'s init directory, matched by its exact source and target; it runs once on an empty data directory and holds no application functions. The superuser password stays in a `PGPASSFILE` on a tmpfs (#9). From the Opus FAIL `818a0df`: CI sets `backend=true` for a change to `Dockerfile`, `.dockerignore`, `compose*.yaml`, `deploy/**` or `docker/**`, so the guards run on the PRs they guard; the host-SQL check reads compose as YAML (short and long volume syntax); the runner refuses every `PG*` variable except `PGPASSFILE` and a script with its own transaction control; the deploy checks with `docker compose config` that `db-functions` has no volume but its tmpfs. #101 also carries a `python3 -I` test for `release.yml`'s version check, a test that the Dockerfile keeps its `@sha256:` pins, the pre-release spelling sentence in `release.md`, shellcheck of `deploy/ownvitals-deploy`, and the `deploy.md` notes on sudo-rs 0.2.2 (a global `env_keep` fallback) and on recovering from a failed rollback | #101 (#118), #100, #111 |
+| 2026-11-01 | Egress, #55 decisions (**#55 is open**): the hook refuses the process-creation routes that raise audit events (`subprocess.Popen`, `os.system`, `os.exec*`, `os.posix_spawn*`, `os.fork`/`os.forkpty`, `_winapi.CreateProcess`) in all three process kinds, and refuses the `socket.__new__` event for any family but AF_INET, AF_INET6 and AF_UNIX. `_posixsubprocess.fork_exec` raises no audit event and refusing its import would break `subprocess`, so that control is static: the guard refuses `_posixsubprocess`, `_winapi`, `multiprocessing` and its submodules, and `ProcessPoolExecutor` in `backend/src`, under any alias, and ADR 0009's limits name `fork_exec`, the `multiprocessing` `spawn` and `forkserver` methods and `ctypes`. Web stays one uvicorn process (no `workers > 1`, no `--reload` outside development; #77 tests the production settings). A task or `to_thread` started inside an egress scope keeps it, documented as a limit. `pyyaml` joins the dev dependency group for #118's compose tests (today it reaches the lock only through `uvicorn[standard]`, which #55 drops) | #6 (#55), #77, #101 (#118) |
+| 2026-11-01 | ADR 0009 (runtime egress enforcement; **to be written in #55's PR**, Accepted when it merges), amended before implementation after a Linux probe: web runs on the standard asyncio loop (`server_config` sets `loop="asyncio"`, pinned by a test), because under uvloop asyncio connections and lookups raise no socket audit events; uvloop leaves the lock (uvicorn without `[standard]`, any extra named, and a test that `uvloop` is neither in `uv.lock` nor importable); `install_egress_hook` raises if `uvloop` is importable; web, the worker and the CLI refuse to run on a non-stdlib loop (a startup check; web's call is #77's); `socket.getnameinfo` is refused like `gethostbyaddr`; the mail session context is set inside `_send_blocking`, in the thread that connects; the probe (standard loop and uvloop: what fires, in which thread) is recorded in the ADR and a Linux-only loopback subprocess test, and a switch to another event loop must re-run it first; the 58 findings from #96's worker and jobs code are classified in the static guard. Web's install moved to #77 because #82 held `web.py` while #55 was written | #6 (#55), #77 |
+| 2026-10-31 | Egress, root-cause change after three FAILs on B1 (#6, **#55 is open**): a static scan can't prove a library never reaches the network (lazy fetchers such as numpy's `DataSource`), so a PEP 578 audit hook in every process (web, worker, CLI) is the authoritative control. It resolves only the process kind's hosts (its egress hosts, the database host, and SMTP in web and the CLI), refuses every reverse lookup (the mailer passes a fixed `local_hostname`), and allows AF_INET and AF_INET6 connects only inside an egress-transport or mail context. The static closed-world guard stays the early warning for direct imports. Out of the hook's reach: C extensions with their own sockets (libpq, by design) and `ctypes` | #6 (#55), #77 |
+| 2026-11-01 | ADR 0010 (v1 finding rules, #110, merged as #112, accepted in #117): two bands from the same median and scaled MAD over 90 days: the display band at k 1.5 (as the design computes it) and the finding threshold at k 2.5 (Leys et al. 2013), preceding and evaluated at an episode's first day (E6, N2, B1's ECW), so a finding value always lies outside the displayed band; the metric's BASELINE policy gates both, `min_scale` is one display step, and `DEFAULT_K` isn't used by findings or the display. C1 trend: on each of at least 3 consecutive days, value at least median + 10 and above the display high; resting HR is type 11, #37's daily value, a standing pulse and not a clinical resting HR; the experimental < 50 or > 100 bpm rule also needs 3 consecutive days. C2 v1 is "rising" only; B1 v1 is the 3-day arm only; N4 is not in v1 until a primary source is verified; B3 stays experimental (owner-only flag) with the manufacturer's 0.40 cut named as device-specific; the monthly summary is a view; N5 uses the symmetric index on two pairs; confidence and severity as proposed (device and system findings stored as high, severity constant per rule). One active finding per (rule, subject), updated while the rule fires and ended when it stops; the wiring issue stores episodes. Trend-test rules have a persistence rule, because daily re-testing gave 60–65 % of no-change years a false "rising" episode: an episode opens only after the condition holds for L = 21 consecutive daily evaluations (14 gave 15 % false years at φ 0.6) and ends after 7 failing days; B2 has 0 % false episodes within 60 days by definition. Open items are under "Blocked on the owner" | #110 (#112), #116 (#117) |
+| 2026-11-01 | Roadmap Amendment 3: `findings.tier` gains `system`, used by rule Q1 only (no weigh-in, low battery, connection needs reconnect, import incomplete). Evidence: PLAN §5's enum and §7.2 contradict each other, so the schema couldn't hold Q1. ADR 0010 is the amendment's ADR; the M4 wiring issue adds the value to the schema | roadmap, ADR 0010 |
+| 2026-11-01 | ECG, Architect decisions on #40 and #114 (amendments file): baseline wander below 50 bpm may pass or fail the gate (34/40 and 38/40 strips pass at 300 and 500 Hz; every failure is the clipping rule), and at 50 bpm and above it stays at least 95 %; the clipping rule is unchanged, and a run entered and left by a step is the candidate for a later SQI version if §14 V2 shows low-rate clipping failures on real strips. The distorted-beat segment is the QRS, R ± 100 ms, against the window's median beat, with `DISTORTED_R = 0.85` (0.10 below the clean minimum, derived from the clean and ectopic rows only); a distorted beat within 5 s of the verified span's start or end removes every beat before or after it, the span is recomputed, and fewer than 20 s left fails the gate as `too_short`. New rule `missed_beat`: on a strip that isn't AF-like, an RR of at least 1.75 × the median of its 8 neighbouring intervals leaves both HR and NN and counts toward the excluded fraction (a major bump of `hrv` and the pipeline). A strip whose other exclusions exceed 20 % (AF-like) gets HR null with reason `irregular_rhythm`, so no unchecked ownvitals HR is shown (Withings' own HR stays the device value); this withdraws the Architect's earlier acceptance of the AF-like per-strip floor on the claim that its HR was within tolerance, which had not been measured, and the 94.5 % floor at 500 Hz stays a detection metric only. A 135 bpm ectopic strip with a true interval within ± 5 ms of 272.7 ms is left out of the HR assertion and reported in `docs/dev/ecg.md`. An ECG suite of about 96 s in CI is accepted (revisit if the backend job passes about 5 minutes) | #40 (#114), #119 (#120) |
+| 2026-11-01 | Envelope encryption (#8, merged as #82): web and the worker refuse to start when the KEK check can't run, including on an unmigrated database; the seed and pepper ids are settings (as the Architect recorded when #8 was scheduled; not re-checked against the code here). Follow-ups: `crypto.md` wording and a refused-login test go to #89, the `0004` downgrade lock to #13, and a distinct retired webhook-seed type to #24 | #8 (#82), #89, #13, #24 |
+| 2026-10-31 | M6 shell (#98, merged as #105): the reviewer's screenshots stay outside the repository; `isAdmin` lives in `auth/access.ts`; the theme flash on a cold load is accepted (the Settings issue decides on a second pinned same-origin script); the Settings tabs are `/settings/profile`, `/settings/security`, `/settings/notifications` and `/settings/data`, and `/settings` shows the first (the IA line in `docs/design/README.md`); Admin on a phone is in the account menu; the freshness line, the range selector, the rail's status marks and "This device since" wait for their data; `build.test.ts` allows `.woff` and `.woff2` under `assets/`; `index.html` asks for `viewport-fit=cover` and both frames pad by the safe-area insets. From the review: the sticky rail is accepted; the lock button's `aria-haspopup` goes to #11; the per-selector inset in `viewport.test` and an `optionalDependencies` licence row go to the next M6 frontend issue | #98 (#105), #11 |
+| 2026-10-31 | ECG (#40, merged as #114; Architect decisions on five assertions the specified algorithms can't meet, carried by ADR 0006 amendments in [the amendments file](adr/0006-ecg-subsystem-amendments.md)): the generator scales each beat's event amplitudes by ω_k/ω̄, so R amplitude doesn't follow RR; the premature interval is max(60–70 % of the sinus interval, 250 ms); downstream beats are confirmed beats (a Pan–Tompkins detection matched by Elgendi within ± 50 ms; unmatched ones are dropped and their intervals deleted as `unconfirmed_beat`); the 20 % rule holds except within ± 0.5 % of its limit. White noise at 12 dB (revised after re-measurement: 0/15 strips at 300 Hz, 9/15 at 500 Hz): below 50 bpm it may pass or fail, at 50 bpm and above the gate passes at ≥ 95 %, and clean strips at 40–49 bpm pass at ≥ 95 %; the PR reports gate pass by heart-rate band, and the amendment records the known limitation (such strips yield no ownvitals values and hide E4/E6 when they are the trigger; §14 V2 measures it). HRV on accepted motion-burst strips: a confirmed beat whose Pearson r with its window's median beat is below a threshold taken from the clean strips (below their 0.5th percentile) is distorted, and its intervals leave the NN intervals as `distorted_beat` (HR keeps its definition; `hrv` `ALGO_VERSION` bumps). An accepted strip's floors and HR/HRV tolerances are never loosened: it meets them or its HRV is null | #40 |
+| 2026-11-01 | Deploy (#84, merged as #100; IMPLEMENTED, not installed): `deploy` refuses a SemVer lower than the recorded current tag, and the same version with another digest; `rollback` (one step, through every check) is the only way back; pre-release tags are refused, as in `release.yml`; the script lives in `deploy/`; the state is recorded after migrations and before `up -d`. From the Opus FAIL `4373d2c`: the override sets `scale: 0` on `migrate`, so `up -d` and a rollback run no migration (a deploy migrates only through `run --rm migrate`); the highest deployed release is recorded, and a deploy needs a SemVer at least as high with a tag commit equal to or descending from that release's; the deploy refuses unless the tag ruleset reports `current_user_can_bypass == "never"` (and fails closed if the field is missing) | #84 (#100) |
 | 2026-10-31 | Owner notices (#97): the owner-notice write takes only a `kind`; its route comes from a fixed per-kind mapping inside the definer function, and the notifications issue keeps at most one pending row per kind (bounds the backlog, not the send rate). Owned outbox rows still hold a route key from the fixed list | ADR 0007 (#97) |
 | 2026-10-31 | Job queue (#96): classbeat's `expire` step is dropped (it served approvals), so the reaper is the only maintenance step; the advisory-lock registry in `queue_locks.py` is tested against ADR 0005 §9's table; until #77, guard 2 can't see the queue, web doesn't refuse a drifted queue, and the worker loads neither the allowlist nor the key ring, each seam failing closed and pinned by a test | #9 (#96), #77 |
 | 2026-10-31 | Purity guard (#94): `ownvitals.config`, `admin`, `flags`, `cli`, `log`, `headers`, `auth`, `context` and `connections`, `sqlalchemy`, `psycopg` and `requests` are forbidden in `ownvitals.analysis` and `ownvitals.ecg`. There, `patch`, `run_module`, `run_path` and `resolve_name` are refused as names, `exec`, `eval` and `compile` as bare names (or on `builtins` or a computed base), and all nine with `import_module` and `__import__` as exact strings; `re.compile`, and `import_module` or `__import__` called directly with a clean literal, are allowed (#99 added the planted tests) | #76 (#94), #99 (#102) |
@@ -150,7 +158,7 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 | 2026-10-31 | ECG (ADR 0006, merged in #46; the root-cause change after three FAILs): findings E1–E6 are stored from Withings values only; our SQI gate is a **read-time overlay**, never stored in a finding: one function reads the linked recording's current `estimated` and hides E4/E6 only on an explicit failure ("not evaluated by ownvitals" otherwise), never hides E1–E3 and shows our gate on them only behind the owner flag; every consumer (dashboard, API, notifications, export, doctor PDF, AI context) goes through it. E4/E6 notifications are held up to 24 h (a setting) for the gate and never recalled. The E5 index is out of v1; E4 with unknown sex uses only the QTc > 500 ms band; SQI components, HR, HRV and markers only behind the owner flag; writing `estimated` bumps no `data_revisions` and re-evaluates nothing | ADR 0006 (#46), #25 |
 | 2026-10-31 | ECG, Architect decisions for #46's fix rounds 4–6 (carried by ADR 0006 as merged): an `estimated` whose fingerprint or gate-module versions (`input`, `filters`, `rpeaks`, `sqi`) differ from the running ones counts as absent; the link is resolved at read time and a soft-deleted recording is no link; a finding's **trigger is the provenance of the value that made it fire** (the source groups the value-producing function used: a morning daily value's one group, a median day's groups), and baseline recordings never count; E4/E6 are hidden when at least half of the trigger recordings **with a gate result** failed explicitly, recordings without a result are left out, and none with a result means "not evaluated by ownvitals"; a group that is both trigger and baseline counts as a trigger; HR and HRV only from up-to-date estimates in every output; a finding with no linkable recording ends its hold at once ("no linkable recording" needs an `ecg` sync that completed successfully after the trigger was stored); the JSON/CSV export carries every finding with its overlay state, the doctor PDF and AI context leave hidden ones out; no reason code is a display label; the hold decides once and restarts on a new revision | #46 (rounds 4–6) |
 | 2026-10-31 | From the #35 review: prod also refuses a DSN `password`/`passfile` query parameter; the test-DSN check refuses an empty host and `service=` | #5 |
-| 2026-10-31 | Egress (#6, **#55 is open**): `ownvitals.egress` is a package; the web-only code exchange is its own module; the Withings and model clients refuse to build or send unless the worker allowlist is installed; SMTP has a 20 s total deadline (moves to a setting in #10); web installs a deny-all urllib opener in #10; the guard denies network-capable imports outside egress and mail (from the #55 review) | #6, #10, #23 |
+| 2026-10-31 | Egress (#6, **#55 is open**; the ADR 0009 rows above supersede the static-guard-only reading): `ownvitals.egress` is a package; the web-only code exchange is its own module; the Withings and model clients refuse to build or send unless the worker allowlist is installed; SMTP has a 20 s total deadline (moves to a setting in #10); web installs a deny-all urllib opener in #10; the guard denies network-capable imports outside egress and mail (from the #55 review) | #6, #10, #23 |
 | 2026-10-31 | Release trust boundary: the `v*` tag ruleset stops moving and deleting tags, not creating them; the deploy is the boundary (tag commit in `refs/heads/main`, attestation with cert identity, `--source-ref`, `--source-digest`). No tag `creation` rule: it adds nothing while the owner's token is the only pusher | AGENTS.md, #57, T62 (#49) |
 | 2026-10-31 | Webhook-secret rotation (ADRs 0004 and 0008, #58 and #73): **compromise** retires every entry at once, then appends, re-points and deletes, and cancels a routine rotation's queued `notify update` jobs; **routine** appends, waits for `active_from`, re-points, retires and deletes. `withings_apps.rotation_reason` is `routine` or `compromise`, and the CLI never downgrades a pending compromise (one conditional `UPDATE`). The function compares and clears the request under its row lock, refuses a routine step while a compromise is pending, refuses a stale request on retire-all and the clearing append, runs at READ COMMITTED and serialises on advisory lock 4; its `unretired_entries` and `seed_reused` rules guard an honest worker, not code with the app role (risk 21). Its role has `USAGE` on `public` and the column grants it needs, no client-secret or token column. Guard 11 checks with `has_any_column_privilege` and `has_table_privilege` that `ownvitals_app` and `ownvitals_maint` can't write `withings_apps`. A web cache that is stale or not yet loaded answers `POST` with 503 and `HEAD` with 200. `notify list` clean-up: #22 on (re)connect, #26 after the 14-day deadline, #27 on disconnect | ADR 0004, 0008, #21, #22, #24–#27 |
 | 2026-10-31 | Advisory-lock registry (ADR 0005 §9): namespace 1 job creation, 2 token refresh, 3 partitions, 4 webhook-secret rotation | ADR 0005 |
@@ -167,40 +175,41 @@ Scheduling: at most 5 Developers at once; the M0 critical path (#5 → #8 → #1
 ## Architect tasks
 
 - Split M6 into issues by screen group from `docs/design/README.md` ("Building it"): shell and
-  tokens first. Point the UI parts of #10, #11 and #12 at the `Auth`, `Security` and `Admin`
-  mock-ups.
+  tokens are done (#98); the rest follow. Point the UI parts of #10, #11 and #12 at the `Auth`,
+  `Security` and `Admin` mock-ups. The next M6 frontend issue carries the `viewport.test`
+  per-selector inset and the `optionalDependencies` licence-closure row (a mutation survived in
+  the #64 review; the same gap is on `main`).
 - The M6/M7 notifications issue (to create): at most one pending outbox row per owner-notice kind
   (#83 finding 1) on the `kind`-only write with its per-kind route mapping, tested by its signature
   and mapping (#97, N8), and the hold records how it ended as a reason code (ADR 0006 A9, OC5).
-- #82's next review (a fresh Opus delta) also covers its merges of `main`: #81 changed
-  `db/role_check.py`, which web's startup calls, and the renumbering to `0004_connection_keks`
-  after #96's `0003_jobs`.
-- When #82 merges, `web.py` passes to #6 for ADR 0009's install call in web's startup. If #55 is
-  ready before #82 merges, web's install becomes an acceptance criterion of #77 instead.
 - The next change to the analysis purity guard carries the #102 review's nits: `ownvitals.worker`
   on `FORBIDDEN` (the dynamic check catches it today through `db`), and the docs' "refused as an
-  identifier" wording (a name that is defined and never used isn't flagged).
-- After #100 merges: align threat model T62 ("an optional pre-release") with the deploy
-  script's refusal, and note `deploy/` in ADR 0001's layout; with them, the ADR 0007 wording N6
-  and N7 from the #97 review. #101 also shellchecks `deploy/ownvitals-deploy` in the `checks` job if
-  #100 has merged by then (with its own item 4, `docker/postgres/**/*.sh`; both need the `ci.yml` lock).
+  identifier" wording (a name that is defined and never used isn't flagged). The next analysis
+  touch carries the #109 nits: the margin wording, the suite time, SE rounding, and
+  `methods/__init__.py:6`, which still names Hamed–Rao as the correction (the default is AR(1)).
+- After #100 (merged): align threat model T62 ("an optional pre-release") with the deploy
+  script's refusal, note `deploy/` in ADR 0001's layout, and fix the ADR 0007 wording N6 and N7
+  from the #97 review. #101 shellchecks `deploy/ownvitals-deploy` in the `checks` job.
 - The M4 wiring issue (to create) reconciles `metric_daily` (morning, mean, min, max, n; PLAN §5)
-  with #37's `DailyValue` (morning or median, min, max, MAD), and keys duplicates of segmental
-  types 173–175 on `(grpid, position)`.
+  with #37's `DailyValue` (morning or median, min, max, MAD), keys duplicates of segmental types
+  173–175 on `(grpid, position)`, adds the `system` tier to the `findings` schema (Amendment 3),
+  stores ADR 0010's episodes, treats a trend on under 20 points with φ above 0.5 as
+  low-confidence (#87), labels `shift_sigmas` as long-run noise units or reports the shift in
+  metric units, carries a daily value's source groups as provenance (ADR 0006's trigger rule,
+  #46), and uses `from_daily`, not `from_instants`, which counts UTC days.
+- Proton Mail Bridge (owner decision of 2026-10-31): a setting for Bridge's pinned certificate (a
+  CA file or fingerprint), supplied by the M2 deploy or mail issue if #6 doesn't have it.
 - TypeScript 7: re-enable when typescript-eslint supports it (`@dependabot unignore` or a manual
-  bump issue).
-- Removing the "Is there a backend/frontend yet?" skip steps is part of #42.
+  bump issue). Check the Dependabot tab for the cooldown and the group `major` (from #111).
 - Dependabot PRs go through the same gate with a fresh Sonnet reviewer.
-- Frontend licence closure tests: add an `optionalDependencies` row (a mutation survived in the
-  #64 review; the same gap is on `main`). It goes into the next frontend issue.
 - After #55 merges: move or confirm the decisions it carries (the egress API names for #9, #10,
-  #22 and #29 and the closed-world network classification).
-- After #8 merges: record its decisions (web and worker refuse to start when the KEK check can't
-  run, including on an unmigrated database; the seed and pepper ids are settings).
-- The M4 wiring issue treats a trend on under 20 points with φ above 0.5 as low-confidence
-  (#87), and labels `shift_sigmas` as long-run noise units or reports the shift in metric units.
-- The M4 wiring issue also carries a daily value's source groups as provenance (ADR 0006's
-  trigger rule, #46) and uses `from_daily`, not `from_instants`, which counts UTC days.
+  #22 and #29 and the closed-world network classification), and confirm the ADR 0009 row in
+  `docs/adr/README.md`.
+- `ci-uv-version.sh` may change for a digest-pinned uv; its cases are in the uv section of
+  `scripts/test-ci-gate.sh`. Other docs that mention `uv@0.13.6` (`analysis.md`,
+  `analysis-methods.md`, `stack.md`) aren't checked by the script (a note only).
+- #14, when it creates `e2e/`, makes its `npm audit` required, so that deleting `e2e/` later fails
+  CI instead of skipping the audit (from the #106 review).
 
 ## Shared-file locks
 
@@ -209,33 +218,19 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `.github/workflows/ci.yml` | #42 (#106); then #57, then #101 |
-| `backend/src/ownvitals/config.py` | #8 |
-| `backend/pyproject.toml`, `backend/uv.lock` | — (#106 doesn't change them: the `audit` group is already locked) |
-| `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/worker/__main__.py` | #6 (ADR 0009's install call) |
-| `compose.yaml` | — (#101 next) |
-| `Dockerfile` | — (#57 next) |
-| `AGENTS.md` | #42 (#106, the CI table) |
-| `backend/src/ownvitals/web.py` | #8; then #6 (ADR 0009's install call), or #77 if #55 is ready first |
-| `backend/src/ownvitals/db/engine.py` | — |
-| `backend/src/ownvitals/db/tables.py` | #8 |
-| `backend/tests/dbtools.py` | — |
-| `backend/tests/conftest.py`, `backend/tests/test_web.py` | #8 |
-| `backend/tests/role_guard.py`, `docker/postgres/init/10-roles.sql` | #8 |
-| `backend/tests/session_scan.py` | — (#8 edits one `system_session` entry) |
-| `backend/src/ownvitals/db/role_check.py`, `backend/tests/user_context_scan.py`, `docs/dev/isolation.md` | — (#89 after #8, with `test_role_check*.py`, `test_user_context_writers.py` and the `db/engine.py` docstring; #8 edits one test function in `test_role_check.py`) |
-| `backend/tests/test_migrations.py` | #8 (head pin; it renumbers to `0004` after #96) |
-| `docs/dev/backend.md` | #8 |
-| `backend/tests/test_config_milestone.py` | #8 |
-| `backend/tests/rls_guard.py` | — |
-| `backend/tests/test_compose_roles.py` | — (#101 next) |
-| `scripts/ci-changes.sh` | #84 (one filter line) |
-| `scripts/test-ci-gate.sh` | #84 (#100, its filter case) and #42 (#106, the `ci-uv-version.sh` cases), in separate sections; the second to merge updates from `main` and re-runs the gate tests, and a fresh Reviewer checks a hand-resolved conflict |
-| `docs/dev/stack.md` | — |
-| `scripts/ci-uv-version.sh`, `.trivyignore` | #42 (#106) |
-| `scripts/ci-gate.sh` | — (#42 takes it only if a job list changes; #106 doesn't) |
-| `frontend/package.json`, `frontend/package-lock.json` | #98 (#105, the two font packages) |
-| `frontend/index.html`, `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/router/**`, `frontend/src/styles/**`, `frontend/src/components/**`, `frontend/src/theme/**`, `frontend/src/auth/access.ts`, new placeholders in `frontend/src/pages/`, `docs/dev/frontend.md` | #98 (#105) |
+| `.github/workflows/ci.yml`, `compose.yaml`, `Dockerfile`, `AGENTS.md`, `deploy/` | #101 (#118) |
+| `scripts/ci-changes.sh`, `scripts/test-ci-gate.sh`, `scripts/test-release.sh` | #101 (#118) |
+| `backend/tests/test_compose_roles.py`, `docs/dev/stack.md`, `docs/dev/deploy.md`, `docs/dev/jobs.md`, `docs/dev/release.md` | #101 (#118) |
+| `backend/pyproject.toml`, `backend/uv.lock` | #6 (#55: uvloop out, `pyyaml` into the dev group) |
+| `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py` | #6 (#55: ADR 0009's install calls, `loop="asyncio"`) |
+| `backend/src/ownvitals/egress/**`, `backend/src/ownvitals/mail.py`, `docs/dev/egress.md`, `docs/adr/README.md` | #6 (#55) |
+| `backend/tests/conftest.py`, `docs/dev/backend.md` | #6 (#55) and #89 (#115), in different hunks; the second to merge updates from `main` |
+| `backend/src/ownvitals/db/engine.py`, `backend/src/ownvitals/db/role_check.py`, `backend/tests/user_context_scan.py`, `backend/tests/user_context_rules.py`, `backend/tests/user_context_types.py`, `docs/dev/isolation.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | #89 (#115), with `test_role_check*.py`, `test_user_context_*.py` |
+| `backend/src/ownvitals/web.py` | — (free until #77) |
+| `backend/src/ownvitals/db/queue_check.py` | — (#77 next) |
+| `backend/src/ownvitals/config.py`, `db/tables.py`, `backend/tests/dbtools.py`, `test_web.py`, `role_guard.py`, `session_scan.py`, `rls_guard.py`, `test_migrations.py`, `test_config_milestone.py`, `docker/postgres/init/10-roles.sql` | — (#8 and #82 released them) |
+| `scripts/ci-uv-version.sh`, `.trivyignore`, `scripts/ci-gate.sh` | — (#106 released them) |
+| `frontend/**`, `docs/dev/frontend.md` | — (#98 and #105 released them) |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
 migration merges first, it renumbers and re-chains on its update, which needs a fresh scoped
@@ -243,6 +238,17 @@ review.
 
 ## Completed
 
+- 2026-11-01: #119 ECG follow-ups from the #114 review merged as #120 (Sonnet PASS `a0b7629`) → IMPLEMENTED.
+- 2026-11-01: #40 ECG signal-processing core merged as #114 (Opus delta PASS `308e54b` after FAIL `b40a263`; Architect integration review PASS) → IMPLEMENTED; synthetic data only, nothing verified against Withings. Its follow-ups are #119.
+- 2026-11-01: #116 ADR 0010 corrections and acceptance merged as #117 (Sonnet PASS `bcd3685`, merge check `11f4939`); ADR 0010 is Accepted.
+- 2026-11-01: #84 forced-command deploy script merged as #100 (Opus delta PASS `fa43404` after FAIL `4373d2c`, merge check `690b6eb`) → IMPLEMENTED; not installed or used (installing it is the owner's step). Its follow-ups go to #101, the next docs PR and #118.
+- 2026-11-01: #110 ADR 0010, the v1 finding rules, merged as #112 (Opus delta PASS `408863d` after FAIL `809b1a8`, merge check `822e343`), with roadmap Amendment 3.
+- 2026-11-01: #57 release follow-ups merged as #111 (Opus PASS `03c19b2`, merge check `4ddb9d8`) → IMPLEMENTED; its follow-ups went to #101.
+- 2026-11-01: #8 envelope encryption and the KEK ring merged as #82 (Opus delta PASS `0399575` after FAIL `5679e7d`, merge check `0b38853`) → IMPLEMENTED. Its follow-ups went to #89, #13 and #24.
+- 2026-10-31: #95 calibration and test follow-ups merged as #109 (Sonnet PASS `c72672e`, merge check `b76c0ff`) → IMPLEMENTED; its nits wait for the next analysis touch.
+- 2026-10-31: #42 CI dependency audits merged as #106 (Sonnet PASS `abc9a4b`, merge check `b5cd338`) → IMPLEMENTED.
+- 2026-10-31: #107 status merged as #108 (Sonnet PASS `d44a7a1`, merge check `7c65068`); its drift findings are fixed here.
+- 2026-10-31: #98 app shell, tokens, theme, fonts and design primitives merged as #105 (Sonnet PASS `0a6efb4`, merge check `02dcfce`) → IMPLEMENTED.
 - 2026-10-31: #99 purity guard follow-ups merged as #102 (Sonnet PASS `83ad6b2`, merge check `09f3c4d`) → IMPLEMENTED; its two nits wait for the next analysis-guard change.
 - 2026-10-31: #103 status merged as #104 (Sonnet PASS `8491382`); its drift findings are fixed here.
 - 2026-10-31: #88 ADR follow-ups merged as #97 (Opus delta PASS `0155ddc` after FAILs `80a0606` and `cfb5039`, merge check `eec8f60`).
@@ -297,8 +303,10 @@ assumptions below.
 | Human security review, legal checklist (§9.3), medical-claims review | M8 | Owner or a trusted reviewer |
 | Threat model O6: SWAG settings for ownvitals as the threat model lists them (no buffering for SSE, the webhook location's access log without the URI, `CF-Connecting-IP` honoured only on connections from Cloudflare's ranges (SWAG's real-IP settings), port 8096 firewalled to SWAG only) | M2 | Confirm or apply (192.168.1.151 and 192.168.1.222) |
 | Threat model O12: disk encryption on 192.168.1.222; whether Cloudflare proxies `withings.pernemark.se` | M2 | Decide and tell the Architect |
-| Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section of `docs/security/threat-model.md` (merged with #41; risks 20 and 21 are new; #49 and #88 extend 21, including the ways code with the app role could stall a rotation) |
+| Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section of `docs/security/threat-model.md` (merged with #41; risks 20 and 21 are new; #49, #72, #78 and #88 extend 21, including the ways code with the app role could stall a rotation) |
 | ECG (ADR 0006, merged in #46): whether our ECG estimates may be shown to anyone but the owner; whether public research ECG datasets may ever be used | M5 | Decide when M5 reaches them |
+| Receiving mail through Proton Mail Bridge (IMAP, or a `mail-worker` that posts to a REST API): production sending through Bridge on the owner's own domain is decided, receiving may come later | Not in the frozen spec; not before M2 mail works | A product decision; then the Architect writes a roadmap amendment and a threat-model entry for the new inbound path |
+| ADR 0010 open items: the C2 score-card band, the HIS table, Readiness and Body Path | M4 wiring, M6 | Decide when the wiring issue or the screen reaches them |
 
 ## Assumptions (unverified; each needs the probe or the owner)
 
