@@ -40,7 +40,14 @@ import re
 from functools import cache
 from pathlib import Path
 
-from egress_classified import EDGE_CUTS, LOOP_METHODS, TABLE, Entry
+from egress_classified import (
+    EDGE_CUTS,
+    LOOP_METHODS,
+    PROCESS_MODULES,
+    PROCESS_NAMES,
+    TABLE,
+    Entry,
+)
 from egress_closure import OWN, Closure, resolve_from, under
 
 EGRESS = "ownvitals.egress"
@@ -317,6 +324,8 @@ def _internal(name: str, module: str, verb: str) -> list[str]:
         found.append(f"{verb} {name}: only a process entry point installs the egress hook")
     if name == SMTP_SESSION and module != MAIL:
         found.append(f"{verb} {name}: only the mail module opens an SMTP session")
+    if under(name, PROCESS_MODULES) or name in PROCESS_NAMES:
+        found.append(f"{verb} {name}: starts a process the egress hook cannot see (ADR 0009)")
     if name == "pkgutil.resolve_name":
         found.append(f"{verb} {name}: resolves a module by name at run time")
     return found
@@ -390,11 +399,11 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
                 imports += dynamic
             found += [(node.lineno, w) for w in _scan_call(node, aliases, module, used)]
     for line, name, must_be_module in imports:
+        found += [(line, w) for w in _internal(name, module, "imports")]
         head = name.split(".")[0]
         if not CLOSURE.is_module(head) or (must_be_module and not importable(name)):
             found.append((line, f"imports {name}: not in the locked environment"))
             continue
-        found += [(line, w) for w in _internal(name, module, "imports")]
         found += [(line, w) for w in classify(name, module, "imports", used)]
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in object_names:

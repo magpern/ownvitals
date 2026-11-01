@@ -108,6 +108,7 @@ from pydantic import SecretStr  # noqa: E402
 
 from ownvitals.config import Settings  # noqa: E402
 from ownvitals.egress import (  # noqa: E402
+    EgressRefused,
     google_async_client,
     install_egress_hook,
     install_worker_allowlist,
@@ -235,6 +236,8 @@ def raw_connect() -> None:
 def ipv6_connect() -> None:
     try:
         client = socket.socket(socket.AF_INET6)
+    except EgressRefused:
+        raise  # the hook refused the socket itself: not a missing IPv6 stack
     except OSError:  # no IPv6 on the machine: the hook judges the same event
         sys.audit("socket.connect", FakeSocket(socket.AF_INET6), ("::1", LISTENER.port))
         return
@@ -285,6 +288,20 @@ def fork(function: Callable[[], int]) -> None:
 
 
 PYTHON_PASS = [sys.executable, "-c", "pass"]
+
+
+def socket_from_fd() -> None:
+    """``socket.socket(fileno=fd)`` without a family raises ``socket.__new__`` with family -1:
+    refused, so an inherited descriptor's real family is never taken over."""
+    fd = socket.socket().detach()
+    socket.socket(fileno=fd)
+
+
+def winapi_create_process() -> None:
+    import _winapi  # pyright: ignore[reportMissingImports]
+
+    command = subprocess.list2cmdline(PYTHON_PASS)
+    _winapi.CreateProcess(sys.executable, command, None, None, False, 0, None, None, None)  # pyright: ignore[reportUnknownMemberType, reportArgumentType]
 
 
 def starts_the_app() -> None:
@@ -342,12 +359,15 @@ CASES: dict[str, Callable[[], Any]] = {
     "second_install_same_kind": lambda: install_egress_hook(KIND, settings()),  # type: ignore[arg-type]
     "second_install_other_kind": lambda: install_egress_hook(OTHER_KIND, settings()),  # type: ignore[arg-type]
 }
+if sys.platform == "win32":
+    CASES["winapi_create_process"] = winapi_create_process
 if LINUX:
     OTHER_SOCKET = SCRATCH / "other.sock"
     Listener(AF_UNIX, str(OTHER_SOCKET))
     Listener(AF_UNIX, str(DB_SOCKET_DIR / ".s.PGSQL.5432"))
     CASES["unix_other"] = lambda: unix_connect(OTHER_SOCKET)
     CASES["unix_database"] = lambda: unix_connect(DB_SOCKET_DIR / ".s.PGSQL.5432")
+    CASES["socket_from_fd"] = socket_from_fd
     CASES["netlink_socket"] = lambda: socket.socket(OTHER_FAMILY, socket.SOCK_RAW)
     CASES["os_posix_spawn"] = lambda: os.posix_spawn(sys.executable, PYTHON_PASS, os.environ)  # pyright: ignore[reportAttributeAccessIssue]
     CASES["os_fork"] = lambda: fork(os.fork)  # pyright: ignore[reportAttributeAccessIssue]

@@ -128,16 +128,27 @@ in CI and pins the standard loop's rows.
      the hook.
    - `ctypes`, and an attacker who already runs code in the process. The hook is a control on
      our code and our libraries, not a sandbox.
+   - **Process creation without an audit event.** `_posixsubprocess.fork_exec` raises none; the
+     `multiprocessing` `spawn` and `forkserver` start methods use it (so do uvicorn's
+     `workers > 1` and `reload`), and `ctypes` can call the C library's own. A child started
+     this way runs without the hook. The hook cannot refuse the module (the standard library's
+     `subprocess` imports it), so the static guard refuses `_posixsubprocess`, `_winapi`,
+     `multiprocessing` (and its submodules) and `concurrent.futures.ProcessPoolExecutor` in
+     `src/` under any name; a dependency that uses these routes is trusted code, kept so by
+     dependency review. Web runs as one uvicorn process, without `workers > 1` or `reload`
+     outside development (#77's acceptance criteria).
    - The network-level egress rule stays the deployment's (owner side, M2).
 
    Two things it would not see are refused outright instead (amendment of 2026-11-01):
-   - **a child process**, which would run without the hook: the audit events
-     `subprocess.Popen`, `os.system`, `os.exec`, `os.posix_spawn`, `os.spawn`, `os.fork`,
-     `os.forkpty` and `os.startfile` are refused in every kind, since no ownvitals process starts
-     another. A refusal logs `process creation refused`;
+   - **a child process started through a route that raises an audit event**, which would run
+     without the hook: `subprocess.Popen`, `os.system`, `os.exec`, `os.posix_spawn`,
+     `os.spawn`, `os.fork`, `os.forkpty`, `os.startfile` and `_winapi.CreateProcess` are refused
+     in every kind, since no ownvitals process starts another. A refusal logs
+     `process creation refused`;
    - **a socket of another family** (a raw `AF_PACKET` socket's sends raise no audit event): the
      `socket.__new__` event is refused for any family but `AF_INET`, `AF_INET6` and `AF_UNIX`,
-     before the socket exists.
+     before the socket exists. That includes `socket.socket(fileno=fd)` without a family
+     (family `-1` on Linux), so an inherited descriptor's family is never taken over.
 8. **The static guard's role.** It stays: closed-world for **direct** imports (a capable module
    `src/` imports or references must be classified), the per-module rules (only `mail` uses
    smtplib; only the entry points install the worker list or the hook; only `mail` opens an
@@ -191,3 +202,12 @@ in CI and pins the standard loop's rows.
   code from starting concurrent work inside a scope.
 - **N2:** a second install with the same kind is a no-op that keeps the first policy, as before;
   it is now tested.
+
+## Amendment, 2026-11-01 (Architect, after `Agent review (Opus): FAIL d957d45`)
+
+- `_posixsubprocess.fork_exec` raises no audit event, so the hook cannot see the `multiprocessing`
+  `spawn` and `forkserver` routes. The control is static: the guard refuses `_posixsubprocess`,
+  `_winapi`, `multiprocessing` and `concurrent.futures.ProcessPoolExecutor` in `src/`, and
+  Decision item 7 lists the route as a limit (dependencies are trusted code). The hook refuses
+  the routes that raise events, now including `_winapi.CreateProcess`. Web stays one uvicorn
+  process (#77).

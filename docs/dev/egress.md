@@ -126,8 +126,8 @@ modules.
 | `socket.getaddrinfo`, `socket.gethostbyname` (and `_ex`) | only a host in the process's set: web: Google sign-in's hosts and `wbsapi.withings.net`; worker (and the CLI once its probe installs it): the installed worker list; every kind: the database URLs' hosts; web and CLI: `smtp_host`. No context needed: asyncio resolves in an executor thread |
 | `socket.gethostbyaddr`, `socket.getnameinfo` | always refused |
 | `socket.connect` (and `connect_ex`), `sendto`, `sendmsg` | `AF_INET`/`AF_INET6`: only inside a connection scope, set by `AllowlistTransport` and the urllib opener around a send (after their allowlist check) and by `mail` around one SMTP session. `AF_UNIX`: only a configured database socket (`<host dir>/.s.PGSQL.<port>`). Any other family: refused. A send without an address is allowed |
-| `socket.__new__` | only `AF_INET`, `AF_INET6` and `AF_UNIX`: a raw or packet socket is refused before it exists |
-| `subprocess.Popen`, `os.system`, `os.exec`, `os.posix_spawn`, `os.spawn`, `os.fork`, `os.forkpty`, `os.startfile` | always refused: no ownvitals process starts another, and a child would run without the hook. Logged as `process creation refused` |
+| `socket.__new__` | only `AF_INET`, `AF_INET6` and `AF_UNIX`: a raw or packet socket is refused before it exists, and so is `socket.socket(fileno=fd)` without a family (family `-1` on Linux) |
+| `subprocess.Popen`, `os.system`, `os.exec`, `os.posix_spawn`, `os.spawn`, `os.fork`, `os.forkpty`, `os.startfile`, `_winapi.CreateProcess` | always refused: no ownvitals process starts another, and a child would run without the hook. Logged as `process creation refused`. `_posixsubprocess.fork_exec` raises no event: the guard refuses it (below) |
 
 A refusal raises `EgressRefused` (a `PermissionError`) and logs `outbound connection refused`
 with `event`, `target` (host, address family or `reverse lookup`) and `process_kind`: never a
@@ -271,7 +271,7 @@ cd backend
 uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   tests/test_egress_closure.py tests/test_egress_runtime.py tests/test_egress_code_exchange.py tests/test_egress_deadline.py \
   tests/test_egress_budget.py tests/test_mail.py tests/test_egress_hook.py tests/test_egress_loop_probe.py \
-  tests/test_egress_scope.py
+  tests/test_egress_scope.py tests/test_egress_process.py
 ```
 
 ## Known limits
@@ -281,6 +281,14 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   database; a new dependency with native networking is caught by dependency review), `ctypes`,
   or code that already runs in the process: it is a control on our code and our libraries, not
   a sandbox. A network-level egress rule stays the deployment's (M2).
+- The hook refuses the process-creation routes that raise audit events. `_posixsubprocess.fork_exec`
+  raises none: the `multiprocessing` `spawn` and `forkserver` methods (and uvicorn's
+  `workers > 1` and `reload`) use it, and `ctypes` can start a process too. The guard refuses
+  `_posixsubprocess`, `_winapi`, `multiprocessing` and `concurrent.futures.ProcessPoolExecutor`
+  in `src/` under any name (`tests/test_egress_process.py`); dependencies are trusted code.
+  Web runs as one uvicorn process (#77).
+- The inherited-scope check (`tests/test_egress_scope.py`) is lexical: a helper called inside a
+  scope that starts a task itself is not seen; the four modules that open a scope are reviewed.
 - Until #77 installs it in web, web relies on the guard, the clients' allowlists and the
   deployment's rule.
 - The guard is static; the hook covers at run time what it cannot see, and the review gate the
@@ -293,7 +301,7 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
   - process execution (N10): `subprocess` is capable (it imports `select`) and so refused, as
     are `asyncio.create_subprocess_*` and `anyio`; `os.system`, `os.popen`, `os.exec*` and
     `os.spawn*` pass the guard. The image has `python`, so a child could connect: the hook
-    refuses every process creation at run time instead (ADR 0009, amendment of 2026-11-01);
+    refuses them at run time, and the guard refuses the routes without an audit event (above);
   - out of scope by design (N13): the database driver's host is a setting, like the SMTP host
     (`sqlalchemy.*` is by design); inbound listeners are not egress (`uvicorn` is by design;
     `socketserver`, `http.server` and `logging.config` are refused as unclassified);

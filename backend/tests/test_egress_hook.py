@@ -31,6 +31,7 @@ from ownvitals.worker import __main__ as worker_main
 CHILD = Path(__file__).resolve().parent / "egress_hook_child.py"
 KINDS = ("web", "worker", "cli")
 LINUX = sys.platform.startswith("linux")
+WINDOWS = sys.platform == "win32"
 OUTSIDE = "example.invalid"
 GETADDRINFO, CONNECT = "socket.getaddrinfo", "socket.connect"
 PROCESS = "process creation"
@@ -99,9 +100,12 @@ REFUSED_EVERYWHERE = {
     "os_system": ("os.system", PROCESS),
     "os_spawn": ("os.fork" if LINUX else "os.spawn", PROCESS),  # POSIX spawnv is fork and exec
     "os_exec": ("os.exec", PROCESS),
+    **({"winapi_create_process": ("_winapi.CreateProcess", PROCESS)} if WINDOWS else {}),
     **(
         {
             "netlink_socket": ("socket.__new__", "AF_NETLINK"),
+            # A descriptor without a family (Windows looks the family up before the event).
+            "socket_from_fd": ("socket.__new__", "-1"),
             "os_posix_spawn": ("os.posix_spawn", PROCESS),
             "os_fork": ("os.fork", PROCESS),
             "os_forkpty": ("os.forkpty", PROCESS),

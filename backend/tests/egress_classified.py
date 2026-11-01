@@ -137,6 +137,17 @@ EDGE_CUTS: dict[str, str] = {
     ),
 }
 
+# Process creation the egress hook cannot see (ADR 0009 item 7): ``_posixsubprocess.fork_exec``
+# raises no audit event, and ``multiprocessing``'s spawn and forkserver methods use it; a child
+# runs without the hook. Refused in ``src/`` under any name, whether capable or not.
+PROCESS_MODULES: tuple[str, ...] = (
+    "_posixsubprocess",
+    "_winapi",
+    "multiprocessing",
+    "concurrent.futures.process",
+)
+PROCESS_NAMES: frozenset[str] = frozenset({"concurrent.futures.ProcessPoolExecutor"})
+
 LOOP_METHODS: frozenset[str] = frozenset(
     {
         "add_signal_handler",  # the worker's SIGTERM/SIGINT stop (worker.__main__); no network

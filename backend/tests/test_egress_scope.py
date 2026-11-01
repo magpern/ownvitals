@@ -81,18 +81,30 @@ def test_the_scopes_are_where_the_check_looks() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    "source",
-    [
-        "with _connection_scope('httpx'):\n    asyncio.create_task(send())",
-        "async def f():\n    with smtp_session():\n        await asyncio.to_thread(g)",
-        "with hook._connection_scope('x'), open(p):\n    loop.run_in_executor(None, g)",
-        "with smtp_session():\n    if x:\n        threading.Thread(target=g).start()",
-        "with _connection_scope('x'):\n    async with asyncio.TaskGroup() as tg:\n        pass",
-    ],
-)
+PLANTED = [
+    "with _connection_scope('httpx'):\n    asyncio.create_task(send())",
+    "async def f():\n    with smtp_session():\n        await asyncio.to_thread(g)",
+    "with hook._connection_scope('x'), open(p):\n    loop.run_in_executor(None, g)",
+    "with smtp_session():\n    if x:\n        threading.Thread(target=g).start()",
+    "with _connection_scope('x'):\n    async with asyncio.TaskGroup() as tg:\n        pass",
+    # One per name in STARTS, and a scope opened by ``async with``.
+    "with smtp_session():\n    await asyncio.gather(a(), b())",
+    "with _connection_scope('x'):\n    asyncio.ensure_future(send())",
+    "with _connection_scope('x'):\n    asyncio.run_coroutine_threadsafe(send(), loop)",
+    "with smtp_session():\n    pool.submit(g)",
+    "with _connection_scope('x'):\n    tg.start_soon(send)",
+    "async def f():\n    async with _connection_scope('x'):\n        asyncio.create_task(g())",
+]
+
+
+@pytest.mark.parametrize("source", PLANTED)
 def test_the_check_fails_on_work_started_inside_a_scope(source: str) -> None:
     assert starts_inside_a_scope(source) != []
+
+
+def test_every_start_has_a_planted_example() -> None:
+    planted = {name for source in PLANTED for _, name in starts_inside_a_scope(source)}
+    assert planted == STARTS
 
 
 def test_the_check_allows_plain_calls_inside_a_scope() -> None:

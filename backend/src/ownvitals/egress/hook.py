@@ -23,9 +23,12 @@ below) and returns; otherwise it decides:
   One exception, Windows only: the standard library's own ``socket.socketpair`` emulation
   connects to its own loopback listener (the selector loop's self-pipe), recognised by its code
   object.
-- **Process creation** (``subprocess.Popen``, ``os.system``, ``os.exec*``, ``os.posix_spawn*``,
-  ``os.spawn*``, ``os.fork``, ``os.forkpty``, ``os.startfile``): always refused. No ownvitals
-  process starts another, and a child would run without this hook.
+- **Process creation** that raises an audit event (``subprocess.Popen``, ``os.system``,
+  ``os.exec*``, ``os.posix_spawn*``, ``os.spawn*``, ``os.fork``, ``os.forkpty``,
+  ``os.startfile``, ``_winapi.CreateProcess``): always refused. No ownvitals process starts
+  another, and a child would run without this hook. ``_posixsubprocess.fork_exec`` raises no
+  event (``multiprocessing``'s spawn and forkserver methods use it): the static guard refuses
+  it and ``multiprocessing`` in ``src/`` (ADR 0009 item 7).
 
 The connection scope is a context variable, so work started inside it inherits it: a task
 created or a ``to_thread`` call made inside the scope keeps it for as long as it runs (a
@@ -95,6 +98,7 @@ _PROCESS: Final = frozenset(
         "os.fork",
         "os.forkpty",
         "os.startfile",
+        "_winapi.CreateProcess",  # Windows, under subprocess
     }
 )
 # A Python function only where the platform has no socketpair (Windows); None elsewhere.
