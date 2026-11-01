@@ -112,7 +112,7 @@ values (one-sided), and on about 3 % with heavy tails.
 | Term | Computable definition |
 |---|---|
 | "for ≥ 3 days" (C1) | A **run**: at least 3 consecutive calendar days, each with a daily value that meets the condition against the band at the run's first day. A day without data ends the run (gaps stay gaps). |
-| "rising" (B5, C2) | `trend(Series.from_daily(window, window_days=90))` with `Correction.AR1` and α 0.05 gives `Direction.INCREASING`, on the 90 days ending at *d*, which pass the metric's TREND policy. An episode needs §4's persistence (21 calendar days, at least 3 evaluations). |
+| "rising" (B5, C2) | `trend(Series.from_daily(window, window_days=90))` with `Correction.AR1` and α 0.05 gives `Direction.INCREASING`, on the 90 days ending at *d*, which pass the metric's TREND policy. An episode needs §4's persistence (21 calendar days, at least 6 evaluations). |
 | "significant 90/180-day decline" (N3) | `trend` (AR(1)) gives `DECREASING` on the 90 days or on the 180 days ending at *d*, each window passing the nerve TREND policy (N1), at **α 0.025 per window** (Bonferroni over the two; Dunn 1961); an episode needs §4's persistence. |
 | Extracellular-water rise (B1) | The ECW (168) daily value on *d* is above the ECW finding threshold (§2) at the gain's start day. |
 | "resting HR" (C1) | Heart pulse, type 11 (`heart_pulse`), as #37's daily value as defined: when several devices report on one day (a Body Scan standing, a blood-pressure monitor seated, a watch), the earliest morning reading wins whatever its device, otherwise the median of all of them. A day's value can therefore come from a different device and posture than the baseline's; v1 accepts that, and keying C1's baseline to the source model is an option the M4 wiring issue may take by amendment. It is **not a clinical resting heart rate**; the trend tier compares it only with the user's own history under the same habit. The label "resting heart rate" is the design's. Night HR from sleep summaries is not in v1 (§8). |
@@ -147,14 +147,18 @@ values (one-sided), and on about 3 % with heavy tails.
   **calendar days** (Architect, 2026-11-01, after the #112 review): an episode **opens** at an
   evaluation when the condition held at every evaluation from the run's first evaluation day to
   this one, those days span **at least 21 calendar days** (first and last included), and there
-  were **at least 3 evaluations**. A day without data neither counts nor breaks the run; a day
+  were **at least 6 evaluations**. A day without data neither counts nor breaks the run; a day
   with insufficient data breaks it. An open episode **ends** after **7 calendar days** in which
   every evaluation failed (at least one evaluation in them). The episode's window starts at the
   window start of the run's first evaluation, and its origin is computed when it opens. Why 21:
   with 14 the false-episode rate at φ 0.6 was 15 % of years, over the Architect's 10 % bound; 21
   gives 6 to 9 % with daily data (Consequences). For daily measurers the calendar count equals 21
-  consecutive evaluations; for sparse ones it doesn't stretch the delay to 21 measures. The other rules keep the
-  first-non-firing end above: their runs (C1, N2) are their persistence.
+  consecutive evaluations; for sparse ones it doesn't stretch the delay to 21 measures. Why 6
+  evaluations (Architect, 2026-11-01): with 3, a weekly nerve cadence gave 13.0 % false years at
+  φ 0.6; with 6 it gives 4.5 %. The minimum only bites on sparse metrics: 21 days of daily data
+  hold 21 evaluations, and 21 days with data on 70 % of days hold fewer than 6 with a probability
+  of about 2 · 10⁻⁵. The other rules keep the first-non-firing end above: their runs (C1, N2)
+  are their persistence.
 - Storage (the `findings` columns, the active-episode uniqueness) is the wiring issue's.
 
 ### 5. Confidence
@@ -294,16 +298,17 @@ tachycardia, as the bradycardia guideline (Kusumoto et al. 2019) also uses it.
   evaluations) it is **4.3 % at φ 0 and 6.3 % at φ 0.6**; 14 would have given 11 % and 15 %.
   The calendar-day form of §4 (a second run, 200 years per row, its own seeds) gives 4.5 % and
   8.5 % with daily data (the same rule, within the Monte Carlo error of about 2 points), 2.5 %
-  and 7.5 % with data on 70 % of days, and for a **weekly** nerve cadence (N3: the 90- or 180-day
-  decline at α 0.025, `NERVE_TREND`) 2.5 % at φ 0 and **13.0 % at φ 0.6, above the 10 % bound**:
-  21 calendar days hold only 3 or 4 weekly evaluations. That cell is open for the Architect
-  (Open questions).
+  and 7.5 % with data on 70 % of days. For a **weekly** nerve cadence (N3: the 90- or 180-day
+  decline at α 0.025, `NERVE_TREND`) a minimum of 3 evaluations gave 2.5 % at φ 0 and 13.0 % at
+  φ 0.6, above the 10 % bound, because 21 calendar days hold only 3 or 4 weekly evaluations; the
+  minimum of 6 gives **0.8 % and 4.5 %** (400 years per row).
 - **The price is delay, and it scales with how often the user measures.** A real decline of 5 %
   per 6 months (weight 80 kg, noise sd 0.5 kg: 8 noise sd per 182 days, our choice), on the
   90-day decline condition, opens an episode within 60 days of its start in 96 % of years at
   φ 0 and 39 % at φ 0.6 (100 % and 94 % without persistence). Median opening delay, calendar
-  form: 48 / 66 days (φ 0 / 0.6) with daily data, 53 / 74 with 70 % of days, and 89 / 128 days
-  for a weekly nerve cadence with the same signal (within 180 days: 100 % / 74.5 %). **B2** finds no
+  form: 48 / 66 days (φ 0 / 0.6) with daily data, 53 / 74 with 70 % of days, and 106 / 154 days
+  for a weekly nerve cadence with the same signal and the 6-evaluation minimum (within 60 days:
+  1.5 % / 4.5 %; within 180 days: 99.5 % / 64 %). **B2** finds no
   such change within 60 days at all, with or without persistence: its effect threshold is 5 %
   over its whole 182-day window, so it opens only once the change has run for most of six
   months, as its definition says. The tables are in the test specification ("Repeated
@@ -323,13 +328,8 @@ tachycardia, as the bradycardia guideline (Kusumoto et al. 2019) also uses it.
 2. Whether N4 returns once a primary source is verified, and whether a Body Scan's 229 value is
    on the cited studies' scale.
 
-**For the Architect**
-
-- N3 at a weekly cadence: 13.0 % false years at φ 0.6 (Consequences), above the 10 % bound that
-  chose 21 days for daily data. Options: a larger minimum number of evaluations for nerve rules,
-  or accepting it for the trend tier with its confidence (T marks n < 20 with φ > 0.5 low).
-
 **Decided by the Architect (2026-11-01, #110).** Two bands (§2); C1 and its experimental part
 (§7); the "not in v1" list (§8); confidence and severity (§5, §6); tier `system` by roadmap
-Amendment 3; episodes and origin (§4); the persistence of trend-test rules (§4: 21 days to open,
-7 to end, chosen from {14, 21, 28} as the smallest under 10 % false years at φ 0.6).
+Amendment 3; episodes and origin (§4); the persistence of trend-test rules (§4: 21 calendar days and
+at least 6 evaluations to open, 7 to end; 21 chosen from {14, 21, 28} as the smallest under 10 %
+false years at φ 0.6, and 6 evaluations because 3 left weekly nerve data at 13 %).

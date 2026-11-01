@@ -136,9 +136,11 @@ of B2, B4, B5, N3 and C2. The run counts calendar days:
 1. Daily data: true on days 1 … 20 opens nothing; true on day 21 opens an episode (21 calendar
    days, 21 evaluations), its window starting at day 1's window start, with the origin of day 21.
 2. True on days 1 … 20, false on day 21, true from day 22: nothing opens until day 42.
-3. Sparse data: evaluations on days 1, 8 and 21, all true, open on day 21 (21 days, 3
-   evaluations). Evaluations on days 1 and 21 only open nothing (2 evaluations); a third true
-   one on day 25 opens it. Days without data neither count nor break the run.
+3. Sparse data, the evaluation minimum: weekly evaluations on days 1, 8, 15, 22, 29 and 36, all
+   true, open nothing on day 22 (22 days but 4 evaluations) or day 29 (5) and open on day 36 (the
+   6th). Evaluations on days 1, 3, 5, 7, 9 and 21, all true, open on day 21 (21 days, 6
+   evaluations); the same six ending on day 20 open nothing until a true evaluation on day 21 or
+   later. Days without data neither count nor break the run.
 4. Insufficient data on any evaluation day breaks the run; the next true evaluation starts a new
    one.
 5. An open episode survives false evaluations on days *e* … *e* + 5 and ends on day *e* + 6 if
@@ -166,7 +168,7 @@ with an opening run of L evaluations (L 1 is no persistence):
 
 The standard error of a year share is about 2.8 points at 60 % and 1.4 at 6 %.
 
-**The calendar-day rule of §4** (21 calendar days, at least 3 evaluations; 200 years per row,
+**The calendar-day rule of §4** (21 calendar days, with the stated minimum of evaluations; 200 years per row,
 seed 20261031 plus a cell offset; standard error about 2 points). Daily and 70 % rows: the
 90-day "rising" condition (α 0.05, TREND policy, insufficient data breaking the run). Weekly row:
 one measure every 7 days, N3's condition (`DECREASING` at α 0.025 on the 90 or the 180 days,
@@ -180,11 +182,17 @@ of 8 noise sd per 182 days (the weight case's 5 % per 6 months) the share opened
 | daily | 0.6 | 8.5 % | 36.5 % | 100 % | 66 days |
 | 70 % of days | 0 | 2.5 % | 82.5 % | 100 % | 53 days |
 | 70 % of days | 0.6 | 7.5 % | 24.5 % | 99.5 % | 74 days |
-| weekly (nerve, N3) | 0 | 2.5 % | 7.5 % | 100 % | 89 days |
-| weekly (nerve, N3) | 0.6 | **13.0 %** | 9.5 % | 74.5 % | 128 days |
+| weekly (nerve, N3), at least 3 evaluations | 0 | 2.5 % | 7.5 % | 100 % | 89 days |
+| weekly (nerve, N3), at least 3 evaluations | 0.6 | 13.0 % | 9.5 % | 74.5 % | 128 days |
+| **weekly (nerve, N3), at least 6** (400 years) | 0 | **0.8 %** | 1.5 % | 99.5 % | 106 days |
+| **weekly (nerve, N3), at least 6** (400 years) | 0.6 | **4.5 %** | 4.5 % | 64.0 % | 154 days |
+| weekly (nerve, N3), at least 8 (400 years) | 0 | 0.2 % | 0 % | 96.2 % | 123 days |
+| weekly (nerve, N3), at least 8 (400 years) | 0.6 | 1.5 % | 1.8 % | 47.5 % | 175 days |
 
-The daily rows repeat the L 21 rule (8.5 % against 6.3 % is within two standard errors). The
-weekly row at φ 0.6 is above 10 % (ADR, Open questions).
+The daily and 70 % rows ran with a minimum of 3; with 6 they are the same rule, since 21 days of
+daily data hold 21 evaluations and 21 days at 70 % hold fewer than 6 with a probability of about 2 · 10⁻⁵. The daily rows repeat the L 21 rule (8.5 %
+against 6.3 % is within two standard errors). With 3 evaluations the weekly row at φ 0.6 was above
+10 %; 6, the Architect's minimum, brings it to 4.5 %, so 8 isn't needed.
 
 **Power** (300 years per row; weight level 80 kg, noise marginal sd 0.5 kg, our choice): a linear
 decline of 5 % per 182 days from day *s*; percent of years in which an episode opens on a day in
