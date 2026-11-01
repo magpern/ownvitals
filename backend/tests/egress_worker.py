@@ -28,6 +28,7 @@ WORKER_ENTRYPOINTS = (
     "ownvitals.log",
     "ownvitals.db",
     "ownvitals.jobs",
+    "ownvitals.withings.client",
 )
 # What the worker must not load (the egress package itself runs on httpx and urllib).
 _REACHABILITY_WATCHED = (
