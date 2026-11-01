@@ -9,9 +9,9 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement) has five Opus FAILs, the latest on `d957d45`, and a fix round pushed as `61d7c30`; #89 (#115) has five, the latest on `bee21cf`, and #101 (#118) one on `818a0df`, each with the Architect's fix list posted; #77 and #10 wait for #6 | — |
-| M1 | Withings core | #19 (#63) and #66 (#71) merged; backlog #18, #20–#30, #36 (dependency graph in [status/dependency-graphs.md](status/dependency-graphs.md)) | — |
-| M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward) merged: IMPLEMENTED, not installed (installing it is the owner's); #101 (#118) is the deploy-side follow-up; the rest are mostly owner actions (see "Blocked on the owner") | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement), #101 (#118), #10 (#125) and #11 (#132) merged; open: #12 (#129, Opus PASS on `b6d69c3`, merge pending), #89 (#115) and #122 (#123), each after repeated Opus FAILs with the Architect's fix list posted | — |
+| M1 | Withings core | #19 (#63), #66 (#71) and #20 (#128, the API client, error taxonomy and response models) merged; backlog #18, #21–#30, #36 (dependency graph in [status/dependency-graphs.md](status/dependency-graphs.md)) | — |
+| M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward) merged: IMPLEMENTED, not installed (installing it is the owner's); #101 (#118, the deploy-side follow-up) merged; the rest are mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
 | M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74), #68 (#87), #76 (#94), #99 (#102) and #95 (#109) merged; ADR 0010, the v1 finding rules (#110, #112; accepted in #116, #117) and roadmap Amendment 3 merged | — |
 | M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 (#114, the signal-processing core, with its ADR 0006 amendments) and its follow-ups #119 (#120) merged; #47 waits for #21 and #25 | — |
@@ -23,14 +23,15 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #6 | Egress allowlist and mail (ADR 0009, runtime egress enforcement) | Opus | #55 | five Opus FAILs, the latest on `d957d45` (`_posixsubprocess.fork_exec` raises no audit event); the Architect's fix list (the static refusal of `_posixsubprocess`, `multiprocessing` and `ProcessPoolExecutor`, `pyyaml` in the dev group, and non-blocking items) is posted. The head is `61d7c30` (fix commits and a merge of `main`) and has no verdict; its `Backend` job failed when this update was written (not investigated); a fresh Opus delta review follows once CI is green |
-| #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews | Opus | #115 | five Opus FAILs, the latest on `bee21cf` (the head, CI green; a string starting with `*` still reaches `get_type_hints`); the Architect's fix list (a fail-closed type grammar, one blocking item and five non-blocking) is posted; the next review is a fresh Opus delta review |
-| #101 | `db-functions` follow-ups from the #96 review (functions installed from the release image) | Opus | #118 | Opus FAIL `818a0df` (the CI filter must run the guards on Dockerfile and compose changes; compose read as YAML); the head `4ab9f85` (CI green) has no verdict yet; a fresh Opus delta review follows |
-| — | Status reconcile to 2026-11-01 (this update) | Developer (Sonnet) | this PR | in review |
+| #12 | Admin, audit log and stored flags | Opus | #129 | Opus PASS on `b6d69c3` (the head, CI green); the merge waits for the Architect's integration review; the reviewer's non-blocking items go to follow-ups; owns migration `0006_admin` |
+| #89 | Role-check and guard 5 follow-ups from the #81 and #82 reviews | Opus | #115 | latest Opus FAIL `d2891d9`; the head `d21fdb2` (fix round 15, partly done: code and tests pushed; docs, the full backend suite and the PR-body section outstanding) has no verdict; a fresh Opus delta review follows |
+| #122 | Static egress guard: refuse `sys.modules` lookups and `ctypes` in `src` | Opus | #123 | latest Opus FAIL `ea76498`; the head `5787e19` (fix round 10: the docstring-and-comment word rule pushed; docs, mutation runs and the PR-body section outstanding) has no verdict; a fresh Opus delta review follows |
+| #130 | Codex and economical Cursor agent alternatives (docs) | — | #131 | open on `f20a537`, no verdict yet |
 
-Ready, waiting for a free slot: none. #77 and #10 wait for #6; #11, #12 and #13 follow #10. At
-most five Developers work on issues at once; a fix round on an open PR may run while five are
-busy, and no new issue starts until fewer than five are.
+Merged since the last reconcile: #6 (#55), #101 (#118), #10 (#125), #20 (#128), #11 (#132) and
+#133 (#134). On GitHub #77 and #13–#30 still carry `blocked-deps`; the Architect re-checks their
+dependencies next cycle. At most five Developers work on issues at once; a fix round on an open PR
+may run while five are busy, and no new issue starts until fewer than five are.
 
 ## Detail files
 
@@ -50,17 +51,14 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `.github/workflows/ci.yml`, `compose.yaml`, `Dockerfile`, `AGENTS.md`, `deploy/` | #101 (#118) |
-| `scripts/ci-changes.sh`, `scripts/test-ci-gate.sh`, `scripts/test-release.sh` | #101 (#118) |
-| `backend/tests/test_compose_roles.py`, `docs/dev/stack.md`, `docs/dev/deploy.md`, `docs/dev/jobs.md`, `docs/dev/release.md` | #101 (#118) |
-| `backend/pyproject.toml`, `backend/uv.lock` | #6 (#55: uvloop out, `pyyaml` into the dev group) |
-| `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py` | #6 (#55: ADR 0009's install calls, `loop="asyncio"`) |
-| `backend/src/ownvitals/egress/**`, `backend/src/ownvitals/mail.py`, `docs/dev/egress.md`, `docs/adr/README.md` | #6 (#55) |
-| `backend/tests/conftest.py`, `docs/dev/backend.md` | #6 (#55) and #89 (#115), in different hunks; the second to merge updates from `main` |
-| `backend/src/ownvitals/db/engine.py`, `backend/src/ownvitals/db/role_check.py`, `backend/tests/user_context_scan.py`, `backend/tests/user_context_rules.py`, `backend/tests/user_context_types.py`, `docs/dev/isolation.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | #89 (#115), with `test_role_check*.py`, `test_user_context_*.py` |
-| `backend/src/ownvitals/web.py` | — (free until #77) |
+| `.github/workflows/ci.yml`, `compose.yaml`, `Dockerfile`, `AGENTS.md`, `deploy/`, `scripts/ci-changes.sh`, `scripts/test-ci-gate.sh`, `scripts/test-release.sh`, `backend/pyproject.toml`, `backend/uv.lock` | — (#118, #55 and #134 released them) |
+| `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py`, `backend/src/ownvitals/mail.py`, `backend/src/ownvitals/egress/**` except `egress/hook.py`, `docs/adr/README.md`, `docs/dev/stack.md`, `docs/dev/deploy.md`, `docs/dev/jobs.md`, `docs/dev/release.md` | — (#55 and #118 released them) |
+| `backend/src/ownvitals/db/engine.py`, `db/role_check.py`, `egress/hook.py`, `backend/tests/user_context_*.py`, `backend/tests/conftest.py`, `docs/dev/backend.md`, `docs/dev/isolation.md`, `docs/dev/isolation-guard5.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | #89 (#115), with `test_role_check*.py`, `test_user_context_*.py` |
+| `backend/tests/egress_*.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md` | #122 (#123); `backend/tests/egress_classified.py` is also in #12 (#129), additive hunks in each, and the second to merge updates from `main` |
+| `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `backend/src/ownvitals/web.py`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | #12 (#129) |
+| `docs/roadmap.md`, `.codex/**`, `.cursor/**`, `docs/dev/agent-tools.md` | #130 (#131) |
 | `backend/src/ownvitals/db/queue_check.py` | — (#77 next) |
-| `backend/src/ownvitals/config.py`, `db/tables.py`, `backend/tests/dbtools.py`, `test_web.py`, `role_guard.py`, `session_scan.py`, `rls_guard.py`, `test_migrations.py`, `test_config_milestone.py`, `docker/postgres/init/10-roles.sql` | — (#8 and #82 released them) |
+| `backend/src/ownvitals/config.py`, `backend/tests/dbtools.py`, `test_web.py`, `rls_guard.py`, `test_migrations.py`, `test_config_milestone.py` | — (#8, #82 and #11 released them) |
 | `scripts/ci-uv-version.sh`, `.trivyignore`, `scripts/ci-gate.sh` | — (#106 released them) |
 | `frontend/**`, `docs/dev/frontend.md` | — (#98 and #105 released them) |
 
