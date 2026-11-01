@@ -177,6 +177,8 @@ MODULES = {
     "the uvloop check": HOOK,
     "an allowed docstring dunder in its module": LOG,
     "the placeholders' assignment": QUEUE,
+    # ``"ownvitals"`` is a string only at its four pins. This one is ``__init__.py``.
+    "the package name as a value": "ownvitals/__init__.py",
 }
 
 
@@ -191,6 +193,13 @@ def test_the_scan_refuses_each_spelling(case: str, source: str) -> None:
 @pytest.mark.parametrize(("case", "source"), NEAR_MISSES.items(), ids=NEAR_MISSES.keys())
 def test_each_near_miss_stays_allowed(case: str, source: str) -> None:
     assert scan_source(source, MODULES.get(case)) == []
+
+
+def test_version_ownvitals_passes_only_in_init() -> None:
+    source = NEAR_MISSES["the package name as a value"]
+    assert scan_source(source, "ownvitals/__init__.py") == []
+    assert scan_source(source) != []  # no general exemption for the string
+    assert scan_source(source, HOOK) != []
 
 
 def test_the_uvloop_check_is_allowed_only_in_hook_py() -> None:

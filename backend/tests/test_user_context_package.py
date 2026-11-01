@@ -161,7 +161,12 @@ NEAR_MISSES = {
     "the package's version": body("return version('ownvitals')"),
     "the audit comparison": AUDIT,
 }
-MODULES = {"the audit comparison": HOOK, "mail.py's wrap_socket": "ownvitals/mail.py"}
+MODULES = {
+    "the audit comparison": HOOK,
+    "mail.py's wrap_socket": "ownvitals/mail.py",
+    # ``"ownvitals"`` is a string only at its four pins. This one is ``__init__.py``.
+    "the package's version": "ownvitals/__init__.py",
+}
 
 
 @pytest.mark.parametrize(("case", "source"), REFUSED.items(), ids=REFUSED.keys())
@@ -173,6 +178,13 @@ def test_the_scan_refuses_each_spelling(case: str, source: str) -> None:
 @pytest.mark.parametrize(("case", "source"), NEAR_MISSES.items(), ids=NEAR_MISSES.keys())
 def test_each_near_miss_stays_allowed(case: str, source: str) -> None:
     assert scan_source(source, MODULES.get(case)) == []
+
+
+def test_the_packages_version_passes_only_in_init() -> None:
+    source = NEAR_MISSES["the package's version"]
+    assert scan_source(source, "ownvitals/__init__.py") == []
+    assert scan_source(source) != []  # no general exemption for the string
+    assert scan_source(source, HOOK) != []
 
 
 def test_a_pinned_comment_passes_only_in_its_module() -> None:

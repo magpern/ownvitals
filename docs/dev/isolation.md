@@ -168,18 +168,38 @@ Python builds) and by the role checks. A further route of the same kind (reflect
 token in process) goes under "Known limits" below, not into a new rule, unless it is a plain
 import or a call that code review could miss.
 
-**Guard 5's scope (Architect, the eleventh #115 review).** Reviewers of guard 5 classify every
-finding against this text:
+**Guard 5's scope (Architect, the eleventh #115 review, and the fourteenth's decisions).**
+Reviewers of guard 5 classify every finding against this text:
 
 - **Blocking:** a route written in plain code that names the token, the context module (by any
   spelling), or a dunder outside its pinned use, in any construct code can read: code, strings,
-  docstrings and comments.
+  docstrings and comments. A dunder in a docstring is on the allow-list
+  ([isolation-guard5.md](isolation-guard5.md)). The form `docstring` follows the entry's
+  `only_in`. The form `docstring:<module>` pins a docstring segment to that one module and does
+  not use `only_in`, the same way `comment:<module>:<text>` pins a comment. `__cause__` and
+  `__context__` use `docstring:ownvitals/withings/errors.py` for that module's docstring, which
+  says the client raises these after its `except` blocks: no `__cause__`, no `__context__`
+  (ADR 0004 §8). The pin is those two names in that module's docstrings.
+- The package's name is never written as a string. A `str` or `bytes` constant exactly
+  `"ownvitals"` (f-string parts included) is blocking, except four named pins, each once in its
+  module: `version("ownvitals")` in `__init__.py`, `ISSUER = "ownvitals"` in `auth/totp.py`, the
+  `'User-Agent'` value in `egress/code_exchange.py`, and `title="ownvitals"` in `web.py`. There
+  is no general exemption for that string. `"ownvitals.web"` is another string. A name built at
+  run time is known limit (a).
+- `.obj` on an exception is not a bypass. The `self.context.wrap_socket(...)` pin in `mail.py`
+  stays a check of how `self` is written. An unbound call can raise `AttributeError`, and
+  `e.obj` would hand back the value passed as `self`. The string rule above keeps the package
+  object out, so that call has no plain package value to pass.
+- `Literal[-1]` is refused: a unary minus is not a constant in `Literal`'s arguments. That is
+  stricter than PEP 586, which allows a negative integer literal. No module in `src` uses one.
 - **Known limits (non-blocking):**
   - (a) names built at run time from allowed pieces;
   - (b) objects written to intercept the guard's own allowed comparisons or calls (a recording
     `__eq__`, mocks);
   - (c) reading source text from disk through allowed file APIs;
-  - (d) reflection with no such name written.
+  - (d) reflection with no such name written. For example, `inspect.getmodule(UserContext)` after
+    `from ownvitals.context import UserContext` reaches the module without a forbidden name in
+    the source. `import inspect` is refused, so writing that import does not scan clean.
 
 Only `ownvitals/context.py`, `ownvitals/auth/deps.py` (#10) and `ownvitals/jobs/issuer.py` (#9)
 may build a `UserContext` (`user_context_scan.py`); handlers get it through the auth dependency,
@@ -266,8 +286,10 @@ token's names are refused. An attribute part starting with `_` is refused, so a 
 library type (`mod._Hidden`) is too; if `src` ever needs one, it goes to the Architect.
 
 - `Literal[...]`'s arguments are values: constants and nested `Literal`s only. They are never
-  parsed (`Literal["a", "b"]` passes). A name is refused (`Literal[ownvitals.context]` hands the
-  module to `typing.get_args`), even an enum member (`Color.RED`).
+  parsed (`Literal["a", "b"]` passes). A unary minus is not a constant, so `Literal[-1]` is
+  refused (stricter than PEP 586; see the scope above). A name is refused
+  (`Literal[ownvitals.context]` hands the module to `typing.get_args`), even an enum member
+  (`Color.RED`).
 - In `Annotated[T, m1, m2]`, `T` is a type and the metadata `m1, m2` is ordinary code, the one
   place in an annotation where a call is allowed (FastAPI's `Depends(get)`, `Header()`,
   `Field(ge=1)`). Every rule in this section applies to the metadata as it does outside an
@@ -337,8 +359,8 @@ leaves to the review gate. Known limits:
   it can't be refused outright: other code uses it (`m.__dict__` is a dunder, allowed only in
   `ownvitals/log.py`). Scope (d);
 - the general class, reflection in the process: walking package or module objects, searching
-  `sys.modules`, `gc.get_referrers`/`gc.get_objects`, `inspect` (`inspect.getmodule(K)`, a
-  function's closure or frame), and `ctypes`;
+  `sys.modules`, `gc.get_referrers`/`gc.get_objects`, `inspect` (`inspect.getmodule(UserContext)`
+  after `from ownvitals.context import UserContext`, a function's closure or frame), and `ctypes`;
 - a keyword dict bound to a name first: `kw = {"issuer": tok}`, then `K(..., **kw)`;
 - code evaluated from a string outside annotations, other than through `eval`, `exec` and
   `compile`: `typing.get_type_hints` on a string built at run time, `pickle`, `pydoc.locate` and

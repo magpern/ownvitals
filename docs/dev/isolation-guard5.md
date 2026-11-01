@@ -22,8 +22,10 @@ builtin with it:
   `operator.attrgetter("f.__globals__")`, `getattr(f, b"__globals__".decode())`;
 - a docstring (a string that is a whole statement) or a comment: neither runs, but source text
   can be read back (`traceback.extract_stack()[-1].line`, `warnings.formatwarning`, `open`), so
-  a dunder in one needs a row in the table like any other use: `docstring` for a docstring, and
-  for a comment its exact module and text (`comment:<module>:<text>`). The readers
+  a dunder in one needs a row in the table like any other use: `docstring` for a docstring
+  (limited by `only_in`), `docstring:<module>` for a docstring in one module outside `only_in`
+  (that form pins its own module; `withings/errors.py` uses it), and for a comment its exact
+  module and text (`comment:<module>:<text>`). The readers
   of source text are refused outright: `inspect`, `pydoc`, `linecache` and `tokenize` (any
   import form, name, attribute, or the module's name as a string), `__doc__`, and
   `importlib.util` (`find_spec(...).origin` finds a module's file), which is allowed only as
@@ -64,7 +66,12 @@ The module is refused as an attribute of its package too, however the package is
   `src` has none;
 - the bare `"ownvitals"` is refused as any argument of a lookup (`import_module`,
   `resolve_name`, `locate`, `find_spec`, `.get`, `.pop`, `.setdefault`, `package=` included)
-  and as a subscript key (`sys.modules["ownvitals"]`); `version("ownvitals")` stays allowed;
+  and as a subscript key (`sys.modules["ownvitals"]`);
+- a `str` or `bytes` constant exactly `"ownvitals"` (f-string parts included) is refused except
+  four named pins, each once in its module: `version("ownvitals")` in `__init__.py`,
+  `ISSUER = "ownvitals"` in `auth/totp.py`, the `'User-Agent'` value in `egress/code_exchange.py`,
+  and `title="ownvitals"` in `web.py`. There is no general exemption for that string.
+  `"ownvitals.web"` is another string;
 - `import_module` with a relative name (a leading `.`) is refused, even a literal one.
 
 A plain `import ownvitals.context` stays allowed for annotations
@@ -109,7 +116,7 @@ aside, which are not scanned); a name used in one module is allowed only there.
 | `__all__` | definition | everywhere | a package's public names |
 | `__init__` | attribute read | everywhere | `super().__init__(...)`; the hook rule in isolation.md refuses any other use |
 | `__aiter__` | attribute read | `egress/clients.py` | delegating `async for` to a wrapped stream |
-| `__cause__`, `__context__`, `__suppress_context__` | attribute read (the first two also docstring); the exact comments that name them in `log.py`, `mail.py`, `crypto/envelope.py` and `egress/core.py` | `log.py` (comments: their own modules) | walking an exception chain |
+| `__cause__`, `__context__`, `__suppress_context__` | attribute read; docstring for the first two in `log.py`; `docstring:ownvitals/withings/errors.py` for `__cause__` and `__context__` (that module's docstring: the client raises these after its `except` blocks, no `__cause__`, no `__context__`, ADR 0004 §8); the exact comments that name them in `log.py`, `mail.py`, `crypto/envelope.py` and `egress/core.py` | `log.py` for the read and the plain docstring (`docstring:<module>` and comments pin their own modules) | walking an exception chain |
 | `__str__` | docstring | `log.py` | a docstring naming the method |
 | `__call__` | the one comment `# unused: __call__ reads the files directly` | `config.py` | a comment on a settings source |
 | `__dict__` | attribute read | `log.py` | a log record's extra fields |
