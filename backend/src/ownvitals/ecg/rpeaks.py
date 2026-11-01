@@ -27,7 +27,7 @@ from scipy.signal import butter, find_peaks
 from ownvitals.ecg.filters import zero_phase
 from ownvitals.ecg.input import to_samples
 
-ALGO_VERSION = "2.0.0"
+ALGO_VERSION = "3.0.0"
 
 # Pan & Tompkins
 PT_BAND_HZ, PT_BAND_ORDER = (5.0, 15.0), 2
@@ -248,16 +248,15 @@ def refine(y: FloatArray, detections: IntArray, polarity: int, fs: int) -> Float
 
 def matched_flags(a: FloatArray, b: FloatArray, tolerance: float) -> BoolArray:
     """For each position of ``a`` (sorted): whether a position of ``b`` within the tolerance
-    (inclusive) is matched to it. One-to-one, nearest first; the same matching as bSQI."""
+    (inclusive) is matched to it. One-to-one, nearest free one first; the same matching as bSQI."""
     taken: set[int] = set()
     flags = np.zeros(a.shape[0], dtype=bool)
     for k, x in enumerate(a):
-        j = int(np.searchsorted(b, x))
-        near = [i for i in (j - 1, j) if 0 <= i < b.shape[0] and i not in taken]
-        if not near:
-            continue
-        best = min(near, key=lambda i: abs(b[i] - x))
-        if abs(b[best] - x) <= tolerance:
+        low = int(np.searchsorted(b, x - tolerance, side="left"))
+        high = int(np.searchsorted(b, x + tolerance, side="right"))
+        near = [i for i in range(low, high) if i not in taken]  # every free one in the tolerance
+        if near:
+            best = min(near, key=lambda i: abs(b[i] - x))
             taken.add(best)
             flags[k] = True
     return flags

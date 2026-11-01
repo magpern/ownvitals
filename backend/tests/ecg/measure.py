@@ -39,6 +39,7 @@ class HrvError:
     sdnn_margin: float
     rmssd_margin: float
     pnn50_margin: float
+    has_hrv: bool
 
 
 def span_truth(case: Case) -> truth.Truth:
@@ -48,22 +49,31 @@ def span_truth(case: Case) -> truth.Truth:
 
 
 def hrv_error(case: Case) -> HrvError | None:
-    """The HR/HRV errors of an accepted strip, or ``None`` when the strip has no ``hrv``."""
+    """The HR/HRV errors of an accepted strip, or ``None`` when the strip has no HR (an
+    irregular rhythm). HR is compared on every strip that has one, whether or not ``hrv`` is
+    computed; the HRV margins are 0 when ``hrv`` is null."""
     group = tol.group_of(case.condition)
     result = case.result
     assert group is not None
     assert isinstance(result, Analysed)
-    if result.rr.hrv is None or result.rr.hr_bpm is None:
+    if result.rr.hr_bpm is None:
         return None
     truth_values = span_truth(case)
     det = detected_s(case)
     window = truth.truth_in_span(case.strip, det)
     matching = truth.match_beats(det, case.strip.r_times_s[window])
     estimate = result.rr.hrv
+    hr_err = abs(result.rr.hr_bpm - truth_values.hr_bpm)
+    rr_rms = truth.rr_error_rms_ms(det, case.strip.r_times_s[window], matching)
+    if estimate is None:
+        return HrvError(
+            hr=hr_err, sdnn=0.0, rmssd=0.0, pnn50=0.0, rr_rms_ms=rr_rms,
+            hr_margin=hr_err / tol.HR_BPM[group], sdnn_margin=0.0, rmssd_margin=0.0,
+            pnn50_margin=0.0, has_hrv=False,
+        )  # fmt: skip
     sdnn_tol = max(tol.SDNN_MS[group][0], tol.SDNN_MS[group][1] * truth_values.sdnn_ms)
     pair_pct = 100.0 / truth_values.n_pairs
     pnn_tol = (tol.PNN50_PAIRS[group] + truth_values.band) * pair_pct
-    hr_err = abs(result.rr.hr_bpm - truth_values.hr_bpm)
     sdnn_err = abs(estimate.sdnn_ms - truth_values.sdnn_ms)
     rmssd_err = abs(estimate.rmssd_ms - truth_values.rmssd_ms)
     pnn_err = abs(estimate.pnn50_pct - truth_values.pnn50_pct)
@@ -72,11 +82,12 @@ def hrv_error(case: Case) -> HrvError | None:
         sdnn=sdnn_err,
         rmssd=rmssd_err,
         pnn50=pnn_err,
-        rr_rms_ms=truth.rr_error_rms_ms(det, case.strip.r_times_s[window], matching),
+        rr_rms_ms=rr_rms,
         hr_margin=hr_err / tol.HR_BPM[group],
         sdnn_margin=sdnn_err / sdnn_tol,
         rmssd_margin=rmssd_err / tol.rmssd_tolerance_ms(case.strip.hr_bpm, group),
         pnn50_margin=pnn_err / pnn_tol,
+        has_hrv=True,
     )
 
 

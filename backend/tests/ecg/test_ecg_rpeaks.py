@@ -102,3 +102,14 @@ def test_a_t_wave_is_not_a_beat(fs: int) -> None:
     assert len(found) <= len(strip.r_times_s)
     for f in found:
         assert np.min(np.abs(strip.r_times_s - f)) < 0.1
+
+
+def test_matched_flags_is_one_to_one_nearest_first_and_tries_the_next_free_candidate() -> None:
+    a = np.array([10.0, 10.0, 10.0])
+    b = np.array([9.0, 10.0, 11.0])
+    # the nearest is taken first, then the free ones in the tolerance, beyond the two neighbours
+    assert rpeaks.matched_flags(a, b, 1.5).tolist() == [True, True, True]
+    assert rpeaks.matched_flags(a, b, 1.0).tolist() == [True, True, True]  # inclusive tolerance
+    assert rpeaks.matched_flags(a, b[:2], 1.0).tolist() == [True, True, False]
+    assert rpeaks.matched_flags(np.array([10.0]), np.array([11.01]), 1.0).tolist() == [False]
+    assert rpeaks.matched_flags(np.array([10.0]), np.array([]), 1.0).tolist() == [False]

@@ -83,6 +83,8 @@ class Row:
     min_ppv: float = 1.0
     max_rr_rms_ms: float = 0.0
     n_hrv: int = 0
+    n_hr: int = 0  # accepted strips whose HR was compared with the truth
+    hr_null: int = 0  # accepted strips with HR null (irregular rhythm)
     hr_borderline: int = 0  # strips left out of the HR margin (tolerances.HR_BORDERLINE_MS)
     margins: dict[str, float] = field(default_factory=dict)  # worst error / tolerance, by metric
     rmssd_by_band: list[tuple[float, float]] = field(default_factory=list)  # (worst ms, tol ms)
@@ -110,13 +112,15 @@ def survey(condition: str, sampling_hz: int, seeds: int) -> Row:
         if not isinstance(case.result, Analysed):
             continue
         row.passed += 1
+        row.hr_null += int(case.result.rr.hr_bpm is None)
         matching = measure.span_matching(case)
         row.tp, row.fn, row.fp = row.tp + matching.tp, row.fn + matching.fn, row.fp + matching.fp
         row.min_se, row.min_ppv = min(row.min_se, matching.se), min(row.min_ppv, matching.ppv)
         error = measure.hrv_error(case) if group else None
         if error is None:
             continue
-        row.n_hrv += 1
+        row.n_hr += 1
+        row.n_hrv += int(error.has_hrv)
         row.max_rr_rms_ms = max(row.max_rr_rms_ms, error.rr_rms_ms)
         borderline = measure.hr_borderline(case)
         row.hr_borderline += int(borderline)
@@ -127,6 +131,8 @@ def survey(condition: str, sampling_hz: int, seeds: int) -> Row:
             ("pNN50", error.pnn50_margin),
         ):
             row.margins[name] = max(row.margins[name], margin)
+        if not error.has_hrv:
+            continue
         assert group is not None
         limit = tol.rmssd_tolerance_ms(case.strip.hr_bpm, group)
         for i, (low, high) in enumerate(BANDS):
@@ -174,17 +180,18 @@ def main() -> None:
     print(f"\n### Conditions ({args.seeds} seeds per condition and rate)\n")
     print(
         "| Condition | Hz | Gate pass % | Pooled Se % | Pooled +P % | Min strip Se % | "
-        "Min strip +P % | HRV strips | Worst HR | Worst SDNN | Worst RMSSD | Worst pNN50 | "
-        "Max RR rms (ms) | HR borderline |"
+        "Min strip +P % | HR strips | HR null | HRV strips | Worst HR | Worst SDNN | "
+        "Worst RMSSD | Worst pNN50 | Max RR rms (ms) | HR borderline |"
     )
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     rows = [survey(c, fs, args.seeds) for c in SWEEP for fs in scenarios.RATES]
     for r in rows:
         m = r.margins
         print(
             f"| {r.condition} | {r.sampling_hz} | {percent(r.pass_share)} | {percent(r.se)} | "
             f"{percent(r.ppv)} | {percent(r.min_se if r.passed else None)} | "
-            f"{percent(r.min_ppv if r.passed else None)} | {r.n_hrv} | {m['HR']:.2f} | "
+            f"{percent(r.min_ppv if r.passed else None)} | {r.n_hr} | {r.hr_null} | "
+            f"{r.n_hrv} | {m['HR']:.2f} | "
             f"{m['SDNN']:.2f} | {m['RMSSD']:.2f} | {m['pNN50']:.2f} | {r.max_rr_rms_ms:.1f} | "
             f"{r.hr_borderline} |"
         )

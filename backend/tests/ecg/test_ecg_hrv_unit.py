@@ -181,7 +181,8 @@ def test_out_of_range_comes_before_distorted_and_both_count_toward_the_excluded_
     assert sorted(reasons) == [2, 3, 19, 20, 21, 22, 23, 24, 29, 30]
     assert len(result.excluded) / 40 > 0.20
     assert result.hrv is None
-    assert result.hrv_reasons == ("too_many_excluded",)
+    assert result.hrv_reasons == ("too_many_excluded", "irregular_rhythm")
+    assert result.hr_bpm is None  # 25 % of the intervals excluded: an irregular rhythm
 
 
 def test_an_unconfirmed_interval_is_not_also_a_distorted_one() -> None:
@@ -217,11 +218,25 @@ def test_a_compensatory_pause_is_not_a_missed_beat() -> None:
 
 
 def test_the_rule_is_off_on_an_irregular_rhythm() -> None:
-    rr = [600.0, 900.0, 520.0, 1100.0, 700.0, 1300.0, 560.0, 980.0] * 4
+    """A 1,500 ms interval among 800 ms ones would be a missed beat (1.875 times its neighbours)
+    but more than 20 % of the intervals are excluded elsewhere: the strip is irregular, the
+    rule is off, and HR is null."""
+    rr = [800.0] * 8 + [1500.0] + [800.0] * 8 + [1100.0, 800.0] * 6
     result = hrv.analyse(peaks(rr), FS)
-    assert "missed_beat" not in [e.reason for e in result.excluded]
+    reasons = {e.i: e.reason for e in result.excluded}
+    assert reasons[8] == "rr_deviation"  # not missed_beat
+    assert "missed_beat" not in reasons.values()
+    assert len(result.excluded) / len(rr) > 0.20
     assert result.hrv is None
-    assert result.hr_bpm == round(60_000 / float(np.mean(rr)), 1)  # HR keeps every interval
+    assert result.hr_bpm is None
+    assert result.hrv_reasons[-1] == "irregular_rhythm"
+
+
+def test_the_same_interval_is_a_missed_beat_when_the_rest_is_regular() -> None:
+    rr = [800.0] * 8 + [1500.0] + [800.0] * 8 + [1100.0, 800.0] + [800.0] * 10
+    result = hrv.analyse(peaks(rr), FS)
+    assert {e.i: e.reason for e in result.excluded}[8] == "missed_beat"
+    assert result.hr_bpm is not None
 
 
 def test_a_bridging_interval_is_not_also_a_missed_beat() -> None:

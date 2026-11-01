@@ -14,14 +14,18 @@ Re-record after a deliberate change (and a version bump) with::
     import test_ecg_golden as g; g.record()"
 
 which writes ``golden_estimated.json`` and appends the ledger entry of the current version.
+It refuses to replace an existing entry of the same version with other values or modules.
+A pipeline version that never reached ``main`` may be removed from the ledger by hand first.
 """
 
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 import scenarios
 
 from ecgsynth import make_strip
@@ -77,10 +81,14 @@ def load() -> dict[str, Any]:
 def record() -> None:
     current = records()
     ledger = load()["ledger"] if GOLDEN.exists() else {}
-    ledger[pipeline.PIPELINE_VERSION] = {
-        "modules": dict(pipeline.MODULES),
-        "digest": values_digest(current),
-    }
+    entry = {"modules": dict(pipeline.MODULES), "digest": values_digest(current)}
+    existing = ledger.get(pipeline.PIPELINE_VERSION)
+    if existing is not None and existing != entry:
+        raise SystemExit(
+            f"{pipeline.PIPELINE_VERSION} is already recorded with other values or modules: "
+            "bump the module version and PIPELINE_VERSION, then record again"
+        )
+    ledger[pipeline.PIPELINE_VERSION] = entry
     GOLDEN.write_text(
         json.dumps(
             {"synthetic": True, "ledger": ledger, "strips": current}, sort_keys=True, indent=1
@@ -175,3 +183,17 @@ def test_the_golden_file_is_small_and_labelled_synthetic() -> None:
 def test_every_python_module_of_the_ecg_tests_is_labelled_synthetic() -> None:
     for path in HERE.glob("*.py"):
         assert "synthetic" in path.read_text(encoding="utf-8").lower(), path.name
+
+
+def test_record_refuses_to_replace_the_current_versions_entry_with_other_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    golden = tmp_path / "golden.json"
+    stale = {"synthetic": True, "strips": {}, "ledger": {
+        pipeline.PIPELINE_VERSION: {"modules": dict(pipeline.MODULES), "digest": "0" * 64}
+    }}  # fmt: skip
+    golden.write_text(json.dumps(stale), encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "GOLDEN", golden)
+    with pytest.raises(SystemExit, match="bump the module version"):
+        record()
+    assert json.loads(golden.read_text(encoding="utf-8")) == stale  # not written

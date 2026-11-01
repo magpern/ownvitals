@@ -1,29 +1,19 @@
 {
  "ledger": {
-  "ecg-3.0.0": {
-   "digest": "3735599ec792b5a156c03d6e535214d6bc4fc7d72f0e6ee7cf67c19feb703e92",
+  "ecg-5.0.0": {
+   "digest": "52b390aabe555760af0cf82beb248ac9589577e21596b7b39065d49f47a7b481",
    "modules": {
     "filters": "1.0.0",
-    "hrv": "3.0.0",
+    "hrv": "5.0.0",
     "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
-   }
-  },
-  "ecg-4.0.0": {
-   "digest": "3735599ec792b5a156c03d6e535214d6bc4fc7d72f0e6ee7cf67c19feb703e92",
-   "modules": {
-    "filters": "1.0.0",
-    "hrv": "4.0.0",
-    "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
+    "rpeaks": "3.0.0",
+    "sqi": "4.0.0"
    }
   }
  },
  "strips": {
   "af_120_300": {
-   "algo_version": "ecg-4.0.0",
+   "algo_version": "ecg-5.0.0",
    "excluded": [
     {
      "i": 4,
@@ -158,20 +148,21 @@
      "reason": "rr_deviation"
     }
    ],
-   "hr_bpm": 118.8,
+   "hr_bpm": null,
    "hrv": null,
    "hrv_reasons": [
-    "too_many_excluded"
+    "too_many_excluded",
+    "irregular_rhythm"
    ],
    "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
    "input_revision": 1,
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "4.0.0",
+    "hrv": "5.0.0",
     "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
+    "rpeaks": "3.0.0",
+    "sqi": "4.0.0"
    },
    "n_rr": 59,
    "rpeaks": [
@@ -320,16 +311,16 @@
    }
   },
   "dropout_middle_300": {
-   "algo_version": "ecg-4.0.0",
+   "algo_version": "ecg-5.0.0",
    "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
    "input_revision": 1,
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "4.0.0",
+    "hrv": "5.0.0",
     "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
+    "rpeaks": "3.0.0",
+    "sqi": "4.0.0"
    },
    "sqi": {
     "reasons": [
@@ -432,7 +423,7 @@
    }
   },
   "ectopic_75_500": {
-   "algo_version": "ecg-4.0.0",
+   "algo_version": "ecg-5.0.0",
    "excluded": [
     {
      "i": 19,
@@ -458,10 +449,10 @@
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "4.0.0",
+    "hrv": "5.0.0",
     "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
+    "rpeaks": "3.0.0",
+    "sqi": "4.0.0"
    },
    "n_rr": 36,
    "rpeaks": [
@@ -587,16 +578,16 @@
    }
   },
   "motion_half_300": {
-   "algo_version": "ecg-4.0.0",
+   "algo_version": "ecg-5.0.0",
    "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
    "input_revision": 1,
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "4.0.0",
+    "hrv": "5.0.0",
     "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
+    "rpeaks": "3.0.0",
+    "sqi": "4.0.0"
    },
    "sqi": {
     "reasons": [
@@ -701,7 +692,7 @@
    }
   },
   "respiratory_45_300": {
-   "algo_version": "ecg-4.0.0",
+   "algo_version": "ecg-5.0.0",
    "excluded": [
     {
      "i": 2,
@@ -732,21 +723,22 @@
      "reason": "rr_deviation"
     }
    ],
-   "hr_bpm": 45.3,
+   "hr_bpm": null,
    "hrv": null,
    "hrv_reasons": [
     "too_many_excluded",
-    "insufficient_nn"
+    "insufficient_nn",
+    "irregular_rhythm"
    ],
    "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
    "input_revision": 1,
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "4.0.0",
+    "hrv": "5.0.0",
     "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
+    "rpeaks": "3.0.0",
+    "sqi": "4.0.0"
    },
    "n_rr": 21,
    "rpeaks": [
@@ -857,7 +849,7 @@
    }
   },
   "sinus_140_500": {
-   "algo_version": "ecg-4.0.0",
+   "algo_version": "ecg-5.0.0",
    "excluded": [],
    "hr_bpm": 139.9,
    "hrv": {
@@ -874,10 +866,10 @@
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "4.0.0",
+    "hrv": "5.0.0",
     "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
+    "rpeaks": "3.0.0",
+    "sqi": "4.0.0"
    },
    "n_rr": 69,
    "rpeaks": [
@@ -1036,7 +1028,7 @@
    }
   },
   "sinus_60_300": {
-   "algo_version": "ecg-4.0.0",
+   "algo_version": "ecg-5.0.0",
    "excluded": [],
    "hr_bpm": 60.1,
    "hrv": {
@@ -1053,10 +1045,10 @@
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "4.0.0",
+    "hrv": "5.0.0",
     "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
+    "rpeaks": "3.0.0",
+    "sqi": "4.0.0"
    },
    "n_rr": 29,
    "rpeaks": [
@@ -1175,16 +1167,16 @@
    }
   },
   "white6_300": {
-   "algo_version": "ecg-4.0.0",
+   "algo_version": "ecg-5.0.0",
    "input_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
    "input_revision": 1,
    "lead": 0,
    "modules": {
     "filters": "1.0.0",
-    "hrv": "4.0.0",
+    "hrv": "5.0.0",
     "input": "1.0.0",
-    "rpeaks": "2.0.0",
-    "sqi": "3.0.0"
+    "rpeaks": "3.0.0",
+    "sqi": "4.0.0"
    },
    "sqi": {
     "reasons": [

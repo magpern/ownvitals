@@ -52,7 +52,7 @@ from scipy.signal import get_window
 from ownvitals.ecg.input import Prepared, to_samples, window_bounds
 from ownvitals.ecg.rpeaks import MATCH_MS, Detection, matched_flags
 
-ALGO_VERSION = "3.0.0"
+ALGO_VERSION = "4.0.0"
 
 BSQI_MIN = 0.90
 RATE_MIN_BPM, RATE_MAX_BPM = 30.0, 220.0
@@ -401,6 +401,12 @@ def confirmed_beats(
     return np.array(kept, dtype=np.float64), tuple(bridging)
 
 
+def trimmed_bridging(bridging: tuple[int, ...], first: int, last: int) -> tuple[int, ...]:
+    """The bridging intervals (index ``i`` runs from kept beat ``i`` to ``i + 1``) that lie
+    between beats ``first`` and ``last``, re-indexed from ``first``."""
+    return tuple(i - first for i in bridging if first <= i < last)
+
+
 def evaluate(
     prepared: Prepared, y: FloatArray, detection: Detection
 ) -> GatePassed | QualityRejected:
@@ -414,7 +420,7 @@ def evaluate(
         beat_r = span_correlations(y, beats, run)[confirmed]
         first, last = verified_range(kept, beat_r, prepared.sampling_hz)
         kept, beat_r = kept[first : last + 1], beat_r[first : last + 1]
-        bridging = tuple(i - first for i in bridging if first <= i < last)
+        bridging = trimmed_bridging(bridging, first, last)
         verified_s = float(kept[-1] - kept[0]) / prepared.sampling_hz if kept.shape[0] > 1 else 0.0
         if verified_s >= MIN_SPAN_S:
             return GatePassed(

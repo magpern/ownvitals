@@ -25,7 +25,7 @@ from ownvitals.ecg import input as ecg_input
 from ownvitals.ecg.input import NotAnalysed
 from ownvitals.ecg.sqi import QualityRejected, WindowIndices
 
-PIPELINE_VERSION = "ecg-4.0.0"
+PIPELINE_VERSION = "ecg-5.0.0"
 
 MODULES = {
     "input": ecg_input.ALGO_VERSION,
@@ -100,7 +100,8 @@ def to_estimated(result: Result, *, input_fingerprint: str, input_revision: int)
 
     ``sqi.result`` is ``pass``, ``fail`` or, for a recording that was not analysed, ``not_run``
     (no gate result). A pass carries ``rpeaks`` (2 decimals), ``excluded``, ``hr_bpm``,
-    ``n_rr`` and ``hrv`` (or null with ``hrv_reasons``). A failure carries no beat-derived
+    ``n_rr`` and ``hrv`` (or null with ``hrv_reasons``); on an irregular rhythm ``hr_bpm`` is null
+    too and ``hrv_reasons`` ends with ``irregular_rhythm``. A failure carries no beat-derived
     field.
     """
     record: dict[str, Any] = {

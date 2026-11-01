@@ -370,3 +370,56 @@ def test_a_span_under_20_s_after_the_trim_fails_with_too_short(
     assert result.reasons[0] == "too_short"
     assert any(w.passed for w in result.windows)
     assert set(result.reasons[1:]) == {r for w in result.windows for r in w.reasons}
+
+
+# --- confirmed beats and the re-indexing of the bridging intervals after the trim ----------------
+
+
+def test_confirmed_beats_drops_unconfirmed_beats_and_reports_the_bridged_interval() -> None:
+    beats = np.array([100.0, 200.0, 300.0, 400.0, 500.0, 600.0])
+    flags = np.array([True, True, False, True, True, True])
+    kept, bridging = sqi.confirmed_beats(beats, flags)
+    assert kept.tolist() == [100.0, 200.0, 400.0, 500.0, 600.0]
+    assert bridging == (1,)  # kept beat 1 (200) to kept beat 2 (400)
+
+
+def test_several_dropped_beats_in_a_row_bridge_one_interval() -> None:
+    beats = np.arange(100.0, 800.0, 100.0)
+    flags = np.array([True, False, False, True, True, False, True])
+    kept, bridging = sqi.confirmed_beats(beats, flags)
+    assert kept.tolist() == [100.0, 400.0, 500.0, 700.0]
+    assert bridging == (0, 2)
+
+
+def test_dropped_beats_at_the_ends_bridge_nothing() -> None:
+    beats = np.arange(100.0, 700.0, 100.0)
+    flags = np.array([False, False, True, True, False, False])
+    kept, bridging = sqi.confirmed_beats(beats, flags)
+    assert kept.tolist() == [300.0, 400.0]
+    assert bridging == ()
+
+
+def test_all_beats_confirmed_means_nothing_is_bridged() -> None:
+    kept, bridging = sqi.confirmed_beats(np.array([1.0, 2.0, 3.0]), np.ones(3, dtype=bool))
+    assert kept.tolist() == [1.0, 2.0, 3.0]
+    assert bridging == ()
+
+
+def test_the_trim_keeps_only_the_bridging_intervals_between_the_kept_beats_and_reindexes() -> None:
+    bridging = (1, 4, 7, 10)  # intervals 1-2, 4-5, 7-8, 10-11
+    # beats 3..9 are kept: intervals 3..8 lie between them
+    assert sqi.trimmed_bridging(bridging, 3, 9) == (1, 4)
+    assert sqi.trimmed_bridging(bridging, 0, 11) == (1, 4, 7, 10)
+    assert sqi.trimmed_bridging(bridging, 5, 7) == ()  # the interval 7 would leave beat 7
+    assert sqi.trimmed_bridging(bridging, 4, 8) == (0, 3)  # intervals 4 and 7, from beat 4
+
+
+def test_the_re_indexed_bridging_intervals_point_at_the_same_intervals_after_the_trim() -> None:
+    kept = np.array([0.0, 100.0, 300.0, 400.0, 600.0, 700.0])
+    bridging = (1, 3)  # 100-300 and 400-600 span a dropped beat
+    first, last = 1, 5
+    rebased = sqi.trimmed_bridging(bridging, first, last)
+    trimmed = kept[first : last + 1]
+    for i, j in zip(rebased, bridging, strict=True):
+        assert trimmed[i] == kept[j]
+        assert trimmed[i + 1] == kept[j + 1]

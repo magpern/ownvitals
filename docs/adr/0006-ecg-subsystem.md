@@ -1,6 +1,6 @@
 # ADR 0006: The ECG subsystem: data contract, quality gate, descriptive analysis and validation
 
-Status: Accepted (2026-10-31, #39); amended 2026-10-31 by #88 (see "Amendments"). Assumptions A1 to
+Status: Accepted (2026-10-31, #39); amended 2026-10-31 and 2026-11-01 by #88 and #40 (see the amendments file). Assumptions A1 to
 A9 stay open until the owner's probe and checks (§2); two questions are blocked on the owner (see
 the end).
 
@@ -210,7 +210,7 @@ odd padding makes a step (amended 2026-10-31, #40).
   within 5 s of an end of the span takes every beat between it and that end out; the span is
   measured on the beats left (under 20 s: `too_short`). A burst of movement at an end of a strip
   adds, hides and displaces beats. Interior distorted beats are handled by §8. Derivation of the
-  0.85: test specification, Amendments.
+  0.85: the amendments file.
 - **Reasons** per window: `flat_line` (amplitude < 0.1 mV), `amplitude_out_of_range` (> 10 mV),
   `clipping`, `detector_disagreement`, `implausible_rate`, `beat_gap`, `low_template_correlation`.
   A failed recording carries `too_short` (no 20-s beat span) plus the union of its failing
@@ -241,14 +241,19 @@ odd padding makes a step (amended 2026-10-31, #40).
   them and reads low; beyond that, or under the minimums below, HRV is null ("insufficient").
   §13 tests this; V2 reports how often it happens on the owner's data.
 - **HR** = 60,000 / mean of the intervals left after (0), (a) and (d): ectopic, distorted beats stay.
+  **On an irregular rhythm HR is null** (amended 2026-11-01, #40): when the intervals excluded by
+  (0), (a), (c) and (b) are over 20 % of all, rule (d) is off and a missed beat would corrupt the
+  mean, so `hr_bpm` is null and `hrv_reasons` ends with `irregular_rhythm`. Withings' own HR is
+  the value to show.
 - **HRV** on the accepted (NN) intervals with the Task Force (1996) definitions and two
   conventions of ours (the common Kubios-style ones): SDNN = standard deviation with n − 1, which
   the Task Force leaves open; RMSSD = √(mean ΔNN²) over adjacent NN pairs only (both accepted,
   sharing a beat); pNN50 = 100 · (pairs with |ΔNN| > 50 ms) / **pairs**, where the Task Force
   divides NN50 by the number of NN intervals.
 - HRV needs ≥ 15 NN intervals, ≥ 10 pairs and an excluded fraction (intervals excluded by (0), (a),
-  (c) or (b) over all intervals in the span) ≤ 20 %, all our choices; otherwise `hrv` is null with its
-  reasons, `too_many_excluded` (the cause) before `insufficient_nn`. HR needs only the gate.
+  (d), (c) or (b) over all intervals in the span) ≤ 20 %, all our choices; otherwise `hrv` is null
+  with its reasons, `too_many_excluded` (the cause) before `insufficient_nn`. HR needs only the
+  gate, except on an irregular rhythm.
 - **Ultra-short-term** values (≤ 30 s): RMSSD holds up at 10–30 s, SDNN much less (Munoz 2015);
   neither matches 5-min or 24-h norms (Shaffer & Ginsberg 2017), so neither is compared with them.
 - Rounding: HR 0.1 bpm, RMSSD and SDNN 0.1 ms, pNN50 0.1 percentage point.
@@ -398,8 +403,9 @@ with aggregates and a pass/fail line per criterion. **Only the pass/fail lines g
 
 - **V1**: the gate passes ≥ 80 % (our choice) of the recordings Withings classified without
   marking them noisy or inconclusive (`afib_details` ∉ {−1, 2, 5, 13}).
-- **V2** (report only): agreement table of our gate against Withings' noise code, and the share of
-  each HRV reason (for example `too_many_excluded` on slow, high-RSA strips, §8).
+- **V2** (report only): agreement table of our gate against Withings' noise code, the share of
+  each HRV reason (for example `too_many_excluded` on slow, high-RSA strips, §8), and the gate's
+  failures by heart-rate band (under 50 bpm) and reason.
 - **V3**: |our HR − Withings' `heart_rate`| ≤ 5 bpm for ≥ 95 % of gate-passed recordings (both our
   choices), with a Bland–Altman summary (1986). V3 settles A8 **and** validates our HR, so a
   failure needs a follow-up to tell which; V4 checks our beats independently.
@@ -463,8 +469,11 @@ owner** (open question 2).
   groups its value came from (the morning reading's group for `morning`, the readings the median
   used for `median`), not the day's fingerprint inputs. The M5 rules issue puts them in each
   finding's evidence; nothing re-derives them.
-- **Known limitation** (amended 2026-10-31, #40): below 50 bpm the gate may reject strips with
-  white noise at 12 dB or baseline wander (causes: test specification, Amendments); they show no values.
+- **Known limitation** (amended 2026-10-31 and 2026-11-01, #40): below 50 bpm the gate may reject
+  strips with white noise at 12 dB or baseline wander (causes: the amendments file); they show no
+  values, and **E4/E6 are hidden when such strips are the trigger, which affects users with a
+  resting rate under 50 bpm**. §14 V2 measures it by band and reason. A later SQI version changes
+  the secondary detector if real data show a material rate (wander: a clipping run needs a step).
 - `estimated` carries its versions and fingerprint, so a changed parameter recomputes history
   instead of mixing versions, and no output shows a superseded one meanwhile (§9); findings never
   depend on it, so they need no recompute.
@@ -488,13 +497,4 @@ interpretation, and the E5 index is deferred (§12).
 ## References
 
 Listed at the end of [the test specification](0006-ecg-subsystem-tests.md#references) (moved, #88).
-
-## Amendments
-
-### 2026-10-31 (#88): follow-ups of the #46 review
-
-Moved verbatim to the test specification's Amendments (line limit); no decision changed.
-
-### 2026-10-31 and 2026-11-01 (#40): unreachable assertions, generator corrections
-
-Edits in place ("amended ... #40"): §6, §7, §8, Consequences. Evidence: the test specification.
+The dated amendments (#88, #40) and their evidence: [0006-ecg-subsystem-amendments.md](0006-ecg-subsystem-amendments.md).

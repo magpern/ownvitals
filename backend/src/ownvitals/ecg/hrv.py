@@ -16,7 +16,11 @@ Input: the refined R-peaks of the beat span that passed the gate, as sample posi
   is, one whose other exclusions are at most 20 % of the intervals (an irregular rhythm has no
   neighbouring rhythm to compare with). A compensatory pause is 1.2-1.4 times its neighbours.
 * HR = 60,000 / the mean of the intervals left after (0), (a) and (d), ectopic beats and
-  distorted beats included: (c) leaves the NN intervals only.
+  distorted beats included: (c) leaves the NN intervals only. **On an irregular rhythm HR is
+  null**: when the intervals excluded by (0), (a), (c) and (b) are more than 20 % of all, the
+  strip is AF-like, rule (d) has no neighbouring rhythm to compare with and a missed beat would
+  corrupt the mean, so ``hr_bpm`` is ``None`` and ``hrv_reasons`` ends with ``irregular_rhythm``
+  (the device's own HR is the value to show).
 * HRV on the accepted (NN) intervals: SDNN with n - 1; RMSSD over adjacent NN pairs only (both
   accepted, sharing a beat); pNN50 = 100 * (pairs with |dNN| > 50 ms) / pairs.
 * HRV needs at least 15 NN intervals, 10 pairs and an excluded fraction of at most 20 %.
@@ -35,7 +39,7 @@ from typing import NamedTuple
 import numpy as np
 from numpy.typing import NDArray
 
-ALGO_VERSION = "4.0.0"
+ALGO_VERSION = "5.0.0"
 
 RR_MIN_MS = 60_000.0 / 220.0
 RR_MAX_MS = 2_000.0
@@ -70,7 +74,8 @@ class Hrv:
 @dataclass(frozen=True)
 class RrAnalysis:
     """HR and, when the minimums hold, HRV; otherwise ``hrv`` is ``None`` with its reasons
-    (``too_many_excluded`` before ``insufficient_nn``)."""
+    (``too_many_excluded`` before ``insufficient_nn``; ``irregular_rhythm`` last, with ``hr_bpm``
+    null)."""
 
     n_rr: int
     excluded: tuple[Excluded, ...]
@@ -169,7 +174,8 @@ def analyse(
     )
     reasons = classify(rr_ms, bridging, touching)
     missed: frozenset[int] = frozenset()
-    if rr_ms.shape[0] and sum(r is not None for r in reasons) <= MAX_EXCLUDED_FRACTION * len(rr_ms):
+    irregular = sum(r is not None for r in reasons) > MAX_EXCLUDED_FRACTION * len(rr_ms)
+    if rr_ms.shape[0] and not irregular:
         missed = missed_beats(rr_ms, bridging)
         if missed:
             reasons = classify(rr_ms, bridging, touching, missed)
@@ -177,6 +183,8 @@ def analyse(
     in_range[sorted(bridging | missed)] = False
     hr = round(60_000.0 / float(np.mean(rr_ms[in_range])), 1) if in_range.any() else None
     hrv, hrv_reasons = hrv_metrics(rr_ms, reasons)
+    if irregular:
+        hr, hrv_reasons = None, (*hrv_reasons, "irregular_rhythm")
     return RrAnalysis(
         n_rr=int(rr_ms.shape[0]),
         excluded=tuple(Excluded(i, r) for i, r in enumerate(reasons) if r is not None),

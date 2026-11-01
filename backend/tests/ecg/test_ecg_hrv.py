@@ -170,14 +170,34 @@ def test_respiratory_modulation_at_40_and_45_bpm_hits_the_20_percent_rule(fs: in
 
 
 @pytest.mark.parametrize("fs", RATES)
-def test_af_like_strips_have_no_hrv_because_too_many_intervals_are_excluded(fs: int) -> None:
+def test_af_like_strips_have_no_hr_or_hrv_because_too_many_intervals_are_excluded(fs: int) -> None:
     strips = accepted("af", fs)
     assert strips
     for case in strips:
         assert isinstance(case.result, Analysed)
         assert case.result.rr.hrv is None
         assert "too_many_excluded" in case.result.rr.hrv_reasons
-        assert case.result.rr.hr_bpm is not None  # HR needs only the gate
+        # an irregular rhythm has no checked HR: null, with its reason (decision on #114)
+        assert case.result.rr.hr_bpm is None
+        assert case.result.rr.hrv_reasons[-1] == "irregular_rhythm"
+
+
+@pytest.mark.parametrize("fs", RATES)
+def test_hr_is_null_exactly_when_the_rhythm_is_irregular_in_every_condition(fs: int) -> None:
+    """HR is stored whenever the gate passes (section 8), except on an irregular rhythm."""
+    with_hr = without_hr = 0
+    for condition in scenarios.BUILDERS:
+        for case in accepted(condition, fs):
+            assert isinstance(case.result, Analysed)
+            rr = case.result.rr
+            assert (rr.hr_bpm is None) == ("irregular_rhythm" in rr.hrv_reasons), (
+                condition,
+                case.index,
+            )
+            with_hr += rr.hr_bpm is not None
+            without_hr += rr.hr_bpm is None
+    assert with_hr
+    assert without_hr  # the AF-like strips
 
 
 @pytest.mark.parametrize("fs", RATES)
