@@ -190,14 +190,28 @@ makes it stop with a message naming it (its foreign-code check), and the rollbac
 
 #### db-functions and the egress hook
 
-`db-functions` is the one process that installs no egress hook (ADR 0009): an exemption, and why.
-It is a one-shot runner (`python -m ownvitals.db.install_functions`) that reads no settings, so it
-has no egress configuration to install; its only connection is libpq's to `db` (host, port,
-database and user from its command line, the password from its `PGPASSFILE`), which the hook
-cannot see, since libpq connects in C below Python's audit events. The static guard still scans
-it: `psycopg` and `psycopg.conninfo` are classified for that module alone and by name
+Three ownvitals processes install no egress hook today. The worker
+(`ownvitals/worker/__main__.py`) and the CLI (`run_command` in `ownvitals/cli.py`) install one.
+
+`db-functions` installs none, by design (ADR 0009): an exemption, decided on #118. It is a
+one-shot runner (`python -m ownvitals.db.install_functions`) that reads no settings, so it has
+no egress configuration to install; its only connection is libpq's to `db` (host, port, database
+and user from its command line, the password from its `PGPASSFILE`), which the hook cannot see,
+since libpq connects in C below Python's audit events. The static guard still scans it:
+`psycopg` and `psycopg.conninfo` are classified for that module alone and by name
 (`backend/tests/egress_classified.py`, `test_egress_db_functions.py`), so no other module may
 import psycopg and the runner may use no other psycopg name.
+
+`migrate` installs none because its command is `alembic upgrade head` (`compose.yaml`) and it
+never calls `install_egress_hook`. The async engine's lookup of hostname `db` would be visible
+to an installed hook via `socket.getaddrinfo` (ADR 0009); migrate does not install one. The
+static classification of `alembic` (no names) and `alembic.op` (`execute`) does not scan
+`backend/migrations/env.py`.
+
+`web` installs none until #77. `python -m ownvitals` (`ownvitals/__main__.py`) does not call
+`install_egress_hook` today; that call and the standard-loop check at startup are acceptance
+criteria of #77. Until then web relies on the static guard, the egress clients' allowlists and
+the deployment's network rule (ADR 0009).
 
 ### A failed rollback
 

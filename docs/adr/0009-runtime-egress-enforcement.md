@@ -64,9 +64,10 @@ in CI and pins the standard loop's rows.
    `web`, `worker` and `cli`, adds one audit hook per process. A second call with the same kind
    does nothing; another kind raises. It is called first thing in each entry point, before the
    app's other modules can connect: `ownvitals/worker/__main__.py`, the CLI's `run_command`
-   (`ownvitals/cli.py`), and web's startup (#77). An audit hook cannot be removed. It returns at
-   once for an event that does not start with `socket.`, so its cost elsewhere is one prefix
-   check.
+   (`ownvitals/cli.py`), and web's startup (#77). `db-functions` is exempt from the runtime hook
+   (decided on #118): the one-shot runner reads no settings and connects only through libpq,
+   which the hook cannot see. An audit hook cannot be removed. It returns at once for an event
+   that does not start with `socket.`, so its cost elsewhere is one prefix check.
 2. **Resolution** (`socket.getaddrinfo`, `socket.gethostbyname`): allowed only for a host in the
    process kind's resolvable set, else `EgressRefused`:
    - web: Google sign-in's hosts and `wbsapi.withings.net` (the code exchange, roadmap
