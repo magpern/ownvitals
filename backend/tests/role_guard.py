@@ -85,6 +85,11 @@ WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("withings_apps", "rotation_requested_at"): {(SECRETS, "SELECT"), (SECRETS, "UPDATE")},
     ("withings_apps", "rotation_reason"): {(SECRETS, "SELECT"), (SECRETS, "UPDATE")},
     ("connection_keks", "key_id"): {(SECRETS, "SELECT")},
+    # Ingest resolves a notification to a connection (ADR 0002 section 4). No credential column.
+    ("connections", "id"): {(EVENTS, "SELECT")},
+    ("connections", "app_id"): {(EVENTS, "SELECT")},
+    ("connections", "withings_userid"): {(EVENTS, "SELECT")},
+    ("connections", "status"): {(EVENTS, "SELECT")},
 }
 SEQUENCE_PRIVILEGES = {"USAGE", "SELECT"}
 # Built-in languages that PUBLIC may use (Postgres' own default).
@@ -416,6 +421,10 @@ def check_roles(conn: Connection) -> list[str]:
     for obj in sorted({o for o, *_ in functions}):
         signature = _bare_signature(obj)
         if queue_installed and signature in QUEUE_EXECUTE:
+            allowed_execute = {APP, QUEUE}
+            if signature.startswith("queue_enqueue("):
+                # The ingest function calls it in the notification's transaction.
+                allowed_execute.add(EVENTS)
             need(
                 _privileges(functions, APP, obj) == {"EXECUTE"},
                 f"{obj}: ownvitals_app EXECUTE only",
@@ -424,7 +433,12 @@ def check_roles(conn: Connection) -> list[str]:
                 _privileges(functions, QUEUE, obj) == {"EXECUTE"},
                 f"{obj}: ownvitals_queue EXECUTE only",
             )
-            need(_grantees(functions, obj) <= {APP, QUEUE}, f"{obj}: unexpected grantee")
+            if EVENTS in _grantees(functions, obj):
+                need(
+                    _privileges(functions, EVENTS, obj) == {"EXECUTE"},
+                    f"{obj}: {EVENTS} EXECUTE only",
+                )
+            need(_grantees(functions, obj) <= allowed_execute, f"{obj}: unexpected grantee")
             need(
                 obj.endswith(f":{QUEUE}:true"),
                 f"{obj}: must be owned by ownvitals_queue and be SECURITY DEFINER",

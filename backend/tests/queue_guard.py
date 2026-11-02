@@ -265,7 +265,16 @@ def check_queue(conn: Connection) -> list[str]:
         need(list(f.proconfig or []) == SEARCH_PATH, f"{prefix}: search_path must be fixed")
         need(f.comment == QUEUE_VERSION, f"{prefix}: comment must be {QUEUE_VERSION!r}")
         need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
-        need(set(f.acl or []) == ACL and len(f.acl or []) == 2, f"{prefix}: ACL must be {ACL}")
+        actual_acl = set(f.acl or [])
+        expected_acl = set(ACL)
+        # The ingest role may EXECUTE queue_enqueue (40-withings.sql). A later run of
+        # 20-queue.sql alone revokes it; both are shipped states.
+        if name == "queue_enqueue" and f"ownvitals_webhook_events=X/{QUEUE}" in actual_acl:
+            expected_acl.add(f"ownvitals_webhook_events=X/{QUEUE}")
+        need(
+            actual_acl == expected_acl and len(actual_acl) == len(expected_acl),
+            f"{prefix}: ACL must be {expected_acl}, is {actual_acl}",
+        )
     for name in WITHINGS_FUNCTION_NAMES:
         found = [f for f in functions if f.proname == name]
         if not found:
