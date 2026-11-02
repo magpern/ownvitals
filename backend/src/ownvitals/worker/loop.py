@@ -151,14 +151,23 @@ class Worker:
         ``try_verify`` returns ``False`` while the database is unreachable and raises
         ``KeyRingError`` when the check fails. The loop waits on ``False`` and stops on
         ``KeyRingError``, before any claim or reap.
+
+        The task sets ``wake`` when it finishes, including when it fails. ``run`` clears a
+        ``jobs_queued`` notification that arrived while the check was still running, and the
+        check itself does not claim. Waking here makes the next pass claim as soon as the ring
+        is verified, instead of sleeping out ``worker_poll_seconds``. An unreachable database
+        stays unverified: the loop does not claim or reap, and it is not exit 2.
         """
-        await verify_startup(self.engine)
-        ring = self.keyring
-        if ring is None:
-            ring = await load_keyring(self.factory, self.settings, role="worker")
-            self.keyring = ring
-        elif not ring.verified:
-            await ring.try_verify()
+        try:
+            await verify_startup(self.engine)
+            ring = self.keyring
+            if ring is None:
+                ring = await load_keyring(self.factory, self.settings, role="worker")
+                self.keyring = ring
+            elif not ring.verified:
+                await ring.try_verify()
+        finally:
+            self.wake.set()
 
     async def maintain(self) -> None:
         """Reap once (ADR 0005 section 3). Nothing is reaped before the key ring's check."""
