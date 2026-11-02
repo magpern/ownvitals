@@ -202,11 +202,11 @@ since libpq connects in C below Python's audit events. The static guard still sc
 (`backend/tests/egress_classified.py`, `test_egress_db_functions.py`), so no other module may
 import psycopg and the runner may use no other psycopg name.
 
-`migrate` installs none. Its command is `alembic upgrade head` (`compose.yaml`): Alembic's
-one-shot, not an application entry point, so it never calls `install_egress_hook`. Its only
-connection is the owner role's to the configured database, through SQLAlchemy and libpq, which
-the hook would not see. The static guard classifies `alembic` (no names) and `alembic.op`
-(`execute`).
+`migrate` installs none because its command is `alembic upgrade head` (`compose.yaml`) and it
+never calls `install_egress_hook`. The async engine's lookup of hostname `db` would be visible
+to an installed hook via `socket.getaddrinfo` (ADR 0009); migrate does not install one. The
+static classification of `alembic` (no names) and `alembic.op` (`execute`) does not scan
+`backend/migrations/env.py`.
 
 `web` installs none until #77. `python -m ownvitals` (`ownvitals/__main__.py`) does not call
 `install_egress_hook` today; that call and the standard-loop check at startup are acceptance
