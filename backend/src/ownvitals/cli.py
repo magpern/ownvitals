@@ -46,6 +46,8 @@ from ownvitals.db import (
 from ownvitals.db.queue_check import install_queue_check, verify_queue
 from ownvitals.egress import install_egress_hook, require_standard_event_loop
 from ownvitals.jobs import queue
+from ownvitals.keys_cli import add_keys_subcommands
+from ownvitals.keys_cli import run as run_keys
 from ownvitals.mail import MailError
 
 _DURATION = re.compile(r"(\d+)([dhm])")
@@ -85,6 +87,7 @@ def add_subcommands(parser: argparse.ArgumentParser) -> None:
         admin.add_parser(name, help=text).add_argument("email")
     jobs = sub.add_parser("jobs", help="the job queue").add_subparsers(dest="action", required=True)
     jobs.add_parser("stats", help="count jobs per state (no ids)")
+    add_keys_subcommands(sub)
 
 
 async def run_jobs(args: argparse.Namespace, settings: Settings, out: TextIO, err: TextIO) -> int:
@@ -148,7 +151,12 @@ async def run_auth(args: argparse.Namespace, settings: Settings, out: TextIO, er
 
 
 # Subcommand name -> its coroutine.
-COMMANDS: dict[str, Command] = {"jobs": run_jobs, "invite": run_auth, "admin": run_auth}
+COMMANDS: dict[str, Command] = {
+    "jobs": run_jobs,
+    "invite": run_auth,
+    "admin": run_auth,
+    "keys": run_keys,
+}
 
 
 def run_command(

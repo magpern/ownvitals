@@ -75,11 +75,18 @@ async def current_context(
 async def issue_context(
     factory: async_sessionmaker[AsyncSession], user_id: UUID, role: Literal["user", "admin"]
 ) -> UserContext:
-    """The request's context: the user and the role, no connections yet. ``factory`` is where
-    #13 reads the user's ``(provider, id)`` pairs in their own session (ADR 0004 section 1): a
-    bare context first, then the final one with them, as classbeat does."""
-    del factory  # the connections layer (#13) reads the refs through it
-    return UserContext(user_id=user_id, role=role, issuer=issuer_token())
+    """The request's context. A bare context first, then the user's live connection refs in
+    that user's own session (ADR 0004 section 1). The refs are ``(provider, id)`` pairs, never
+    secrets or status."""
+    bare = UserContext(user_id=user_id, role=role, issuer=issuer_token())
+    from ownvitals.connections.repository import connection_refs
+
+    return UserContext(
+        user_id=user_id,
+        role=role,
+        connections=await connection_refs(factory, bare),
+        issuer=issuer_token(),
+    )
 
 
 def _refuse(status: int, reason: str) -> NoReturn:

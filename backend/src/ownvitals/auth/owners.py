@@ -3,8 +3,8 @@ only ``ownvitals.auth`` touches the account tables (guard 8). The worker loads t
 imports nothing web-only (``tests/egress_worker.py``).
 
 ``ACCOUNTS`` is the worker's account directory (``ownvitals.jobs.issuer.Accounts``): an owner is
-active when the account exists and is not disabled. Its connection refs are empty until the
-connections layer (#13) reads them.
+active when the account exists and is not disabled. Its connection refs are the owner's live
+rows, read through ``ownvitals.connections`` in that owner's session.
 """
 
 from uuid import UUID
@@ -39,8 +39,10 @@ class AuthAccounts:
     async def connection_refs(
         self, factory: Factory, ctx: UserContext
     ) -> frozenset[tuple[str, UUID]]:
-        """None yet: ``ownvitals.connections`` reads them from #13."""
-        return frozenset()
+        """The owner's live ``(provider, id)`` pairs, read in that owner's own session."""
+        from ownvitals.connections.repository import connection_refs as read_refs
+
+        return await read_refs(factory, ctx)
 
 
 ACCOUNTS = AuthAccounts()

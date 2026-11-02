@@ -1,1 +1,5 @@
-"""Provider connections. Filled by the connections issue; the router is empty until then."""
+"""Provider connections (ADR 0004).
+
+Import the submodule you need. This package module stays empty so loading one submodule
+does not load the routes or the operator CLI.
+"""

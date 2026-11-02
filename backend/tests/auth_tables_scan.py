@@ -93,8 +93,24 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     "ownvitals.auth.purge": frozenset({"purge_expired"}),
     # the operator CLI
     "ownvitals.auth.operator": frozenset(
-        {"AccountError", "create_invite", "grant_admin", "mfa_reset", "revoke_admin"}
+        {
+            "AccountError",
+            "PendingWipe",
+            "WipeResult",
+            "app_sessions",
+            "create_invite",
+            "grant_admin",
+            "mark_wipe_mailed",
+            "mfa_reset",
+            "pending_wipe_mails",
+            "revoke_admin",
+            "user_ids",
+            "vacuum_wiped_auth",
+            "wipe_user",
+        }
     ),
+    # keys rewrap (#13): only the wrap of a TOTP seed changes
+    "ownvitals.auth.totp_keys": frozenset({"rewrap_totp_secrets", "totp_rows_by_key"}),
 }
 TABLE_NAMES = (
     "users",
