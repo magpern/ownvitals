@@ -15,6 +15,7 @@ from ownvitals.connections.providers.withings import commit_refresh, open_within
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
 from ownvitals.egress import core
+from ownvitals.withings import client as client_module
 from ownvitals.withings.apps import create_app
 from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.tokens import recover_refresh, refresh_tokens
@@ -172,6 +173,37 @@ async def test_a_stale_intent_needs_reconnect(env: Env, owner: object) -> None:
             )
         ).one()
     assert (status, error, kept) == ("needs_reconnect", "needs_reconnect", True)
+
+
+async def test_an_oversized_refresh_body_stays_recoverable(
+    env: Env, owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The request was sent and the body discarded. Leave the intent; return no access token."""
+    ctx, connection_id, fake, userid = await _grant(env, owner, "oversized-refresh@example.com")
+    cap = client_module.MAX_RESPONSE_BYTES
+    monkeypatch.setattr(client_module, "MAX_RESPONSE_BYTES", 64)
+    async with WithingsClient.open(
+        WithingsApp(CLIENT, SECRET), inner=FakeWithingsTransport(fake)
+    ) as client:
+        result = await refresh_tokens(
+            env.factory, env.app.state.keyring, ctx, connection_id, client
+        )
+        assert _calls(fake) == 1
+        assert result.outcome == "recover"
+        assert result.access_token == ""
+        assert result.access_token != fake.grant(CLIENT, userid).access
+        opened = await open_withings(env.factory, env.app.state.keyring, ctx, connection_id)
+        assert opened.intent == opened.generation == 1
+        monkeypatch.setattr(client_module, "MAX_RESPONSE_BYTES", cap)
+        recovered = await recover_refresh(
+            env.factory, env.app.state.keyring, ctx, connection_id, client
+        )
+    assert recovered.outcome == "refreshed"
+    assert recovered.access_token == fake.grant(CLIENT, userid).access
+    assert _calls(fake) == 2
+    stored = await open_withings(env.factory, env.app.state.keyring, ctx, connection_id)
+    assert stored.intent is None
+    assert stored.access_token == recovered.access_token
 
 
 async def test_an_older_generation_cannot_overwrite(env: Env, owner: object) -> None:

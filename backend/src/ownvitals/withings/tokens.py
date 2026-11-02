@@ -3,7 +3,9 @@
 The order is fixed: session lock, commit the intent, ``requesttoken`` with no retry budget,
 then one transaction that compare-and-swaps ``generation + 1`` and clears the intent. The new
 access token is returned only after that commit. An ambiguous outcome leaves the intent for
-``recover_refresh``, which tries the stored refresh token once. An intent older than 8 hours,
+``recover_refresh``, which tries the stored refresh token once. A discarded oversized
+``requesttoken`` body is that same lost response on this path only: ``Permanent.ambiguous``
+stays false and the client does not retry it. An intent older than 8 hours,
 or a failed recovery, sets ``needs_reconnect`` and the in-app notice (``last_error``). Nothing
 here sends mail.
 
@@ -31,7 +33,7 @@ from ownvitals.context import UserContext
 from ownvitals.crypto.keks import KeyRing
 from ownvitals.jobs.fence import Lease
 from ownvitals.withings.client import WithingsClient
-from ownvitals.withings.errors import TokenInvalid, WithingsError
+from ownvitals.withings.errors import TOO_LARGE, TokenInvalid, WithingsError
 
 Factory = async_sessionmaker[AsyncSession]
 _OUTCOMES = frozenset(
@@ -82,7 +84,10 @@ async def _apply(
     except TokenInvalid:
         invalid = True
     except WithingsError as exc:
-        ambiguous = exc.ambiguous
+        # response_too_large: the request was sent and the body discarded, so the pair may
+        # have rotated. Leave the intent for one recovery try. Permanent.ambiguous stays false
+        # and the client does not retry. A recovery that still cannot store the pair gives up.
+        ambiguous = exc.ambiguous or exc.category == TOO_LARGE
         other = not ambiguous
     if after_response is not None and issued is not None:
         after_response()

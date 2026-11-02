@@ -70,6 +70,10 @@ async with WithingsClient.open(app) as client:          # egress.withings_async_
 - **`refresh` is never retried** (PLAN §4.3 step 5) and takes no budget. `error.ambiguous` is true
   for `Transient` and for `unexpected_body`: Withings may have rotated the pair, so the caller
   runs the recovery of step 4 (one retry with the stored refresh token within 8 h).
+  `response_too_large` stays a `Permanent` the client does not retry, and its `ambiguous` flag
+  stays false. On `requesttoken` the body was discarded after the request was sent, so the
+  refresh caller leaves the intent for that same one recovery try. A later recovery that still
+  cannot store the pair gives up. Measure calls keep today's classification.
 - `revoke`'s budget covers the nonce only: a nonce is single use.
 - Mapping to job categories (ADR 0005 §6, ADR 0004 §8) is the caller's (#22, #25).
 
