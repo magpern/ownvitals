@@ -103,6 +103,13 @@ class JobsParams(Params):
     days: Annotated[int, Field(ge=1, le=90)]
 
 
+class JobReplayParams(Params):
+    """``ownvitals jobs replay``: the dead-lettered job and the new queued job. Ids only."""
+
+    dead_letter_id: UUID
+    new_job_id: UUID
+
+
 class SettingSetParams(Params):
     """A flag write: the key and what the value means, never free text. A banner's text stays in
     ``app_settings`` (only its level and length are logged); a refused value logs the key
@@ -121,6 +128,7 @@ ACTIONS: Final[dict[str, type[Params]]] = {
     "admin.request": RequestParams,
     "audit.list": AuditListParams,
     "job.list": JobsParams,
+    "job.replay": JobReplayParams,
     "setting.read": NoParams,
     "setting.set": SettingSetParams,
     "setting.clear": NoParams,

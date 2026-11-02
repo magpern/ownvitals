@@ -23,15 +23,19 @@ progress stream. #9 ships the machinery with **no kind** registered: M1 adds the
 ## Roles and functions
 
 `ownvitals_queue` is `NOLOGIN NOINHERIT BYPASSRLS`, member of no role, with exactly `USAGE` on
-`public`, `SELECT, UPDATE` on `jobs` and `SELECT, INSERT` on `job_events`. It owns the three
-functions and nothing else. Each function is `SECURITY DEFINER` with `search_path = pg_catalog,
-pg_temp`, the comment `ownvitals-queue v1`, and `EXECUTE` for `ownvitals_app` and its owner only.
+`public`, `SELECT, INSERT, UPDATE` on `jobs`, `SELECT, INSERT` on `job_events`, and `SELECT` on
+`connections (id, owner_id, status)` only. It owns the queue functions and nothing else. Each
+function is `SECURITY DEFINER` with `search_path = pg_catalog, pg_temp`, the comment
+`ownvitals-queue v2`, and `EXECUTE` for `ownvitals_app` and its owner only.
 
 | Function | Does | Returns |
 |---|---|---|
 | `queue_claim(worker, lease_seconds, kinds)` | claims the next claimable job of one of `kinds` (`SKIP LOCKED`), bumps `attempt` and `lease_version`, writes the `claimed` event | `(job_id, owner_id, lease_version)` or nothing |
-| `queue_reap(limit)` | requeues (with backoff), fails (`lease_lost`) or cancels expired leases, bumping the token; fails queued jobs whose attempts are spent (`internal`) | the count |
-| `queue_stats()` | counts per state, across users | `(metric, total)`: no ids |
+| `queue_reap(limit)` | requeues (with backoff), dead-letters (`lease_lost`) or cancels expired leases, bumping the token; fails queued jobs whose attempts are spent (`internal`) | the count |
+| `queue_stats()` | counts per state, across users, including `dead_letter` | `(metric, total)`: no ids |
+| `queue_enqueue(...)` | webhook or scheduler job owned by the connection's owner; a queued singleton collapses and its `available_at` moves 30 s out (namespace 1) | the job id |
+| `queue_cancel_for_secret(kind, secret_id)` | cancels queued jobs of that kind for that webhook secret, any owner | the count |
+| `queue_replay(id)` | a new queued job from a dead-lettered one; the terminal row stays | `(job_id, owner_id)` |
 
 No user code may run as `ownvitals_queue`: the script, the queue check and guard 9 all refuse
 any other user-defined function, operator, trigger or rule, and any default, check, index or
@@ -152,7 +156,12 @@ at most 10 minutes and 5 streams per user and process, 204 for an ended job with
 Another user's job is the same 404 as an unknown or malformed id. Every event payload is
 validated against its model when written and again when sent (`jobs/events.py`).
 
-`python -m ownvitals jobs stats` prints `<metric> <count>` per state.
+`python -m ownvitals jobs stats` prints `<metric> <count>` per state, including `jobs_dead_letter`.
+`python -m ownvitals jobs replay <id>` queues a new job with the same kind and input (origin
+`operator`) and writes an `admin_audit` row `job.replay`. The dead-lettered row is not changed.
+A job with `target_secret_id` set is cancelled when it runs unless a target check confirms the
+entry is still active (`NoTargets` confirms none). Handlers for the Withings kinds are not
+registered yet: `KINDS` stays empty, so the worker still claims nothing until those issues.
 
 ## Seams until #10, #13 and #77 (fail closed)
 

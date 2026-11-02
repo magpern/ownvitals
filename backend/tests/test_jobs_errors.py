@@ -45,6 +45,7 @@ def test_every_category_has_one_plain_sentence() -> None:
     for category, sentence in SENTENCES.items():
         assert sentence.endswith("."), category
         assert failure_sentence("failed", category) == sentence
+        assert failure_sentence("dead_letter", category) == sentence
     assert failure_sentence("failed", "made_up") == SENTENCES["internal"]
     for state in ("queued", "running", "completed", "cancelled"):
         assert failure_sentence(state, None) is None

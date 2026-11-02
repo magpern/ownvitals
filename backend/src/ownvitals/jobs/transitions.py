@@ -74,6 +74,12 @@ async def fail(fs: FencedSession, category: str) -> str:
     return await _terminal(fs, "failed", category, "failed", {"category": category})
 
 
+async def dead_letter(fs: FencedSession, category: str) -> str:
+    """Retry budget spent on a retryable failure (ADR 0005 section 8): terminal, with the
+    category, and the row never changes again."""
+    return await _terminal(fs, "dead_letter", category, "dead_letter", {"category": category})
+
+
 async def cancel(fs: FencedSession) -> str:
     return await _terminal(fs, "cancelled", None, "cancelled", {})
 
@@ -107,7 +113,7 @@ async def retry(fs: FencedSession, category: str, delay: float) -> str:
         return await fail(fs, category)
     counts = await attempts(fs)
     if counts.attempt >= counts.max_attempts:
-        return await fail(fs, category)
+        return await dead_letter(fs, category)
     return await _requeue(fs, refund=False, delay=delay, kind="retry_scheduled", category=category)
 
 

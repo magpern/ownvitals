@@ -96,9 +96,13 @@ async def test_retryable_failures_use_their_attempts_then_fail(jenv: JobsEnv) ->
     ready(jenv, job_id)
     await run_next(jenv, registry)
     row = jenv.row(job_id)
-    assert (row.state, row.error_category, row.attempt) == ("failed", "upstream_unavailable", 2)
+    assert (row.state, row.error_category, row.attempt) == (
+        "dead_letter",
+        "upstream_unavailable",
+        2,
+    )
     [*_, (_, kind, payload, _)] = jenv.events(job_id)
-    assert (kind, payload) == ("failed", {"category": "upstream_unavailable"})
+    assert (kind, payload) == ("dead_letter", {"category": "upstream_unavailable"})
 
 
 @pytest.mark.parametrize(
