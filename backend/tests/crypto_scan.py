@@ -98,8 +98,7 @@ NOT_A_SECRET_LAST_WORDS = frozenset(
 CIPHERTEXT_TYPE = "bytea"
 # The reviewed allowlist: (table, column) -> why a column with a secret word in its name holds
 # no secret. The entries are the ``*_key`` columns the specification names; the issue that
-# creates a table adds any other with its reason here. M1's ``withings_apps.webhook_secrets``
-# (HMACs and ids only, ADR 0004 section 4) is added by #21.
+# creates a table adds any other with its reason here.
 NOT_SECRET_COLUMNS: dict[tuple[str, str], str] = {
     ("jobs", "idempotency_key"): "ADR 0005: a request id the client picks "
     "(^[A-Za-z0-9_-]{16,64}$), unique per owner; it authorizes nothing",
@@ -107,6 +106,8 @@ NOT_SECRET_COLUMNS: dict[tuple[str, str], str] = {
     "a stream), for collapsing duplicates",
     ("webhook_events", "dedupe_key"): "PLAN section 5: the unique key of a notification, built "
     "from its non-secret fields",
+    ("withings_apps", "webhook_secrets"): "ADR 0004 section 4: HMACs and key ids of derived "
+    "webhook secrets; the secret itself is never stored",
     ("observations", "metric_key"): "PLAN section 5: the name of a metric",
     ("metric_daily", "metric_key"): "PLAN section 5: the name of a metric",
 }

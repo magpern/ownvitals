@@ -9,7 +9,9 @@ from sqlalchemy.engine import Connection
 
 from dbtools import PARENT, drop_tables, migrated, owner_connection, run_rls_helper
 from ownvitals.db import SYSTEM_TABLES
-from rls_guard import check_tables
+from ownvitals.ingest.tables import INGEST_OWNED
+from ownvitals.withings.tables import WITHINGS_OWNED
+from rls_guard import GLOBAL_UNIQUE_INDEXES, check_tables
 
 SCRATCH = ("t_bad", "t_sys")
 GOOD = (
@@ -40,9 +42,15 @@ def test_the_migrated_schema_meets_the_contract(database_url: str) -> None:
             tables = connection.execute(
                 text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
             ).scalars()
-            # Owned so far: the job tables (0003, ADR 0005 section 1) and connections
-            # (0007, ADR 0004 section 1).
-            assert set(tables) == set(SYSTEM_TABLES) | {"jobs", "job_events", "connections"}
+            # Owned so far: the job tables (0003), connections (0007) and the Withings
+            # tables (0009). System tables include withings_apps and webhook_events.
+            assert set(tables) == set(SYSTEM_TABLES) | {
+                "jobs",
+                "job_events",
+                "connections",
+                *WITHINGS_OWNED,
+                *INGEST_OWNED,
+            }
     finally:
         engine.dispose()
 
@@ -193,16 +201,7 @@ CASES = {
             "PARTITION BY LIST (owner_id)",
             "RLS",
         ],
-        "must not be partitioned",
-    ),
-    "partitioned with the amendment 2 key": (
-        [
-            "CREATE TABLE t_bad (id uuid NOT NULL DEFAULT gen_random_uuid(), "
-            "owner_id uuid NOT NULL, ts timestamptz NOT NULL, PRIMARY KEY (owner_id, id, ts)) "
-            "PARTITION BY RANGE (ts)",
-            "RLS",
-        ],
-        "must not be partitioned yet (#21",
+        "no primary key (owner_id, id,",
     ),
     "foreign key without the owner": (
         [good(f", parent_id uuid REFERENCES {PARENT} (id)"), "RLS"],
@@ -281,27 +280,33 @@ def test_a_system_table_must_not_reference_an_owned_table(scratch: Connection) -
 def test_a_partitioned_system_table_fails_too(scratch: Connection) -> None:
     exec_all(scratch, "CREATE TABLE t_sys (ts timestamptz NOT NULL) PARTITION BY RANGE (ts)")
     found = violations(scratch, {"t_sys": "test"})
-    assert found == ["t_sys: partitioned tables are not allowed yet (#21)"]
+    assert found == ["t_sys: a system table must not be partitioned"]
 
 
 def test_only_the_registered_global_unique_index_may_leave_out_owner_id(
     scratch: Connection,
 ) -> None:
     """ADR 0002 section 2: one owner-less unique index is sanctioned, by table, name and columns
-    (#22's ``connections (app_id, withings_userid)``); any other one fails."""
+    (``connections (app_id, withings_userid)``); any other one fails."""
     exec_all(scratch, good(", app_id uuid, ext text"), "CREATE UNIQUE INDEX t_bad_ext ON t_bad "
              "(app_id, ext)")  # fmt: skip
     run_rls_helper(scratch, "t_bad")
     sanctioned = {"t_bad_ext": ("t_bad", ("app_id", "ext"))}
     system = dict(SYSTEM_TABLES)
-    assert check_tables(scratch, system, sanctioned) == []
+
+    def registered_as(
+        extra: dict[str, tuple[str, tuple[str, ...]]],
+    ) -> dict[str, tuple[str, tuple[str, ...]]]:
+        return {**GLOBAL_UNIQUE_INDEXES, **extra}
+
+    assert check_tables(scratch, system, registered_as(sanctioned)) == []
     for registered in (
         {},  # not registered
         {"t_bad_ext": ("t_bad", ("app_id",))},  # other columns
         {"t_bad_ext": ("t_parent", ("app_id", "ext"))},  # another table
         {"t_bad_other": ("t_bad", ("app_id", "ext"))},  # another name
     ):
-        found = check_tables(scratch, system, registered)
+        found = check_tables(scratch, system, registered_as(registered))
         assert found == [
             "t_bad: unique index t_bad_ext ['app_id', 'ext'] does not include owner_id"
         ]

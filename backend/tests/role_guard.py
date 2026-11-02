@@ -16,6 +16,7 @@ from sqlalchemy.engine import Connection
 
 from ownvitals.db.role_check import EXPECTED_ROLE_SETTINGS
 from ownvitals.db.tables import NO_APP_ACCESS
+from ownvitals.withings.tables import APP_WITHINGS_COLUMNS
 
 APP, OWNER, MAINT = "ownvitals_app", "ownvitals_owner", "ownvitals_maint"
 GRANTEES = {APP, OWNER, MAINT}
@@ -32,9 +33,15 @@ RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
     "app_settings": {"SELECT"},
     "admin_audit": set(),
     "admin_audit_id_seq": set(),
+    # Migration 0009: column SELECT only, and no privilege on the identity sequence.
+    "withings_apps": set(),
+    "withings_apps_id_seq": set(),
 }
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
-COLUMN_PRIVILEGES: dict[tuple[str, str], set[tuple[str, str]]] = {}
+# ``withings_apps`` (#21): the app role reads these columns and cannot write the table.
+COLUMN_PRIVILEGES: dict[tuple[str, str], set[tuple[str, str]]] = {
+    ("withings_apps", column): {(APP, "SELECT")} for column in APP_WITHINGS_COLUMNS
+}
 SEQUENCE_PRIVILEGES = {"USAGE", "SELECT"}
 # Built-in languages that PUBLIC may use (Postgres' own default).
 BUILTIN_LANGUAGES = {"plpgsql", "sql", "internal", "c"}

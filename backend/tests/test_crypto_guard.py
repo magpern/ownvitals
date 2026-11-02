@@ -265,9 +265,10 @@ def test_the_reviewed_allowlist_excuses_only_its_own_columns() -> None:
         ("jobs", "idempotency_key"),
         ("jobs", "singleton_key"),
         ("webhook_events", "dedupe_key"),
+        ("withings_apps", "webhook_secrets"),
         ("observations", "metric_key"),
         ("metric_daily", "metric_key"),
-    }  # #21 adds withings_apps.webhook_secrets with its reason
+    }
     assert all(holds_a_secret(column) for _, column in NOT_SECRET_COLUMNS)
     assert all(reason.strip() for reason in NOT_SECRET_COLUMNS.values())
 

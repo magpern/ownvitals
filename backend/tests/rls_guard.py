@@ -3,8 +3,10 @@
 ``check_tables`` returns a list of violations (empty when the schema is fine). It reads the
 catalog only, so it checks the real schema, whatever created it.
 
-Partitioned tables are refused, owned or not, until #21 extends this guard to the partition rules
-of ADR 0002 section 2 (roadmap Amendment 2).
+A partitioned owned table is allowed when it meets ADR 0002 section 2 (roadmap Amendment 2):
+``PRIMARY KEY (owner_id, id, <partition key>)``, no foreign key targeting it, forced RLS and
+the ``owner_isolation`` policy on the parent and every partition, and no ``ownvitals_app``
+privilege on a partition. Classic inheritance is still refused.
 """
 
 from collections import defaultdict
@@ -13,6 +15,8 @@ from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
+
+from ownvitals.withings.tables import CONNECTIONS_WITHINGS_USER_INDEX
 
 # What Postgres 17 stores for the policy of ownvitals.db.rls (pg_policies renders it).
 EXPECTED_EXPRESSION = (
@@ -26,9 +30,10 @@ REQUIRED_DENY_POLICIES: dict[str, set[str]] = {"job_events": {"UPDATE", "DELETE"
 # ``pg_policies`` renders them.
 REQUIRED_POLICIES: dict[str, set[tuple[str, str | None, str | None]]] = {}
 # The one sanctioned owner-less unique index (ADR 0002 section 2): index name -> (table, key
-# columns). #22 registers ``connections (app_id, withings_userid)`` here when it creates it;
-# any other unique index on an owned table must include owner_id.
-GLOBAL_UNIQUE_INDEXES: dict[str, tuple[str, tuple[str, ...]]] = {}
+# columns). ``connections (app_id, withings_userid)`` is that index (PLAN section 5).
+GLOBAL_UNIQUE_INDEXES: dict[str, tuple[str, tuple[str, ...]]] = {
+    CONNECTIONS_WITHINGS_USER_INDEX: ("connections", ("app_id", "withings_userid")),
+}
 SAFE_DELETE_ACTIONS = {"a": "NO ACTION", "r": "RESTRICT", "c": "CASCADE"}
 SET_ACTIONS = {"n": "SET NULL", "d": "SET DEFAULT"}
 
@@ -62,22 +67,48 @@ def check_tables(
             WHERE a.attnum > 0 AND NOT a.attisdropped""",
     ):
         columns[a["attrelid"]][a["attnum"]] = a
-    # Inheritance (and partitioning, which is built on it): a query on the parent reads the
-    # children's rows under the parent's policies only, so no table in public may take part.
+    # Classic inheritance is refused. Partitioning uses pg_inherits too; a partition child is
+    # checked under the partition rules instead of this ban (ADR 0002 section 2).
+    part_key: dict[int, list[str]] = {}
+    for parent in _rows(
+        conn,
+        """SELECT partrelid, string_to_array(partattrs::text, ' ')::int[] AS attrs
+             FROM pg_partitioned_table""",
+    ):
+        part_key[parent["partrelid"]] = [
+            columns[parent["partrelid"]][att]["attname"] for att in parent["attrs"] if att
+        ]
     for link in _rows(
         conn,
-        """SELECT pc.relname AS parent, cc.relname AS child, pc.relnamespace = pn.oid AS p_public,
-                  cc.relnamespace = pn.oid AS c_public
+        """SELECT pc.oid AS parent_oid, cc.oid AS child_oid, pc.relname AS parent,
+                  cc.relname AS child, cc.relispartition AS child_partition
              FROM pg_inherits i
              JOIN pg_class pc ON pc.oid = i.inhparent
              JOIN pg_class cc ON cc.oid = i.inhrelid
              JOIN pg_namespace pn ON pn.nspname = 'public'
             WHERE pc.relnamespace = pn.oid OR cc.relnamespace = pn.oid""",
     ):
+        if link["child_partition"]:
+            part_key[link["child_oid"]] = part_key.get(link["parent_oid"], [])
+            continue
         problems.append(
-            f"{link['child']}: inherits from {link['parent']}; tables in public must be "
-            "neither partitioned nor in an inheritance hierarchy"
+            f"{link['child']}: inherits from {link['parent']}; tables in public must not be "
+            "in an inheritance hierarchy"
         )
+    exposed_partitions = {
+        row["relname"]
+        for row in _rows(
+            conn,
+            """SELECT c.relname FROM pg_class c
+                 JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'public' AND c.relispartition
+                  AND (has_table_privilege('ownvitals_app', c.oid,
+                            'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, '
+                            'REFERENCES, TRIGGER, MAINTAIN')
+                       OR has_any_column_privilege(
+                            'ownvitals_app', c.oid, 'SELECT, INSERT, UPDATE'))""",
+        )
+    }
     policies: dict[str, list[Any]] = defaultdict(list)
     for p in _rows(conn, "SELECT * FROM pg_policies WHERE schemaname = 'public'"):
         policies[p["tablename"]].append(p)
@@ -117,12 +148,21 @@ def check_tables(
             problems.append(f"{name}: relation kind {rel['relkind']!r} is not allowed in public")
             continue
         if name in system_tables:
-            if rel["relkind"] == "p":
-                problems.append(f"{name}: partitioned tables are not allowed yet (#21)")
+            if rel["relkind"] == "p" or rel["relispartition"]:
+                problems.append(f"{name}: a system table must not be partitioned")
+                continue
             if "owner_id" in names:
                 problems.append(f"{name}: a system table must not have owner_id")
             for fk in constraints[oid]:
-                if fk["contype"] == "f" and is_owned.get(fk["confrelid"]):
+                if fk["contype"] != "f":
+                    continue
+                target_rel = by_oid.get(fk["confrelid"])
+                if target_rel and (target_rel["relkind"] == "p" or target_rel["relispartition"]):
+                    problems.append(
+                        f"{name}: foreign key {fk['conname']} targets partitioned table "
+                        f"{target_rel['relname']}"
+                    )
+                elif is_owned.get(fk["confrelid"]):
                     target = by_oid[fk["confrelid"]]["relname"]
                     problems.append(
                         f"{name}: foreign key {fk['conname']} into owned table {target}"
@@ -130,7 +170,7 @@ def check_tables(
             continue
         problems += _check_owned(
             name, rel, names, policies[name], indexes[oid], constraints[oid], oid, by_oid,
-            is_owned, col_names, global_unique,
+            is_owned, col_names, global_unique, part_key.get(oid), name in exposed_partitions,
         )  # fmt: skip
     return problems
 
@@ -139,16 +179,24 @@ def _check_owned(
     name: str, rel: Any, names: dict[str, Any], table_policies: list[Any], table_indexes: list[Any],
     table_constraints: list[Any], oid: int, by_oid: dict[int, Any], is_owned: dict[int, bool],
     col_names: Any, global_unique: Mapping[str, tuple[str, tuple[str, ...]]],
+    part_cols: list[str] | None, app_can_reach_partition: bool,
 ) -> list[str]:  # fmt: skip
     problems: list[str] = []
 
     def bad(message: str) -> None:
         problems.append(f"{name}: {message}")
 
-    if rel["relkind"] == "p" or rel["relispartition"]:
-        bad("owned tables must not be partitioned yet (#21 adds the partition rules)")
+    partitioned = rel["relkind"] == "p" or rel["relispartition"]
+    if partitioned and not part_cols:
+        bad("partitioned table has no partition key")
+    if rel["relispartition"] and app_can_reach_partition:
+        bad("ownvitals_app must have no privilege on a partition")
     row_id = names.get("id")
-    if row_id is None or row_id["type"] != "uuid" or row_id["default"] != "gen_random_uuid()":
+    if (
+        row_id is None
+        or row_id["type"] != "uuid"
+        or (row_id["default"] != "gen_random_uuid()" and not rel["relispartition"])
+    ):
         bad("id must be uuid with the server default gen_random_uuid()")
     owner = names.get("owner_id")
     if owner is None:
@@ -192,14 +240,28 @@ def _check_owned(
     for index in table_indexes:
         keys = col_names(oid, index["keys"][: index["indnkeyatts"]])
         if index["indisprimary"]:
-            if keys != ["id"]:
+            if partitioned:
+                if keys != ["owner_id", "id", *(part_cols or [])]:
+                    bad(f"primary key must be (owner_id, id, {part_cols}), is {keys}")
+                else:
+                    found_owner_id_unique = True
+            elif keys != ["id"]:
                 bad(f"primary key must be (id), is {keys}")
         elif keys == ["owner_id", "id"]:
             found_owner_id_unique = True
-        elif "owner_id" not in keys and global_unique.get(index["name"]) != (name, tuple(keys)):
+        elif partitioned and (
+            "owner_id" not in keys or not set(part_cols or []).issubset(set(keys))
+        ):
+            bad(f"unique index {index['name']} {keys} must include owner_id and the partition key")
+        elif "owner_id" not in keys and (
+            global_unique.get(index["name"])
+            or global_unique.get(str(index["name"]).rsplit(".", 1)[-1])
+        ) != (name, tuple(keys)):
             bad(f"unique index {index['name']} {keys} does not include owner_id")
-    if not any(i["indisprimary"] for i in table_indexes):
+    if not partitioned and not any(i["indisprimary"] for i in table_indexes):
         bad("no primary key on id")
+    if partitioned and not any(i["indisprimary"] for i in table_indexes):
+        bad(f"no primary key (owner_id, id, {part_cols})")
     if not found_owner_id_unique:
         bad("missing UNIQUE (owner_id, id)")
 
@@ -210,6 +272,10 @@ def _check_owned(
                 bad(f"exclusion constraint {c['conname']} must include owner_id WITH =")
             continue
         target_oid = c["confrelid"]
+        target_rel = by_oid.get(target_oid)
+        if target_rel and (target_rel["relkind"] == "p" or target_rel["relispartition"]):
+            bad(f"foreign key {c['conname']} targets partitioned table {target_rel['relname']}")
+            continue
         child = col_names(oid, c["conkey"])
         parent = col_names(target_oid, c["confkey"])
         if is_owned.get(target_oid) and ("owner_id", "owner_id") not in list(

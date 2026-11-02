@@ -41,6 +41,10 @@ EXPECTED: frozenset[tuple[str, str]] = frozenset(
         (f"jobs.{c}", "SELECT")
         for c in ("id", "kind", "state", "error_category", "created_at", "finished_at")
     }
+    | {
+        (f"withings_apps.{c}", "SELECT")
+        for c in ("id", "client_id", "callback_base", "rotation_requested_at", "rotation_reason")
+    }
 )
 
 # Never readable by maint, whatever the allowlist says: secret-bearing columns (hashes,
@@ -58,6 +62,14 @@ SECRET_COLUMNS = {
     "rate_limits": {"bucket_hash"},
     "jobs": {"input", "idempotency_key", "request_hash", "owner_id", "leased_by"},
     "admin_audit": {"ip_hash"},
+    "withings_apps": {
+        "client_secret",
+        "client_secret_nonce",
+        "client_wrapped_dek",
+        "client_dek_nonce",
+        "client_key_id",
+        "webhook_secrets",
+    },
 }
 # Tables maint may not touch at all: the account tables it has no view for (until #127), the
 # key ring's check rows, the job events, and every health-data table of ADR 0002 section 4 by
@@ -89,6 +101,15 @@ FORBIDDEN_TABLES = {
     "ecg_signals",
     "webhook_events",
     "data_revisions",
+    "sync_cursors",
+    "devices",
+    "measure_groups",
+    "measures",
+    "sleep_summaries",
+    "activity_daily",
+    "workouts",
+    "sleep_series",
+    "intraday",
 }
 WRITE_PRIVILEGES = ("INSERT", "UPDATE", "DELETE", "TRUNCATE")
 
@@ -191,6 +212,32 @@ def test_no_runtime_role_can_change_or_empty_the_audit_log(su: Connection, role:
             text("SELECT has_any_column_privilege(:r, 'public.admin_audit', 'SELECT, INSERT')"),
             {"r": role},
         ).scalar()
+
+
+@pytest.mark.parametrize("role", [MAINT_ROLE, "ownvitals_app"])
+def test_no_runtime_role_writes_withings_apps(su: Connection, role: str) -> None:
+    """Guard 11 (#21): neither runtime role can write ``withings_apps``. Column grants cannot
+    hide a write, so both the table privilege and any column privilege are checked."""
+    for privilege in WRITE_PRIVILEGES:
+        assert not su.execute(
+            text("SELECT has_table_privilege(:r, 'public.withings_apps', :p)"),
+            {"r": role, "p": privilege},
+        ).scalar(), (role, privilege)
+    for privilege in ("INSERT", "UPDATE"):
+        assert not su.execute(
+            text("SELECT has_any_column_privilege(:r, 'public.withings_apps', :p)"),
+            {"r": role, "p": privilege},
+        ).scalar(), (role, privilege)
+    assert not su.execute(
+        text("SELECT has_column_privilege(:r, 'public.withings_apps', 'client_secret', 'SELECT')"),
+        {"r": MAINT_ROLE},
+    ).scalar()
+    assert not su.execute(
+        text(
+            "SELECT has_column_privilege(:r, 'public.withings_apps', 'webhook_secrets', 'SELECT')"
+        ),
+        {"r": MAINT_ROLE},
+    ).scalar()
 
 
 @pytest.mark.parametrize(

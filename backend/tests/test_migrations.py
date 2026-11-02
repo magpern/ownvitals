@@ -9,7 +9,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from dbtools import alembic_config, applied_revisions, migrated, public_tables
 
-HEAD = "0008_withings_jobs"
+HEAD = "0009_withings_schema"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -18,6 +18,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0008_withings_jobs",
         "0007_connections",
         "0006_admin",
         "0005_auth",
@@ -58,8 +59,11 @@ def test_the_migrations_create_exactly_their_tables(
 ) -> None:
     """Besides Alembic's own table, 0003's job tables (ADR 0005 section 1), 0004's key-ring
     check table (ADR 0004 section 3), 0005's account tables (ADR 0003, #10), 0006's stored
-    flags and admin audit log (#12) and 0007's connections table (#13)."""
+    flags and admin audit log (#12), 0007's connections table (#13) and 0009's Withings tables.
+    """
     from ownvitals.auth.tables import metadata
+    from ownvitals.ingest.tables import INGEST_OWNED
+    from ownvitals.withings.tables import WITHINGS_OWNED
 
     with migrated(owner_database_url):
         assert public_tables(database_url) == {
@@ -70,7 +74,11 @@ def test_the_migrations_create_exactly_their_tables(
             "app_settings",
             "admin_audit",
             "connections",
+            "withings_apps",
+            "webhook_events",
             *metadata.tables,
+            *WITHINGS_OWNED,
+            *INGEST_OWNED,
         }
     assert applied_revisions(database_url) == []
     assert public_tables(database_url) == {"alembic_version"}  # downgraded: all of them gone
