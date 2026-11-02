@@ -1,11 +1,20 @@
-"""The hourly purge (ADR 0003 section 1). The worker calls ``purge_expired``."""
+"""The hourly purge (ADR 0003 section 1) and account deletion (PLAN section 4.3).
 
+The worker calls ``purge_expired``. Account deletion and the "also remove imported
+rows" option call the other functions here, after the Withings revoke. Owned rows
+go with the account because each one cascades from it. Imported rows can also be
+removed on their own; the Withings row itself stays until the account goes.
+"""
+
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
+from uuid import UUID
 
-from sqlalchemy import and_, case, delete, func, or_, update
+from sqlalchemy import Column, MetaData, Table, and_, case, delete, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.auth.admin_accounts import delete_user_account
 from ownvitals.auth.tables import (
     auth_events,
     auth_tokens,
@@ -17,7 +26,46 @@ from ownvitals.auth.tables import (
     sessions,
 )
 from ownvitals.config import Settings
-from ownvitals.db import system_session
+from ownvitals.connections.repository import list_connections
+from ownvitals.context import UserContext
+from ownvitals.crypto.keks import KeyRing
+from ownvitals.db import system_session, user_session
+from ownvitals.ingest.tables import data_revisions, sync_cursors
+from ownvitals.withings.disconnect import DisconnectRefused, DisconnectResult, disconnect_withings
+from ownvitals.withings.errors import RetryBudget
+from ownvitals.withings.tables import (
+    activity_daily,
+    devices,
+    ecg_recordings,
+    intraday,
+    measure_groups,
+    measures,
+    sleep_series,
+    sleep_summaries,
+    workouts,
+)
+
+# Owned tables that do not cascade from the account and must be removed by name.
+# Empty: every owned table cascades, which the account-deletion test enumerates.
+EXPLICIT_PURGE: tuple[str, ...] = ()
+_PROVIDER = "withings"
+# A narrow handle for the queue table, which has no Core table in this package.
+_JOBS = Table("jobs", MetaData(), Column("owner_id"))
+# Children before parents. Jobs last, so a failure leaves the queue row to retry from.
+_IMPORTED = (
+    measures,
+    measure_groups,
+    devices,
+    ecg_recordings,
+    sleep_summaries,
+    activity_daily,
+    workouts,
+    sleep_series,
+    intraday,
+    sync_cursors,
+    data_revisions,
+    _JOBS,
+)
 
 RETENTION_DAYS = 30
 DEVICE_RETENTION_DAYS = 90
@@ -107,3 +155,79 @@ async def purge_expired(
         )
         counts["sessions_ip_cleared"] = int(cleared.rowcount or 0)  # pyright: ignore[reportAttributeAccessIssue]
     return counts
+
+
+async def purge_imported(factory: async_sessionmaker[AsyncSession], ctx: UserContext) -> None:
+    """Remove this user's imported rows. The Withings row stays.
+
+    The session is this user's, and every statement names their id, so another
+    user's rows are left alone. The queue's events follow their job.
+    """
+    async with user_session(factory, ctx) as db:
+        for table in _IMPORTED:
+            await db.execute(delete(table).where(table.c.owner_id == ctx.user_id))
+
+
+async def finish_disconnect(
+    factory: async_sessionmaker[AsyncSession],
+    ring: KeyRing,
+    ctx: UserContext,
+    connection_id: UUID,
+    *,
+    stepped_up: bool,
+    delete_imported: bool = False,
+    inner: object = None,
+    budget: RetryBudget | None = None,
+    sleep: Callable[[float], Awaitable[None]] | None = None,
+) -> DisconnectResult:
+    """Revoke and clear credentials, then optionally remove imported rows."""
+    result = await disconnect_withings(
+        factory,
+        ring,
+        ctx,
+        connection_id,
+        stepped_up=stepped_up,
+        inner=inner,
+        budget=budget,
+        sleep=sleep,
+    )
+    if delete_imported:
+        await purge_imported(factory, ctx)
+    return result
+
+
+async def delete_owner(
+    factory: async_sessionmaker[AsyncSession],
+    ring: KeyRing,
+    ctx: UserContext,
+    *,
+    stepped_up: bool,
+    ip: str | None = None,
+    inner: object = None,
+    budget: RetryBudget | None = None,
+    sleep: Callable[[float], Awaitable[None]] | None = None,
+) -> DisconnectResult:
+    """Revoke a live Withings grant, then delete the account.
+
+    The audit row is the account-deleted event: no measurement and no credential.
+    Owned rows cascade with the account. A missing step-up deletes nothing.
+    """
+    if stepped_up is not True:
+        raise DisconnectRefused("step_up_required")
+    rows = await list_connections(factory, ctx)
+    result = DisconnectResult(False, 0, False, False, None)
+    for row in rows:
+        if row.provider == _PROVIDER and row.status != "disconnected":
+            result = await disconnect_withings(
+                factory,
+                ring,
+                ctx,
+                row.id,
+                stepped_up=True,
+                inner=inner,
+                budget=budget,
+                sleep=sleep,
+            )
+    async with system_session(factory) as db:
+        await delete_user_account(db, ctx.user_id, ip=ip)
+    return result
