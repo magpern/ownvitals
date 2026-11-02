@@ -187,7 +187,8 @@ def test_the_entrypoint_starts_the_runner_with_the_image_s_sql() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert source.rstrip("\n").endswith(
         "exec python -m ownvitals.db.install_functions \\\n"
-        '  "host=db port=5432 dbname=ownvitals user=postgres" /app/db-functions/20-queue.sql'
+        '  "host=db port=5432 dbname=ownvitals user=postgres" \\\n'
+        "  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql"
     )
     assert "PGPASSWORD" not in source
     assert "psql" not in source

@@ -34,8 +34,10 @@ COPY backend/migrations ./migrations
 COPY backend/src ./src
 # The database functions and their runner script (compose's db-functions one-shot): installed from
 # the release image, never from the host, so a rollback re-installs the previous release's
-# functions (docs/dev/deploy.md, "Database functions"). Owned by root; the app user can read them, not change them.
+# functions (docs/dev/deploy.md, "Database functions"). 30-maint.sql is installed in the same
+# transaction, after 20-queue.sql. Owned by root; the app user can read them, not change them.
 COPY --chmod=0555 docker/postgres/queue/20-queue.sql docker/postgres/queue/db-functions.sh /app/db-functions/
+COPY --chmod=0555 docker/postgres/maint/30-maint.sql /app/db-functions/
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev

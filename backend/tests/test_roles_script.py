@@ -12,7 +12,7 @@ from dbtools import ROLES_SCRIPT as SCRIPT
 from dbtools import unavailable
 from ownvitals.config import read_secret_files
 
-OWNER, APP = "owner-pw with space", "app-pw"
+OWNER, APP, MAINT = "owner-pw with space", "app-pw", "maint-pw"
 # Terminators and look-alikes: exactly one LF is dropped, then exactly one CR; nothing else.
 ENDINGS = ["\n", "\r\n", "", "\n\n", "\r\r\n"]
 ENDING_IDS = ["lf", "crlf", "none", "lf-lf", "cr-crlf"]
@@ -20,11 +20,11 @@ pytestmark = pytest.mark.usefixtures("role_urls")  # skips (or fails in CI) with
 
 
 def password_lines() -> list[str]:
-    """The part of the script that reads the two secret files, up to the last ``unset``."""
+    """The part of the script that reads the three secret files, up to the last ``unset``."""
     lines = SCRIPT.read_text("utf-8").splitlines()
     backslash = chr(92)  # psql meta-commands start with it
     start = next(i for i, ln in enumerate(lines) if ln.startswith(f"{backslash}set owner_raw"))
-    end = next(i for i, ln in enumerate(lines) if ln.startswith(f"{backslash}unset app_raw"))
+    end = next(i for i, ln in enumerate(lines) if ln.startswith(f"{backslash}unset maint_raw"))
     return lines[start : end + 1]
 
 
@@ -42,17 +42,19 @@ def test_a_password_file_with_any_line_ending_gives_the_same_password(
         unavailable("psql is not installed")  # a skip locally, a failure in CI
     (tmp_path / "owner").write_bytes((OWNER + ending).encode())
     (tmp_path / "app").write_bytes((APP + ending).encode())
+    (tmp_path / "maint").write_bytes((MAINT + ending).encode())
     # Same reading as config.py, so both agree: one LF, then one CR, nothing else.
-    secrets_ = read_secret_files(tmp_path, ("owner", "app"))
+    secrets_ = read_secret_files(tmp_path, ("owner", "app", "maint"))
     rest = ending.removesuffix(chr(10)).removesuffix(chr(13))
-    expected_owner, expected_app = OWNER + rest, APP + rest
-    assert secrets_ == {"owner": expected_owner, "app": expected_app}
+    expected_owner, expected_app, expected_maint = OWNER + rest, APP + rest, MAINT + rest
+    assert secrets_ == {"owner": expected_owner, "app": expected_app, "maint": expected_maint}
 
     script = tmp_path / "check.sql"
     script.write_text(
         "\n".join(password_lines())
         + f"\nSELECT CASE WHEN :'owner_password' = {sql_text(expected_owner)}"
         + f" AND :'app_password' = {sql_text(expected_app)}"
+        + f" AND :'maint_password' = {sql_text(expected_maint)}"
         + " THEN 'same' ELSE 'different' END;\n",
         "utf-8",
     )
@@ -61,6 +63,7 @@ def test_a_password_file_with_any_line_ending_gives_the_same_password(
         **os.environ,
         "DATABASE_OWNER_PASSWORD_FILE": str(tmp_path / "owner"),
         "DATABASE_PASSWORD_FILE": str(tmp_path / "app"),
+        "DATABASE_MAINT_PASSWORD_FILE": str(tmp_path / "maint"),
         "PGPASSWORD": url.password or "",
     }
     result = subprocess.run(  # noqa: S603
