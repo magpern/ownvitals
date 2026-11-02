@@ -5,6 +5,7 @@ caller's ``AsyncSession`` (a ``system_session``), so a sign-in can create its se
 same transaction as its other writes. All times are the database's ``now()``.
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -390,19 +391,30 @@ def _proof_at_or_before(now: Any) -> Any:
     )
 
 
-async def list_sessions(
-    db: AsyncSession, settings: Settings, user_id: UUID
-) -> list[SessionSummary]:
-    """The user's own live sessions, newest first. Never the token or its hash.
+def _live_filters(settings: Settings) -> tuple[Any, ...]:
+    """Sessions that still count: the same rule as ``resolve_session``.
 
     Absolute- and idle-expired rows, and rows that never passed their second factor and are past
-    their ten minutes, that the purge has not removed yet are left out, the same rule as
-    ``resolve_session``. A ``reauth_at`` or ``stepup_at`` after now is not a proof, so it cannot
-    keep such a row listed. A row whose ``expires_at`` has passed, or whose ``last_seen_at``
-    is ``session_idle_hours`` or more ago, is not a session.
+    their ten minutes, are left out. A ``reauth_at`` or ``stepup_at`` after now is not a proof.
     """
     idle = timedelta(hours=settings.session_idle_hours)
     now = func.now()
+    return (
+        sessions.c.expires_at > now,
+        sessions.c.last_seen_at > now - idle,
+        # a session that never passed its second factor ends ten minutes after its proof
+        or_(
+            sessions.c.mfa_at.is_not(None),
+            # both proofs missing, or only after now, counts from the creation
+            func.coalesce(_proof_at_or_before(now), sessions.c.created_at) > now - PENDING_WINDOW,
+        ),
+    )
+
+
+async def list_sessions(
+    db: AsyncSession, settings: Settings, user_id: UUID
+) -> list[SessionSummary]:
+    """The user's own live sessions, newest first. Never the token or its hash."""
     rows = await db.execute(
         select(
             sessions.c.id,
@@ -412,18 +424,26 @@ async def list_sessions(
             sessions.c.user_agent,
             sessions.c.ip,
         )
-        .where(
-            sessions.c.user_id == user_id,
-            sessions.c.expires_at > now,
-            sessions.c.last_seen_at > now - idle,
-            # a session that never passed its second factor ends ten minutes after its proof
-            or_(
-                sessions.c.mfa_at.is_not(None),
-                # both proofs missing, or only after now, counts from the creation
-                func.coalesce(_proof_at_or_before(now), sessions.c.created_at)
-                > now - PENDING_WINDOW,
-            ),
-        )
+        .where(sessions.c.user_id == user_id, *_live_filters(settings))
         .order_by(sessions.c.created_at.desc())
     )
     return [SessionSummary(*row) for row in rows.all()]
+
+
+async def count_live_sessions(
+    db: AsyncSession, settings: Settings, user_ids: Collection[UUID]
+) -> dict[UUID, int]:
+    """How many live sessions each id has. The same rows as ``list_sessions``, counted.
+
+    An id with none is absent. Never a token, a hash, an address or an agent string.
+    """
+    wanted = list(dict.fromkeys(user_ids))
+    if not wanted:
+        return {}
+    counted = func.count().label("n")
+    rows = await db.execute(
+        select(sessions.c.user_id, counted)
+        .where(sessions.c.user_id.in_(wanted), *_live_filters(settings))
+        .group_by(sessions.c.user_id)
+    )
+    return {row.user_id: int(row.n) for row in rows.all()}

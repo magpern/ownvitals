@@ -164,7 +164,7 @@ async def test_unknown_actions_and_bad_params_are_refused_before_any_connection(
     db: AdminDb, actor: Actor
 ) -> None:
     for action, params in [
-        ("user.delete", None),  # #127's, not listed yet
+        ("user.invite", None),  # not an action; user.delete is #127's
         ("setting.set", {"key": "banner", "text": "a secret"}),  # free text is no field
         ("job.list", {"days": 0}),
         ("audit.list", {"actor_email": "a\x00b@example.com"}),

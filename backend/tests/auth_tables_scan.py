@@ -111,6 +111,21 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     ),
     # keys rewrap (#13): only the wrap of a TOTP seed changes
     "ownvitals.auth.totp_keys": frozenset({"rewrap_totp_secrets", "totp_rows_by_key"}),
+    # the admin Users view (#127): list and find, emails by id, disable, enable and delete
+    "ownvitals.auth.admin_accounts": frozenset(
+        {
+            "AccountMissing",
+            "AccountSummary",
+            "EmailMismatch",
+            "TargetIsAdmin",
+            "account_emails",
+            "delete_account",
+            "disable_account",
+            "enable_account",
+            "find_account",
+            "list_accounts",
+        }
+    ),
 }
 TABLE_NAMES = (
     "users",
@@ -129,6 +144,7 @@ TABLE_NAMES = (
 SUBMODULES = frozenset(
     {
         "accounts",
+        "admin_accounts",
         "admin_routes",
         "clientip",
         "cookies",

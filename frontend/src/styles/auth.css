@@ -188,6 +188,33 @@
   color: var(--ov-device);
 }
 
+/* The admin band (docs/design/mockups/src/ov.css `.admin-band`). */
+
+.ov-admin-band {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0.75rem var(--ov-space-4);
+  background: var(--ov-admin);
+  color: var(--ov-admin-ink);
+  font-size: var(--ov-text-sm);
+}
+
+.ov-admin-band__lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+}
+
+.ov-admin-band svg {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
 /* "Confirm it's you" */
 
 .ov-scrim {
@@ -284,4 +311,8 @@
 
 .ov-tbl td .ov-state {
   margin-left: var(--ov-space-2);
+}
+
+.ov-tbl .ov-r {
+  text-align: right;
 }

@@ -38,6 +38,23 @@ SAMPLES: dict[tuple[str, str], tuple[str, Any]] = {
     ("GET", "/api/admin/settings"): ("/api/admin/settings", None),
     ("PUT", "/api/admin/settings/{key}"): ("/api/admin/settings/banner", {"value": "x"}),
     ("DELETE", "/api/admin/settings/{key}"): ("/api/admin/settings/banner", None),
+    ("GET", "/api/admin/users"): ("/api/admin/users", None),
+    ("GET", "/api/admin/users/{user_id}"): (
+        "/api/admin/users/00000000-0000-4000-8000-000000000001",
+        None,
+    ),
+    ("POST", "/api/admin/users/{user_id}/disable"): (
+        "/api/admin/users/00000000-0000-4000-8000-000000000001/disable",
+        None,
+    ),
+    ("POST", "/api/admin/users/{user_id}/enable"): (
+        "/api/admin/users/00000000-0000-4000-8000-000000000001/enable",
+        None,
+    ),
+    ("DELETE", "/api/admin/users/{user_id}"): (
+        "/api/admin/users/00000000-0000-4000-8000-000000000001",
+        {"email": "nobody@example.com"},
+    ),
 }
 SAFE = {"GET", "HEAD"}
 
@@ -163,7 +180,11 @@ async def test_an_admin_write_needs_a_step_up_within_5_minutes(
 async def test_an_admin_read_needs_no_step_up(aenv: AdminEnv, method: str, template: str) -> None:
     admin = await caller(aenv, stepup=False)
     response = await _call(aenv, admin, method, template)
-    assert response.status_code == 200, response.text
+    if template == "/api/admin/users/{user_id}":
+        # The sample id is not an account. The gate let the read through; the handler answers.
+        assert (response.status_code, reason(response)) == (404, "not_found")
+    else:
+        assert response.status_code == 200, response.text
 
 
 async def test_a_body_the_route_cannot_read_still_meets_the_gate_first(aenv: AdminEnv) -> None:
