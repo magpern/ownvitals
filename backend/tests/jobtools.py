@@ -2,14 +2,11 @@
 written as the superuser (test setup only; it bypasses RLS so a test can plant any state,
 including rows the application would never write, such as a poison row).
 
-``queue_schema`` (module scope) migrates the test database to head as the owner role and runs
-``docker/postgres/queue/20-queue.sql`` as the superuser, as compose's ``migrate`` and
-``db-functions`` do. On teardown it **uninstalls the queue** (``DROP OWNED BY ownvitals_queue``,
-then ``DROP ROLE``) and migrates back to base. The uninstall is a workaround (Architect, #77 item
-2): guard 2 (``role_guard.py``) does not know the queue role and the app role's ``EXECUTE`` on the
-queue functions yet, so they must not outlive these modules; guard 9 (``queue_guard.py``) checks
-them exactly meanwhile. Synthetic data only: owners are random UUIDs (there is no ``users`` table
-before #10), inputs are test-only.
+``queue_schema`` (module scope) migrates the test database to head as the owner role.
+``dbtools.migrated`` applies the db-functions scripts (the queue and the maint role), as compose's
+``migrate`` and ``db-functions`` do, and drops the queue only so the following downgrade can
+remove the tables. Guard 2 sees that installed queue. Synthetic data only: owners are random
+UUIDs, inputs are test-only.
 """
 
 import hashlib
@@ -66,30 +63,23 @@ def install_queue(url: str) -> None:
 
 
 def uninstall_queue(url: str) -> None:
-    """Drop the queue functions and the role (the #77 workaround, see the module docstring)."""
-    with (
-        engine_for(url, isolation_level="AUTOCOMMIT") as engine,
-        engine.connect() as connection,
-    ):
-        exists = connection.execute(
-            text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": QUEUE_ROLE}
-        ).first()
-        if exists is not None:
-            connection.execute(text(f"DROP OWNED BY {QUEUE_ROLE} CASCADE"))
-            connection.execute(text(f"DROP ROLE {QUEUE_ROLE}"))
+    """Drop the queue functions and the role so a downgrade can remove the tables."""
+    from dbtools import drop_queue
+
+    drop_queue(url)
 
 
 @contextmanager
 def queue_installed(owner_url: str) -> Iterator[str]:
-    """The schema at head with the queue installed; removed afterwards. Yields the admin URL."""
+    """The schema at head with the queue installed. Yields the admin URL.
+
+    ``migrated`` already applies the db-functions scripts and drops the queue before it
+    downgrades. ``install_queue`` runs the queue script again, which is idempotent.
+    """
     url = admin_url()
-    uninstall_queue(url)  # a leftover of an interrupted run
     with migrated(owner_url):
-        try:
-            install_queue(url)
-            yield url
-        finally:
-            uninstall_queue(url)
+        install_queue(url)
+        yield url
 
 
 def digest(value: str) -> bytes:

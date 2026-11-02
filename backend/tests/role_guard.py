@@ -4,11 +4,11 @@
 reads ``pg_roles``, ``pg_auth_members``, ``pg_shdepend`` and the ACLs through ``aclexplode``, so
 a privilege of a kind nobody thought of still fails.
 
-The function owners of ADR 0005 section 3 (``ownvitals_queue``, #9) are not here yet: each issue
-adds its role as an allowed grantee, with exactly its privileges, when it creates it. Until then
-any other grantee fails. The admin role ``ownvitals_maint`` (#12) is an allowed grantee; guard 11
-(``tests/test_maint_privileges.py``) checks that it holds exactly its allowlist, so its column
-privileges are left out of the column check here.
+``ownvitals_queue`` (ADR 0005 section 3) is an allowed grantee with exactly the privileges
+``docker/postgres/queue/20-queue.sql`` grants, and ``ownvitals_app`` may ``EXECUTE`` the queue
+functions and no other function. The admin role ``ownvitals_maint`` (#12) is an allowed grantee;
+guard 11 (``tests/test_maint_privileges.py``) checks that it holds exactly its allowlist, so its
+column privileges are left out of the column check here. Any other grantee fails.
 """
 
 from sqlalchemy import text
@@ -18,6 +18,7 @@ from ownvitals.db.role_check import EXPECTED_ROLE_SETTINGS
 from ownvitals.db.tables import NO_APP_ACCESS
 
 APP, OWNER, MAINT = "ownvitals_app", "ownvitals_owner", "ownvitals_maint"
+QUEUE = "ownvitals_queue"
 GRANTEES = {APP, OWNER, MAINT}
 TABLE_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "DELETE"}
 # Tables where the app role gets less than full DML, by table; each migration that narrows a
@@ -34,11 +35,32 @@ RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
     "admin_audit_id_seq": set(),
 }
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
-COLUMN_PRIVILEGES: dict[tuple[str, str], set[tuple[str, str]]] = {}
+# Maint's columns are guard 11's. The queue role reads three columns of ``connections`` and
+# nothing else (20-queue.sql).
+COLUMN_PRIVILEGES: dict[tuple[str, str], set[tuple[str, str]]] = {
+    ("connections", "id"): {(QUEUE, "SELECT")},
+    ("connections", "owner_id"): {(QUEUE, "SELECT")},
+    ("connections", "status"): {(QUEUE, "SELECT")},
+}
+# Table privileges of ``ownvitals_queue``, by ``relname:relkind``. Nothing else.
+QUEUE_RELATIONS = {
+    "jobs:r": {"SELECT", "INSERT", "UPDATE"},
+    "job_events:r": {"SELECT", "INSERT"},
+}
+# ``regprocedure`` without a schema. #153 added the three beyond claim, reap and stats.
+QUEUE_EXECUTE = {
+    "queue_claim(text,integer,text[])",
+    "queue_reap(integer)",
+    "queue_stats()",
+    "queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)",
+    "queue_cancel_for_secret(text,uuid)",
+    "queue_replay(uuid)",
+}
 SEQUENCE_PRIVILEGES = {"USAGE", "SELECT"}
 # Built-in languages that PUBLIC may use (Postgres' own default).
 BUILTIN_LANGUAGES = {"plpgsql", "sql", "internal", "c"}
-EXPECTED_TIMEOUTS = EXPECTED_ROLE_SETTINGS
+# The three exact timeouts, plus the roles script's ``transaction_timeout`` of 5 minutes.
+EXPECTED_TIMEOUTS = {**EXPECTED_ROLE_SETTINGS, "transaction_timeout": "5min"}
 GRANTEE = "CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END"
 Acl = list[tuple[str, str, str, bool]]
 
@@ -57,6 +79,13 @@ def _privileges(rows: Acl, grantee: str, obj: str) -> set[str]:
 
 def _grantees(rows: Acl, obj: str | None = None) -> set[str]:
     return {g for o, g, _, _ in rows if obj is None or o == obj}
+
+
+def _bare_signature(obj: str) -> str:
+    """``queue_claim(text,integer,text[]):owner:true`` to ``queue_claim(text,integer,text[])``."""
+    signature = obj.split(":", 1)[0]
+    name, sep, args = signature.partition("(")
+    return name.rsplit(".", 1)[-1] + sep + args
 
 
 def check_roles(conn: Connection) -> list[str]:
@@ -109,9 +138,9 @@ def check_roles(conn: Connection) -> list[str]:
         {"oid": roles[APP].oid},
     ).scalar_one()
     need(owned_by_app == 0, "ownvitals_app must own nothing")
-    # Role settings: exactly the three timeouts, at role level. A per-database setting would take
-    # precedence over them, and anything else (session_replication_role, search_path...) changes
-    # how the app role's sessions behave.
+    # Role settings: exactly the three timeouts and transaction_timeout of 5 minutes, at role
+    # level. A per-database setting would take precedence over them, and anything else
+    # (session_replication_role, search_path...) changes how the app role's sessions behave.
     setting_rows = conn.execute(
         text("SELECT setdatabase, setconfig FROM pg_db_role_setting WHERE setrole = :oid"),
         {"oid": roles[APP].oid},
@@ -165,10 +194,17 @@ def check_roles(conn: Connection) -> list[str]:
     need(not _privileges(databases, "PUBLIC", db), "PUBLIC must have no privilege on the database")
     need("CONNECT" in _privileges(databases, OWNER, db), "ownvitals_owner needs CONNECT")
     need(_grantees(databases) <= GRANTEES, "unexpected grantee on the database")
+    need(QUEUE not in _grantees(databases), "ownvitals_queue must hold nothing on the database")
     database_owner = conn.execute(
         text("SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()")
     ).scalar_one()
     need(database_owner == OWNER, "ownvitals_owner must own the database")
+    # The queue is installed with the migrated schema (db-functions). A database that has not
+    # had the script applied yet has no queue role; the exact grants apply once it exists.
+    queue_installed = (
+        conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :q"), {"q": QUEUE}).first()
+        is not None
+    )
 
     # Schemas.
     schemas = _acl(
@@ -178,15 +214,22 @@ def check_roles(conn: Connection) -> list[str]:
         "WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'",
     )
     need(_privileges(schemas, APP, "public") == {"USAGE"}, "ownvitals_app: USAGE only on public")
+    if queue_installed:
+        need(
+            _privileges(schemas, QUEUE, "public") == {"USAGE"},
+            "ownvitals_queue: USAGE only on public",
+        )
+    else:
+        need(QUEUE not in _grantees(schemas), "ownvitals_queue must not be a schema grantee")
     need(not _privileges(schemas, "PUBLIC", "public"), "PUBLIC must have no privilege on public")
     need(
         {"USAGE", "CREATE"} <= _privileges(schemas, OWNER, "public"),
         "ownvitals_owner needs USAGE and CREATE on public",
     )
-    need(_grantees(schemas) <= GRANTEES, "unexpected grantee on a schema")
+    need(_grantees(schemas) <= GRANTEES | {QUEUE}, "unexpected grantee on a schema")
     need(
-        not [1 for o, g, _, _ in schemas if o != "public" and g in (APP, "PUBLIC")],
-        "no privilege for PUBLIC or ownvitals_app on another schema",
+        not [1 for o, g, _, _ in schemas if o != "public" and g in (APP, "PUBLIC", QUEUE)],
+        "no privilege for PUBLIC, ownvitals_app or ownvitals_queue on another schema",
     )
     schema_owner = conn.execute(
         text("SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'public'")
@@ -213,7 +256,18 @@ def check_roles(conn: Connection) -> list[str]:
             f"{obj}: ownvitals_app privileges must be exactly {sorted(expected)}",
         )
         need(not _privileges(relations, "PUBLIC", obj), f"{obj}: PUBLIC must have no privilege")
-        need(_grantees(relations, obj) <= GRANTEES, f"{obj}: unexpected grantee")
+        allowed = set(GRANTEES)
+        if queue_installed and obj in QUEUE_RELATIONS:
+            allowed.add(QUEUE)
+            need(
+                _privileges(relations, QUEUE, obj) == QUEUE_RELATIONS[obj],
+                f"{obj}: ownvitals_queue privileges must be exactly {sorted(QUEUE_RELATIONS[obj])}",
+            )
+        else:
+            need(
+                QUEUE not in _grantees(relations, obj), f"{obj}: ownvitals_queue must hold nothing"
+            )
+        need(_grantees(relations, obj) <= allowed, f"{obj}: unexpected grantee")
     need(
         not [1 for *_, grantable in relations if grantable], "no grantable privilege on a relation"
     )
@@ -244,10 +298,11 @@ def check_roles(conn: Connection) -> list[str]:
         found_columns.setdefault((str(table), str(column)), set()).add(
             (str(grantee), str(privilege))
         )
+    present = {o.split(":")[0] for o, *_ in relations}
     expected_columns = {
         key: value
         for key, value in COLUMN_PRIVILEGES.items()
-        if key[0] in {o.split(":")[0] for o, *_ in relations}
+        if key[0] in present and (queue_installed or not any(g == QUEUE for g, _ in value))
     }
     need(
         found_columns == expected_columns,
@@ -255,9 +310,9 @@ def check_roles(conn: Connection) -> list[str]:
         f"are {found_columns}",
     )
 
-    # Functions (in public, and user-made ones anywhere): PUBLIC and ownvitals_app may call none.
-    # #9 allows the queue's SECURITY DEFINER functions (ADR 0005 section 3; guard 9 checks them in
-    # full). 16384 is FirstNormalObjectId: every function a user made.
+    # Functions (in public, and user-made ones anywhere): PUBLIC may call none, and ownvitals_app
+    # may EXECUTE only the queue functions (ADR 0005 section 3). 16384 is FirstNormalObjectId:
+    # every function a user made.
     functions = _acl(
         conn,
         "SELECT p.oid::regprocedure::text || ':' || pg_get_userbyid(p.proowner) || ':' "
@@ -270,9 +325,37 @@ def check_roles(conn: Connection) -> list[str]:
         "PUBLIC" not in _grantees(functions),
         "functions in public or made by a user must not be executable by PUBLIC",
     )
+    signatures = {_bare_signature(obj) for obj, *_ in functions}
+    if queue_installed:
+        need(
+            signatures >= QUEUE_EXECUTE,
+            f"queue functions missing: {sorted(QUEUE_EXECUTE - signatures)}",
+        )
     for obj in sorted({o for o, *_ in functions}):
-        need(not _privileges(functions, APP, obj), f"{obj}: ownvitals_app may execute no function")
-        need(_grantees(functions, obj) <= GRANTEES, f"{obj}: unexpected grantee")
+        if queue_installed and _bare_signature(obj) in QUEUE_EXECUTE:
+            need(
+                _privileges(functions, APP, obj) == {"EXECUTE"},
+                f"{obj}: ownvitals_app EXECUTE only",
+            )
+            need(
+                _privileges(functions, QUEUE, obj) == {"EXECUTE"},
+                f"{obj}: ownvitals_queue EXECUTE only",
+            )
+            need(_grantees(functions, obj) <= {APP, QUEUE}, f"{obj}: unexpected grantee")
+            need(
+                obj.endswith(f":{QUEUE}:true"),
+                f"{obj}: must be owned by ownvitals_queue and be SECURITY DEFINER",
+            )
+            need(
+                not any(grantable for o, _, _, grantable in functions if o == obj),
+                f"{obj}: no grantable privilege",
+            )
+        else:
+            need(
+                not _privileges(functions, APP, obj),
+                f"{obj}: ownvitals_app may execute no function",
+            )
+            need(_grantees(functions, obj) <= GRANTEES, f"{obj}: unexpected grantee")
     languages = _acl(
         conn,
         "SELECT l.lanname, {G}, a.privilege_type, a.is_grantable FROM pg_language l, "

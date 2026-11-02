@@ -73,14 +73,16 @@ SELECT format('REVOKE %I FROM %I GRANTED BY %I', r.rolname, m.rolname, g.rolname
  WHERE m.rolname IN ('ownvitals_owner', 'ownvitals_app') \gexec
 
 -- Role defaults, so every connection of the app role has them. They limit accidents (a stuck
--- lock, a runaway query); injected SQL could still lower them, which web and worker detect at
--- startup and on every new pooled connection (ADR 0002 section 5).
+-- lock, a runaway query, a transaction that stays busy). Injected SQL could still change them,
+-- which web and worker detect at startup and on every new pooled connection (ADR 0002 section 5).
+-- transaction_timeout is at most 5 minutes (ADR 0002 section 5, #78); the other three stay exact.
 -- Everything else set for the role (also per database) is dropped first, so a re-run repairs it.
 ALTER ROLE ownvitals_app RESET ALL;
 SELECT format('ALTER ROLE ownvitals_app IN DATABASE %I RESET ALL', current_database()) \gexec
 ALTER ROLE ownvitals_app SET statement_timeout = '30s';
 ALTER ROLE ownvitals_app SET lock_timeout = '5s';
 ALTER ROLE ownvitals_app SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE ownvitals_app SET transaction_timeout = '5min';
 
 -- Every database of the server: PUBLIC cannot connect to it (both roles get CONNECT on this one
 -- only, below).

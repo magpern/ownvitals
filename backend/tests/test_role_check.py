@@ -12,6 +12,8 @@ import httpx
 import pytest
 from sqlalchemy import create_engine as create_sync_engine
 from sqlalchemy import text
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import DBAPIError
 
 from dbtools import url_for
 from ownvitals.config import Settings
@@ -21,6 +23,7 @@ from ownvitals.db.role_check import (
     FLAG_COUNT,
     PROBLEMS,
     SETTINGS_PROBLEM,
+    TRANSACTION_TIMEOUT_PROBLEM,
     problems_for,
 )
 from ownvitals.web import create_app
@@ -83,6 +86,7 @@ def probe_roles(database_url: str) -> Iterator[None]:
             "ALTER ROLE guard_plain SET statement_timeout = '30s'",
             "ALTER ROLE guard_plain SET lock_timeout = '5s'",
             "ALTER ROLE guard_plain SET idle_in_transaction_session_timeout = '60s'",
+            "ALTER ROLE guard_plain SET transaction_timeout = '5min'",
         )
         for role in PROBE_ROLES:
             run(f"GRANT CONNECT ON DATABASE {db} TO {role}")
@@ -325,6 +329,7 @@ async def test_the_web_app_starts_with_the_app_role(app_database_url: str) -> No
 
 def test_every_problem_has_a_flag_and_the_messages_are_distinct() -> None:
     good = [f"0:{k}={v}" for k, v in EXPECTED_ROLE_SETTINGS.items()]
+    good.append("0:transaction_timeout=5min")
     assert len(set(PROBLEMS)) == len(PROBLEMS) == FLAG_COUNT == 10
     assert problems_for((*(False,) * 10, good)) == []
     flags = (True, False, False, True, False, False, True, False, True, False)
@@ -440,9 +445,93 @@ async def test_a_role_that_changed_its_own_settings_is_refused(
 
 
 def test_settings_drift_is_a_problem_of_its_own() -> None:
-    good = [f"0:{k}={v}" for k, v in EXPECTED_ROLE_SETTINGS.items()]
+    base = [f"0:{k}={v}" for k, v in EXPECTED_ROLE_SETTINGS.items()]
+    good = [*base, "0:transaction_timeout=5min"]
     flags = (False,) * FLAG_COUNT
     assert problems_for((*flags, good)) == []
-    assert problems_for((*flags, good[:2])) == [SETTINGS_PROBLEM]
+    assert problems_for((*flags, [*base, "0:transaction_timeout=1min"])) == []
+    assert problems_for((*flags, [*base, "0:transaction_timeout=300s"])) == []
+    assert problems_for((*flags, base)) == [TRANSACTION_TIMEOUT_PROBLEM]
+    assert problems_for((*flags, [*base, "0:transaction_timeout=0"])) == [
+        TRANSACTION_TIMEOUT_PROBLEM
+    ]
+    assert problems_for((*flags, [*base, "0:transaction_timeout=6min"])) == [
+        TRANSACTION_TIMEOUT_PROBLEM
+    ]
+    assert problems_for((*flags, [*base, "0:transaction_timeout=301s"])) == [
+        TRANSACTION_TIMEOUT_PROBLEM
+    ]
+    assert problems_for((*flags, good[:2])) == [SETTINGS_PROBLEM, TRANSACTION_TIMEOUT_PROBLEM]
     assert problems_for((*flags, [*good, "0:search_path=x"])) == [SETTINGS_PROBLEM]
-    assert problems_for((*flags, ["1:" + g[2:] for g in good])) == [SETTINGS_PROBLEM]
+    assert problems_for((*flags, ["1:" + g[2:] for g in good])) == [
+        SETTINGS_PROBLEM,
+        TRANSACTION_TIMEOUT_PROBLEM,
+    ]
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "RESET transaction_timeout",
+        "SET transaction_timeout = '0'",
+        "SET transaction_timeout = '6min'",
+    ],
+)
+async def test_transaction_timeout_unset_or_above_the_setting_is_refused(
+    database_url: str, app_database_url: str, statement: str
+) -> None:
+    settings = Settings(database_url=app_database_url, environment="test")  # pyright: ignore[reportArgumentType]
+    try:
+        admin_run(database_url, f"ALTER ROLE ownvitals_app {statement}")
+        await assert_refused(settings, TRANSACTION_TIMEOUT_PROBLEM)
+    finally:
+        admin_run(database_url, "ALTER ROLE ownvitals_app SET transaction_timeout = '5min'")
+    await assert_accepted(settings)
+
+
+SYNTHETIC_APP = "00000000-0000-4000-8000-0000000000a1"  # synthetic: no real Withings app
+
+
+def _busy_until_the_timeout(connection: Connection, hold: str) -> None:
+    if hold == "lock 4":
+        connection.execute(text("SELECT pg_advisory_xact_lock(4, 1)"))
+    else:
+        connection.execute(
+            text("SELECT id FROM withings_apps WHERE id = :id FOR UPDATE"),
+            {"id": SYNTHETIC_APP},
+        )
+    for _ in range(20):
+        connection.execute(text("SELECT pg_sleep(0.25)"))
+
+
+@pytest.mark.parametrize("hold", ["lock 4", "withings_apps row"])
+def test_a_busy_transaction_holding_lock_4_or_the_apps_row_is_ended(
+    database_url: str, app_database_url: str, hold: str
+) -> None:
+    """A transaction that keeps running statements, at the role's timeout, is ended.
+
+    Lock 4 is the rotation advisory lock. The ``withings_apps`` row lock is the other stall.
+    The role default is shortened to 1s for the test and put back to 5 minutes."""
+    admin_run(database_url, "ALTER ROLE ownvitals_app SET transaction_timeout = '1s'")
+    admin = create_sync_engine(database_url, isolation_level="AUTOCOMMIT")
+    app = create_sync_engine(app_database_url)
+    try:
+        if hold == "withings_apps row":
+            with admin.connect() as connection:
+                connection.execute(text("DROP TABLE IF EXISTS withings_apps"))
+                connection.execute(
+                    text("CREATE TABLE withings_apps (id uuid PRIMARY KEY, label text NOT NULL)")
+                )
+                connection.execute(
+                    text("INSERT INTO withings_apps (id, label) VALUES (:id, 'synthetic')"),
+                    {"id": SYNTHETIC_APP},
+                )
+                connection.execute(text("GRANT SELECT, UPDATE ON withings_apps TO ownvitals_app"))
+        with app.connect() as connection, pytest.raises(DBAPIError, match="transaction timeout"):
+            _busy_until_the_timeout(connection, hold)
+    finally:
+        app.dispose()
+        with admin.connect() as connection:
+            connection.execute(text("DROP TABLE IF EXISTS withings_apps"))
+        admin.dispose()
+        admin_run(database_url, "ALTER ROLE ownvitals_app SET transaction_timeout = '5min'")

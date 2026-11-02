@@ -26,6 +26,7 @@ from ownvitals.db import (
     create_session_factory,
     verify_database_role,
 )
+from ownvitals.db.queue_check import install_queue_check, verify_queue
 from ownvitals.flags.routes import router as flags_router
 from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
@@ -113,7 +114,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     The lifespan refuses to start when the database role could bypass row-level security
     (``DatabaseRoleError``, ADR 0002 section 5); the engine checks every later connection too.
     It then loads web's key ring (``KeyRingError``, ADR 0004 sections 3 and 4): the current KEK
-    is required and must match its check row, and web never holds the webhook seed. Then the
+    is required and must match its check row, and web never holds the webhook seed. The queue
+    check (``QueueDriftError``, ADR 0005 section 3) refuses a missing or altered queue function,
+    role or digest, on this startup and on every later connection. Then the
     accounts state (``ownvitals.auth.setup.attach_state``): it refuses to start without the
     ``app_secret_key`` secret file, from which the auth keys are derived (ADR 0003 section 1).
     Last the admin database (#12): without the maint URL or its password file there is none and
@@ -125,11 +128,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_engine(settings)
+        install_queue_check(engine)  # every new connection, before the first one is opened
         admin_db: AdminDb | None = None
         try:
             await verify_database_role(engine)
             session_factory = create_session_factory(engine)
             app.state.keyring = await load_keyring(session_factory, settings, role="web")
+            await verify_queue(engine)
             app.state.engine = engine
             app.state.session_factory = session_factory
             attach_state(app, settings, session_factory)

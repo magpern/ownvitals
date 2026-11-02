@@ -70,22 +70,31 @@ SELECT
     ARRAY(SELECT s.setdatabase::text || ':' || c FROM pg_db_role_setting s, unnest(s.setconfig) c
            WHERE s.setrole = (SELECT oid FROM me))
 """
-# The login role's own settings must be exactly these, at role level (database 0). A role can
-# change its own settings (ALTER ROLE ... SET) and Postgres cannot forbid it, so this detects it.
-# Only the login role's settings apply to a session (SET ROLE does not load the other role's).
+# The login role's own settings must be exactly these, at role level (database 0), plus
+# ``transaction_timeout`` (below). A role can change its own settings (ALTER ROLE ... SET) and
+# Postgres cannot forbid it, so this detects it. Only the login role's settings apply to a
+# session (SET ROLE does not load the other role's).
 EXPECTED_ROLE_SETTINGS = {
     "statement_timeout": "30s",
     "lock_timeout": "5s",
     "idle_in_transaction_session_timeout": "60s",
 }
 SETTINGS_PROBLEM = "has role settings other than the expected three timeouts"
+# ADR 0002 section 5 (#78): a role default, set (not 0) and at most 5 minutes. The roles script
+# sets 5min. A missing value or a longer one refuses startup; the other three stay exact.
+TRANSACTION_TIMEOUT_PROBLEM = "has transaction_timeout unset or above the 5 minute setting"
+MAX_TRANSACTION_TIMEOUT_MS = 300_000
+_TX_PREFIX = "0:transaction_timeout="
+_TIMEOUT_VALUE = re.compile(r"^(\d+)\s*(us|ms|s|min|h|d)?$", re.IGNORECASE)
+_TIMEOUT_MS = {"us": 0.001, "ms": 1, "s": 1000, "min": 60_000, "h": 3_600_000, "d": 86_400_000}
 FLAG_COUNT = 10
 INSUFFICIENT_PRIVILEGE = "42501"
 INVALID_CATALOG_NAME = "3D000"  # the database does not exist
 CHECKOUT_QUERY = "SELECT current_setting('app.user_id', true)"
 SETTINGS_MS_QUERY = (
     "SELECT name, setting FROM pg_settings WHERE name IN "
-    "('statement_timeout', 'lock_timeout', 'idle_in_transaction_session_timeout')"
+    "('statement_timeout', 'lock_timeout', 'idle_in_transaction_session_timeout', "
+    "'transaction_timeout')"
 )
 EXPECTED_TIMEOUTS_MS = {
     "statement_timeout": "30000",
@@ -110,14 +119,37 @@ class DatabaseRoleError(RuntimeError):
     """The configured database role could bypass row-level security. Never contains credentials."""
 
 
+def transaction_timeout_within_bound(value: str) -> bool:
+    """True when ``value`` is set (not 0) and at most ``MAX_TRANSACTION_TIMEOUT_MS``.
+
+    A bare number is milliseconds, as Postgres reads a timeout with no unit. ``5min`` and
+    ``300s`` are the bound; ``0``, ``6min`` and anything that is not a timeout are not."""
+    match = _TIMEOUT_VALUE.fullmatch(value.strip())
+    if match is None:
+        return False
+    milliseconds = int(match.group(1)) * _TIMEOUT_MS[(match.group(2) or "ms").lower()]
+    return 0 < milliseconds <= MAX_TRANSACTION_TIMEOUT_MS
+
+
+def _setting_problems(entries: Any) -> list[str]:
+    items = [str(item) for item in entries]
+    timeouts = [item[len(_TX_PREFIX) :] for item in items if item.startswith(_TX_PREFIX)]
+    rest = {item for item in items if not item.startswith(_TX_PREFIX)}
+    found: list[str] = []
+    expected = {f"0:{key}={value}" for key, value in EXPECTED_ROLE_SETTINGS.items()}
+    if rest != expected:
+        found.append(SETTINGS_PROBLEM)
+    if len(timeouts) != 1 or not transaction_timeout_within_bound(timeouts[0]):
+        found.append(TRANSACTION_TIMEOUT_PROBLEM)
+    return found
+
+
 def problems_for(row: Any) -> list[str]:
     """Problems for one ``ROLE_QUERY`` row: the ``FLAG_COUNT`` flags, then the role's settings."""
     if row is None or len(row) != FLAG_COUNT + 1:
         raise ValueError(f"the role query must return the {FLAG_COUNT} flags and the settings")
     found = [problem for problem, flag in zip(PROBLEMS, row[:FLAG_COUNT], strict=True) if flag]
-    expected = {f"0:{key}={value}" for key, value in EXPECTED_ROLE_SETTINGS.items()}
-    if set(row[FLAG_COUNT]) != expected:
-        found.append(SETTINGS_PROBLEM)
+    found.extend(_setting_problems(row[FLAG_COUNT]))
     return found
 
 
@@ -134,8 +166,9 @@ def _raise_if_unsafe(row: Any) -> None:
 def refuse_privileged_roles(engine: AsyncEngine) -> None:
     """Check every new connection of ``engine``; a privileged role is refused with an error.
 
-    Every checkout also checks that the pooled connection carries no ``app.user_id`` and has
-    exactly the role's timeouts; otherwise the pool replaces it.
+    Every checkout also checks that the pooled connection carries no ``app.user_id``, has exactly
+    the three timeouts and a ``transaction_timeout`` within 5 minutes; otherwise the pool
+    replaces it.
     """
 
     @event.listens_for(engine.sync_engine, "checkout")
@@ -153,7 +186,15 @@ def refuse_privileged_roles(engine: AsyncEngine) -> None:
         finally:
             cursor.close()
         dbapi_connection.rollback()
-        if user_id not in (None, "") or actual != EXPECTED_TIMEOUTS_MS:
+        transaction_timeout = actual.pop("transaction_timeout", None)
+        if (
+            user_id not in (None, "")
+            or actual != EXPECTED_TIMEOUTS_MS
+            or not (
+                isinstance(transaction_timeout, str)
+                and transaction_timeout_within_bound(transaction_timeout)
+            )
+        ):
             raise DisconnectionError("a pooled connection carries state from an earlier use")
 
     @event.listens_for(engine.sync_engine, "connect")
