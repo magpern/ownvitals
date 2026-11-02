@@ -314,9 +314,7 @@ async def upsert_activity(
     if not in_range(start, now):
         note("activity_daily", OUT_OF_RANGE)
         return "skipped"
-    kept = {
-        name: getattr(row, name) for name in ACTIVITY_FIELDS if getattr(row, name) is not None
-    }
+    kept = {name: getattr(row, name) for name in ACTIVITY_FIELDS if getattr(row, name) is not None}
     body = {"date": row.date, "fields": kept, "raw": row.raw, "timezone": named}
     found = (
         await db.execute(

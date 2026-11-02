@@ -277,9 +277,7 @@ async def test_a_change_older_than_a_day_is_fetched_by_lastupdate(
     async with user_session(sessions, make_context(owner)) as db:
         raw = (
             await db.execute(
-                text(
-                    "SELECT raw FROM activity_daily WHERE owner_id = :owner AND day = :day"
-                ),
+                text("SELECT raw FROM activity_daily WHERE owner_id = :owner AND day = :day"),
                 {"owner": owner, "day": date.fromisoformat(old["date"])},
             )
         ).scalar_one()

@@ -311,9 +311,7 @@ async def test_known_measurement_fields_are_stored(
     signal = HeartSignal.model_validate({"signal": [1, -2, 3, 4], "sampling_frequency": 300})
     async with user_session(sessions, ctx) as db:
         assert await upsert_workout(db, owner, connection, workout, "UTC", WHEN) == "inserted"
-        assert (
-            await upsert_sleep_summary(db, owner, connection, summary, "UTC", WHEN) == "inserted"
-        )
+        assert await upsert_sleep_summary(db, owner, connection, summary, "UTC", WHEN) == "inserted"
         assert await upsert_activity(db, owner, connection, activity, "UTC", WHEN) == "inserted"
         assert await upsert_ecg(db, owner, connection, entry, signal, "UTC", WHEN) == "inserted"
         workout_raw = (
