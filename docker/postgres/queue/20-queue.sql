@@ -201,7 +201,8 @@ END $$;
 -- operator, trigger or rule, and no expression calling a built-in that runs SQL text or changes
 -- settings. The queue check (ownvitals.db.queue_check) refuses the same: stop here, naming each
 -- object as it and guard 9 do. ensure_month_partitions, webhook_secrets_apply and
--- webhook_event_insert (40-withings.sql) are admitted here by name, and no other function is.
+-- webhook_event_insert (40-withings.sql), and withings_rate_claim, withings_rate_release
+-- and withings_rate_pause (rate.sql), are admitted here by name, and no other function is.
 -- Their bodies are pinned by digest with the queue functions (ownvitals/db/queue_digests.py).
 DO $$
 DECLARE
@@ -213,7 +214,8 @@ BEGIN
       FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE NOT (n.nspname = 'public' AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
             'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay',
-            'ensure_month_partitions', 'webhook_secrets_apply', 'webhook_event_insert'))
+            'ensure_month_partitions', 'webhook_secrets_apply', 'webhook_event_insert',
+            'withings_rate_claim', 'withings_rate_release', 'withings_rate_pause'))
        AND (p.oid >= 16384 OR n.nspname = 'public'
             OR (n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                 AND n.nspname !~ '^pg_(toast_)?temp_[0-9]+$'))
