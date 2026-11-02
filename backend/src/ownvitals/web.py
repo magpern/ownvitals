@@ -30,6 +30,7 @@ from ownvitals.db.queue_check import install_queue_check, verify_queue
 from ownvitals.flags.routes import router as flags_router
 from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
+from ownvitals.withings.webhooks import WebhookMiddleware, load_cache
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if admin_db is not None:
                 await admin_db.verify()
             app.state.admin_db = admin_db
+            # A failed read leaves the cache empty: POST answers 503 until one succeeds.
+            try:
+                await load_cache(app)
+            except Exception as exc:
+                logger.warning("webhook cache not loaded", extra={"error_type": type(exc).__name__})
             yield
         finally:
             app.state.admin_db = None
@@ -172,6 +178,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _add_single_page_app(app, settings.static_dir)
         else:
             logger.warning("static_dir does not exist; not serving static files")
+    # Outside the auth middleware (added earlier, so inner): Withings sends no Origin or CSRF
+    # token. The secret in the path is the check. SecurityHeaders stays the outermost layer.
+    app.add_middleware(WebhookMiddleware)
     # Added last, so it is the outermost middleware: the CSP and Referrer-Policy go on every
     # response, the answers of the feature routers' middleware included.
     app.add_middleware(SecurityHeaders)

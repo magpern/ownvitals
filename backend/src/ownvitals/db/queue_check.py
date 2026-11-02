@@ -120,6 +120,10 @@ RATE_PINS: dict[str, tuple[str, str, str, str]] = {
     ),
 }
 EXPECTED_ACL = "ownvitals_app=X/ownvitals_queue,ownvitals_queue=X/ownvitals_queue"
+# 40-withings.sql grants the ingest role EXECUTE on queue_enqueue so the notification and the
+# job commit together. 20-queue.sql revokes that grant when it is re-run on its own, so both
+# ACLs are the shipped ones: with the ingest role, and without it.
+ENQUEUE_INGEST_ACL = EXPECTED_ACL + ",ownvitals_webhook_events=X/ownvitals_queue"
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 EXPECTED_ATTRIBUTES = [False, False, False, False, False, True, False]
 # What ownvitals_queue may hold: ACL entries ("a") and ownership ("o"), as pg_shdepend lists them.
@@ -343,6 +347,9 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
         if len(rows) != 1:
             found.append(f"public.{name} must exist exactly once, found {len(rows)}")
             continue
+        acl = EXPECTED_ACL
+        if name == "queue_enqueue" and rows[0][-1] == ENQUEUE_INGEST_ACL:
+            acl = ENQUEUE_INGEST_ACL
         expected = [
             name,
             args,
@@ -351,7 +358,7 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
             SEARCH_PATH,
             QUEUE_VERSION,
             QUEUE_DIGESTS.get(name, ""),
-            EXPECTED_ACL,
+            acl,
         ]
         if rows[0] != expected:
             found.append(

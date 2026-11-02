@@ -6,7 +6,10 @@
 --
 -- Idempotent: running it again repairs the two NOLOGIN roles, their grants, the functions and
 -- the app-role column grants on withings_apps. ownvitals_webhook_secrets has no BYPASSRLS.
--- ownvitals_webhook_events inserts webhook_events and nothing else.
+-- ownvitals_webhook_events inserts webhook_events. When the caller passes no job id it also
+-- resolves (app_id, withings_userid) and enqueues the singleton sync through queue_enqueue
+-- (ADR 0002 section 4). That read needs BYPASSRLS and column SELECT only: id, app_id,
+-- withings_userid and status. It never reads a credential column.
 --
 -- 20-queue.sql admits exactly ensure_month_partitions, webhook_secrets_apply and
 -- webhook_event_insert, and no other function. A re-run of that script after this one keeps them.
@@ -42,7 +45,9 @@ END $$;
 
 ALTER ROLE ownvitals_webhook_secrets WITH NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB
   NOCREATEROLE NOREPLICATION NOINHERIT CONNECTION LIMIT -1 PASSWORD NULL;
-ALTER ROLE ownvitals_webhook_events WITH NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB
+-- BYPASSRLS: the ingest resolves a Withings user to a connection across owners (ADR 0002
+-- section 4). The role stays NOLOGIN and a member of nothing, so only this function runs as it.
+ALTER ROLE ownvitals_webhook_events WITH NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB
   NOCREATEROLE NOREPLICATION NOINHERIT CONNECTION LIMIT -1 PASSWORD NULL;
 ALTER ROLE ownvitals_webhook_secrets RESET ALL;
 ALTER ROLE ownvitals_webhook_events RESET ALL;
@@ -85,6 +90,11 @@ GRANT USAGE ON SEQUENCE public.admin_audit_id_seq TO ownvitals_webhook_secrets;
 
 REVOKE ALL ON TABLE public.webhook_events FROM ownvitals_webhook_events;
 GRANT INSERT ON TABLE public.webhook_events TO ownvitals_webhook_events;
+
+-- The connection lookup. Column SELECT only; credential columns stay revoked.
+REVOKE ALL ON TABLE public.connections FROM ownvitals_webhook_events;
+GRANT SELECT (id, app_id, withings_userid, status)
+  ON TABLE public.connections TO ownvitals_webhook_events;
 
 -- Repair the app and maint grants the migration and 30-maint.sql also set.
 REVOKE ALL ON TABLE public.withings_apps FROM ownvitals_app;
@@ -380,15 +390,47 @@ CREATE OR REPLACE FUNCTION public.webhook_event_insert(
 AS $fn$
 DECLARE
   v_id uuid;
+  v_job uuid;
+  v_conn uuid;
+  v_stream text;
+  v_singleton text;
 BEGIN
   IF p_dedupe_key IS NULL OR p_dedupe_key !~ '^[A-Za-z0-9._:-]{1,200}$' THEN
     RAISE EXCEPTION 'bad_dedupe_key' USING ERRCODE = '22023';
   END IF;
+  v_job := p_job_id;
+  -- A caller-supplied job id is stored as given (the schema tests). A notification leaves
+  -- the job id null and this function resolves the connection and enqueues, in this same
+  -- transaction, so a crash before the commit leaves neither row.
+  IF p_job_id IS NULL THEN
+    SELECT c.id INTO v_conn FROM public.connections c
+     WHERE c.app_id = p_app_id AND c.withings_userid = p_withings_userid
+       AND c.status <> 'disconnected'
+     LIMIT 1;
+    v_stream := CASE p_appli
+      WHEN 1 THEN 'measures' WHEN 2 THEN 'measures' WHEN 4 THEN 'measures'
+      WHEN 16 THEN 'activity_daily' WHEN 44 THEN 'sleep_summary' WHEN 46 THEN 'devices'
+      WHEN 54 THEN 'ecg' WHEN 55 THEN 'ecg' WHEN 58 THEN 'measures'
+      WHEN 62 THEN 'measures' WHEN 63 THEN 'measures' ELSE NULL END;
+    IF v_conn IS NOT NULL AND v_stream IS NOT NULL
+       AND to_regprocedure(
+             'public.queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)') IS NOT NULL THEN
+      v_singleton := pg_catalog.replace(v_conn::text, '-', '') || ':' || v_stream;
+      v_job := public.queue_enqueue(
+        v_conn, 'withings_sync', 'webhook',
+        pg_catalog.jsonb_build_object('connection_id', v_conn, 'stream', v_stream),
+        v_singleton, 3, NULL);
+    END IF;
+  END IF;
+  -- Tells the receiver which 200 this was. Not a secret, and gone when the transaction ends.
+  PERFORM pg_catalog.set_config(
+    'ownvitals.webhook_outcome',
+    CASE WHEN v_job IS NULL THEN 'unknown_user' ELSE 'queued' END, true);
   v_id := pg_catalog.gen_random_uuid();
   INSERT INTO public.webhook_events (
       id, app_id, withings_userid, appli, startdate, enddate, dedupe_key, job_id)
   VALUES (
-      v_id, p_app_id, p_withings_userid, p_appli, p_startdate, p_enddate, p_dedupe_key, p_job_id);
+      v_id, p_app_id, p_withings_userid, p_appli, p_startdate, p_enddate, p_dedupe_key, v_job);
   RETURN v_id;
 EXCEPTION
   WHEN unique_violation THEN
@@ -420,3 +462,13 @@ COMMENT ON FUNCTION public.webhook_secrets_apply(
   IS 'ownvitals-withings v1';
 COMMENT ON FUNCTION public.webhook_event_insert(integer, bigint, integer, bigint, bigint, text, uuid)
   IS 'ownvitals-withings v1';
+
+-- queue_enqueue is installed by 20-queue.sql, which runs before this script. A database that
+-- has not installed it yet still loads this file; the grant waits until the function exists.
+DO $$
+BEGIN
+  IF to_regprocedure('public.queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.queue_enqueue(uuid, text, text, jsonb, text, integer, uuid)
+      TO ownvitals_webhook_events;
+  END IF;
+END $$;

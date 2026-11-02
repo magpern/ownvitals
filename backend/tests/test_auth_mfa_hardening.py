@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 import pytest
+from sqlalchemy import text
 
 from authtools import (  # noqa: F401 - fixtures
     Env,
@@ -23,7 +24,7 @@ from mfatools import (  # noqa: F401 - fixtures
 )
 from ownvitals.auth import totp
 from ownvitals.auth.notices import register_security_notifier
-from ownvitals.auth.ratelimit import mfa_buckets
+from ownvitals.auth.ratelimit import MFA_ACCOUNT, mfa_buckets
 from ownvitals.auth.sessions import SessionGone
 from ownvitals.log import configure_logging
 
@@ -199,15 +200,70 @@ async def test_concurrent_failures_send_exactly_one_failure_mail(
 # --- limits and rotation --------------------------------------------------------------------
 
 
-async def test_mfa_is_limited_per_account_across_ips_and_per_ip_across_accounts(
-    env: Env,
-) -> None:
-    limiter = env.app.state.limiter
-    account = str(uuid.uuid4())
+async def _twenty_one_mfa_attempts(limiter: Any, account: str) -> list[Any]:
+    """One account, twenty-one addresses. The first twenty must be allowed."""
+    attempts = []
     for n in range(20):
         attempt = await limiter.begin(mfa_buckets(account, f"203.0.113.{n + 1}"))
         assert attempt.allowed
-    assert not (await limiter.begin(mfa_buckets(account, "203.0.113.99"))).allowed
+        attempts.append(attempt)
+    attempts.append(await limiter.begin(mfa_buckets(account, "203.0.113.99")))
+    return attempts
+
+
+def _mfa_account_windows(limiter: Any, account: str, attempts: list[Any]) -> list[Any]:
+    digest = limiter.bucket_hash(MFA_ACCOUNT, account)
+    return [
+        next(slot.window_start for slot in attempt.slots if slot.bucket_hash == digest)
+        for attempt in attempts
+    ]
+
+
+async def _stored_account_counts(env: Env, digest: bytes) -> list[tuple[Any, Any]]:
+    async with env.db() as db:
+        rows = await db.execute(
+            text(
+                "SELECT window_start, count FROM rate_limits "
+                "WHERE bucket_hash = :digest ORDER BY window_start"
+            ),
+            {"digest": digest},
+        )
+        return [(row[0], row[1]) for row in rows.all()]
+
+
+def _count_report(attempts: list[Any], windows: list[Any], stored: list[tuple[Any, Any]]) -> str:
+    tally: dict[str, int] = {}
+    for window in windows:
+        key = window.isoformat()
+        tally[key] = tally.get(key, 0) + 1
+    stored_text = ", ".join(f"{start.isoformat()}={count}" for start, count in stored)
+    return f"21st_allowed={attempts[-1].allowed} attempt_windows={tally} stored=[{stored_text}]"
+
+
+async def test_mfa_is_limited_per_account_across_ips_and_per_ip_across_accounts(
+    env: Env,
+) -> None:
+    # MFA_ACCOUNT is 20 per 3600s. The window is Postgres clock_timestamp() floored to
+    # that hour, so a roll during these 21 calls resets the counter. The 21st is a miss
+    # only when every attempt reserved the same window_start. One roll retries on a fresh
+    # account; a second allow fails and reports the counts.
+    limiter = env.app.state.limiter
+    reports: list[str] = []
+    limited = False
+    for _ in range(2):
+        account = str(uuid.uuid4())
+        attempts = await _twenty_one_mfa_attempts(limiter, account)
+        windows = _mfa_account_windows(limiter, account, attempts)
+        same_window = len(set(windows)) == 1
+        if same_window and not attempts[-1].allowed:
+            limited = True
+            break
+        stored = await _stored_account_counts(env, limiter.bucket_hash(MFA_ACCOUNT, account))
+        reports.append(_count_report(attempts, windows, stored))
+        if same_window:
+            break
+    if not limited:
+        pytest.fail("the 21st MFA account attempt was allowed\n" + "\n".join(reports))
     for _ in range(20):
         assert (await limiter.begin(mfa_buckets(str(uuid.uuid4()), "198.51.100.7"))).allowed
     refused = await limiter.begin(mfa_buckets(str(uuid.uuid4()), "198.51.100.7"))
