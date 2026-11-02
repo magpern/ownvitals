@@ -4,6 +4,9 @@ Moved out of [docs/status.md](../status.md) so the index stays short; the text i
 
 ## Completed
 
+- 2026-11-01: #146 purge and session-list future-proof bounds merged as #147 (Grok 4.7 PASS `686d656`) → IMPLEMENTED.
+- 2026-11-01: #143 pending-session expiry merged as #145 (Grok 4.7 PASS `5527006`, merge check `8362769`) → IMPLEMENTED. Follow-up #146 is merged as #147.
+- 2026-11-01: #89 role-check and guard 5 follow-ups merged as #115 (Grok 4.7 PASS `42126ca`, merge check `780bc9f`) → IMPLEMENTED. `__slots__` is allowed only as a class-body assignment in `admin/db.py`.
 - 2026-11-01: #140 step-up window bounds merged as #142 (Grok 4.7 PASS `83164b7`, merge check `c751275`) → IMPLEMENTED. A future step-up or MFA time is outside the window. Follow-up #143: `pending_expired` still has no lower bound.
 - 2026-11-01: #122 static egress guard merged as #123 (Grok 4.7 PASS `bab31a2`, merge review PASS `4206536`) → IMPLEMENTED. `egress.md` does not list the `fastapi.routing` allow; the guard reads the Python table.
 - 2026-11-01: #12 admin gate, audit log and stored flags merged as #129 (Opus PASS `b6d69c3`, Grok 4.7 delta PASS `f631a9b` after the #132 merge; Architect integration review PASS) → IMPLEMENTED. Synthetic data only. Follow-ups are #140.
