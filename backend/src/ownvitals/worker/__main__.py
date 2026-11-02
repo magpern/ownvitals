@@ -56,14 +56,16 @@ async def _run(settings: Settings) -> None:
     engine = create_worker_engine(settings)
     try:
         await verify_startup(engine)  # refuses a privileged role or a drifted queue
-        # Before any claim: a missing, malformed or swapped KEK refuses the start.
-        await load_keyring(create_session_factory(engine), settings, role="worker")
+        # Kept, on this engine: a missing or malformed KEK raises here; an unreachable
+        # database leaves the ring unverified. The loop claims and reaps nothing until
+        # that ring's check has passed (a swapped key then stops the worker).
+        ring = await load_keyring(create_session_factory(engine), settings, role="worker")
+        stop = asyncio.Event()
+        # Before "worker started" is logged, so a signal after that line is always handled.
+        _install_signal_handlers(asyncio.get_running_loop(), stop)
+        await run_worker(settings, stop, accounts=ACCOUNTS, engine=engine, keyring=ring)
     finally:
         await engine.dispose()
-    stop = asyncio.Event()
-    # Before "worker started" is logged, so a signal after that line is always handled.
-    _install_signal_handlers(asyncio.get_running_loop(), stop)
-    await run_worker(settings, stop, accounts=ACCOUNTS)  # ownvitals.auth's owner check (#10)
 
 
 def main() -> int:

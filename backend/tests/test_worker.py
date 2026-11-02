@@ -1,7 +1,8 @@
 """``python -m ownvitals.worker`` (ADR 0005 section 5): start, stop, a database that is down, and
-the refusals (exit code 2) on a privileged role or a drifted queue."""
+the refusals (exit code 2) on a privileged role, a drifted queue or a refused key ring."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -16,12 +17,16 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from jobtools import admin_fixture, install_queue, queue_schema_fixture  # noqa: F401 - fixtures
 from keystools import KEY_D, app_factory, write_key
 from ownvitals.config import Settings
+from ownvitals.crypto import keks as key_module
+from ownvitals.crypto.envelope import RingKey
 from ownvitals.crypto.keks import load_keyring
 from ownvitals.egress import core
+from ownvitals.worker import loop as worker_loop
 from ownvitals.worker.__main__ import main
 from ownvitals.worker.loop import (
     Worker,
@@ -208,3 +213,103 @@ def test_main_refuses_a_swapped_kek(
 def test_the_worker_id_fits_the_claim_function() -> None:
     assert re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", worker_id())
     assert worker_id() != worker_id()
+
+
+def _watch_claim_and_reap(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record ``queue.claim`` and ``queue.reap``. A call fails the test that holds the list."""
+    invoked: list[str] = []
+
+    async def claim(*_args: object, **_kwargs: object) -> None:
+        invoked.append("claim")
+        return None
+
+    async def reap(*_args: object, **_kwargs: object) -> int:
+        invoked.append("reap")
+        return 0
+
+    monkeypatch.setattr(worker_loop.queue, "claim", claim)
+    monkeypatch.setattr(worker_loop.queue, "reap", reap)
+    return invoked
+
+
+def _stop_after(monkeypatch: pytest.MonkeyPatch, passes: int, seen: dict[str, int]) -> None:
+    """Bound ``Worker.run`` so a loop that never stops still ends the test."""
+    real_run = Worker.run
+
+    async def bounded(self: Worker, stop: asyncio.Event) -> None:
+        async def cap() -> None:
+            await asyncio.sleep(0.05 * passes)
+            stop.set()
+
+        limiter = asyncio.create_task(cap())
+        try:
+            await real_run(self, stop)
+        finally:
+            seen["passes"] = self.passes
+            limiter.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await limiter
+
+    monkeypatch.setattr(Worker, "run", bounded)
+
+
+@pytest.mark.usefixtures("restore_logging")
+def test_an_unverified_key_ring_is_not_claimed(
+    monkeypatch: pytest.MonkeyPatch,
+    unreachable_database_url: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The queue gate can be open while the ring is still unverified: claim and reap wait,
+    and a database that stays unreachable is not exit 2."""
+    invoked = _watch_claim_and_reap(monkeypatch)
+    seen: dict[str, int] = {"passes": 0}
+    _stop_after(monkeypatch, 6, seen)
+    monkeypatch.setattr(worker_loop, "queue_verified", lambda _engine: True)
+    monkeypatch.setenv("OWNVITALS_DATABASE_URL", unreachable_database_url)
+    monkeypatch.setenv("OWNVITALS_WORKER_POLL_SECONDS", "0.05")
+    assert main() == 0
+    assert invoked == []
+    assert seen["passes"] >= 2
+    output = capsys.readouterr().out
+    assert "worker started" in output
+    assert "worker refused to run" not in output
+
+
+@pytest.mark.usefixtures("restore_logging", "queue_schema")
+def test_a_deferred_key_mismatch_stops_before_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    app_database_url: str,
+    secrets_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The startup check was deferred. When it then runs and the key does not match, the
+    worker exits 2 and has not claimed or reaped. Synthetic key material only."""
+    settings = Settings(database_url=app_database_url, environment="test")  # pyright: ignore[reportArgumentType]
+
+    async def record() -> None:
+        async with app_factory(settings) as factory:
+            assert (await load_keyring(factory, settings, role="worker")).verified
+
+    asyncio.run(record())
+    write_key(secrets_dir, "connection_kek", KEY_D)  # synthetic: another key, same id
+    real_check = key_module._check_rows  # pyright: ignore[reportPrivateUsage]
+    calls = {"n": 0}
+
+    async def defer_once(factory: async_sessionmaker[AsyncSession], keys: list[RingKey]) -> bool:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return False  # the database was unreachable at the startup check
+        return await real_check(factory, keys)
+
+    monkeypatch.setattr(key_module, "_check_rows", defer_once)  # pyright: ignore[reportPrivateUsage]
+    invoked = _watch_claim_and_reap(monkeypatch)
+    seen: dict[str, int] = {"passes": 0}
+    _stop_after(monkeypatch, 40, seen)
+    monkeypatch.setenv("OWNVITALS_DATABASE_URL", app_database_url)
+    monkeypatch.setenv("OWNVITALS_WORKER_POLL_SECONDS", "0.05")
+    assert main() == 2
+    assert calls["n"] >= 2  # the deferred startup check, then the mismatch
+    assert invoked == []
+    output = capsys.readouterr().out
+    assert "worker started" in output
+    assert "does not match the check value" in output
