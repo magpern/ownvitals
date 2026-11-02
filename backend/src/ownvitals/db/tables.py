@@ -38,8 +38,15 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
                 "auth_events": "the security event log, written before a user may be known",
             }.items()
         },
+        "withings_apps": "Withings application configuration (ADR 0002 section 3, ADR 0004 "
+        "section 4): read before a user is known; no runtime role writes it, and "
+        "webhook secret entries are HMACs",
+        "webhook_events": "a notification is a trigger to fetch (PLAN section 5): written "
+        "only through webhook_event_insert, purged after 30 days; no owner_id",
     }
 )
 # System tables the app role must have no privilege on at all (guard 2). The others get the
 # default DML of ADR 0002 section 5, or the narrower set their migration grants.
-NO_APP_ACCESS = frozenset({"alembic_version"})
+# ``webhook_events`` is closed to the app role (ADR 0002 section 3). ``withings_apps`` is not
+# listed: the app role holds column-level SELECT, which guard 2 records separately.
+NO_APP_ACCESS = frozenset({"alembic_version", "webhook_events"})

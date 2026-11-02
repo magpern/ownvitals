@@ -1,0 +1,10 @@
+# Extends the default rules. Does not disable any rule.
+title = "ownvitals"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "backend/src/ownvitals/db/queue_digests.py holds md5(pg_get_functiondef) values only"
+targetRules = ["generic-api-key"]
+paths = ['''(?:^|/)backend/src/ownvitals/db/queue_digests\.py$''']

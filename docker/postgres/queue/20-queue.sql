@@ -200,9 +200,9 @@ END $$;
 -- No user code may run as ownvitals_queue (ADR 0005 section 3): no other user function,
 -- operator, trigger or rule, and no expression calling a built-in that runs SQL text or changes
 -- settings. The queue check (ownvitals.db.queue_check) refuses the same: stop here, naming each
--- object as it and guard 9 do. The allowed database code that later issues add (the admin audit
--- guard of #12, ensure_month_partitions of #21, the webhook-secret function) is admitted here
--- exactly, pinned by digest, in the PR that adds it.
+-- object as it and guard 9 do. ensure_month_partitions, webhook_secrets_apply and
+-- webhook_event_insert (40-withings.sql) are admitted here by name, and no other function is.
+-- Their bodies are pinned by digest with the queue functions (ownvitals/db/queue_digests.py).
 DO $$
 DECLARE
   v_found text;
@@ -212,7 +212,8 @@ BEGIN
            || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS what
       FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE NOT (n.nspname = 'public' AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
-            'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay'))
+            'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay',
+            'ensure_month_partitions', 'webhook_secrets_apply', 'webhook_event_insert'))
        AND (p.oid >= 16384 OR n.nspname = 'public'
             OR (n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                 AND n.nspname !~ '^pg_(toast_)?temp_[0-9]+$'))

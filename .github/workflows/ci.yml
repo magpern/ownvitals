@@ -273,10 +273,12 @@ jobs:
       # The job queue's script (docker/postgres/queue/20-queue.sql, ADR 0005 section 3) as the
       # compose db-functions service runs it: after the migrations, as the superuser, through its
       # runner (python -m ownvitals.db.install_functions, the password in a PGPASSFILE only), in
-      # one transaction, twice (the second run proves it is idempotent). The digests the worker
-      # checks must then match what this Postgres image renders (a stale queue_digests.py fails
-      # here). The queue stays installed: guard 2 and web startup see it through the migrated
-      # harness, which drops it only so a downgrade can remove the tables.
+      # one transaction, twice (the second run proves it is idempotent). 40-withings.sql is in
+      # that same invocation, after 20-queue.sql, so the second run sees its three functions.
+      # The digests the worker checks must then match what this Postgres image renders (a stale
+      # queue_digests.py fails here). The queue and those functions stay installed: guard 2 and
+      # web startup see them through the migrated harness, which drops them only so a downgrade
+      # can remove the tables.
       - name: Install the job queue twice and check its digests
         env:
           PGHOST: 127.0.0.1
@@ -296,7 +298,8 @@ jobs:
             env "${no_pg[@]}" PGPASSFILE="$pgpass" \
               uv run python -m ownvitals.db.install_functions \
               "host=127.0.0.1 port=5432 dbname=ownvitals user=postgres" \
-              ../docker/postgres/queue/20-queue.sql
+              ../docker/postgres/queue/20-queue.sql \
+              ../docker/postgres/withings/40-withings.sql
           done
           uv run python tests/queue_digests.py --check
 

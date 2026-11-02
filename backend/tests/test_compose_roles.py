@@ -1,8 +1,9 @@
 """The local stack connects with the roles of ADR 0002 section 5: migrate as the owner, web and the
 worker as the app role, web alone as the admin role, and no service but db and db-functions holds
-the superuser's password. Only db runs the roles script; db-functions runs the job queue's script
-and 30-maint.sql (ADR 0005 section 3, #126) in one transaction, a one-shot whose image, command
-and (absent) mounts are pinned here. No service reads SQL from a host path but db's first-start
+the superuser's password. Only db runs the roles script; db-functions runs the job queue's script,
+30-maint.sql, then 40-withings.sql (ADR 0005 section 3, #126, #21) in one transaction, a one-shot
+whose image, command and (absent) mounts are pinned here. No service reads SQL from a host path
+but db's first-start
 init directory (test_compose_host_sql.py), and db runs postgres by the digest CI runs.
 
 Reads compose.yaml (and the Dockerfile and ci.yml) at the repository root as text, like
@@ -209,10 +210,10 @@ def test_the_image_carries_the_functions_and_their_entrypoint() -> None:
         "COPY --chmod=0555 docker/postgres/queue/20-queue.sql "
         "docker/postgres/queue/db-functions.sh /app/db-functions/",
         "COPY --chmod=0555 docker/postgres/maint/30-maint.sql /app/db-functions/",
+        "COPY --chmod=0555 docker/postgres/withings/40-withings.sql /app/db-functions/",
     ]
     user = dockerfile.index("\nUSER ownvitals\n")
-    assert dockerfile.index(copies[0]) < user
-    assert dockerfile.index(copies[1]) < user
+    assert all(dockerfile.index(copy) < user for copy in copies)
 
 
 def test_the_database_creates_the_roles_from_the_password_files(compose: str) -> None:
@@ -261,12 +262,13 @@ def test_the_maint_url_check_fails_when_the_worker_would_inherit_it(compose: str
 
 
 def test_db_functions_installs_maint_after_the_queue() -> None:
-    """Both files go to install_functions, queue first, in the one transaction it runs."""
+    """The three files go to install_functions, queue first, in the one transaction it runs."""
     script = DB_FUNCTIONS_SCRIPT.read_text(encoding="utf-8")
     assert script.rstrip("\n").endswith(
         "exec python -m ownvitals.db.install_functions \\\n"
         '  "host=db port=5432 dbname=ownvitals user=postgres" \\\n'
-        "  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql"
+        "  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \\\n"
+        "  /app/db-functions/40-withings.sql"
     )
     assert "psql" not in script
     from ownvitals.db.install_functions import read_scripts
@@ -275,9 +277,13 @@ def test_db_functions_installs_maint_after_the_queue() -> None:
         [
             str(ROOT / "docker" / "postgres" / "queue" / "20-queue.sql"),
             str(ROOT / "docker" / "postgres" / "maint" / "30-maint.sql"),
+            str(ROOT / "docker" / "postgres" / "withings" / "40-withings.sql"),
         ]
     )
     assert sql.index("ownvitals_queue") < sql.index("ownvitals_maint")
+    assert sql.index("ownvitals_maint") < sql.index(
+        "CREATE OR REPLACE FUNCTION public.ensure_month_partitions"
+    )
 
 
 def test_ci_creates_the_maint_role_from_its_password_file() -> None:

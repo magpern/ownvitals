@@ -6,9 +6,12 @@ a privilege of a kind nobody thought of still fails.
 
 ``ownvitals_queue`` (ADR 0005 section 3) is an allowed grantee with exactly the privileges
 ``docker/postgres/queue/20-queue.sql`` grants, and ``ownvitals_app`` may ``EXECUTE`` the queue
-functions and no other function. The admin role ``ownvitals_maint`` (#12) is an allowed grantee;
-guard 11 (``tests/test_maint_privileges.py``) checks that it holds exactly its allowlist, so its
-column privileges are left out of the column check here. Any other grantee fails.
+functions. When ``docker/postgres/withings/40-withings.sql`` has run, the webhook NOLOGIN roles
+and ``ensure_month_partitions`` hold exactly the grants that script creates, and the app role
+may ``EXECUTE`` those three functions as well and no other function. The admin role
+``ownvitals_maint`` (#12) is an allowed grantee; guard 11 (``tests/test_maint_privileges.py``)
+checks that it holds exactly its allowlist, so its column privileges are left out of the column
+check here. Maint is not granted the client secret or ``webhook_secrets``. Any other grantee fails.
 """
 
 from sqlalchemy import text
@@ -16,6 +19,7 @@ from sqlalchemy.engine import Connection
 
 from ownvitals.db.role_check import EXPECTED_ROLE_SETTINGS
 from ownvitals.db.tables import NO_APP_ACCESS
+from ownvitals.withings.tables import APP_WITHINGS_COLUMNS
 
 APP, OWNER, MAINT = "ownvitals_app", "ownvitals_owner", "ownvitals_maint"
 QUEUE = "ownvitals_queue"
@@ -33,15 +37,19 @@ RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
     "app_settings": {"SELECT"},
     "admin_audit": set(),
     "admin_audit_id_seq": set(),
+    # Migration 0009: column SELECT only, and no privilege on the identity sequence.
+    "withings_apps": set(),
+    "withings_apps_id_seq": set(),
 }
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
 # Maint's columns are guard 11's. The queue role reads three columns of ``connections`` and
-# nothing else (20-queue.sql).
+# nothing else (20-queue.sql). ``withings_apps`` (#21): the app role reads these columns and
+# cannot write the table. Webhook column grants are added when 40-withings.sql has run.
 COLUMN_PRIVILEGES: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("connections", "id"): {(QUEUE, "SELECT")},
     ("connections", "owner_id"): {(QUEUE, "SELECT")},
     ("connections", "status"): {(QUEUE, "SELECT")},
-}
+} | {("withings_apps", column): {(APP, "SELECT")} for column in APP_WITHINGS_COLUMNS}
 # Table privileges of ``ownvitals_queue``, by ``relname:relkind``. Nothing else.
 QUEUE_RELATIONS = {
     "jobs:r": {"SELECT", "INSERT", "UPDATE"},
@@ -55,6 +63,28 @@ QUEUE_EXECUTE = {
     "queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)",
     "queue_cancel_for_secret(text,uuid)",
     "queue_replay(uuid)",
+}
+# 40-withings.sql: two NOLOGIN roles, table grants, and the owner of each function.
+SECRETS = "ownvitals_webhook_secrets"
+EVENTS = "ownvitals_webhook_events"
+WITHINGS_ROLES = {SECRETS, EVENTS}
+WITHINGS_RELATIONS: dict[str, dict[str, set[str]]] = {
+    "admin_audit:r": {SECRETS: {"INSERT"}},
+    "admin_audit_id_seq:S": {SECRETS: {"USAGE"}},
+    "webhook_events:r": {EVENTS: {"INSERT"}},
+}
+WITHINGS_FUNCTIONS = {
+    "ensure_month_partitions": OWNER,
+    "webhook_secrets_apply": SECRETS,
+    "webhook_event_insert": EVENTS,
+}
+# Column grants of ownvitals_webhook_secrets. Not maint, and not the client secret.
+WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
+    ("withings_apps", "id"): {(SECRETS, "SELECT")},
+    ("withings_apps", "webhook_secrets"): {(SECRETS, "SELECT"), (SECRETS, "UPDATE")},
+    ("withings_apps", "rotation_requested_at"): {(SECRETS, "SELECT"), (SECRETS, "UPDATE")},
+    ("withings_apps", "rotation_reason"): {(SECRETS, "SELECT"), (SECRETS, "UPDATE")},
+    ("connection_keks", "key_id"): {(SECRETS, "SELECT")},
 }
 SEQUENCE_PRIVILEGES = {"USAGE", "SELECT"}
 # Built-in languages that PUBLIC may use (Postgres' own default).
@@ -195,16 +225,34 @@ def check_roles(conn: Connection) -> list[str]:
     need("CONNECT" in _privileges(databases, OWNER, db), "ownvitals_owner needs CONNECT")
     need(_grantees(databases) <= GRANTEES, "unexpected grantee on the database")
     need(QUEUE not in _grantees(databases), "ownvitals_queue must hold nothing on the database")
+    need(
+        not (WITHINGS_ROLES & _grantees(databases)),
+        "webhook roles must hold nothing on the database",
+    )
     database_owner = conn.execute(
         text("SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()")
     ).scalar_one()
     need(database_owner == OWNER, "ownvitals_owner must own the database")
     # The queue is installed with the migrated schema (db-functions). A database that has not
     # had the script applied yet has no queue role; the exact grants apply once it exists.
+    # 40-withings.sql is the same: absent until that script runs, then exactly its grants.
     queue_installed = (
         conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :q"), {"q": QUEUE}).first()
         is not None
     )
+    present_webhook_roles = {
+        str(name)
+        for (name,) in conn.execute(
+            text("SELECT rolname FROM pg_roles WHERE rolname IN (:secrets, :events)"),
+            {"secrets": SECRETS, "events": EVENTS},
+        )
+    }
+    withings_installed = bool(present_webhook_roles)
+    if withings_installed:
+        need(
+            present_webhook_roles == WITHINGS_ROLES,
+            "ownvitals_webhook_secrets and ownvitals_webhook_events must exist together",
+        )
 
     # Schemas.
     schemas = _acl(
@@ -221,15 +269,30 @@ def check_roles(conn: Connection) -> list[str]:
         )
     else:
         need(QUEUE not in _grantees(schemas), "ownvitals_queue must not be a schema grantee")
+    if withings_installed:
+        for role in sorted(WITHINGS_ROLES):
+            need(
+                _privileges(schemas, role, "public") == {"USAGE"},
+                f"{role}: USAGE only on public",
+            )
+    else:
+        need(
+            not (WITHINGS_ROLES & _grantees(schemas)),
+            "webhook roles must not be schema grantees",
+        )
     need(not _privileges(schemas, "PUBLIC", "public"), "PUBLIC must have no privilege on public")
     need(
         {"USAGE", "CREATE"} <= _privileges(schemas, OWNER, "public"),
         "ownvitals_owner needs USAGE and CREATE on public",
     )
-    need(_grantees(schemas) <= GRANTEES | {QUEUE}, "unexpected grantee on a schema")
+    schema_grantees = GRANTEES | {QUEUE}
+    if withings_installed:
+        schema_grantees |= WITHINGS_ROLES
+    need(_grantees(schemas) <= schema_grantees, "unexpected grantee on a schema")
+    elsewhere = {APP, "PUBLIC", QUEUE} | WITHINGS_ROLES
     need(
-        not [1 for o, g, _, _ in schemas if o != "public" and g in (APP, "PUBLIC", QUEUE)],
-        "no privilege for PUBLIC, ownvitals_app or ownvitals_queue on another schema",
+        not [1 for o, g, _, _ in schemas if o != "public" and g in elsewhere],
+        "no privilege for the app, PUBLIC, the queue or a webhook role on another schema",
     )
     schema_owner = conn.execute(
         text("SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'public'")
@@ -267,6 +330,16 @@ def check_roles(conn: Connection) -> list[str]:
             need(
                 QUEUE not in _grantees(relations, obj), f"{obj}: ownvitals_queue must hold nothing"
             )
+        if withings_installed and obj in WITHINGS_RELATIONS:
+            for role, privileges in WITHINGS_RELATIONS[obj].items():
+                allowed.add(role)
+                need(
+                    _privileges(relations, role, obj) == privileges,
+                    f"{obj}: {role} privileges must be exactly {sorted(privileges)}",
+                )
+        else:
+            for role in WITHINGS_ROLES:
+                need(role not in _grantees(relations, obj), f"{obj}: {role} must hold nothing")
         need(_grantees(relations, obj) <= allowed, f"{obj}: unexpected grantee")
     need(
         not [1 for *_, grantable in relations if grantable], "no grantable privilege on a relation"
@@ -304,6 +377,10 @@ def check_roles(conn: Connection) -> list[str]:
         for key, value in COLUMN_PRIVILEGES.items()
         if key[0] in present and (queue_installed or not any(g == QUEUE for g, _ in value))
     }
+    if withings_installed:
+        for key, extra in WITHINGS_COLUMNS.items():
+            if key[0] in present:
+                expected_columns[key] = set(expected_columns.get(key, ())) | extra
     need(
         found_columns == expected_columns,
         f"column-level privileges in public must be exactly {expected_columns}, "
@@ -311,8 +388,9 @@ def check_roles(conn: Connection) -> list[str]:
     )
 
     # Functions (in public, and user-made ones anywhere): PUBLIC may call none, and ownvitals_app
-    # may EXECUTE only the queue functions (ADR 0005 section 3). 16384 is FirstNormalObjectId:
-    # every function a user made.
+    # may EXECUTE only the queue functions (ADR 0005 section 3) and, once 40-withings.sql has
+    # run, the three functions that script creates. 16384 is FirstNormalObjectId: every function
+    # a user made.
     functions = _acl(
         conn,
         "SELECT p.oid::regprocedure::text || ':' || pg_get_userbyid(p.proowner) || ':' "
@@ -331,8 +409,13 @@ def check_roles(conn: Connection) -> list[str]:
             signatures >= QUEUE_EXECUTE,
             f"queue functions missing: {sorted(QUEUE_EXECUTE - signatures)}",
         )
+    if withings_installed:
+        found_names = {signature.partition("(")[0] for signature in signatures}
+        missing = set(WITHINGS_FUNCTIONS) - found_names
+        need(not missing, f"withings functions missing: {sorted(missing)}")
     for obj in sorted({o for o, *_ in functions}):
-        if queue_installed and _bare_signature(obj) in QUEUE_EXECUTE:
+        signature = _bare_signature(obj)
+        if queue_installed and signature in QUEUE_EXECUTE:
             need(
                 _privileges(functions, APP, obj) == {"EXECUTE"},
                 f"{obj}: ownvitals_app EXECUTE only",
@@ -345,6 +428,25 @@ def check_roles(conn: Connection) -> list[str]:
             need(
                 obj.endswith(f":{QUEUE}:true"),
                 f"{obj}: must be owned by ownvitals_queue and be SECURITY DEFINER",
+            )
+            need(
+                not any(grantable for o, _, _, grantable in functions if o == obj),
+                f"{obj}: no grantable privilege",
+            )
+        elif withings_installed and signature.partition("(")[0] in WITHINGS_FUNCTIONS:
+            owner = WITHINGS_FUNCTIONS[signature.partition("(")[0]]
+            need(
+                _privileges(functions, APP, obj) == {"EXECUTE"},
+                f"{obj}: ownvitals_app EXECUTE only",
+            )
+            need(
+                _privileges(functions, owner, obj) == {"EXECUTE"},
+                f"{obj}: {owner} EXECUTE only",
+            )
+            need(_grantees(functions, obj) <= {APP, owner}, f"{obj}: unexpected grantee")
+            need(
+                obj.endswith(f":{owner}:true"),
+                f"{obj}: must be owned by {owner} and be SECURITY DEFINER",
             )
             need(
                 not any(grantable for o, _, _, grantable in functions if o == obj),

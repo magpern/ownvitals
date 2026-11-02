@@ -143,9 +143,22 @@ SELECT 'REVOKE INSERT, UPDATE, DELETE ON TABLE public.app_settings FROM ownvital
  WHERE to_regclass('public.app_settings') IS NOT NULL \gexec
 SELECT 'REVOKE ALL ON TABLE public.admin_audit FROM ownvitals_app'
  WHERE to_regclass('public.admin_audit') IS NOT NULL \gexec
+-- withings_apps (#21): column SELECT only. The table REVOKE drops column grants, so the column
+-- grant follows it. webhook_events is closed to the app role. Partitions are too.
+SELECT 'REVOKE ALL ON TABLE public.withings_apps FROM ownvitals_app'
+ WHERE to_regclass('public.withings_apps') IS NOT NULL \gexec
+SELECT 'GRANT SELECT (id, client_id, callback_base, client_secret, client_secret_nonce, client_wrapped_dek, client_dek_nonce, client_key_id, webhook_secrets, rotation_requested_at, rotation_reason) ON TABLE public.withings_apps TO ownvitals_app'
+ WHERE to_regclass('public.withings_apps') IS NOT NULL \gexec
+SELECT 'REVOKE ALL ON TABLE public.webhook_events FROM ownvitals_app'
+ WHERE to_regclass('public.webhook_events') IS NOT NULL \gexec
+SELECT format('REVOKE ALL ON TABLE %s FROM ownvitals_app, PUBLIC', c.oid::regclass)
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public' AND c.relispartition \gexec
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC, ownvitals_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ownvitals_app;
 -- The audit log's id sequence (migration 0006, #12): nothing for the app role.
 SELECT 'REVOKE ALL ON SEQUENCE public.admin_audit_id_seq FROM ownvitals_app'
  WHERE to_regclass('public.admin_audit_id_seq') IS NOT NULL \gexec
+SELECT 'REVOKE ALL ON SEQUENCE public.withings_apps_id_seq FROM ownvitals_app'
+ WHERE to_regclass('public.withings_apps_id_seq') IS NOT NULL \gexec
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;

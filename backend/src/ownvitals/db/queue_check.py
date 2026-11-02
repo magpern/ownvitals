@@ -9,13 +9,16 @@ exactly the fixed ``search_path``, the version comment, the shipped ``md5(pg_get
 (``ownvitals.db.queue_digests``) and the ACL ``{ownvitals_queue=X/ownvitals_queue,
 ownvitals_app=X/ownvitals_queue}``; the role has exactly its attributes, no memberships either way,
 no settings, no default privileges and exactly its privileges; no other user-defined function,
-procedure, aggregate or operator exists in any schema, no table has a trigger (other than the
-internal ones of foreign keys) or a rule; and no default, CHECK, index or partition expression of
-any table or domain calls one of ``SQL_TEXT_BUILTINS``. So nothing can shadow a built-in a
-function body calls, and nothing a function fires (a trigger, a rule, a default, a CHECK, an index
-expression) can reach code other than the built-ins while running as ``ownvitals_queue``, and none
-of those runs SQL text. Objects are named alike here, in guard 9 (``tests/queue_guard.py``) and in
-``20-queue.sql`` (``function schema.name(types)``, ``trigger name on schema.table``, ...).
+procedure, aggregate or operator exists in any schema, except the three Withings functions
+``ensure_month_partitions``, ``webhook_secrets_apply`` and ``webhook_event_insert`` admitted by
+name in ``20-queue.sql`` and pinned the same way when they are installed (``40-withings.sql``);
+no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
+CHECK, index or partition expression of any table or domain calls one of ``SQL_TEXT_BUILTINS``.
+So nothing can shadow a built-in a function body calls, and nothing a function fires (a trigger,
+a rule, a default, a CHECK, an index expression) can reach code other than the built-ins while
+running as ``ownvitals_queue``, and none of those runs SQL text. Objects are named alike here,
+in guard 9 (``tests/queue_guard.py``) and in ``20-queue.sql`` (``function schema.name(types)``,
+``trigger name on schema.table``, ...).
 
 Every grant or ownership naming a role is recorded in ``pg_shdepend``, so comparing that list with
 the expected one catches a privilege of any kind, in any database of the cluster.
@@ -55,6 +58,39 @@ QUEUE_FUNCTIONS: dict[str, str] = {
     ),
     "queue_cancel_for_secret": "p_kind text, p_secret_id uuid",
     "queue_replay": "p_job_id uuid",
+}
+# Admitted beside the queue (20-queue.sql). A queue-only database does not have them; a deploy
+# installs them and the check then pins each body the same way as a queue function.
+WITHINGS_FUNCTION_NAMES = (
+    "ensure_month_partitions",
+    "webhook_secrets_apply",
+    "webhook_event_insert",
+)
+WITHINGS_VERSION = "ownvitals-withings v1"
+# name -> (identity arguments, owner, proconfig joined by ';', ACL joined by ',')
+WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
+    "ensure_month_partitions": (
+        "p_table text, p_from date, p_to date",
+        "ownvitals_owner",
+        "search_path=pg_catalog, pg_temp;TimeZone=UTC",
+        "ownvitals_app=X/ownvitals_owner,ownvitals_owner=X/ownvitals_owner",
+    ),
+    "webhook_secrets_apply": (
+        "p_app_id integer, p_operation text, p_secret_id text, p_seed_id text, "
+        "p_pepper_id text, p_hmac bytea, p_active_from timestamp with time zone, "
+        "p_seen_requested_at timestamp with time zone, p_seen_reason text",
+        "ownvitals_webhook_secrets",
+        "search_path=pg_catalog, pg_temp",
+        "ownvitals_app=X/ownvitals_webhook_secrets,"
+        "ownvitals_webhook_secrets=X/ownvitals_webhook_secrets",
+    ),
+    "webhook_event_insert": (
+        "p_app_id integer, p_withings_userid bigint, p_appli integer, p_startdate bigint, "
+        "p_enddate bigint, p_dedupe_key text, p_job_id uuid",
+        "ownvitals_webhook_events",
+        "search_path=pg_catalog, pg_temp",
+        "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
+    ),
 }
 EXPECTED_ACL = "ownvitals_app=X/ownvitals_queue,ownvitals_queue=X/ownvitals_queue"
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
@@ -107,7 +143,7 @@ SQL_TEXT_BUILTINS = (
     "ts_rewrite",
     "set_config",
 )
-_NAMES = ", ".join(f"'{name}'" for name in QUEUE_FUNCTIONS)
+_NAMES = ", ".join(f"'{name}'" for name in (*QUEUE_FUNCTIONS, *WITHINGS_FUNCTION_NAMES))
 
 # 16384 is FirstNormalObjectId: below it is only what initdb created (pg_catalog,
 # information_schema and the two rules of the pg_settings view). Anything at or above it, in any
@@ -292,6 +328,17 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
             found.append(
                 f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
                 "search_path, version, md5 or ACL)"
+            )
+    for name in WITHINGS_FUNCTION_NAMES:
+        rows = by_name.get(name, [])
+        if not rows:
+            continue
+        args, owner, config, acl = WITHINGS_PINS[name]
+        expected = [name, args, "true", owner, config, WITHINGS_VERSION, QUEUE_DIGESTS[name], acl]
+        if len(rows) != 1 or rows[0] != expected:
+            found.append(
+                f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
+                "settings, version, md5 or ACL)"
             )
     return found
 

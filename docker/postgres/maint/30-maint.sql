@@ -24,8 +24,10 @@ BEGIN
   IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
     RAISE EXCEPTION 'this script must run as the superuser';
   END IF;
-  IF to_regclass('public.admin_audit') IS NULL OR to_regclass('public.app_settings') IS NULL THEN
-    RAISE EXCEPTION 'migrate to head first: public.admin_audit or public.app_settings is missing';
+  IF to_regclass('public.admin_audit') IS NULL OR to_regclass('public.app_settings') IS NULL
+     OR to_regclass('public.withings_apps') IS NULL THEN
+    RAISE EXCEPTION 'migrate to head first: public.admin_audit, public.app_settings or '
+      'public.withings_apps is missing';
   END IF;
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_maint') THEN
     CREATE ROLE ownvitals_maint LOGIN;
@@ -117,3 +119,8 @@ GRANT UPDATE (value, updated_at, updated_by) ON public.app_settings TO ownvitals
 -- hashes, and nothing of job_events.
 GRANT SELECT (id, kind, state, error_category, created_at, finished_at)
   ON public.jobs TO ownvitals_maint;
+
+-- withings_apps (#21): non-secret columns only. Never the client secret, its envelope or
+-- webhook_secrets, and no write.
+GRANT SELECT (id, client_id, callback_base, rotation_requested_at, rotation_reason)
+  ON public.withings_apps TO ownvitals_maint;
