@@ -55,19 +55,19 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | File | Held by |
 |---|---|
 | `AGENTS.md`, `deploy/`, `scripts/ci-changes.sh`, `scripts/test-release.sh`, `backend/pyproject.toml`, `backend/uv.lock` | — (#118, #55 and #134 released them) |
-| `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py`, `backend/src/ownvitals/mail.py`, `backend/src/ownvitals/egress/**` except `egress/hook.py`, `docs/dev/stack.md`, `docs/dev/jobs.md`, `docs/dev/release.md` | — (#55 and #118 released them). #13 holds `cli.py`. #124 holds `docs/dev/deploy.md` |
+| `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py`, `backend/src/ownvitals/mail.py`, `backend/src/ownvitals/egress/**` except `egress/hook.py`, `docs/dev/jobs.md`, `docs/dev/release.md` | — (#55 and #118 released them). #13 holds `cli.py`. #124 holds `docs/dev/deploy.md`. #126 holds `docs/dev/stack.md` |
 | `backend/src/ownvitals/db/engine.py`, `db/role_check.py`, `egress/hook.py`, `backend/tests/user_context_*.py`, `backend/tests/conftest.py`, `docs/dev/backend.md`, `docs/dev/isolation.md`, `docs/dev/isolation-guard5.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | — (#115 released them). #77 is next for `conftest.py`, `isolation.md` and `role_check.py` once `web.py` is free |
 | `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md`, `docs/dev/deploy.md` | #124 |
 | `backend/src/ownvitals/connections/**`, `backend/src/ownvitals/keys_cli.py`, `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/web.py`, `backend/src/ownvitals/auth/owners.py`, `docs/dev/connections.md`, migration `0007` | #13 |
 | `e2e/**`, `compose.e2e.yaml`, `scripts/ci-gate.sh`, `scripts/test-ci-gate.sh`, `.github/dependabot.yml`, `docs/dev/e2e.md` | — (#14 is not writing; Composer 2.5 is not selectable) |
-| `Dockerfile`, `.github/workflows/ci.yml`, `compose.yaml`, `docker/postgres/init/10-roles.sql`, `docker/postgres/queue/db-functions.sh`, `docs/dev/admin.md`, `docs/dev/stack.md` | #126 |
+| `Dockerfile`, `.github/workflows/ci.yml`, `compose.yaml`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docker/postgres/queue/db-functions.sh`, `docs/dev/admin.md`, `docs/dev/stack.md` | #126 |
 | `docs/status.md`, `docs/status/completed.md`, `docs/status/decisions-log.md` | #148 |
-| `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docs/dev/admin.md` | — (#129 released them). #13 holds `web.py` for the connections install |
+| `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py` | — (#129 released them). #13 holds `web.py`. #126 holds `10-roles.sql`, `30-maint.sql` and `docs/dev/admin.md` |
 | `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md`, `docs/adr/README.md` | — (#139 released them) |
 | `.codex/**` | — (#131 released it) |
 | `backend/src/ownvitals/db/queue_check.py` | — (#77 next) |
 | `backend/src/ownvitals/config.py`, `backend/tests/dbtools.py`, `test_web.py`, `rls_guard.py`, `test_config_milestone.py` | — (#8, #82 and #11 released them) |
-| `scripts/ci-uv-version.sh`, `.trivyignore` | — (#106 released them). #14 holds `scripts/ci-gate.sh` |
+| `scripts/ci-uv-version.sh`, `.trivyignore` | — (#106 released them). `scripts/ci-gate.sh` is free; #14 is not writing |
 | `frontend/**`, `docs/dev/frontend.md` | — (#98 and #105 released them) |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
