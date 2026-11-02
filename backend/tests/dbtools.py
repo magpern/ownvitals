@@ -23,6 +23,7 @@ ROLES_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "init" / "10-roles.s
 QUEUE_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "queue" / "20-queue.sql"
 MAINT_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "maint" / "30-maint.sql"
 WITHINGS_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "withings" / "40-withings.sql"
+RATE_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "withings" / "rate.sql"
 QUEUE_ROLE = "ownvitals_queue"
 WEBHOOK_ROLES = ("ownvitals_webhook_secrets", "ownvitals_webhook_events")
 # libpq reads these when the URL leaves the host or a service open; the database fixtures drop
@@ -173,10 +174,11 @@ def drop_withings_functions(url: str | None = None) -> None:
 
 
 def install_db_functions(url: str | None = None) -> None:
-    """``20-queue.sql``, then ``30-maint.sql``, then ``40-withings.sql``, as db-functions does."""
+    """``20-queue.sql``, then ``30-maint.sql``, then ``40-withings.sql``, then ``rate.sql``,
+    as db-functions does."""
     sql = "\n".join(
         script.read_text(encoding="utf-8")
-        for script in (QUEUE_SCRIPT, MAINT_SCRIPT, WITHINGS_SCRIPT)
+        for script in (QUEUE_SCRIPT, MAINT_SCRIPT, WITHINGS_SCRIPT, RATE_SCRIPT)
     )
     run_superuser_sql(url if url is not None else test_admin_url(), sql)
 

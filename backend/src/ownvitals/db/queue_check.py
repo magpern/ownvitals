@@ -11,7 +11,9 @@ ownvitals_app=X/ownvitals_queue}``; the role has exactly its attributes, no memb
 no settings, no default privileges and exactly its privileges; no other user-defined function,
 procedure, aggregate or operator exists in any schema, except the three Withings functions
 ``ensure_month_partitions``, ``webhook_secrets_apply`` and ``webhook_event_insert`` admitted by
-name in ``20-queue.sql`` and pinned the same way when they are installed (``40-withings.sql``);
+name in ``20-queue.sql``, and the rate functions ``withings_rate_claim``,
+``withings_rate_release`` and ``withings_rate_pause`` admitted the same way, each pinned like a
+queue function when it is installed;
 no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
 CHECK, index or partition expression of any table or domain calls one of ``SQL_TEXT_BUILTINS``.
 So nothing can shadow a built-in a function body calls, and nothing a function fires (a trigger,
@@ -92,6 +94,31 @@ WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
         "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
     ),
 }
+# Admitted with the Withings functions (20-queue.sql, rate.sql). Absent until the migration
+# and rate.sql have run; once present, pinned the same way.
+RATE_FUNCTION_NAMES = (
+    "withings_rate_claim",
+    "withings_rate_release",
+    "withings_rate_pause",
+)
+RATE_VERSION = "ownvitals-rate v1"
+_RATE_CONFIG = "search_path=pg_catalog, pg_temp;TimeZone=UTC"
+_RATE_ACL = "ownvitals_app=X/ownvitals_owner,ownvitals_owner=X/ownvitals_owner"
+RATE_PINS: dict[str, tuple[str, str, str, str]] = {
+    "withings_rate_claim": (
+        "p_app_id integer, p_account_id uuid, p_lane integer, p_lease_seconds integer",
+        "ownvitals_owner",
+        _RATE_CONFIG,
+        _RATE_ACL,
+    ),
+    "withings_rate_release": ("p_lease_id uuid", "ownvitals_owner", _RATE_CONFIG, _RATE_ACL),
+    "withings_rate_pause": (
+        "p_app_id integer, p_wait_seconds double precision",
+        "ownvitals_owner",
+        _RATE_CONFIG,
+        _RATE_ACL,
+    ),
+}
 EXPECTED_ACL = "ownvitals_app=X/ownvitals_queue,ownvitals_queue=X/ownvitals_queue"
 # 40-withings.sql grants the ingest role EXECUTE on queue_enqueue so the notification and the
 # job commit together. 20-queue.sql revokes that grant when it is re-run on its own, so both
@@ -147,7 +174,9 @@ SQL_TEXT_BUILTINS = (
     "ts_rewrite",
     "set_config",
 )
-_NAMES = ", ".join(f"'{name}'" for name in (*QUEUE_FUNCTIONS, *WITHINGS_FUNCTION_NAMES))
+_NAMES = ", ".join(
+    f"'{name}'" for name in (*QUEUE_FUNCTIONS, *WITHINGS_FUNCTION_NAMES, *RATE_FUNCTION_NAMES)
+)
 
 # 16384 is FirstNormalObjectId: below it is only what initdb created (pg_catalog,
 # information_schema and the two rules of the pg_settings view). Anything at or above it, in any
@@ -342,6 +371,17 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
             continue
         args, owner, config, acl = WITHINGS_PINS[name]
         expected = [name, args, "true", owner, config, WITHINGS_VERSION, QUEUE_DIGESTS[name], acl]
+        if len(rows) != 1 or rows[0] != expected:
+            found.append(
+                f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
+                "settings, version, md5 or ACL)"
+            )
+    for name in RATE_FUNCTION_NAMES:
+        rows = by_name.get(name, [])
+        if not rows:
+            continue
+        args, owner, config, acl = RATE_PINS[name]
+        expected = [name, args, "true", owner, config, RATE_VERSION, QUEUE_DIGESTS[name], acl]
         if len(rows) != 1 or rows[0] != expected:
             found.append(
                 f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "

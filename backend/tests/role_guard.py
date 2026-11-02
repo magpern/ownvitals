@@ -78,6 +78,13 @@ WITHINGS_FUNCTIONS = {
     "webhook_secrets_apply": SECRETS,
     "webhook_event_insert": EVENTS,
 }
+# rate.sql (#23): the app role may EXECUTE these and no other new function. Same owner.
+RATE_FUNCTIONS = {
+    "withings_rate_claim": OWNER,
+    "withings_rate_release": OWNER,
+    "withings_rate_pause": OWNER,
+}
+_CALLABLE = {**WITHINGS_FUNCTIONS, **RATE_FUNCTIONS}
 # Column grants of ownvitals_webhook_secrets. Not maint, and not the client secret.
 WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("withings_apps", "id"): {(SECRETS, "SELECT")},
@@ -447,8 +454,10 @@ def check_roles(conn: Connection) -> list[str]:
                 not any(grantable for o, _, _, grantable in functions if o == obj),
                 f"{obj}: no grantable privilege",
             )
-        elif withings_installed and signature.partition("(")[0] in WITHINGS_FUNCTIONS:
-            owner = WITHINGS_FUNCTIONS[signature.partition("(")[0]]
+        elif signature.partition("(")[0] in _CALLABLE and (
+            signature.partition("(")[0] in RATE_FUNCTIONS or withings_installed
+        ):
+            owner = _CALLABLE[signature.partition("(")[0]]
             need(
                 _privileges(functions, APP, obj) == {"EXECUTE"},
                 f"{obj}: ownvitals_app EXECUTE only",

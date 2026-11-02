@@ -43,10 +43,25 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
         "webhook secret entries are HMACs",
         "webhook_events": "a notification is a trigger to fetch (PLAN section 5): written "
         "only through webhook_event_insert, purged after 30 days; no owner_id",
+        # The rate limiter (#23, PLAN section 4.4). Cross-user, so not an owned table.
+        "withings_rate_buckets": "per-app Withings token bucket: written only through the "
+        "rate functions; a token is consumed when claimed and never refunded",
+        "withings_rate_slots": "the global in-flight cap for Withings calls: four leased "
+        "slots, freed on release or when the lease expires",
+        "withings_rate_demand": "which account is waiting for a Withings rate token, so a "
+        "lane and round-robin can be applied; identifiers only, no health data",
     }
 )
 # System tables the app role must have no privilege on at all (guard 2). The others get the
 # default DML of ADR 0002 section 5, or the narrower set their migration grants.
 # ``webhook_events`` is closed to the app role (ADR 0002 section 3). ``withings_apps`` is not
 # listed: the app role holds column-level SELECT, which guard 2 records separately.
-NO_APP_ACCESS = frozenset({"alembic_version", "webhook_events"})
+NO_APP_ACCESS = frozenset(
+    {
+        "alembic_version",
+        "webhook_events",
+        "withings_rate_buckets",
+        "withings_rate_slots",
+        "withings_rate_demand",
+    }
+)
