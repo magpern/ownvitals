@@ -58,6 +58,7 @@ from ownvitals.jobs.queue import ReplayRefused
 from ownvitals.keys_cli import add_keys_subcommands
 from ownvitals.keys_cli import run as run_keys
 from ownvitals.mail import MailError
+from ownvitals.withings.apps import add_withings_subcommands, run_withings_apps
 
 _DURATION = re.compile(r"(\d+)([dhm])")
 _UNITS = {"d": "days", "h": "hours", "m": "minutes"}
@@ -100,6 +101,7 @@ def add_subcommands(parser: argparse.ArgumentParser) -> None:
         "job_id"
     )
     add_keys_subcommands(sub)
+    add_withings_subcommands(sub)
 
 
 async def run_replay(args: argparse.Namespace, settings: Settings, out: TextIO, err: TextIO) -> int:
@@ -211,6 +213,7 @@ COMMANDS: dict[str, Command] = {
     "invite": run_auth,
     "admin": run_auth,
     "keys": run_keys,
+    "withings-apps": run_withings_apps,
 }
 
 

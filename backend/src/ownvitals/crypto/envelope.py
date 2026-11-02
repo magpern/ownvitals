@@ -215,10 +215,28 @@ def totp_wrap_aad(key_id: str, user_id: UUID) -> bytes:
     return f"ownvitals-totp-dek-v1|{_key_id(key_id)}|{_uuid(user_id)}".encode()
 
 
+def _app_id(value: int) -> str:
+    """A ``withings_apps.id``: a positive 32-bit integer, so the AAD cannot contain ``|``."""
+    if type(value) is not int or not 1 <= value <= 2_147_483_647:
+        raise ValueError("the app id is a positive integer")
+    return str(value)
+
+
+def app_aad(app_id: int) -> bytes:
+    """``ownvitals-app-v1|<app_id>``: a Withings app's client secret (ADR 0004 section 2)."""
+    return f"ownvitals-app-v1|{_app_id(app_id)}".encode()
+
+
+def app_wrap_aad(key_id: str, app_id: int) -> bytes:
+    """``ownvitals-app-dek-v1|<key_id>|<app_id>``: the wrapped DEK of that client secret."""
+    return f"ownvitals-app-dek-v1|{_key_id(key_id)}|{_app_id(app_id)}".encode()
+
+
 # The prefix of each kind of wrap AAD -> the payload AAD prefix of the same kind of value.
 _PAYLOAD_PREFIX_OF_WRAP = {
     b"ownvitals-dek-v1": b"ownvitals-conn-v1",
     b"ownvitals-totp-dek-v1": b"ownvitals-totp-v1",
+    b"ownvitals-app-dek-v1": b"ownvitals-app-v1",
 }
 
 
