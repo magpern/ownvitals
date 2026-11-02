@@ -9,7 +9,9 @@ Each has its own allowlist, of packages (the package and everything under it) an
   the fence, ADR 0005 section 4). Of ``ownvitals.jobs`` (#9) exactly three modules:
   ``ownvitals.jobs.fence`` (the fenced helper: every write a worker makes for a job goes through
   it), ``ownvitals.jobs.service`` (the jobs API's own writes for the signed-in user, web only) and
-  ``ownvitals.jobs.progress`` (the event stream's owner-scoped reads, web only). **The rest of
+  ``ownvitals.jobs.progress`` (the event stream's owner-scoped reads, web only). The exact
+  module ``ownvitals.ecg_validate`` (#47) reads one named owner's ECG rows for the operator
+  command; the pure ``ownvitals.ecg`` library stays outside the allowlist. **The rest of
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
   through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
@@ -53,6 +55,8 @@ class Allowlist:
 
 # The exact modules of ``ownvitals.jobs`` (#9) that may open each session; see the docstring.
 JOBS_USER_SESSION = ("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvitals.jobs.progress")
+# The owner ECG report (#47): one module, not the pure ECG library.
+ECG_USER_SESSION = ("ownvitals.ecg_validate",)
 JOBS_SYSTEM_SESSION = ("ownvitals.jobs.queue",)
 # The key ring's startup check (#8), the one module of ``ownvitals.crypto`` that may.
 KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
@@ -61,7 +65,7 @@ FLAGS_SYSTEM_SESSION = ("ownvitals.flags.routes",)
 
 USER_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
-    modules=JOBS_USER_SESSION,
+    modules=(*JOBS_USER_SESSION, *ECG_USER_SESSION),
 )
 SYSTEM_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth"),

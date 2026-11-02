@@ -16,6 +16,9 @@ worker it refuses a privileged role and a drifted queue (exit 1).
 ``jobs replay <id>`` (#18) queues a new job from a dead-lettered one and writes an ``admin_audit``
 row (``job.replay``). It prints the new job id. The dead-lettered row is not changed.
 
+``ecg validate --user <uuid>`` (#47) prints ADR 0006's owner checks as counts, yes/no and whole
+percents. It reads that one account through a user session; the ECG library itself stays pure.
+
 ``invite create``, ``admin grant``, ``admin revoke`` and ``admin mfa-reset`` (#10, ADR 0003
 section 1 "Admins") run as the app role through ``ownvitals.auth.operator``; they never touch the
 tables themselves. ``invite create`` prints the code once on stdout (it is not stored); every
@@ -52,6 +55,8 @@ from ownvitals.db import (
     verify_database_role,
 )
 from ownvitals.db.queue_check import install_queue_check, verify_queue
+from ownvitals.ecg.validate_cli import add_ecg_subcommands
+from ownvitals.ecg_validate import run as run_ecg
 from ownvitals.egress import install_egress_hook, require_standard_event_loop
 from ownvitals.jobs import queue
 from ownvitals.jobs.queue import ReplayRefused
@@ -102,6 +107,7 @@ def add_subcommands(parser: argparse.ArgumentParser) -> None:
     )
     add_keys_subcommands(sub)
     add_withings_subcommands(sub)
+    add_ecg_subcommands(sub)
 
 
 async def run_replay(args: argparse.Namespace, settings: Settings, out: TextIO, err: TextIO) -> int:
@@ -214,6 +220,7 @@ COMMANDS: dict[str, Command] = {
     "admin": run_auth,
     "keys": run_keys,
     "withings-apps": run_withings_apps,
+    "ecg": run_ecg,
 }
 
 

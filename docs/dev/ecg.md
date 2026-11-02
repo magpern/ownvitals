@@ -258,3 +258,42 @@ The sweep has 70 rows and all pass, with the two tails named below (run 2026-11-
 - The generator's AF-like and ectopic beats are simplifications of real ones.
 - CI cost: the ECG suite takes about 75 s on the Windows development machine (480 tests), the
   cost of at least 20 seeds in 25 conditions at two rates (accepted by the Architect).
+
+## Validation (`ecg validate`, #47)
+
+Owner-run command of ADR 0006 §14. Agents do not run it against a real account and do not treat
+its output as settling A1–A9 or as INTEGRATION_VERIFIED. The criteria live in `ownvitals.ecg.validate_cli` and `ownvitals.ecg.validate_rules`
+(pure: no database; split so each file stays short). `ownvitals.ecg_validate` opens one
+`user_session` for `--user` and is the only new module on the session allowlist; the signal
+library stays pure. `cli.py` only installs the subcommand.
+
+```bash
+python -m ownvitals ecg validate --user <uuid> [--oc1 yes|no] [--oc2 yes|no] \
+  [--v4-wrong-beats N --v4-inspected-beats N --v4-justified N]
+```
+
+Stdout is categorical: pass/fail, yes/no, counts and rates rounded half up to a whole percent.
+No samples, measurement values, timestamps or ids. A database error on stderr is the exception
+type only. Exit 0 when no decided check failed (pending and not-applicable do not fail). Exit 1
+when one did, or when the user id or the V4 flags are refused. V2 is report-only.
+
+| Line | Meaning |
+|---|---|
+| `recordings N` | rows visible for that user |
+| `OC1 scale` | pass when every first lead's peak absolute sample is 100–10,000 µV |
+| `OC1 owner` | the `--oc1` answer, or `pending` |
+| `OC1` | pass only when the scale passes and the owner answers yes |
+| `OC2 positions N` | how many distinct wear-position codes are stored (not the codes) |
+| `OC2` | pass only when the owner answers yes and at least one code is stored |
+| `OC3 lowpass` | pass when, on every strip long enough for a 4 s Welch spectrum, power from 5–15 Hz is ≥ 30 dB above power above 40 Hz (the ADR's figure), on the stored signal |
+| `OC3 mains` | yes when a 50 or 60 Hz line's ±1 Hz power is ≥ 10 dB above the side bands 3–10 Hz away and ≥ 1% of the 5–15 Hz power (our choices for the ADR's yes/no) |
+| `OC4` | not-applicable when every recording has one lead. Otherwise pass when each extra lead has the same length and ≥ 95% of R-peaks (both directions) lie within 20 ms. One sampling rate is stored per recording, so "equal rate" is that single rate; an unsupported rate fails toward "not simultaneous" |
+| `OC5` | pass when every recording shares connection and timestamp with a live measure group that has a type in {130, 135, 136, 137, 138} and the same device id (or, when the recording names a device and the group has none, the same model). A recording with no device id does not match. `OC5 without` is the count with no such group |
+| `OC5 late-link` | `not-applicable` until the notification hold records why it ended (#88) |
+| `V1` | pass when the gate passes ≥ 80% of recordings whose `afib_details` is not in {−1, 2, 5, 13}. A missing code counts as not noisy |
+| `V2` | six agreement counts (Withings clean/noise × our pass/fail/none). HRV-reason lines are the share of gate-passed strips carrying that reason. Fail-band lines count gate failures by Withings heart-rate band (under 50, from 50, unknown) and reason. Unknown reason strings are counted as `other` and not printed |
+| `V3` | pass when \|our HR − Withings heart rate\| ≤ 5 bpm for ≥ 95% of gate-passed strips that have both rates and are not `irregular_rhythm`. The Bland–Altman summary is the sign of the mean difference and whether both limits of agreement (mean ± 1.96 SD, n−1) lie inside ±5 bpm. The bpm figures are not printed |
+| `V4` | pending until the owner passes all three counts. Pass when ≥ 20 gate-passed and ≥ 10 gate-failed strips are stored, the wrong-beat percent is ≤ 1, and ≥ 8 rejected strips were justified. The command does not list which strips: a list would identify recordings |
+| `V5` | pass when recomputing `estimated` matches the stored JSON byte for byte (`canonical_json`), including the stored input revision and fingerprint. A row with neither a signal nor an estimate is not compared |
+
+The command was not run on a real account. Tests use labelled synthetic values only.

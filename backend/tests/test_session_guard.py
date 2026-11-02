@@ -33,7 +33,12 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
     # A later package joins in its own PR, with its reason (session_scan's docstring).
     user = Allowlist(
         prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
-        modules=("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvitals.jobs.progress"),
+        modules=(
+            "ownvitals.jobs.fence",
+            "ownvitals.jobs.service",
+            "ownvitals.jobs.progress",
+            "ownvitals.ecg_validate",
+        ),
     )
     system = Allowlist(
         prefixes=("ownvitals.db", "ownvitals.auth"),
@@ -72,6 +77,8 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
         "ownvitals.dbtools",
         "ownvitals.authx",
         "ownvitals.connectionsx",
+        "ownvitals.ecg",
+        "ownvitals.ecg.validate_cli",
     ],
 )
 def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
@@ -89,6 +96,7 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.jobs.fence", True, False),
         ("ownvitals.jobs.service", True, False),
         ("ownvitals.jobs.progress", True, False),
+        ("ownvitals.ecg_validate", True, False),
         ("ownvitals.jobs.queue", False, True),
         # The key ring's startup check (#8): that exact module, nothing else in the package.
         ("ownvitals.crypto.keks", False, True),
