@@ -378,7 +378,7 @@ def test_the_connection_scope_is_private_to_the_egress_package() -> None:
 
 # The exemptions: account mail over smtplib (roadmap Amendment 1), and db-functions' one libpq
 # connection to the stack's database (#101; its names: test_egress_db_functions.py).
-def test_mail_is_the_only_module_allowed_a_connection_of_its_own() -> None:
+def test_only_in_pins_mail_the_worker_hostname_and_db_functions_psycopg() -> None:
     limited = {key: entry.only_in for key, entry in TABLE.items() if entry.only_in}
     # The socket entry is no connection: the worker's lease owner name (a local call).
     runner = ("ownvitals.db.install_functions",)
