@@ -95,4 +95,4 @@ async def subscribe(
     """Subscribe each appli. The URL is an argument of ``notify`` and is not logged here."""
     url = callback_url(base, secret)
     for appli in applis:
-        await client.notify_subscribe(token, callbackurl=url, appli=appli, comment="ownvitals")
+        await client.notify_subscribe(token, callbackurl=url, appli=appli)
