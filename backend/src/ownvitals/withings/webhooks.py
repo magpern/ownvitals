@@ -454,8 +454,8 @@ async def retire_all(factory: Factory, *, app_id: int) -> int:
 
 
 async def rotation_stalls(factory: Factory, app_id: int, *, bound: timedelta) -> set[str]:
-    """Alerts when a request or the step after ``active_from`` is past ``bound``, including
-    when lock 4 is held so the step cannot run."""
+    """Alerts when a request is past ``bound``, or two live entries overlap and the newest
+    ``active_from`` is at least ``bound`` in the past, including when lock 4 is held."""
     alerts: set[str] = set()
     now = datetime.now(UTC)
     async with factory() as session, session.begin():
@@ -472,9 +472,11 @@ async def rotation_stalls(factory: Factory, app_id: int, *, bound: timedelta) ->
             for item in _entries(row.webhook_secrets)
             if item.get("retire_at") is None and _when(item.get("active_from")) is not None
         ]
+        # The original secret stays live for the whole overlap, so its age is not the stall.
+        # Alert only once the newest secret's active_from is at least ``bound`` in the past.
         opened = [_when(item.get("active_from")) for item in live]
-        late = any(stamp is not None and now - stamp >= bound for stamp in opened)
-        if len(live) >= 2 and late:
+        newest = max((stamp for stamp in opened if stamp is not None), default=None)
+        if len(live) >= 2 and newest is not None and now - newest >= bound:
             alerts.add("step_late")
     for code in sorted(alerts):
         logger.warning("webhook rotation stalled", extra={"alert": code, "app_id": app_id})

@@ -287,6 +287,32 @@ def _stored(url: str, app_id: int) -> list[dict[str, object]]:
     return list(raw)
 
 
+def _set_active_from(url: str, app_id: int, secret_id: str, active_from: datetime) -> None:
+    stamp = active_from.astimezone(UTC).isoformat()
+    with engine_for(url) as engine, engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE withings_apps SET webhook_secrets = ("
+                " SELECT coalesce(jsonb_agg(CASE WHEN e->>'secret_id' = :secret"
+                " THEN jsonb_set(e, '{active_from}', to_jsonb(CAST(:stamp AS text)))"
+                " ELSE e END), '[]'::jsonb)"
+                " FROM jsonb_array_elements(webhook_secrets) e) WHERE id = :id"
+            ),
+            {"secret": secret_id, "stamp": stamp, "id": app_id},
+        )
+
+
+def _request_rotation(url: str, app_id: int) -> None:
+    with engine_for(url) as engine, engine.begin() as admin:
+        admin.execute(
+            text(
+                "UPDATE withings_apps SET rotation_requested_at = now(), "
+                "rotation_reason = 'routine' WHERE id = :id"
+            ),
+            {"id": app_id},
+        )
+
+
 def _cached(app_id: int, item: dict[str, object], pepper: bytes) -> CachedEntry:
     opened = datetime.fromisoformat(str(item["active_from"]))
     if opened.tzinfo is None:
@@ -369,6 +395,51 @@ async def test_a_held_lock_and_cancelled_repoint_jobs_raise_the_stall_alert(
     assert cancelled == 1
     assert state == "cancelled"
     assert presented not in state
+
+
+@pytest.mark.usefixtures("schema")
+async def test_step_late_follows_the_newest_secret_not_the_original(
+    factory: Factory, database_url: str
+) -> None:
+    """A healthy overlap keeps the original secret. step_late waits for the newest one."""
+    seed_keys(database_url)
+    bound = timedelta(hours=1)
+    now = datetime.now(UTC)
+    app_id = new_app(database_url)
+    seed = CurrentWebhookSeed(SEED, SEED_BYTES)
+    _request_rotation(database_url, app_id)
+    await append_secret(
+        factory,
+        app_id=app_id,
+        seed=seed,
+        pepper=PEPPER_BYTES,
+        pepper_id=PEPPER,
+        active_from=now - bound - timedelta(hours=1),
+    )
+    _request_rotation(database_url, app_id)
+    await append_secret(
+        factory,
+        app_id=app_id,
+        seed=seed,
+        pepper=PEPPER_BYTES,
+        pepper_id=PEPPER,
+        active_from=now + timedelta(hours=1),
+    )
+    stored = _stored(database_url, app_id)
+    newest = max(stored, key=lambda item: str(item["active_from"]))
+    healthy = await rotation_stalls(factory, app_id, bound=bound)
+    assert "step_late" not in healthy
+    _set_active_from(
+        database_url,
+        app_id,
+        str(newest["secret_id"]),
+        datetime.now(UTC) - bound + timedelta(minutes=5),
+    )
+    recent = await rotation_stalls(factory, app_id, bound=bound)
+    assert "step_late" not in recent
+    _set_active_from(database_url, app_id, str(newest["secret_id"]), datetime.now(UTC) - bound)
+    stalled = await rotation_stalls(factory, app_id, bound=bound)
+    assert "step_late" in stalled
 
 
 def test_a_retired_seed_rebuilds_an_old_url_and_cannot_mint() -> None:
