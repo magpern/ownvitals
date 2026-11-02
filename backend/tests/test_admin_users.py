@@ -1,0 +1,214 @@
+"""The admin Users view (#127): account helpers behind guard 8, step-up and an audit row.
+
+Synthetic accounts only. The address prefix is not stored. A password hash, session token and
+user agent never appear in a response.
+"""
+
+import uuid
+from datetime import UTC, datetime
+
+import pytest
+from fastapi import FastAPI
+from fastapi.routing import APIRoute
+from pydantic import SecretStr
+
+from admintools import (  # noqa: F401 - fixtures
+    AdminEnv,
+    admin_schema_fixture,
+    aenv_fixture,
+    caller,
+    reason,
+)
+from ownvitals.admin.routes import admin_area_routes, calls
+from ownvitals.auth.admin_accounts import AccountSummary, account_emails
+from ownvitals.auth.deps import require_admin_stepup
+from ownvitals.config import Settings
+from ownvitals.web import create_app
+
+_MARKER = "synthetic-hash-marker"
+_GONE = uuid.UUID("00000000-0000-4000-8000-000000000001")
+
+
+def _app() -> FastAPI:
+    return create_app(Settings(environment="test", app_secret_key=SecretStr("k" * 40)))  # pyright: ignore[reportCallIssue]
+
+
+def test_writes_depend_on_require_admin_stepup() -> None:
+    app = _app()
+    writes = {
+        ("POST", "/api/admin/users/{user_id}/disable"),
+        ("POST", "/api/admin/users/{user_id}/enable"),
+        ("DELETE", "/api/admin/users/{user_id}"),
+    }
+    seen: set[tuple[str, str]] = set()
+    for path, route in admin_area_routes(app.routes):
+        if not isinstance(route, APIRoute) or not path.startswith("/api/admin/users"):
+            continue
+        for method in route.methods or set():
+            keyed = (method, path)
+            if method in ("GET", "HEAD"):
+                assert require_admin_stepup not in calls(route.dependant), keyed
+            elif keyed in writes:
+                assert require_admin_stepup in calls(route.dependant), keyed
+                seen.add(keyed)
+    assert seen == writes
+
+
+def test_an_account_summary_repr_omits_the_address() -> None:
+    row = AccountSummary(
+        id=_GONE,
+        email="sam@example.com",
+        email_normalized="sam@example.com",
+        role="user",
+        disabled_at=None,
+        created_at=row_time(),
+        second_factor="setup_pending",
+        last_sign_in=None,
+        sessions=0,
+    )
+    assert "sam@example.com" not in repr(row)
+
+
+def row_time() -> datetime:
+    return datetime(2026, 10, 29, tzinfo=UTC)
+
+
+async def test_account_emails_skips_an_unknown_id_and_caps_the_lookup(aenv: AdminEnv) -> None:
+    user_id = await aenv.env.user("sam@example.com")
+    found = await account_emails(aenv.env.factory, [user_id, _GONE])
+    assert found == {user_id: "sam@example.com"}
+    too_many = [uuid.uuid4() for _ in range(101)]
+    with pytest.raises(ValueError, match="at most 100"):
+        await account_emails(aenv.env.factory, too_many)
+
+
+async def _user(aenv: AdminEnv, email: str, *, totp: bool = False) -> uuid.UUID:
+    user_id = await aenv.env.user(email, password_hash=_MARKER)
+    if totp:
+        await aenv.env.full_login(user_id)
+        await aenv.env.run(
+            "INSERT INTO auth_events (kind, user_id) VALUES ('sign_in', :u)", u=user_id
+        )
+    return user_id
+
+
+async def test_the_list_shows_accounts_and_stores_only_the_prefix_length(aenv: AdminEnv) -> None:
+    admin = await caller(aenv)
+    sam = await _user(aenv, "sam@example.com", totp=True)
+    kim = await _user(aenv, "kim@example.com")
+    response = await admin.get("/api/admin/users?q=sam@&limit=50")
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert [row["email"] for row in body["users"]] == ["sam@example.com"]
+    (row,) = body["users"]
+    assert row["id"] == str(sam)
+    assert row["role"] == "user"
+    assert row["second_factor"] == "on"
+    assert row["sessions"] == 1
+    assert row["last_sign_in"] is not None
+    assert row["disabled_at"] is None
+    assert _MARKER not in response.text
+    assert "user_agent" not in response.text
+    assert str(kim) not in response.text
+    (audit,) = await aenv.audit_rows()
+    assert audit.action == "user.list"
+    assert audit.params == {"limit": 50, "offset": 0, "q_length": 4}
+    assert "sam@" not in str(audit.params)
+
+
+async def test_a_percent_prefix_is_literal_and_setup_pending_has_no_sign_in(
+    aenv: AdminEnv,
+) -> None:
+    admin = await caller(aenv)
+    await _user(aenv, "kim@example.com")
+    response = await admin.get("/api/admin/users?q=%")
+    assert response.status_code == 200, response.text
+    assert response.json()["users"] == []
+    one = await admin.get("/api/admin/users?q=kim@example.com")
+    assert one.status_code == 200
+    (row,) = one.json()["users"]
+    assert row["second_factor"] == "setup_pending"
+    assert row["last_sign_in"] is None
+    assert row["sessions"] == 0
+
+
+async def test_find_disable_enable_and_a_missing_step_up_changes_nothing(aenv: AdminEnv) -> None:
+    admin = await caller(aenv)
+    user_id = await _user(aenv, "sam@example.com", totp=True)
+    found = await admin.get(f"/api/admin/users/{user_id}")
+    assert found.status_code == 200, found.text
+    assert found.json()["email"] == "sam@example.com"
+    assert found.json()["second_factor"] == "on"
+
+    cold = await caller(aenv, "cold@example.com", stepup=False)
+    refused = await cold.request("POST", f"/api/admin/users/{user_id}/disable")
+    assert (refused.status_code, reason(refused)) == (403, "step_up_required")
+    assert await aenv.env.scalar("SELECT disabled_at IS NULL FROM users WHERE id = :u", u=user_id)
+
+    disabled = await admin.request("POST", f"/api/admin/users/{user_id}/disable")
+    assert disabled.status_code == 200, disabled.text
+    assert disabled.json()["sessions_revoked"] == 1
+    assert disabled.json()["disabled_at"] is not None
+    assert await aenv.env.scalar("SELECT count(*) FROM sessions WHERE user_id = :u", u=user_id) == 0
+
+    enabled = await admin.request("POST", f"/api/admin/users/{user_id}/enable")
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["disabled_at"] is None
+    assert await aenv.env.scalar("SELECT disabled_at IS NULL FROM users WHERE id = :u", u=user_id)
+
+    missing = await admin.request("POST", f"/api/admin/users/{_GONE}/disable")
+    assert (missing.status_code, reason(missing)) == (404, "not_found")
+    own = await admin.request("POST", f"/api/admin/users/{admin.user_id}/disable")
+    assert (own.status_code, reason(own)) == (409, "target_is_admin")
+    reasons = [row.reason for row in await aenv.audit_rows() if row.action == "user.disable"]
+    assert "target_is_admin" in reasons
+    assert "not_found" in reasons
+    assert any(
+        row.action == "user.disable" and row.outcome == "ok" for row in await aenv.audit_rows()
+    )
+
+
+async def test_delete_uses_the_account_delete_path_and_refuses_an_admin(aenv: AdminEnv) -> None:
+    admin = await caller(aenv)
+    user_id = await _user(aenv, "sam@example.com", totp=True)
+    mismatch = await admin.request(
+        "DELETE", f"/api/admin/users/{user_id}", {"email": "other@example.com"}
+    )
+    assert (mismatch.status_code, reason(mismatch)) == (409, "email_mismatch")
+    assert await aenv.env.scalar("SELECT count(*) FROM users WHERE id = :u", u=user_id) == 1
+    assert (
+        await aenv.env.scalar("SELECT count(*) FROM auth_events WHERE kind = 'account_deleted'")
+        == 0
+    )
+
+    removed = await admin.request(
+        "DELETE", f"/api/admin/users/{user_id}", {"email": "SAM@example.com"}
+    )
+    assert removed.status_code == 204, removed.text
+    assert await aenv.env.scalar("SELECT count(*) FROM users WHERE id = :u", u=user_id) == 0
+    assert await aenv.env.scalar("SELECT count(*) FROM sessions WHERE user_id = :u", u=user_id) == 0
+    assert (
+        await aenv.env.scalar("SELECT user_id FROM auth_events WHERE kind = 'account_deleted'")
+        is None
+    )
+    deleted = [
+        row
+        for row in await aenv.audit_rows()
+        if row.action == "user.delete" and row.outcome == "ok"
+    ]
+    assert len(deleted) == 1
+    assert deleted[0].target_user_id is None
+    assert deleted[0].target_kind == "user"
+    assert deleted[0].target_id == str(user_id)
+    assert "sam@" not in str(deleted[0].params)
+
+    again = await admin.request(
+        "DELETE", f"/api/admin/users/{user_id}", {"email": "sam@example.com"}
+    )
+    assert (again.status_code, reason(again)) == (404, "not_found")
+    own = await admin.request(
+        "DELETE", f"/api/admin/users/{admin.user_id}", {"email": "admin@example.com"}
+    )
+    assert (own.status_code, reason(own)) == (409, "target_is_admin")
+    assert await aenv.env.scalar("SELECT count(*) FROM users WHERE id = :u", u=admin.user_id) == 1
