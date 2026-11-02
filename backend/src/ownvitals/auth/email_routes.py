@@ -11,11 +11,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from ownvitals.auth import mails
 from ownvitals.auth.accounts import find_user
+from ownvitals.auth.admin_accounts import delete_user_account
 from ownvitals.auth.clientip import bucket_ip
 from ownvitals.auth.cookies import clear_session_cookie
 from ownvitals.auth.deps import current_session, request_ip, require_sensitive, require_user
@@ -157,6 +158,5 @@ async def delete_account(
 ) -> None:
     """Delete the user (recent auth and a step-up); rows cascade."""
     async with system_session(factory(request)) as db:
-        await record_event(db, "account_deleted", ip=request_ip(request))
-        await db.execute(delete(users).where(users.c.id == ctx.user_id))
+        await delete_user_account(db, ctx.user_id, ip=request_ip(request))
     clear_session_cookie(response)

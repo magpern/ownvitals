@@ -5,7 +5,8 @@ table.
 ``admin_audit.params`` holds keys and meanings, never a secret, token, code, free text or health
 value: each action declares a pydantic model (``extra="forbid"``, bounded fields), and
 ``admin_session`` refuses an action that is not listed, or params its model rejects, before it
-opens a connection. A later admin issue (the Users view, #127) adds its actions to ``ACTIONS``.
+opens a connection. The Users view (#127) adds ``user.list``, ``user.read``, ``user.disable``,
+``user.enable`` and ``user.delete``.
 """
 
 import json
@@ -110,6 +111,14 @@ class JobReplayParams(Params):
     new_job_id: UUID
 
 
+class UserListParams(Params):
+    """The Users list's page. The address prefix is not stored: only how long it was."""
+
+    q_length: Annotated[int, Field(ge=1, le=320)] | None = None
+    offset: Annotated[int, Field(ge=0, le=10_000)]
+    limit: Annotated[int, Field(ge=1, le=100)]
+
+
 class SettingSetParams(Params):
     """A flag write: the key and what the value means, never free text. A banner's text stays in
     ``app_settings`` (only its level and length are logged); a refused value logs the key
@@ -132,6 +141,11 @@ ACTIONS: Final[dict[str, type[Params]]] = {
     "setting.read": NoParams,
     "setting.set": SettingSetParams,
     "setting.clear": NoParams,
+    "user.list": UserListParams,
+    "user.read": NoParams,
+    "user.disable": NoParams,
+    "user.enable": NoParams,
+    "user.delete": NoParams,
 }
 
 

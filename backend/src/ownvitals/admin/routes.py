@@ -257,9 +257,9 @@ def install(app: Any) -> None:
     """The feature routers, the handler that turns an ``AdminRefused`` into its response, the
     audit row of an admin request's 422, 400 or 413, and the body limit. Call it after
     ``ownvitals.auth.setup.install``: it wraps the handlers installed there."""
-    from ownvitals.admin import audit_routes, jobs, settings  # they import this module
+    from ownvitals.admin import audit_routes, jobs, settings, users  # they import this module
 
-    for feature in (audit_routes.router, jobs.router, settings.router):
+    for feature in (audit_routes.router, jobs.router, settings.router, users.router):
         app.include_router(feature)
 
     previous = app.exception_handlers.get(
