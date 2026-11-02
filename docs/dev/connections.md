@@ -1,0 +1,94 @@
+# Connections, rewrap and wipe
+
+ADR 0004 sections 1, 3 and 5 to 9. The table is migration `0007_connections`. Credentials are
+envelope ciphertext (ADR 0004 section 2, [crypto.md](crypto.md)): payload AAD
+`ownvitals-conn-v1|<owner_id>|<provider>|<id>`, wrap AAD
+`ownvitals-dek-v1|<key_id>|<owner_id>|<provider>|<id>`. The application supplies the row id
+before it encrypts. Nothing here stores or logs a token.
+
+## The row
+
+`connections` is an owned table (forced RLS, `UNIQUE (owner_id, id)`). One live row per user
+and provider: unique index `connections_one_live` on `(owner_id, provider)` where
+`status <> 'disconnected'`. A disconnected row stays, so a later connection is a new row and
+does not reuse a ciphertext encrypted for the old id.
+
+The five credential columns (`secret`, `secret_nonce`, `wrapped_dek`, `dek_nonce`, `key_id`)
+are all set or all null. `connected` requires them, `disconnected` forbids them,
+`needs_reconnect` allows either. `token_generation` starts at 0 and increases by one on every
+token write (`write_tokens`: `UPDATE ... WHERE token_generation = :g`, zero rows means a newer
+generation won and the write changes nothing). A rewrap, a disconnect and a wipe do not change
+it. `refresh_in_flight` and `refresh_intent_at` are the M1 refresh seam; a token write clears
+them.
+
+The provider check admits `withings` (M1, not connected yet) and `test`. Routes offer `test`
+only when `environment` is `test`. Any other provider, including `withings` until M1, answers
+`404 {"detail": {"reason": "unknown_provider"}}`.
+
+## Routes
+
+`GET /api/connections` (a full session) lists id, provider, status, error category and dates.
+No ciphertext, no `public`, no tokens.
+
+`POST /api/connections/{provider}` and `DELETE /api/connections/{provider}` use
+`require_sensitive`: recent authentication, then a step-up (ADR 0003 section 4). The test
+provider's body is `access_token` and `refresh_token` (8 to 256 characters). Disconnect nulls
+the credential columns, sets `disconnected` and keeps the row. Both answer without a token in
+the body. Validation errors on `/api/connections` drop `input` (`auth.setup`).
+
+The job issuer's account directory (`ownvitals.auth.owners.ACCOUNTS.connection_refs`) reads
+live `(provider, id)` pairs in the owner's session. A disconnected row is not a ref.
+
+## keys rewrap
+
+`python -m ownvitals keys rewrap`, as the app role (the same engine as web). One transaction
+per connection row and per authenticator: unwrap with the row's KEK, wrap with the current
+one, `UPDATE ... WHERE key_id = :old`. The payload and `token_generation` stay. A row with
+empty credentials is skipped. Output is counts per key id. Run it again after a stop; rows
+already on the current KEK are left alone. Exit 1 when a row cannot be unwrapped
+(`key_unavailable` leaves it, `decrypt_failed` sets `needs_reconnect`).
+
+Install the new KEK as `connection_kek` with a new `OWNVITALS_CONNECTION_KEK_ID`, keep the old
+file as `connection_kek_<old id>`, restart, then rewrap. The old file can go once both counts
+for that id are zero (connections and authenticators). The Withings app secret is not this
+command's (M1).
+
+## keys wipe
+
+After a suspected KEK compromise, with web and worker stopped and a new KEK id that has no
+check row yet:
+
+```bash
+docker compose --profile maint run --rm maint python -m ownvitals keys wipe --confirm
+```
+
+The maint service uses the owner role. The command refuses while `pg_stat_activity` shows the
+app role in this database, and while the configured KEK id already has a check row. It loads
+no KEK and calls no provider. Per account, in one transaction: credential columns become null,
+one row per provider becomes `needs_reconnect` (any older row of that provider stays
+`disconnected`, so the live unique index still holds), and the authenticator is reset the way
+`admin mfa-reset` does (TOTP, recovery codes, sessions, known devices). An `auth_events` row
+`connections_wiped` records the provider names and whether an authenticator was removed, never
+a token. After the commit, a mail says what was removed and where to sign in. It does not
+include a token, the address or a provider account id.
+
+Then every `connection_keks` row is deleted, `VACUUM (FULL)` rewrites `connections`,
+`mfa_totp`, `mfa_recovery_codes` and `connection_keks`, and the command tries `CHECKPOINT`.
+The owner role cannot run `CHECKPOINT`; the refusal prints:
+
+```bash
+docker compose exec db psql -U postgres -d ownvitals -c CHECKPOINT
+```
+
+`keys wipe --resend` sends mails still marked unsent. It does not wipe again.
+
+## Tests
+
+```bash
+cd backend
+uvx uv@0.13.6 run pytest -q tests/test_connections.py tests/test_connections_schema.py \
+  tests/test_connections_generation.py tests/test_connection_errors.py \
+  tests/test_keys_rewrap.py tests/test_keys_wipe.py
+```
+
+Fixtures are synthetic. The test provider never calls Withings.

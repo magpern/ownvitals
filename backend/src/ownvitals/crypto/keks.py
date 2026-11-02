@@ -32,10 +32,21 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal, NoReturn
 
-from sqlalchemy import Column, DateTime, LargeBinary, MetaData, Table, Text, func, select
+from sqlalchemy import (
+    Column,
+    DateTime,
+    LargeBinary,
+    MetaData,
+    Table,
+    Text,
+    delete,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import OperationalError, ProgrammingError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
 from ownvitals.config import Settings, secrets_dir
 from ownvitals.crypto.envelope import (
@@ -421,3 +432,22 @@ async def load_keyring(
     if not await ring._try_verify():
         logger.debug("database unreachable at startup; the key ring is checked before use")
     return ring
+
+
+async def has_check_row(factory: async_sessionmaker[AsyncSession], key_id: str) -> bool:
+    """Whether ``key_id`` already has a check row. ``keys wipe`` refuses when the configured
+    id does: that key is still the one web would start with, so it has not been replaced."""
+    async with system_session(factory) as db:
+        return await stored_check_value(db, key_id) is not None
+
+
+async def delete_check_rows(factory: async_sessionmaker[AsyncSession]) -> int:
+    """Delete every check row. The owner role runs this after a wipe; the app role cannot."""
+    async with system_session(factory) as db:
+        result = await db.execute(delete(connection_keks).returning(connection_keks.c.key_id))
+        return len(result.all())
+
+
+async def vacuum_check_table(connection: AsyncConnection) -> None:
+    """Rewrite the check table after its rows were deleted."""
+    await connection.execute(text("VACUUM (FULL) public.connection_keks"))
