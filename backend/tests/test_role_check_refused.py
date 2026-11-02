@@ -76,6 +76,7 @@ def plain_login(database_url: str) -> Iterator[str]:
         f"ALTER ROLE {LOGIN} SET statement_timeout = '30s'",
         f"ALTER ROLE {LOGIN} SET lock_timeout = '5s'",
         f"ALTER ROLE {LOGIN} SET idle_in_transaction_session_timeout = '60s'",
+        f"ALTER ROLE {LOGIN} SET transaction_timeout = '5min'",
     )
     try:
         yield url_for(database_url, LOGIN, PASSWORD)

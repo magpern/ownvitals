@@ -20,6 +20,11 @@ from ownvitals.db.rls import enable_owner_rls
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 ROLES_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "init" / "10-roles.sql"
+QUEUE_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "queue" / "20-queue.sql"
+MAINT_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "maint" / "30-maint.sql"
+WITHINGS_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "withings" / "40-withings.sql"
+QUEUE_ROLE = "ownvitals_queue"
+WEBHOOK_ROLES = ("ownvitals_webhook_secrets", "ownvitals_webhook_events")
 # libpq reads these when the URL leaves the host or a service open; the database fixtures drop
 # them for the test process, so libpq connects to exactly the host the loopback check saw.
 LIBPQ_HOST_ENVIRONMENT = ("PGHOST", "PGHOSTADDR", "PGSERVICE")
@@ -96,23 +101,118 @@ def alembic_config() -> Config:
     return Config(str(BACKEND_DIR / "alembic.ini"))
 
 
+def test_admin_url() -> str:
+    """The throwaway superuser URL. The queue scripts have to run as a superuser."""
+    url = os.environ.get("OWNVITALS_TEST_DATABASE_URL")
+    if not url:
+        raise RuntimeError("OWNVITALS_TEST_DATABASE_URL is not set")
+    return url
+
+
+def run_superuser_sql(url: str, sql: str) -> None:
+    """Plain SQL as the superuser in one transaction (one simple query, no parameters)."""
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            raw = connection.connection.dbapi_connection
+            assert raw is not None
+            cursor = raw.cursor()
+            try:
+                cursor.execute(sql)  # pyright: ignore[reportArgumentType, reportCallIssue]
+            finally:
+                cursor.close()
+            raw.commit()
+    finally:
+        engine.dispose()
+
+
+def drop_queue(url: str | None = None) -> None:
+    """Drop the queue functions and ``ownvitals_queue`` when they are there.
+
+    A downgrade cannot drop ``jobs`` while those functions depend on it. This is that
+    prerequisite, not a way to hide the queue from guard 2: ``migrated`` installs it again.
+    """
+    admin = url if url is not None else test_admin_url()
+    engine = create_engine(admin, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            exists = connection.execute(
+                text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": QUEUE_ROLE}
+            ).first()
+            if exists is not None:
+                connection.execute(text(f"DROP OWNED BY {QUEUE_ROLE} CASCADE"))
+                connection.execute(text(f"DROP ROLE {QUEUE_ROLE}"))
+    finally:
+        engine.dispose()
+
+
+def drop_withings_functions(url: str | None = None) -> None:
+    """Drop the Withings functions and their NOLOGIN roles when they are there.
+
+    A downgrade cannot drop ``webhook_events`` or ``withings_apps`` while those functions
+    depend on them. ``ensure_month_partitions`` is owned by ``ownvitals_owner``, so it is
+    dropped by name. This is that prerequisite, not a way to hide the functions from guard 2:
+    ``migrated`` installs them again.
+    """
+    admin = url if url is not None else test_admin_url()
+    engine = create_engine(admin, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            connection.execute(
+                text("DROP FUNCTION IF EXISTS public.ensure_month_partitions(text, date, date)")
+            )
+            for role in WEBHOOK_ROLES:
+                exists = connection.execute(
+                    text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": role}
+                ).first()
+                if exists is not None:
+                    connection.execute(text(f"DROP OWNED BY {role} CASCADE"))
+                    connection.execute(text(f"DROP ROLE {role}"))
+    finally:
+        engine.dispose()
+
+
+def install_db_functions(url: str | None = None) -> None:
+    """``20-queue.sql``, then ``30-maint.sql``, then ``40-withings.sql``, as db-functions does."""
+    sql = "\n".join(
+        script.read_text(encoding="utf-8")
+        for script in (QUEUE_SCRIPT, MAINT_SCRIPT, WITHINGS_SCRIPT)
+    )
+    run_superuser_sql(url if url is not None else test_admin_url(), sql)
+
+
+def ready_to_downgrade(owner_url: str) -> None:
+    """Drop the queue and the Withings functions, and empty the key-ring check table, so a
+    downgrade can drop the tables."""
+    drop_withings_functions()
+    drop_queue()
+    forget_check_rows(owner_url)
+
+
 @contextmanager
 def migrated(owner_url: str, revision: str = "head") -> Iterator[None]:
-    """The schema at ``revision`` (as the owner role, like ``alembic upgrade``); removed
-    afterwards. ``env.py`` takes the owner role's URL from ``Settings``, so the URL is passed
-    through the environment for the duration."""
+    """The schema at ``revision`` (as the owner role, like ``alembic upgrade``) with the
+    db-functions scripts applied; removed afterwards.
+
+    ``env.py`` takes the owner role's URL from ``Settings``, so the URL is passed through the
+    environment for the duration. The queue and the Withings functions are dropped before each
+    downgrade because they depend on the tables, then installed again after the upgrade so
+    guard 2 and web startup see them.
+    """
     patch = pytest.MonkeyPatch()
     patch.setenv("OWNVITALS_MIGRATIONS_DATABASE_URL", owner_url)
     try:
-        forget_check_rows(owner_url)
+        ready_to_downgrade(owner_url)
         command.downgrade(alembic_config(), "base")
         # Alembic keeps its own table at base; a fresh one gets the owner's default privileges
         # again, so what the migrations revoke on it is checked every time, not inherited.
         drop_tables(owner_url, "alembic_version")
         command.upgrade(alembic_config(), revision)
+        if revision == "head":
+            install_db_functions()
         yield
     finally:
-        forget_check_rows(owner_url)
+        ready_to_downgrade(owner_url)
         command.downgrade(alembic_config(), "base")
         patch.undo()
 

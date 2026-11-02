@@ -188,6 +188,21 @@ def admin_problems(database_url: str, *statements: str, undo: tuple[str, ...] = 
             ],
             "default privileges for functions must be set",
         ),
+        (
+            ["REVOKE EXECUTE ON FUNCTION public.queue_stats() FROM ownvitals_app"],
+            ["GRANT EXECUTE ON FUNCTION public.queue_stats() TO ownvitals_app"],
+            "ownvitals_app EXECUTE only",
+        ),
+        (
+            ["ALTER ROLE ownvitals_app RESET transaction_timeout"],
+            ["ALTER ROLE ownvitals_app SET transaction_timeout = '5min'"],
+            "role settings must be exactly",
+        ),
+        (
+            ["ALTER ROLE ownvitals_app SET transaction_timeout = '6min'"],
+            ["ALTER ROLE ownvitals_app SET transaction_timeout = '5min'"],
+            "role settings must be exactly",
+        ),
     ],
 )
 def test_the_role_guard_fails_when_a_privilege_drifts(

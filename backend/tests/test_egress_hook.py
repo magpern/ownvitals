@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import tomllib
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from ownvitals.config import Settings
 from ownvitals.db import event_loop_factory
 from ownvitals.egress import (
     EgressRefused,
+    core,
     install_egress_hook,
     installed_kind,
     require_standard_event_loop,
@@ -316,6 +318,13 @@ def test_another_loop_is_refused(factory: Any) -> None:
 
     with pytest.raises(RuntimeError, match="refusing to run on"):
         asyncio.run(check(), loop_factory=factory)
+
+
+@pytest.fixture(autouse=True)
+def _restore_worker_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``main`` installs the process allowlist; put the process back afterwards."""
+    monkeypatch.setattr(core, "_worker_list", None)
+    monkeypatch.setattr(urllib.request, "_opener", None, raising=False)
 
 
 def test_the_worker_installs_the_hook_and_refuses_another_loop(

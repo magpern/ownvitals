@@ -276,9 +276,9 @@ jobs:
       # one transaction, twice (the second run proves it is idempotent). 40-withings.sql is in
       # that same invocation, after 20-queue.sql, so the second run sees its three functions.
       # The digests the worker checks must then match what this Postgres image renders (a stale
-      # queue_digests.py fails here). Afterwards the queue and those functions are uninstalled
-      # and the schema migrated back: guard 2 (role_guard.py) does not know the queue role yet
-      # (#77 item 2), and the test fixtures install the queue themselves and remove it again.
+      # queue_digests.py fails here). The queue and those functions stay installed: guard 2 and
+      # web startup see them through the migrated harness, which drops them only so a downgrade
+      # can remove the tables.
       - name: Install the job queue twice and check its digests
         env:
           PGHOST: 127.0.0.1
@@ -302,14 +302,6 @@ jobs:
               ../docker/postgres/withings/40-withings.sql
           done
           uv run python tests/queue_digests.py --check
-          psql -v ON_ERROR_STOP=1 -X -q -d ownvitals \
-            -c 'DROP OWNED BY ownvitals_queue CASCADE' -c 'DROP ROLE ownvitals_queue' \
-            -c 'DROP FUNCTION IF EXISTS public.ensure_month_partitions(text, date, date)' \
-            -c 'DROP OWNED BY ownvitals_webhook_secrets CASCADE' \
-            -c 'DROP OWNED BY ownvitals_webhook_events CASCADE' \
-            -c 'DROP ROLE ownvitals_webhook_secrets' \
-            -c 'DROP ROLE ownvitals_webhook_events'
-          uv run alembic downgrade base
 
       - name: Lint
         run: uv run ruff check

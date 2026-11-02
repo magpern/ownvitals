@@ -256,8 +256,10 @@ class KeyRing:
 
     A ring starts **unverified**, however it was built, and only a check of its current keys
     against their check rows (``verify``) marks it verified. ``load_keyring`` runs that check at
-    startup. When the database was unreachable then, every use runs it first, and refuses until
-    it passes (``KeyRingError``); a mismatch refuses every use, the same as a refused start. The
+    startup. When the database was unreachable then, the worker keeps the ring and calls
+    ``try_verify``: ``False`` means still unreachable (wait and try again) and ``KeyRingError``
+    stops the worker. Every use runs the check first and refuses until it passes
+    (``KeyRingError``); a mismatch refuses every use, the same as a refused start. The
     check runs in its own ``system_session`` (a second pool connection while the caller holds
     its own), one at a time, so a caller's transaction that rolls back afterwards can never leave
     the ring verified while the check rows were never committed.
@@ -331,6 +333,16 @@ class KeyRing:
             if not self._verified and await _check_rows(self._factory, self._current_keys()):
                 self._verified = True  # only after the check rows' transaction committed
         return self._verified
+
+    async def try_verify(self) -> bool:
+        """Run the check unless it passed already.
+
+        ``False`` while the database is unreachable at connect, so the worker waits and tries
+        again. ``KeyRingError`` when the row does not match or the check table is missing; any
+        other error during the check propagates. ``verify`` refuses an unverified ring instead
+        of waiting, which is what ``/api/ready`` and every use call.
+        """
+        return await self._try_verify()
 
     async def verify(self) -> None:
         """Check the current keys against their rows unless that passed already, or refuse:

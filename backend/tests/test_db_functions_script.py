@@ -336,9 +336,10 @@ def test_libpq_authenticates_with_the_written_line(
 
 @pytest.fixture
 def migrated_without_queue(owner_database_url: str) -> Iterator[str]:
+    """Head, then the queue removed: this test is the one that installs it."""
     url = admin_url()
-    uninstall_queue(url)
     with migrated(owner_database_url):
+        uninstall_queue(url)
         try:
             yield url
         finally:
