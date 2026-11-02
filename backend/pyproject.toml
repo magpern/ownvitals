@@ -20,7 +20,9 @@ dependencies = [
     "scipy>=1.18.1",
     "segno==1.6.6",
     "sqlalchemy[asyncio]>=2.0.36",
+    "tzdata>=2025.2",  # IANA zones for source_tz day assignment; not the OS database
     "uvicorn>=0.34",  # no extras: uvloop bypasses the egress hook (ADR 0009); h11 serves HTTP
+    "zstandard>=0.23.0",  # ECG signal frames (ADR 0006 section 1); Python 3.12 has no zstd
 ]
 
 [dependency-groups]
