@@ -1,17 +1,13 @@
 """Nightly reconciliation (PLAN section 4.4).
 
-A measure row gets ``deleted_at`` only after two consecutive complete passes missed it.
-An error does not delete and does not replace that set. Edits bump ``data_revisions``.
-Deletes name ``owner_id`` and ``connection_id``. ``notify list`` subscribes a missing appli,
-updates one on another callback under our base, and revokes the rest. Boolean ``resubscribe``
-on the connection's public object (the 14-day mark) revokes those callbacks, then subscribes.
-URLs from the list are passed to notify and dropped: not stored, not logged.
+A measure row is deleted only after two complete misses; an error deletes nothing.
+Measures are re-read through now + 3 months and no further. Callback URLs are never logged.
 """
 
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -25,6 +21,7 @@ from ownvitals.ingest.cursors import write_cursor
 from ownvitals.ingest.fetch import window
 from ownvitals.ingest.revisions import bump, current
 from ownvitals.ingest.rows import soft_delete_measure, upsert_measure_group
+from ownvitals.ingest.when import plus_months
 from ownvitals.jobs import JobFailure
 from ownvitals.jobs.run import JobRun
 from ownvitals.jobs.withings import lane_for
@@ -345,7 +342,11 @@ async def execute_reconcile(
     lane = lane_for("withings_reconcile", "scheduler") if lane is None else lane
     if from_scopes(spec, account.scopes) == NOT_AUTHORIZED:
         return await _stop(job, account, name, NOT_AUTHORIZED)
-    spans = windows(spec, moment)
+    read_until = moment
+    if spec.shape == "measures":
+        # Inclusive API end is the last instant strictly before ingest's horizon.
+        read_until = plus_months(moment, 3) - timedelta(microseconds=1)
+    spans = windows(spec, read_until)
     if not spans:
         return await _stop(job, account, name, None)
     budget = RetryBudget(retries=2)

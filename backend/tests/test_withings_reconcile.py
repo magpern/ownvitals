@@ -6,7 +6,7 @@ import logging
 import urllib.request
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -35,7 +35,7 @@ from ownvitals.withings.subscriptions import callback_url
 from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport
 from withingsschema import new_app
-from withingsstore import delete_group, edit_group, find_group
+from withingsstore import add_group, delete_group, edit_group, find_group
 from withingswire import Subscription
 
 BASE = "https://hooks.example.test"
@@ -278,6 +278,44 @@ async def test_a_row_is_deleted_only_after_two_complete_passes(
         ).scalar_one()
     assert kept is False
     assert "stale-marker" not in caplog.text
+
+
+async def test_a_group_dated_seven_days_ahead_is_kept_while_the_provider_has_it(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    """A synthetic group seven days ahead, still in the fake, survives two complete passes."""
+    app_id = new_app(database_url)
+    owner, connection, job_id = _plant(database_url, app_id)
+    fake = FakeWithings(seed=30, rate_limit=None)
+    app = fake.add_app()
+    user = fake.add_user(days=3, ecg_count=0, sleep_series_nights=0, intraday_days=0)
+    now = datetime.now(UTC).replace(microsecond=0)
+    ahead = int((now + timedelta(days=7)).timestamp())
+    planted = add_group(
+        user.data,
+        {"date": ahead, "measures": [{"value": 70_125, "type": 1, "unit": -3}]},
+        now=int(now.timestamp()),
+    )
+    grpid = int(planted["grpid"])
+    token = fake.tokens_for(app.client_id, user.userid)["access_token"]
+    account = Account(connection, app_id, ("user.metrics",), "UTC", token)
+    job = _run(sessions, owner, connection, job_id)
+
+    async def once() -> object:
+        _refill(database_url, app_id)
+        async with WithingsClient.open(
+            WithingsApp(app.client_id, app.client_secret), inner=FakeWithingsTransport(fake)
+        ) as client:
+            return await execute_reconcile(job, account, client, "measures", now=now)
+
+    first = await once()
+    assert first.complete is True  # pyright: ignore[reportAttributeAccessIssue]
+    assert await _deleted(sessions, owner, connection, grpid) is False
+    second = await once()
+    assert second.complete is True  # pyright: ignore[reportAttributeAccessIssue]
+    assert second.deleted == 0  # pyright: ignore[reportAttributeAccessIssue]
+    assert await _deleted(sessions, owner, connection, grpid) is False
+    assert str(grpid) not in await _absent(sessions, owner)
 
 
 async def test_a_backdated_edit_updates_the_row_and_bumps_the_revision(
