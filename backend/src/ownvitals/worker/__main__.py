@@ -1,15 +1,15 @@
 """``python -m ownvitals.worker``: run the worker until SIGTERM or SIGINT (ADR 0005 section 5).
 
-It refuses to start, with exit code 2 and no override, on a privileged database role (ADR 0002
-section 5) or a drifted queue (ADR 0005 section 3); a database that is down at startup is checked
-on its first connection instead, and nothing is claimed before that check passed.
+It refuses to start, with exit code 2 and no override, without the worker allowlist (ADR 0003
+section 6, ADR 0009), on a privileged database role (ADR 0002 section 5), on a drifted queue
+(ADR 0005 section 3), or with a missing, malformed or swapped KEK (ADR 0004 section 3). A
+database that is down at startup is checked on its first connection instead, and nothing is
+claimed before the allowlist is installed and the role, queue and key ring checks have passed.
 
-First thing it installs the egress hook (``install_egress_hook("worker")``, ADR 0009), and the
-loop refuses to run unless it is the standard library's selector loop, the only one whose
-sockets the hook sees. Two start-up steps join this module in #77: the worker's egress allowlist
-(``ownvitals.egress.install_worker_allowlist``, #6; this is the only non-test module besides the
-probe that may call it) and the KEK ring check (``ownvitals.crypto.keks.load_keyring``, #8). Until
-then the worker makes no outbound call and reads no connection secret: #9 registers no kind.
+First thing it installs the egress hook (``install_egress_hook("worker")``, ADR 0009) and the
+worker allowlist (``install_worker_allowlist``, the only non-test module besides the probe that
+may call it). The loop refuses to run unless it is the standard library's selector loop, the
+only one whose sockets the hook sees.
 """
 
 import asyncio
@@ -19,12 +19,26 @@ import sys
 
 from ownvitals.auth.owners import ACCOUNTS
 from ownvitals.config import Settings
-from ownvitals.db import DatabaseRoleError, event_loop_factory
-from ownvitals.egress import install_egress_hook, require_standard_event_loop
+from ownvitals.crypto.keks import KeyRingError, load_keyring
+from ownvitals.db import (
+    DatabaseRoleError,
+    create_session_factory,
+    event_loop_factory,
+)
+from ownvitals.egress import (
+    install_egress_hook,
+    install_worker_allowlist,
+    require_standard_event_loop,
+    worker_allowlist_installed,
+)
 from ownvitals.log import configure_logging
 from ownvitals.worker.loop import create_worker_engine, run_worker, verify_startup
 
 logger = logging.getLogger("ownvitals.worker")
+
+
+class WorkerStartupError(RuntimeError):
+    """The worker allowlist is not installed. Never contains credentials."""
 
 
 def _install_signal_handlers(loop: asyncio.AbstractEventLoop, stop: asyncio.Event) -> None:
@@ -37,9 +51,13 @@ def _install_signal_handlers(loop: asyncio.AbstractEventLoop, stop: asyncio.Even
 
 async def _run(settings: Settings) -> None:
     require_standard_event_loop()  # the egress hook sees no other loop's sockets
+    if not worker_allowlist_installed():
+        raise WorkerStartupError("the worker allowlist is not installed")
     engine = create_worker_engine(settings)
     try:
         await verify_startup(engine)  # refuses a privileged role or a drifted queue
+        # Before any claim: a missing, malformed or swapped KEK refuses the start.
+        await load_keyring(create_session_factory(engine), settings, role="worker")
     finally:
         await engine.dispose()
     stop = asyncio.Event()
@@ -52,9 +70,10 @@ def main() -> int:
     settings = Settings()
     configure_logging(settings.log_level)
     install_egress_hook("worker", settings)  # before anything can connect (ADR 0009)
+    install_worker_allowlist(ai_enabled=settings.ai_insights)
     try:
         asyncio.run(_run(settings), loop_factory=event_loop_factory())
-    except DatabaseRoleError as refused:
+    except (DatabaseRoleError, KeyRingError, WorkerStartupError) as refused:
         # The message names roles and objects only, never a credential.
         logger.error("worker refused to run", extra={"reason": str(refused)})
         return 2

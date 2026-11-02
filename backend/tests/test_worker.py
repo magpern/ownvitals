@@ -9,6 +9,8 @@ import re
 import signal
 import subprocess
 import sys
+import urllib.request
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -16,7 +18,10 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from jobtools import admin_fixture, install_queue, queue_schema_fixture  # noqa: F401 - fixtures
+from keystools import KEY_D, app_factory, write_key
 from ownvitals.config import Settings
+from ownvitals.crypto.keks import load_keyring
+from ownvitals.egress import core
 from ownvitals.worker.__main__ import main
 from ownvitals.worker.loop import (
     Worker,
@@ -25,6 +30,17 @@ from ownvitals.worker.loop import (
     worker_id,
     worker_pool,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_worker_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``main`` installs the process allowlist; put the process back afterwards."""
+    monkeypatch.setattr(core, "_worker_list", None)
+    monkeypatch.setattr(urllib.request, "_opener", None, raising=False)
+
+
+async def _must_not_claim(*_args: object, **_kwargs: object) -> None:
+    raise AssertionError("the worker claimed before startup finished")
 
 
 def _down(url: str, poll: float = 0.02) -> Settings:
@@ -128,6 +144,65 @@ def test_main_refuses_a_drifted_queue_with_exit_code_2(
         assert main() == 2
     finally:
         install_queue(admin.engine.url.render_as_string(hide_password=False))
+
+
+@pytest.mark.usefixtures("restore_logging")
+def test_main_refuses_to_start_without_the_allowlist(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("ownvitals.worker.__main__.install_worker_allowlist", lambda **_k: None)
+    monkeypatch.setattr("ownvitals.worker.__main__.run_worker", _must_not_claim)
+    assert main() == 2
+    assert "allowlist is not installed" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("restore_logging", "queue_schema")
+def test_main_refuses_a_missing_kek(
+    monkeypatch: pytest.MonkeyPatch,
+    app_database_url: str,
+    secrets_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (secrets_dir / "connection_kek").unlink()
+    monkeypatch.setenv("OWNVITALS_DATABASE_URL", app_database_url)
+    monkeypatch.setattr("ownvitals.worker.__main__.run_worker", _must_not_claim)
+    assert main() == 2
+    assert "secret file is missing" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("restore_logging", "queue_schema")
+def test_main_refuses_a_malformed_kek(
+    monkeypatch: pytest.MonkeyPatch,
+    app_database_url: str,
+    secrets_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (secrets_dir / "connection_kek").write_bytes(b"not-a-key\n")
+    monkeypatch.setenv("OWNVITALS_DATABASE_URL", app_database_url)
+    monkeypatch.setattr("ownvitals.worker.__main__.run_worker", _must_not_claim)
+    assert main() == 2
+    assert "64 lowercase" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("restore_logging", "queue_schema")
+def test_main_refuses_a_swapped_kek(
+    monkeypatch: pytest.MonkeyPatch,
+    app_database_url: str,
+    secrets_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = Settings(database_url=app_database_url, environment="test")  # pyright: ignore[reportArgumentType]
+
+    async def record() -> None:
+        async with app_factory(settings) as factory:
+            assert (await load_keyring(factory, settings, role="worker")).verified
+
+    asyncio.run(record())
+    write_key(secrets_dir, "connection_kek", KEY_D)  # synthetic: another key, same id
+    monkeypatch.setenv("OWNVITALS_DATABASE_URL", app_database_url)
+    monkeypatch.setattr("ownvitals.worker.__main__.run_worker", _must_not_claim)
+    assert main() == 2
+    assert "does not match the check value" in capsys.readouterr().out
 
 
 def test_the_worker_id_fits_the_claim_function() -> None:

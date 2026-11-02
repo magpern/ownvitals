@@ -172,18 +172,20 @@ registered yet: `KINDS` stays empty, so the worker still claims nothing until th
 | `current_user` (`jobs/deps.py`) | every jobs route answers 401 `not_signed_in` | #10 (full session, CSRF) |
 | `stream_session_probe` | the session is never valid: a stream ends at its first check | #10 |
 | `KINDS` | empty: the worker claims nothing, the API refuses every kind | M1 |
-| worker start-up | no `egress.install_worker_allowlist` (#6), no `crypto.keks.load_keyring` (#8) | #77 item 1 |
+| worker start-up | `install_worker_allowlist` and `load_keyring` run before any claim (#77) | done in #77 |
 
 Each default is pinned by a test (`test_jobs_fence.py`, `test_jobs_api.py`, `test_jobs_stream.py`,
 `test_jobs_schema.py`, `test_jobs_errors.py`).
 
-## Guard 2 and the queue (#77 item 2)
+## Guard 2 and the queue
 
-Guard 2 (`tests/role_guard.py`) does not know `ownvitals_queue` or the app role's `EXECUTE` on the
-queue functions yet. Until #77 teaches it, **guard 9 is the only guard that covers them**, and
-nothing leaves the queue installed for guard 2 to see: the test fixtures (`tests/jobtools.py`)
-install it per module and uninstall it afterwards (`DROP OWNED BY ownvitals_queue CASCADE`, `DROP
-ROLE`), and CI's queue step does the same before the tests.
+Guard 2 (`tests/role_guard.py`) knows `ownvitals_queue`: exactly `USAGE` on `public`,
+`SELECT, INSERT, UPDATE` on `jobs`, `SELECT, INSERT` on `job_events`, `SELECT` on
+`connections.id`, `connections.owner_id` and `connections.status`, and `EXECUTE` for
+`ownvitals_queue` and `ownvitals_app` on the six queue functions. The migrated-schema harness
+(`tests/dbtools.migrated`) applies `20-queue.sql` and `30-maint.sql` after `upgrade head`, so
+guard 2 and web startup see the installed queue. The harness drops the queue only before a
+downgrade, because the functions depend on the tables.
 
 ## Tests
 

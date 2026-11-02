@@ -23,7 +23,7 @@ the worker connect as `ownvitals_app`, which can't bypass either.
 |---|---|---|
 | `postgres` | the db init script only (and, from #9, `db-functions`) | never web, worker or migrate |
 | `ownvitals_owner` | `migrate` (Alembic) | owns the database, schema `public` and every table; no `BYPASSRLS`; its password never reaches web or worker |
-| `ownvitals_app` | web, worker | `NOINHERIT`, member of no role, owns nothing; `CONNECT`, `USAGE` on `public`, DML on tables and `USAGE, SELECT` on sequences through the owner's default privileges; never `TRUNCATE`, `REFERENCES`, `TRIGGER`, `MAINTAIN`, `CREATE` or `TEMP`; role defaults `statement_timeout 30s`, `lock_timeout 5s`, `idle_in_transaction_session_timeout 60s` |
+| `ownvitals_app` | web, worker | `NOINHERIT`, member of no role, owns nothing; `CONNECT`, `USAGE` on `public`, DML on tables and `USAGE, SELECT` on sequences through the owner's default privileges; never `TRUNCATE`, `REFERENCES`, `TRIGGER`, `MAINTAIN`, `CREATE` or `TEMP`; role defaults `statement_timeout 30s`, `lock_timeout 5s`, `idle_in_transaction_session_timeout 60s`, `transaction_timeout 5min` |
 
 `10-roles.sql` reads the two passwords from `$DATABASE_OWNER_PASSWORD_FILE` (default
 `/run/secrets/database_owner_password`) and `$DATABASE_PASSWORD_FILE` (default
@@ -52,7 +52,7 @@ user of the URL, `session_user`):
   membership is allowed (the roles script grants none);
 - is a superuser, or has `BYPASSRLS` or `REPLICATION`;
 - owns a table, a schema or the database;
-- has role settings other than the three timeouts;
+- has role settings other than the three timeouts, or `transaction_timeout` unset or above 5 minutes;
 - meets a default for any `app.*` setting (`app.user_id` is the RLS user): on the role itself,
   on the database (`ALTER DATABASE ... SET`) or on every role (`ALTER ROLE ALL [IN DATABASE ...]
   SET`);
@@ -63,8 +63,9 @@ user of the URL, `session_user`):
 
 The attribute and ownership checks also cover every role the role is a member of, so a report
 names what a membership would give. The engine repeats the check on every new connection, and on
-every pool checkout checks that the connection carries no `app.user_id` and has exactly the
-role's timeouts (otherwise the pool replaces it).
+every pool checkout checks that the connection carries no `app.user_id`, has exactly the three
+timeouts, and has `transaction_timeout` set and at most 5 minutes (otherwise the pool replaces
+it).
 
 A login the database refuses is fatal too (`DatabaseRoleError`, #89): SQLSTATE class 28, 42501
 or 3D000. psycopg reports no SQLSTATE at connect, so `role_check.REFUSED_LOGIN` matches the

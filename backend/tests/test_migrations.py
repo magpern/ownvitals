@@ -7,7 +7,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
-from dbtools import alembic_config, applied_revisions, migrated, public_tables
+from dbtools import (
+    alembic_config,
+    applied_revisions,
+    drop_queue,
+    migrated,
+    public_tables,
+    ready_to_downgrade,
+)
 
 HEAD = "0008_withings_jobs"
 
@@ -43,13 +50,16 @@ def test_upgrade_head_then_downgrade_base(
     monkeypatch.setenv("OWNVITALS_MIGRATIONS_DATABASE_URL", owner_database_url)
     config = alembic_config()
     try:
+        ready_to_downgrade(owner_database_url)
         command.upgrade(config, "head")
         assert applied_revisions(database_url) == [HEAD]
+        ready_to_downgrade(owner_database_url)
         command.downgrade(config, "base")
         assert applied_revisions(database_url) == []
         command.upgrade(config, "head")  # the revisions are repeatable
         assert applied_revisions(database_url) == [HEAD]
     finally:
+        ready_to_downgrade(owner_database_url)
         command.downgrade(config, "base")
 
 
@@ -89,6 +99,7 @@ def test_downgrading_0004_is_refused_while_it_holds_check_rows(
                     text("INSERT INTO connection_keks (key_id, check_value) VALUES ('kek-0', :v)"),
                     {"v": bytes(16)},
                 )
+            drop_queue()  # the check rows must stay: they are what the downgrade refuses
             with pytest.raises(DBAPIError, match="connection_keks holds check rows"):
                 command.downgrade(alembic_config(), "0003_jobs")
             assert applied_revisions(database_url) == [HEAD]
@@ -150,4 +161,5 @@ def test_the_migrations_use_the_migration_url_and_its_password_file(
         command.upgrade(config, "head")  # the password comes from the owner file
         assert applied_revisions(database_url) == [HEAD]
     finally:
+        ready_to_downgrade(owner_database_url)
         command.downgrade(config, "base")

@@ -275,9 +275,8 @@ jobs:
       # runner (python -m ownvitals.db.install_functions, the password in a PGPASSFILE only), in
       # one transaction, twice (the second run proves it is idempotent). The digests the worker
       # checks must then match what this Postgres image renders (a stale queue_digests.py fails
-      # here). Afterwards the queue is uninstalled and the schema migrated back: guard 2 (role_guard.py)
-      # does not know the queue role yet (#77 item 2), and the test fixtures install the queue
-      # themselves and remove it again.
+      # here). The queue stays installed: guard 2 and web startup see it through the migrated
+      # harness, which drops it only so a downgrade can remove the tables.
       - name: Install the job queue twice and check its digests
         env:
           PGHOST: 127.0.0.1
@@ -300,9 +299,6 @@ jobs:
               ../docker/postgres/queue/20-queue.sql
           done
           uv run python tests/queue_digests.py --check
-          psql -v ON_ERROR_STOP=1 -X -q -d ownvitals \
-            -c 'DROP OWNED BY ownvitals_queue CASCADE' -c 'DROP ROLE ownvitals_queue'
-          uv run alembic downgrade base
 
       - name: Lint
         run: uv run ruff check

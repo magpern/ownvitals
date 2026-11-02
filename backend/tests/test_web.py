@@ -1,19 +1,21 @@
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import NoReturn
 
 import httpx
 import pytest
+from alembic import command
 from fastapi import APIRouter, FastAPI
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
 
-from dbtools import public_tables
+from dbtools import alembic_config, drop_queue, migrated, public_tables, ready_to_downgrade
 from ownvitals import __version__, web
 from ownvitals.config import Settings
-from ownvitals.crypto.keks import KeyRingError
 from ownvitals.db import DatabaseRoleError
+from ownvitals.db.queue_check import QueueDriftError
 from ownvitals.web import FEATURE_ROUTERS, create_app
 
 
@@ -72,20 +74,59 @@ async def test_ready_is_200_with_a_real_database(app_database_url: str) -> None:
     assert response.json() == {"status": "ready"}
 
 
+@pytest.fixture
+def unmigrated(owner_database_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The database at base, so web's startup sees neither the migrations nor the queue."""
+    monkeypatch.setenv("OWNVITALS_MIGRATIONS_DATABASE_URL", owner_database_url)
+    ready_to_downgrade(owner_database_url)
+    command.downgrade(alembic_config(), "base")
+
+
+@pytest.fixture
+def migrated_without_queue(owner_database_url: str) -> Iterator[None]:
+    """Head, then the queue removed: the migrations are there and the queue role is not."""
+    with migrated(owner_database_url):
+        drop_queue()
+        yield
+
+
 async def test_web_refuses_to_start_on_an_unmigrated_database(
-    database_url: str, app_database_url: str
+    database_url: str, app_database_url: str, unmigrated: None
 ) -> None:
-    """The key ring's check (ADR 0004 section 3) needs ``connection_keks``: on a database the
-    migrations haven't reached, web doesn't start, and the error names the migration."""
+    """No migrations and no queue: web refuses before it serves. The queue check runs on the
+    first connection, so that is the refusal when both are missing."""
+    del unmigrated
     assert "connection_keks" not in public_tables(database_url)
-    with pytest.raises(
-        KeyRingError,
-        match=r"^the connection_keks table is missing: run the migrations \(up to "
-        r"0004_connection_keks\) before starting web or the worker$",
-    ) as refused:
+    with pytest.raises(QueueDriftError, match="ownvitals_queue") as refused:
         async with make_client(app_database_url):
             pytest.fail("the app must not start")
-    assert refused.value.__context__ is None  # no SQL statement or parameters attached
+    assert "password" not in str(refused.value).lower()
+
+
+async def test_web_refuses_a_missing_queue(
+    app_database_url: str, migrated_without_queue: None
+) -> None:
+    """The migrated schema without the db-functions scripts: the queue role is absent."""
+    del migrated_without_queue
+    with pytest.raises(QueueDriftError, match="ownvitals_queue"):
+        async with make_client(app_database_url):
+            pytest.fail("the app must not start")
+
+
+@pytest.mark.usefixtures("schema")
+async def test_web_refuses_an_altered_queue(database_url: str, app_database_url: str) -> None:
+    """EXECUTE revoked: the function, its ACL and the digest check no longer match."""
+    engine = create_engine(database_url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            connection.execute(
+                text("REVOKE EXECUTE ON FUNCTION public.queue_reap(integer) FROM ownvitals_app")
+            )
+        with pytest.raises(QueueDriftError, match="job queue"):
+            async with make_client(app_database_url):
+                pytest.fail("the app must not start")
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.usefixtures("schema")  # web reads connection_keks at startup

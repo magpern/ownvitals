@@ -8,6 +8,7 @@ item 3.
 
 import argparse
 import io
+import urllib.request
 from collections.abc import Iterator
 
 import pytest
@@ -35,6 +36,7 @@ from ownvitals.db.queue_check import (
     queue_verified,
     verify_queue,
 )
+from ownvitals.egress import core, install_worker_allowlist
 from ownvitals.worker.__main__ import _run  # pyright: ignore[reportPrivateUsage]
 from ownvitals.worker.loop import create_worker_engine, verify_startup
 from queue_guard import check_queue
@@ -250,8 +252,14 @@ async def test_verify_queue_needs_the_per_connection_check(app_database_url: str
 
 
 async def test_the_worker_and_jobs_stats_refuse_a_drifted_queue(
-    admin: Connection, superuser: str, app_database_url: str
+    admin: Connection,
+    superuser: str,
+    app_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(core, "_worker_list", None)
+    monkeypatch.setattr(urllib.request, "_opener", None, raising=False)
+    install_worker_allowlist(ai_enabled=False)
     admin.execute(text("GRANT EXECUTE ON FUNCTION public.queue_stats() TO PUBLIC"))
     with pytest.raises(QueueDriftError, match="job queue"):
         await _run(settings_for(app_database_url))
