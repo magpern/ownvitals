@@ -1,7 +1,8 @@
 #!/bin/sh
 # Entrypoint of the one-shot compose service `db-functions` (ADR 0005 section 3, #126): run
-# 20-queue.sql and then 30-maint.sql as the superuser, in one transaction, after the migrations
-# and before web and the worker start. The runner is ownvitals.db.install_functions.
+# 20-queue.sql, then 30-maint.sql, then 40-withings.sql as the superuser, in one transaction,
+# after the migrations and before web and the worker start. The runner is
+# ownvitals.db.install_functions.
 #
 # It runs in the application image, which carries this file and the SQL under /app/db-functions
 # (Dockerfile): the functions installed are always those of the release the image belongs to,
@@ -45,4 +46,5 @@ export PGPASSFILE="$pgpass"
 
 exec python -m ownvitals.db.install_functions \
   "host=db port=5432 dbname=ownvitals user=postgres" \
-  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql
+  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \
+  /app/db-functions/40-withings.sql

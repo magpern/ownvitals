@@ -8,8 +8,8 @@
 -- the app-role column grants on withings_apps. ownvitals_webhook_secrets has no BYPASSRLS.
 -- ownvitals_webhook_events inserts webhook_events and nothing else.
 --
--- 20-queue.sql still refuses any function it does not list. That file is not edited here.
--- A re-run of 20-queue.sql after this script will stop until it admits these three functions.
+-- 20-queue.sql admits exactly ensure_month_partitions, webhook_secrets_apply and
+-- webhook_event_insert, and no other function. A re-run of that script after this one keeps them.
 
 DO $$
 BEGIN
@@ -105,6 +105,7 @@ CREATE OR REPLACE FUNCTION public.ensure_month_partitions(
   LANGUAGE plpgsql
   SECURITY DEFINER
   SET search_path = pg_catalog, pg_temp
+  SET TimeZone TO 'UTC'
 AS $fn$
 DECLARE
   v_parent oid;

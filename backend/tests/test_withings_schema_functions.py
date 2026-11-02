@@ -13,9 +13,11 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from jobtools import engine_for, ensure_user
+from jobtools import engine_for, ensure_user, install_queue, uninstall_queue
 from ownvitals.db import SYSTEM_TABLES
+from ownvitals.db.queue_check import QUEUE_QUERY, queue_problems
 from ownvitals.db.queue_locks import PARTITIONS, WEBHOOK_SECRET_ROTATION
+from queue_guard import check_queue
 from rls_guard import check_tables
 from withingsschema import (
     HMAC,
@@ -65,8 +67,8 @@ def test_partitions_are_created_lazily_for_the_months_asked(
         names = (
             conn.execute(
                 text(
-                "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-                "WHERE n.nspname = 'public' AND c.relispartition AND c.relkind = 'r' ORDER BY 1"
+                    "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = 'public' AND c.relispartition AND c.relkind = 'r' ORDER BY 1"
                 )
             )
             .scalars()
@@ -83,6 +85,54 @@ def test_partitions_are_created_lazily_for_the_months_asked(
             text("SELECT count(*) FROM pg_class c WHERE c.relispartition")
         ).scalar_one()
     assert left == 0
+
+
+def test_a_month_bound_is_the_utc_month_in_another_session_timezone(
+    functions: None, app_database_url: str
+) -> None:
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        conn.execute(text("SELECT set_config('TimeZone', 'America/New_York', true)"))
+        zone = conn.execute(text("SHOW TimeZone")).scalar_one()
+        conn.execute(
+            text(
+                "SELECT ensure_month_partitions('sleep_series', DATE '2026-11-01', "
+                "DATE '2026-11-01')"
+            )
+        )
+        # pg_get_expr renders timestamptz literals in the session TimeZone. Read them in UTC
+        # so the assertion is the month itself: UTC midnight, including where New York's
+        # offset changes between November and December.
+        conn.execute(text("SELECT set_config('TimeZone', 'UTC', true)"))
+        bound = conn.execute(
+            text(
+                "SELECT pg_get_expr(c.relpartbound, c.oid) FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'public' AND c.relname = 'sleep_series_y2026m11'"
+            )
+        ).scalar_one()
+        config = conn.execute(
+            text(
+                "SELECT proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+                "WHERE n.nspname = 'public' AND p.proname = 'ensure_month_partitions'"
+            )
+        ).scalar_one()
+    assert zone == "America/New_York"
+    assert bound == "FOR VALUES FROM ('2026-11-01 00:00:00+00') TO ('2026-12-01 00:00:00+00')"
+    assert list(config) == ["search_path=pg_catalog, pg_temp", "TimeZone=UTC"]
+
+
+def test_the_queue_script_installs_again_while_the_withings_functions_exist(
+    functions: None, database_url: str
+) -> None:
+    install_queue(database_url)
+    try:
+        install_queue(database_url)
+        with engine_for(database_url) as engine, engine.connect() as conn:
+            row = conn.execute(text(QUEUE_QUERY)).one()
+            assert queue_problems(tuple(row)) == []
+            assert check_queue(conn) == []
+    finally:
+        uninstall_queue(database_url)
 
 
 def test_a_month_outside_the_floor_or_the_ceiling_is_refused(
@@ -196,9 +246,13 @@ def test_append_retire_and_the_audit_row_hold_no_hmac(
         assert _apply(conn, app_id, "retire", secret=SECRET) == "retire"
         assert _apply(conn, app_id, "delete-retired", secret=SECRET) == "delete-retired"
     with engine_for(database_url) as engine, engine.connect() as conn:
-        rows = conn.execute(
-            text("SELECT params::text FROM admin_audit WHERE action = 'webhook_secrets.apply'")
-        ).scalars().all()
+        rows = (
+            conn.execute(
+                text("SELECT params::text FROM admin_audit WHERE action = 'webhook_secrets.apply'")
+            )
+            .scalars()
+            .all()
+        )
     assert rows
     assert all(HMAC.hex() not in params and "hmac" not in params for params in rows)
 

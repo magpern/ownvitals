@@ -15,7 +15,13 @@ import re
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from ownvitals.db.queue_check import QUEUE_FUNCTIONS, QUEUE_VERSION
+from ownvitals.db.queue_check import (
+    QUEUE_FUNCTIONS,
+    QUEUE_VERSION,
+    WITHINGS_FUNCTION_NAMES,
+    WITHINGS_PINS,
+    WITHINGS_VERSION,
+)
 from ownvitals.db.queue_digests import QUEUE_DIGESTS
 
 QUEUE, APP = "ownvitals_queue", "ownvitals_app"
@@ -180,9 +186,10 @@ def check_queue(conn: Connection) -> list[str]:
 
     # Nothing that could shadow a built-in called by a function body, and nothing a function body
     # fires that could run user code as ownvitals_queue: no user-defined function, procedure,
-    # aggregate or operator in any schema besides the three, no trigger but the internal ones of
-    # foreign keys, no rule but the _RETURN rules of views. Named as the startup check and the
-    # script name them.
+    # aggregate or operator in any schema besides the queue functions and the three Withings
+    # functions, no trigger but the internal ones of foreign keys, no rule but the _RETURN rules
+    # of views. Named as the startup check and the script name them.
+    admitted = [*QUEUE_FUNCTIONS, *WITHINGS_FUNCTION_NAMES]
     hooks = (
         conn.execute(
             text(
@@ -206,7 +213,7 @@ def check_queue(conn: Connection) -> list[str]:
                 "JOIN pg_namespace n ON n.oid = c.relnamespace "
                 "WHERE r.rulename <> '_RETURN' AND r.oid >= 16384"
             ),
-            {"names": list(QUEUE_FUNCTIONS), "system": list(SYSTEM_SCHEMAS)},
+            {"names": admitted, "system": list(SYSTEM_SCHEMAS)},
         )
         .scalars()
         .all()
@@ -232,11 +239,12 @@ def check_queue(conn: Connection) -> list[str]:
             "SELECT p.oid, n.nspname, p.proname, "
             "pg_get_function_identity_arguments(p.oid) AS args, "
             "p.prosecdef, p.prokind, l.lanname, p.proowner, p.proconfig, p.proacl::text[] AS acl, "
-            "obj_description(p.oid, 'pg_proc') AS comment, md5(pg_get_functiondef(p.oid)) AS md5 "
+            "obj_description(p.oid, 'pg_proc') AS comment, md5(pg_get_functiondef(p.oid)) AS md5, "
+            "pg_get_userbyid(p.proowner) AS owner_name "
             "FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
             "JOIN pg_language l ON l.oid = p.prolang WHERE p.proname = ANY(:names)"
         ),
-        {"names": list(QUEUE_FUNCTIONS)},
+        {"names": admitted},
     ).all()
     need(
         sorted(str(c) for c, _ in owned) == ["pg_proc"] * len(QUEUE_FUNCTIONS)
@@ -258,4 +266,26 @@ def check_queue(conn: Connection) -> list[str]:
         need(f.comment == QUEUE_VERSION, f"{prefix}: comment must be {QUEUE_VERSION!r}")
         need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
         need(set(f.acl or []) == ACL and len(f.acl or []) == 2, f"{prefix}: ACL must be {ACL}")
+    for name in WITHINGS_FUNCTION_NAMES:
+        found = [f for f in functions if f.proname == name]
+        if not found:
+            continue
+        args, owner, config, acl = WITHINGS_PINS[name]
+        if len(found) != 1:
+            problems.append(f"{name}: must exist exactly once, found {len(found)}")
+            continue
+        f = found[0]
+        prefix = f"public.{name}"
+        need(f.nspname == "public" and f.args == args, f"{prefix}: wrong schema or arguments")
+        need(f.prosecdef, f"{prefix}: must be SECURITY DEFINER")
+        need(f.prokind == "f" and f.lanname == "plpgsql", f"{prefix}: must be a plpgsql function")
+        need(f.owner_name == owner, f"{prefix}: must be owned by {owner}")
+        need(list(f.proconfig or []) == config.split(";"), f"{prefix}: settings must be fixed")
+        need(f.comment == WITHINGS_VERSION, f"{prefix}: comment must be {WITHINGS_VERSION!r}")
+        need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
+        expected_acl = set(acl.split(","))
+        need(
+            set(f.acl or []) == expected_acl and len(f.acl or []) == len(expected_acl),
+            f"{prefix}: ACL must be {expected_acl}",
+        )
     return problems
