@@ -272,6 +272,7 @@ async def test_jobs_stats_prints_counts_only(admin: Connection, app_database_url
         "jobs_running 0",
         "jobs_completed 0",
         "jobs_failed 0",
+        "jobs_dead_letter 0",
         "jobs_cancelled 1",
     ]
     assert str(owner) not in out.getvalue() + err.getvalue()
@@ -336,7 +337,7 @@ async def test_objects_in_public_cannot_shadow_built_ins_and_are_refused(
             )
             with engine_for(app_database_url) as app, app.begin() as tx:
                 assert tx.execute(text("SELECT public.queue_reap(10)")).scalar_one() == 1
-                assert tx.execute(text("SELECT count(*) FROM public.queue_stats()")).scalar() == 5
+                assert tx.execute(text("SELECT count(*) FROM public.queue_stats()")).scalar() == 6
         finally:
             with engine.connect() as connection:
                 for statement in UNSHADOW:

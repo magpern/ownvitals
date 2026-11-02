@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ownvitals.context import UserContext, require_context
 from ownvitals.db.queue_locks import JOB_CREATION
 from ownvitals.jobs.events import notify_event, validated_payload
+from ownvitals.jobs.withings import lane_for
 
 USER_LEASE_VERSION: Final = 0
 
@@ -35,8 +36,9 @@ _BY_KEY = text(
     "SELECT id, request_hash FROM jobs WHERE owner_id = :owner_id AND idempotency_key = :key"
 )
 _NEW_JOB = text(
-    "INSERT INTO jobs (id, owner_id, kind, state, input, idempotency_key, request_hash, next_seq) "
-    "VALUES (:id, :owner_id, :kind, 'queued', CAST(:input AS jsonb), :key, :request_hash, 1)"
+    "INSERT INTO jobs (id, owner_id, kind, origin, lane, state, input, idempotency_key, "
+    "request_hash, next_seq) VALUES (:id, :owner_id, :kind, 'user', :lane, 'queued', "
+    "CAST(:input AS jsonb), :key, :request_hash, 1)"
 )
 _LOCK = text(
     "SELECT state, cancel_requested_at FROM jobs "
@@ -126,6 +128,7 @@ async def create(db: AsyncSession, ctx: UserContext, new: NewJob, *, limit: int)
             **owner,
             "id": job_id,
             "kind": new.kind,
+            "lane": lane_for(new.kind, "user"),
             "input": new.input,
             "key": new.idempotency_key,
             "request_hash": new.request_hash,

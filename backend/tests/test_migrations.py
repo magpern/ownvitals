@@ -9,7 +9,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from dbtools import alembic_config, applied_revisions, migrated, public_tables
 
-HEAD = "0007_connections"
+HEAD = "0008_withings_jobs"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -18,6 +18,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0007_connections",
         "0006_admin",
         "0005_auth",
         "0004_connection_keks",

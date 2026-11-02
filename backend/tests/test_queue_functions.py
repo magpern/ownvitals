@@ -209,8 +209,8 @@ def test_the_reaper_requeues_fails_or_cancels_expired_leases(
     assert 20 < delay <= 36  # 30 s for attempt 1, +-20 % jitter
 
     s = job(admin, spent)
-    assert (s.state, s.error_category, s.lease_version) == ("failed", "lease_lost", 2)
-    assert events(admin, spent)[-1][1:3] == ("failed", {"category": "lease_lost"})
+    assert (s.state, s.error_category, s.lease_version) == ("dead_letter", "lease_lost", 2)
+    assert events(admin, spent)[-1][1:3] == ("dead_letter", {"category": "lease_lost"})
     c = job(admin, cancel)
     assert (c.state, c.error_category, c.finished_at is not None) == ("cancelled", None, True)
     assert events(admin, cancel)[-1][1] == "cancelled"
@@ -266,6 +266,7 @@ def test_stats_count_per_state_and_show_no_ids(admin: Connection, app: Engine) -
         ("jobs_running", 0),
         ("jobs_completed", 0),
         ("jobs_failed", 1),
+        ("jobs_dead_letter", 0),
         ("jobs_cancelled", 0),
     ]
 

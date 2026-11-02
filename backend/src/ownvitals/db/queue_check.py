@@ -1,6 +1,6 @@
 """The queue check of ADR 0005 section 3 (guard 9): the worker refuses to run on a drifted queue.
 
-The three ``SECURITY DEFINER`` functions of ``docker/postgres/queue/20-queue.sql`` and their owner
+The ``SECURITY DEFINER`` functions of ``docker/postgres/queue/20-queue.sql`` and their owner
 ``ownvitals_queue`` are the only cross-user paths into the owned job tables. The check runs at
 startup (``verify_queue``) and on every new pooled connection (``install_queue_check``), like the
 role check, and refuses on any difference with ``QueueDriftError`` (a ``DatabaseRoleError``; no
@@ -42,13 +42,19 @@ from ownvitals.db.role_check import DatabaseRoleError, is_authentication_failure
 logger = logging.getLogger(__name__)
 
 QUEUE_ROLE = "ownvitals_queue"
-QUEUE_VERSION = "ownvitals-queue v1"
+QUEUE_VERSION = "ownvitals-queue v2"
 SEARCH_PATH = "search_path=pg_catalog, pg_temp"
 # name -> identity arguments, as pg_get_function_identity_arguments renders them.
 QUEUE_FUNCTIONS: dict[str, str] = {
     "queue_claim": "p_worker text, p_lease_seconds integer, p_kinds text[]",
     "queue_reap": "p_limit integer",
     "queue_stats": "",
+    "queue_enqueue": (
+        "p_connection_id uuid, p_kind text, p_origin text, p_input jsonb, "
+        "p_singleton_key text, p_max_attempts integer, p_target_secret_id uuid"
+    ),
+    "queue_cancel_for_secret": "p_kind text, p_secret_id uuid",
+    "queue_replay": "p_job_id uuid",
 }
 EXPECTED_ACL = "ownvitals_app=X/ownvitals_queue,ownvitals_queue=X/ownvitals_queue"
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
@@ -59,12 +65,16 @@ EXPECTED_DEPENDENCIES = frozenset(
     | {
         "pg_class:public.jobs:0:a",
         "pg_class:public.job_events:0:a",
+        "pg_class:public.connections:1:a",  # id
+        "pg_class:public.connections:2:a",  # owner_id
+        "pg_class:public.connections:4:a",  # status
         "pg_namespace:public:0:a",
     }
 )
 EXPECTED_PRIVILEGES = frozenset(
     {
         "schema:public:USAGE",
+        "table:public.jobs:INSERT",
         "table:public.jobs:SELECT",
         "table:public.jobs:UPDATE",
         "table:public.job_events:SELECT",
@@ -97,7 +107,7 @@ SQL_TEXT_BUILTINS = (
     "ts_rewrite",
     "set_config",
 )
-_NAMES = "'queue_claim', 'queue_reap', 'queue_stats'"
+_NAMES = ", ".join(f"'{name}'" for name in QUEUE_FUNCTIONS)
 
 # 16384 is FirstNormalObjectId: below it is only what initdb created (pg_catalog,
 # information_schema and the two rules of the pg_settings view). Anything at or above it, in any

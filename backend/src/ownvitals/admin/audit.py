@@ -104,6 +104,13 @@ class JobsParams(Params):
     days: Annotated[int, Field(ge=1, le=90)]
 
 
+class JobReplayParams(Params):
+    """``ownvitals jobs replay``: the dead-lettered job and the new queued job. Ids only."""
+
+    dead_letter_id: UUID
+    new_job_id: UUID
+
+
 class UserListParams(Params):
     """The Users list's page. The address prefix is not stored: only how long it was."""
 
@@ -130,6 +137,7 @@ ACTIONS: Final[dict[str, type[Params]]] = {
     "admin.request": RequestParams,
     "audit.list": AuditListParams,
     "job.list": JobsParams,
+    "job.replay": JobReplayParams,
     "setting.read": NoParams,
     "setting.set": SettingSetParams,
     "setting.clear": NoParams,

@@ -36,7 +36,9 @@ SECRET = "synthetic-secret-value-7f3a"  # planted to prove it never leaves
 
 
 def migration_event_kinds() -> set[str]:
-    path = Path(__file__).resolve().parent.parent / "migrations" / "versions" / "0003_jobs.py"
+    path = (
+        Path(__file__).resolve().parent.parent / "migrations" / "versions" / "0008_withings_jobs.py"
+    )
     spec = importlib.util.spec_from_file_location("migration_0003", path)
     assert spec is not None
     assert spec.loader is not None
@@ -47,7 +49,7 @@ def migration_event_kinds() -> set[str]:
 
 def test_every_event_kind_has_a_model_and_the_migration_allows_exactly_those() -> None:
     assert set(MODELS) == migration_event_kinds()
-    assert {"completed", "failed", "cancelled"} == TERMINAL_KINDS
+    assert {"completed", "failed", "cancelled", "dead_letter"} == TERMINAL_KINDS
 
 
 NOW = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
@@ -67,6 +69,7 @@ NOW = datetime(2026, 10, 31, 12, 0, tzinfo=UTC)
             {"category": "rate_limited", "available_at": "2026-10-31T12:00:00Z"},
         ),
         ("failed", {"category": "internal"}, {"category": "internal"}),
+        ("dead_letter", {"category": "internal"}, {"category": "internal"}),
         ("cancel_requested", {}, {}),
         ("cancelled", {}, {}),
         ("completed", {}, {}),
@@ -174,7 +177,7 @@ async def test_every_event_the_queue_functions_write_matches_its_model(jenv: Job
         for _, kind, payload, _ in jenv.events(job_id):
             validated_payload(kind, payload)  # ValueError if the function wrote anything else
             seen.add(kind)
-    assert seen == {"claimed", "failed", "retry_scheduled", "cancelled"}
+    assert seen == {"claimed", "failed", "dead_letter", "retry_scheduled", "cancelled"}
 
 
 async def test_a_notification_wakes_only_streams_of_that_job(jenv: JobsEnv) -> None:

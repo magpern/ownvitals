@@ -21,6 +21,6 @@ SENTENCES: Final[dict[str, str]] = {
 
 def failure_sentence(state: str, category: str | None) -> str | None:
     """The sentence for a failed job, or ``None``."""
-    if state != "failed" or category is None:
+    if state not in ("failed", "dead_letter") or category is None:
         return None
     return SENTENCES.get(category, SENTENCES["internal"])

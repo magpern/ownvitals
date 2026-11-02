@@ -80,7 +80,7 @@ class Failed(_Category):
     pass
 
 
-# ADR 0005 section 7; the same kinds as the ``job_events.kind`` check of migration 0003.
+# ADR 0005 sections 7 and 8; the same kinds as migration 0008's ``job_events.kind`` check.
 MODELS: Final[Mapping[str, type[Payload]]] = {
     "queued": Empty,
     "claimed": Claimed,
@@ -90,10 +90,11 @@ MODELS: Final[Mapping[str, type[Payload]]] = {
     "cancelled": Empty,
     "completed": Empty,
     "failed": Failed,
+    "dead_letter": Failed,
     "requeued": Empty,
 }
 # The stream ends after one of these (the job is over).
-TERMINAL_KINDS: Final = frozenset({"completed", "failed", "cancelled"})
+TERMINAL_KINDS: Final = frozenset({"completed", "failed", "cancelled", "dead_letter"})
 
 
 def validated_payload(kind: str, payload: Mapping[str, Any] | None) -> dict[str, Any]:

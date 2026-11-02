@@ -32,7 +32,7 @@ KEEPALIVE_SECONDS: float = 15.0
 POLL_SECONDS: float = 5.0
 MAX_STREAM_SECONDS: float = 600.0
 PAGE_SIZE: Final = 200
-TERMINAL_STATES: Final = frozenset({"completed", "failed", "cancelled"})
+TERMINAL_STATES: Final = frozenset({"completed", "failed", "dead_letter", "cancelled"})
 KEEPALIVE_FRAME: Final = ": keepalive\n\n"
 
 

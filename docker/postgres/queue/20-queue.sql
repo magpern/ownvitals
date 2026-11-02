@@ -28,8 +28,10 @@ BEGIN
     RAISE EXCEPTION 'ownvitals_app does not exist; run docker/postgres/init/10-roles.sql first';
   END IF;
   IF pg_catalog.to_regclass('public.jobs') IS NULL
-     OR pg_catalog.to_regclass('public.job_events') IS NULL THEN
-    RAISE EXCEPTION 'public.jobs or public.job_events does not exist; run the migrations first';
+     OR pg_catalog.to_regclass('public.job_events') IS NULL
+     OR pg_catalog.to_regclass('public.connections') IS NULL THEN
+    RAISE EXCEPTION 'public.jobs, public.job_events or public.connections is missing; '
+      'run the migrations first';
   END IF;
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_queue') THEN
     CREATE ROLE ownvitals_queue NOLOGIN;
@@ -61,7 +63,7 @@ BEGIN
   END LOOP;
 END $$;
 
--- ownvitals_queue owns the three functions and nothing else, and has no default privileges of
+-- ownvitals_queue owns the queue functions and nothing else, and has no default privileges of
 -- its own. Anything else is not repaired automatically (dropping or reassigning it could lose
 -- data): the script stops and names it.
 DO $$
@@ -79,7 +81,9 @@ BEGIN
        OR NOT EXISTS (SELECT FROM pg_catalog.pg_proc p
                         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
                        WHERE p.oid = r.objid AND n.nspname = 'public'
-                         AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats')) THEN
+                         AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
+                                           'queue_enqueue', 'queue_cancel_for_secret',
+                                           'queue_replay')) THEN
       RAISE EXCEPTION 'ownvitals_queue owns % (catalog %, object %); it may own only the queue '
         'functions: drop or reassign it by hand', coalesce(r.what, '?'), r.catalog, r.objid;
     END IF;
@@ -168,10 +172,12 @@ BEGIN
   END LOOP;
 END $$;
 
--- Exactly these (ADR 0005 section 3).
+-- Exactly these (ADR 0005 section 3). Insert on jobs is the enqueue and replay functions.
+-- Column select on connections is how enqueue reads the owner and nothing else (no secret).
 GRANT USAGE ON SCHEMA public TO ownvitals_queue;
-GRANT SELECT, UPDATE ON TABLE public.jobs TO ownvitals_queue;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.jobs TO ownvitals_queue;
 GRANT SELECT, INSERT ON TABLE public.job_events TO ownvitals_queue;
+GRANT SELECT (id, owner_id, status) ON TABLE public.connections TO ownvitals_queue;
 
 -- Any other function under one of the three names (an overload) goes: each must exist once.
 DO $$
@@ -181,9 +187,12 @@ BEGIN
   FOR r IN SELECT p.oid::regprocedure::text AS signature
              FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'public'
-              AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats')
+              AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
+                                'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay')
               AND p.oid::regprocedure::text NOT IN (
-                'queue_claim(text,integer,text[])', 'queue_reap(integer)', 'queue_stats()') LOOP
+                'queue_claim(text,integer,text[])', 'queue_reap(integer)', 'queue_stats()',
+                'queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)',
+                'queue_cancel_for_secret(text,uuid)', 'queue_replay(uuid)') LOOP
     EXECUTE format('DROP ROUTINE public.%s', r.signature);
   END LOOP;
 END $$;
@@ -202,7 +211,8 @@ BEGIN
     SELECT 'function ' || n.nspname || '.' || p.proname || '('
            || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS what
       FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-     WHERE NOT (n.nspname = 'public' AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats'))
+     WHERE NOT (n.nspname = 'public' AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
+            'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay'))
        AND (p.oid >= 16384 OR n.nspname = 'public'
             OR (n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                 AND n.nspname !~ '^pg_(toast_)?temp_[0-9]+$'))
@@ -291,7 +301,13 @@ BEGIN
       FROM public.jobs j
      WHERE j.state = 'queued' AND j.available_at <= now() AND j.attempt < j.max_attempts
        AND j.kind = ANY (p_kinds) AND j.id <> ALL (v_skipped)
-     ORDER BY j.available_at, j.created_at
+       AND NOT (j.lane = 5 AND EXISTS (
+             SELECT 1 FROM public.jobs r
+              WHERE r.owner_id = j.owner_id AND r.state = 'running' AND r.lane = 5))
+     ORDER BY j.lane,
+              (SELECT count(*) FROM public.jobs r
+                WHERE r.owner_id = j.owner_id AND r.state = 'running'),
+              j.available_at, j.created_at
      LIMIT 1
        FOR UPDATE SKIP LOCKED;
     IF NOT FOUND THEN
@@ -322,8 +338,9 @@ BEGIN
 END $$;
 
 -- Running jobs whose lease expired: the token goes up (fencing the old holder), then cancelled
--- if a cancel was requested, queued with backoff while attempts remain, else failed/lease_lost.
--- Queued rows with spent attempts (should not exist) fail as internal. A bad row is skipped.
+-- if a cancel was requested, queued with backoff while attempts remain, else dead_letter with
+-- lease_lost (a retryable budget that is spent; ADR 0005 section 8). Queued rows with spent
+-- attempts (should not exist) fail as internal, which is not retryable. A bad row is skipped.
 CREATE OR REPLACE FUNCTION public.queue_reap(p_limit integer)
   RETURNS integer
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
@@ -348,12 +365,12 @@ BEGIN
     BEGIN
       v_state := CASE WHEN r.cancel_requested_at IS NOT NULL THEN 'cancelled'
                       WHEN r.attempt < r.max_attempts THEN 'queued'
-                      ELSE 'failed' END;
+                      ELSE 'dead_letter' END;
       v_at := now() + make_interval(secs => least(30 * power(2, greatest(r.attempt, 1) - 1), 900)
                                             * (0.8 + 0.4 * random()));
       UPDATE public.jobs j
          SET state = v_state,
-             error_category = CASE WHEN v_state = 'failed' THEN 'lease_lost' END,
+             error_category = CASE WHEN v_state = 'dead_letter' THEN 'lease_lost' END,
              available_at = CASE WHEN v_state = 'queued' THEN v_at ELSE j.available_at END,
              finished_at = CASE WHEN v_state = 'queued' THEN NULL ELSE now() END,
              lease_version = j.lease_version + 1, next_seq = j.next_seq + 1,
@@ -365,7 +382,7 @@ BEGIN
               CASE v_state WHEN 'queued' THEN 'retry_scheduled' ELSE v_state END,
               CASE v_state
                 WHEN 'queued' THEN jsonb_build_object('category', 'lease_lost', 'available_at', v_at)
-                WHEN 'failed' THEN jsonb_build_object('category', 'lease_lost')
+                WHEN 'dead_letter' THEN jsonb_build_object('category', 'lease_lost')
                 ELSE '{}'::jsonb END,
               v_version);
       PERFORM pg_notify('job_events', r.id::text);
@@ -407,9 +424,166 @@ AS $$
 BEGIN
   RETURN QUERY
     SELECT 'jobs_' || s.state, (SELECT count(*) FROM public.jobs j WHERE j.state = s.state)
-      FROM unnest(ARRAY['queued', 'running', 'completed', 'failed', 'cancelled'])
+      FROM unnest(ARRAY['queued', 'running', 'completed', 'failed', 'dead_letter', 'cancelled'])
            WITH ORDINALITY AS s(state, n)
      ORDER BY s.n;
+END $$;
+
+-- Enqueue one webhook or scheduler job owned by the connection's owner (ADR 0005 section 8).
+-- The advisory lock is namespace 1, job creation, keyed by the owner (ADR 0005 section 9).
+-- A queued singleton collapses into the existing row and its available_at moves 30 seconds out.
+-- A running singleton gets exactly one queued follow-up; a later enqueue collapses into that.
+CREATE OR REPLACE FUNCTION public.queue_enqueue(
+    p_connection_id uuid, p_kind text, p_origin text, p_input jsonb,
+    p_singleton_key text, p_max_attempts integer, p_target_secret_id uuid)
+  RETURNS uuid
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_owner uuid;
+  v_lane smallint;
+  v_id uuid;
+  v_existing uuid;
+BEGIN
+  IF p_connection_id IS NULL OR p_kind IS NULL OR p_kind !~ '^[a-z_]{1,40}$' THEN
+    RAISE EXCEPTION 'invalid enqueue' USING ERRCODE = '22023';
+  END IF;
+  IF p_origin IS NULL OR p_origin NOT IN ('webhook', 'scheduler') THEN
+    RAISE EXCEPTION 'invalid origin' USING ERRCODE = '22023';
+  END IF;
+  IF p_input IS NULL OR pg_catalog.jsonb_typeof(p_input) <> 'object'
+     OR pg_catalog.octet_length(p_input::text) > 16384 THEN
+    RAISE EXCEPTION 'invalid input' USING ERRCODE = '22023';
+  END IF;
+  IF p_singleton_key IS NOT NULL AND p_singleton_key !~ '^[a-z0-9_:-]{1,80}$' THEN
+    RAISE EXCEPTION 'invalid singleton key' USING ERRCODE = '22023';
+  END IF;
+  IF p_max_attempts IS NULL OR p_max_attempts < 1 OR p_max_attempts > 10 THEN
+    RAISE EXCEPTION 'invalid max_attempts' USING ERRCODE = '22023';
+  END IF;
+  SELECT c.owner_id INTO v_owner FROM public.connections c
+   WHERE c.id = p_connection_id AND c.status <> 'disconnected';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'unknown connection' USING ERRCODE = '22023';
+  END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(1, pg_catalog.hashtext(v_owner::text));
+  v_lane := CASE
+    WHEN p_kind = 'withings_backfill' THEN 5
+    WHEN p_kind = 'withings_reconcile' THEN 4
+    WHEN p_kind = 'withings_poll' THEN 3
+    WHEN p_origin = 'webhook' THEN 2
+    ELSE 3 END;
+  IF p_singleton_key IS NOT NULL THEN
+    SELECT j.id INTO v_existing FROM public.jobs j
+     WHERE j.owner_id = v_owner AND j.singleton_key = p_singleton_key AND j.state = 'queued'
+       FOR UPDATE;
+    IF FOUND THEN
+      UPDATE public.jobs j
+         SET available_at = now() + make_interval(secs => 30), updated_at = now()
+       WHERE j.id = v_existing;
+      RETURN v_existing;
+    END IF;
+  END IF;
+  v_id := pg_catalog.gen_random_uuid();
+  INSERT INTO public.jobs (
+      id, owner_id, kind, origin, lane, state, input, singleton_key, target_secret_id,
+      max_attempts, next_seq)
+  VALUES (
+      v_id, v_owner, p_kind, p_origin, v_lane, 'queued', p_input, p_singleton_key,
+      p_target_secret_id, p_max_attempts, 1);
+  INSERT INTO public.job_events (owner_id, job_id, seq, kind, payload, lease_version)
+  VALUES (v_owner, v_id, 1, 'queued', '{}'::jsonb, 0);
+  PERFORM pg_catalog.pg_notify('job_events', v_id::text);
+  PERFORM pg_catalog.pg_notify('jobs_queued', '');
+  RETURN v_id;
+END $$;
+
+-- Cancel queued jobs of one kind that target a webhook secret, across owners (ADR 0008, ADR
+-- 0005 section 3). Returns how many were cancelled. A job already claimed is left running; it
+-- re-checks the target when it runs.
+CREATE OR REPLACE FUNCTION public.queue_cancel_for_secret(p_kind text, p_secret_id uuid)
+  RETURNS integer
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  r record;
+  v_done integer := 0;
+  v_version bigint;
+  v_seq bigint;
+BEGIN
+  IF p_kind IS NULL OR p_kind !~ '^[a-z_]{1,40}$' OR p_secret_id IS NULL THEN
+    RAISE EXCEPTION 'invalid cancel' USING ERRCODE = '22023';
+  END IF;
+  FOR r IN SELECT j.id, j.owner_id FROM public.jobs j
+            WHERE j.state = 'queued' AND j.kind = p_kind AND j.target_secret_id = p_secret_id
+            ORDER BY j.created_at
+              FOR UPDATE SKIP LOCKED LOOP
+    BEGIN
+      UPDATE public.jobs j
+         SET state = 'cancelled',
+             cancel_requested_at = coalesce(j.cancel_requested_at, now()),
+             finished_at = now(), next_seq = j.next_seq + 1, updated_at = now()
+       WHERE j.id = r.id AND j.state = 'queued'
+      RETURNING j.lease_version, j.next_seq INTO v_version, v_seq;
+      IF NOT FOUND THEN
+        CONTINUE;
+      END IF;
+      INSERT INTO public.job_events (owner_id, job_id, seq, kind, payload, lease_version)
+      VALUES (r.owner_id, r.id, v_seq, 'cancelled', '{}'::jsonb, v_version);
+      PERFORM pg_catalog.pg_notify('job_events', r.id::text);
+      v_done := v_done + 1;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+  END LOOP;
+  RETURN v_done;
+END $$;
+
+-- A new queued job from a dead-lettered one. The terminal row is not changed (ADR 0005 section 8).
+CREATE OR REPLACE FUNCTION public.queue_replay(p_job_id uuid)
+  RETURNS TABLE (job_id uuid, owner_id uuid)
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_owner uuid;
+  v_kind text;
+  v_input jsonb;
+  v_lane smallint;
+  v_singleton text;
+  v_max integer;
+  v_secret uuid;
+  v_state text;
+  v_id uuid;
+BEGIN
+  IF p_job_id IS NULL THEN
+    RAISE EXCEPTION 'invalid replay' USING ERRCODE = '22023';
+  END IF;
+  SELECT j.owner_id, j.kind, j.input, j.lane, j.singleton_key, j.max_attempts,
+         j.target_secret_id, j.state
+    INTO v_owner, v_kind, v_input, v_lane, v_singleton, v_max, v_secret, v_state
+    FROM public.jobs j WHERE j.id = p_job_id FOR UPDATE;
+  IF NOT FOUND OR v_state <> 'dead_letter' THEN
+    RAISE EXCEPTION 'not replayable' USING ERRCODE = '22023';
+  END IF;
+  v_id := pg_catalog.gen_random_uuid();
+  BEGIN
+    INSERT INTO public.jobs (
+        id, owner_id, kind, origin, lane, state, input, singleton_key, target_secret_id,
+        max_attempts, next_seq)
+    VALUES (
+        v_id, v_owner, v_kind, 'operator', v_lane, 'queued', v_input, v_singleton, v_secret,
+        v_max, 1);
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'already queued' USING ERRCODE = '22023';
+  END;
+  INSERT INTO public.job_events (owner_id, job_id, seq, kind, payload, lease_version)
+  VALUES (v_owner, v_id, 1, 'queued', '{}'::jsonb, 0);
+  PERFORM pg_catalog.pg_notify('job_events', v_id::text);
+  PERFORM pg_catalog.pg_notify('jobs_queued', '');
+  job_id := v_id;
+  owner_id := v_owner;
+  RETURN NEXT;
 END $$;
 
 -- Owner, ACL and version of each function. Every grantee but the owner is revoked first, so the
@@ -419,8 +593,11 @@ DECLARE
   f text;
   g record;
 BEGIN
-  FOREACH f IN ARRAY ARRAY['public.queue_claim(text,integer,text[])', 'public.queue_reap(integer)',
-                           'public.queue_stats()'] LOOP
+  FOREACH f IN ARRAY ARRAY[
+      'public.queue_claim(text,integer,text[])', 'public.queue_reap(integer)',
+      'public.queue_stats()',
+      'public.queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)',
+      'public.queue_cancel_for_secret(text,uuid)', 'public.queue_replay(uuid)'] LOOP
     EXECUTE format('ALTER FUNCTION %s OWNER TO ownvitals_queue', f);
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);
     FOR g IN SELECT DISTINCT
@@ -435,6 +612,6 @@ BEGIN
     END LOOP;
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO ownvitals_queue', f);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO ownvitals_app', f);
-    EXECUTE format('COMMENT ON FUNCTION %s IS %L', f, 'ownvitals-queue v1');
+    EXECUTE format('COMMENT ON FUNCTION %s IS %L', f, 'ownvitals-queue v2');
   END LOOP;
 END $$;

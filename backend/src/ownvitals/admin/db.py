@@ -31,11 +31,12 @@ that does not exist fails its foreign key there: ``admin_session`` then raises `
 404 ``not_found`` and records it with the id as text (``target_id``) and no ``target_user_id``.
 """
 
+import hashlib
 import logging
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from typing import Any, Final
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import event, text
 from sqlalchemy.engine import URL
@@ -94,6 +95,9 @@ EXPECTED_TIMEOUTS_MS: Final = [
 
 # The audit row's target user does not exist: the action answers 404 ``not_found``.
 TARGET_USER_FK: Final = "admin_audit_target_user_id_fkey"
+# Operator CLI (no request IP): a fixed marker, not an address. 32 bytes, as ``ip_hash`` requires.
+OPERATOR_EMAIL: Final = "operator@localhost"
+OPERATOR_IP_HASH: Final = hashlib.sha256(b"ownvitals-operator-cli").digest()
 
 _READ_WRITE = text("SET TRANSACTION READ WRITE")
 _READ_ONLY = text("SET TRANSACTION READ ONLY")
@@ -278,6 +282,37 @@ class AdminDb:
             await session.execute(
                 _INSERT_AUDIT, _row(actor, action, target or Target(), params, outcome, reason)
             )
+
+
+async def record_operator_action(
+    db: AdminDb, action: str, params: Mapping[str, Any], target: Target
+) -> None:
+    """One ``ok`` audit row for an operator CLI command (no admin session, no client IP).
+
+    ``actor_id`` is null: the command is not an admin's web request. The email and the IP
+    marker are fixed. ``checked_params`` refuses an action or params the audit schema does not
+    list, before any connection.
+    """
+    encoded = checked_params(action, params)
+    factory = db._maint_factory  # pyright: ignore[reportPrivateUsage]
+    async with factory() as session, session.begin():
+        await session.execute(_READ_WRITE)
+        await session.execute(
+            _INSERT_AUDIT,
+            {
+                "actor_id": None,
+                "actor_email": OPERATOR_EMAIL,
+                "action": action,
+                "target_user_id": target.user_id,
+                "target_kind": target.kind,
+                "target_id": target.id,
+                "params": encoded,
+                "outcome": "ok",
+                "reason": None,
+                "request_id": str(uuid4()),
+                "ip_hash": OPERATOR_IP_HASH,
+            },
+        )
 
 
 class AdminTransactionAborted(RuntimeError):

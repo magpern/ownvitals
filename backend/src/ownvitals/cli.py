@@ -10,8 +10,11 @@ Every subcommand runs with the egress hook installed (``install_egress_hook("cli
 and on the standard library's selector loop (``require_standard_event_loop``).
 
 ``jobs stats`` (#9) prints the queue's counts per job state (``queue_stats()``, ADR 0005 section
-3: counts only, never ids), one ``<metric> <count>`` line each. Like the worker it refuses a
-privileged role and a drifted queue (exit 1).
+3: counts only, never ids), one ``<metric> <count>`` line each, including dead-letter. Like the
+worker it refuses a privileged role and a drifted queue (exit 1).
+
+``jobs replay <id>`` (#18) queues a new job from a dead-lettered one and writes an ``admin_audit``
+row (``job.replay``). It prints the new job id. The dead-lettered row is not changed.
 
 ``invite create``, ``admin grant``, ``admin revoke`` and ``admin mfa-reset`` (#10, ADR 0003
 section 1 "Admins") run as the app role through ``ownvitals.auth.operator``; they never touch the
@@ -27,7 +30,12 @@ import sys
 from collections.abc import Callable, Coroutine
 from datetime import timedelta
 from typing import Any, TextIO
+from uuid import UUID
 
+from sqlalchemy.exc import DBAPIError
+
+from ownvitals.admin.audit import Target, UnknownAction
+from ownvitals.admin.db import AdminDb, MaintRoleError, record_operator_action
 from ownvitals.auth.operator import (
     AccountError,
     create_invite,
@@ -46,6 +54,7 @@ from ownvitals.db import (
 from ownvitals.db.queue_check import install_queue_check, verify_queue
 from ownvitals.egress import install_egress_hook, require_standard_event_loop
 from ownvitals.jobs import queue
+from ownvitals.jobs.queue import ReplayRefused
 from ownvitals.keys_cli import add_keys_subcommands
 from ownvitals.keys_cli import run as run_keys
 from ownvitals.mail import MailError
@@ -87,11 +96,57 @@ def add_subcommands(parser: argparse.ArgumentParser) -> None:
         admin.add_parser(name, help=text).add_argument("email")
     jobs = sub.add_parser("jobs", help="the job queue").add_subparsers(dest="action", required=True)
     jobs.add_parser("stats", help="count jobs per state (no ids)")
+    jobs.add_parser("replay", help="queue a new job from a dead-lettered one").add_argument(
+        "job_id"
+    )
     add_keys_subcommands(sub)
 
 
+async def run_replay(args: argparse.Namespace, settings: Settings, out: TextIO, err: TextIO) -> int:
+    """``jobs replay``: a new queued job and one audit row. Exit 1 when it is refused."""
+    try:
+        job_id = UUID(args.job_id)
+    except ValueError:
+        print("error: the job id is not a uuid", file=err)
+        return 1
+    maint = AdminDb.from_settings(settings)
+    if maint is None:
+        print("error: the admin database is not configured", file=err)
+        return 1
+    engine = create_engine(settings)
+    install_queue_check(engine)
+    try:
+        await verify_database_role(engine)
+        await verify_queue(engine)
+        created = await queue.replay(create_session_factory(engine), job_id)
+        try:
+            await record_operator_action(
+                maint,
+                "job.replay",
+                {"dead_letter_id": job_id, "new_job_id": created.job_id},
+                Target(user_id=created.owner_id, kind="job", id=str(job_id)),
+            )
+        except (DBAPIError, UnknownAction, MaintRoleError):
+            print(created.job_id, file=out)
+            print("error: the audit row was not written", file=err)
+            return 1
+        print(created.job_id, file=out)
+        return 0
+    except ReplayRefused as refused:
+        print(f"error: {refused.reason}", file=err)
+        return 1
+    except DatabaseRoleError as refused:  # names roles and objects only
+        print(f"error: {refused}", file=err)
+        return 1
+    finally:
+        await engine.dispose()
+        await maint.dispose()
+
+
 async def run_jobs(args: argparse.Namespace, settings: Settings, out: TextIO, err: TextIO) -> int:
-    """``jobs stats``: the queue's counts, after the role and queue checks."""
+    """``jobs stats`` or ``jobs replay``, after the role and queue checks."""
+    if args.action == "replay":
+        return await run_replay(args, settings, out, err)
     engine = create_engine(settings)
     install_queue_check(engine)
     try:

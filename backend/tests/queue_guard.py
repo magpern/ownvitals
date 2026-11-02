@@ -22,8 +22,14 @@ QUEUE, APP = "ownvitals_queue", "ownvitals_app"
 SEARCH_PATH = ["search_path=pg_catalog, pg_temp"]
 ACL = {f"{QUEUE}=X/{QUEUE}", f"{APP}=X/{QUEUE}"}
 TABLES = {
-    "jobs": {"SELECT", "UPDATE"},
+    "jobs": {"SELECT", "INSERT", "UPDATE"},
     "job_events": {"SELECT", "INSERT"},
+}
+# Enqueue reads the connection's owner and status and nothing else (no secret column).
+CONNECTION_COLUMNS = {
+    ("public.connections", "id", "SELECT"),
+    ("public.connections", "owner_id", "SELECT"),
+    ("public.connections", "status", "SELECT"),
 }
 # Schemas whose functions and operators below FirstNormalObjectId (16384) are initdb's built-ins.
 SYSTEM_SCHEMAS = ("pg_catalog", "information_schema", "pg_toast")
@@ -137,11 +143,22 @@ def check_queue(conn: Connection) -> list[str]:
         ).all():
             need(not grantable, f"{QUEUE}: grantable {privilege} on {catalog} {obj}")
             held.add((catalog, str(obj), str(privilege)))
-    columns = conn.execute(
-        text("SELECT count(*) FROM pg_attribute t, aclexplode(t.attacl) a WHERE a.grantee = :oid"),
-        {"oid": role.oid},
-    ).scalar_one()
-    need(columns == 0, f"{QUEUE} must hold no column privileges")
+    columns = {
+        (str(table), str(column), str(privilege))
+        for table, column, privilege in conn.execute(
+            text(
+                "SELECT n.nspname || '.' || c.relname, t.attname, a.privilege_type "
+                "FROM pg_attribute t JOIN pg_class c ON c.oid = t.attrelid "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(t.attacl) a "
+                "WHERE a.grantee = :oid"
+            ),
+            {"oid": role.oid},
+        ).all()
+    }
+    need(
+        columns == CONNECTION_COLUMNS,
+        f"{QUEUE} column privileges must be exactly {sorted(CONNECTION_COLUMNS)}, are {columns}",
+    )
     expected = {("pg_namespace", "public", "USAGE")} | {
         ("pg_class", f"public.{table}", privilege)
         for table, privileges in TABLES.items()

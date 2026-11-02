@@ -31,13 +31,14 @@ from ownvitals.jobs.fence import FencedSession, Lease, fenced_session
 from ownvitals.jobs.issuer import NO_ACCOUNTS, Accounts, Claimed, issue, owner_context
 from ownvitals.jobs.kinds import Complete, KindRegistry, Outcome
 from ownvitals.jobs.run import JobRun
+from ownvitals.jobs.withings import NO_TARGETS, SecretTargets
 
 logger = logging.getLogger(__name__)
 
 Factory = async_sessionmaker[AsyncSession]
 
 _LOAD = text(
-    "SELECT kind, input, attempt FROM jobs "
+    "SELECT kind, input, attempt, target_secret_id FROM jobs "
     "WHERE id = :job_id AND owner_id = :owner_id AND lease_version = :v"
 )
 
@@ -46,6 +47,7 @@ _LOAD = text(
 class RunConfig:
     lease_seconds: int = 120
     accounts: Accounts = NO_ACCOUNTS
+    targets: SecretTargets = NO_TARGETS
 
 
 @dataclass(eq=False)
@@ -146,6 +148,12 @@ async def execute(
             row = (await fs.db.execute(_LOAD, issued.lease.params())).one()
     except LeaseLost:
         execution.settled, execution.result = True, "lost"
+        return
+    if row.target_secret_id is not None and not await config.targets.entry_active(
+        factory, row.target_secret_id
+    ):
+        await _record(execution, factory, transitions.cancel)
+        _log(execution, "job target retired", job_state=execution.result)
         return
     kind = registry.get(row.kind)
     if kind is None:
