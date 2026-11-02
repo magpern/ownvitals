@@ -16,7 +16,7 @@ from dbtools import (
     ready_to_downgrade,
 )
 
-HEAD = "0009_withings_schema"
+HEAD = "0010_withings_rate"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -25,6 +25,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0009_withings_schema",
         "0008_withings_jobs",
         "0007_connections",
         "0006_admin",
@@ -86,6 +87,9 @@ def test_the_migrations_create_exactly_their_tables(
             "connections",
             "withings_apps",
             "webhook_events",
+            "withings_rate_buckets",
+            "withings_rate_slots",
+            "withings_rate_demand",
             *metadata.tables,
             *WITHINGS_OWNED,
             *INGEST_OWNED,

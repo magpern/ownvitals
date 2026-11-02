@@ -211,6 +211,7 @@ def test_the_image_carries_the_functions_and_their_entrypoint() -> None:
         "docker/postgres/queue/db-functions.sh /app/db-functions/",
         "COPY --chmod=0555 docker/postgres/maint/30-maint.sql /app/db-functions/",
         "COPY --chmod=0555 docker/postgres/withings/40-withings.sql /app/db-functions/",
+        "COPY --chmod=0555 docker/postgres/withings/rate.sql /app/db-functions/",
     ]
     user = dockerfile.index("\nUSER ownvitals\n")
     assert all(dockerfile.index(copy) < user for copy in copies)
@@ -268,7 +269,7 @@ def test_db_functions_installs_maint_after_the_queue() -> None:
         "exec python -m ownvitals.db.install_functions \\\n"
         '  "host=db port=5432 dbname=ownvitals user=postgres" \\\n'
         "  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \\\n"
-        "  /app/db-functions/40-withings.sql"
+        "  /app/db-functions/40-withings.sql /app/db-functions/rate.sql"
     )
     assert "psql" not in script
     from ownvitals.db.install_functions import read_scripts
@@ -278,6 +279,7 @@ def test_db_functions_installs_maint_after_the_queue() -> None:
             str(ROOT / "docker" / "postgres" / "queue" / "20-queue.sql"),
             str(ROOT / "docker" / "postgres" / "maint" / "30-maint.sql"),
             str(ROOT / "docker" / "postgres" / "withings" / "40-withings.sql"),
+            str(ROOT / "docker" / "postgres" / "withings" / "rate.sql"),
         ]
     )
     assert sql.index("ownvitals_queue") < sql.index("ownvitals_maint")

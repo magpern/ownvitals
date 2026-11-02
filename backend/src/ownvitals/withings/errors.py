@@ -26,6 +26,7 @@ advance.
 """
 
 import json
+import math
 import random
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -39,6 +40,8 @@ from ownvitals.withings.models import WithingsModel
 TOKEN_INVALID_STATUSES: Final = frozenset({401, 2553, 2555})  # PLAN §4.2
 RATE_LIMITED_STATUS: Final = 601
 DEFAULT_RATE_LIMIT_WAIT: Final = 60.0  # PLAN §4.4: "pauses the bucket for wait_seconds or 60 s"
+# A provider wait above this, or an infinite one, must not hold the shared bucket forever (#23).
+MAX_RATE_LIMIT_WAIT: Final = 900.0
 TRANSIENT_HTTP: Final = frozenset({408, 429})  # and every 5xx
 
 # The fixed list of permanent categories by API status. Numbers from the public docs' status
@@ -156,6 +159,8 @@ def http_error(http_status: int, endpoint: str) -> WithingsError:
 
 BACKOFF_BASE_SECONDS: Final = 1.0
 JITTER: Final = 0.2  # +-20 %
+# 2**16 seconds is already far past any max_delay. A larger exponent overflows a float.
+MAX_BACKOFF_EXPONENT: Final = 16
 
 
 @dataclass
@@ -173,7 +178,8 @@ class RetryBudget:
         """The wait before the next retry, spending one; None when the budget is spent."""
         if self.retries <= 0:
             return None
-        delay = min(BACKOFF_BASE_SECONDS * 2**self.used, self.max_delay)
+        exponent = min(max(self.used, 0), MAX_BACKOFF_EXPONENT)
+        delay = min(BACKOFF_BASE_SECONDS * 2**exponent, self.max_delay)
         delay *= 1 + rng.uniform(-JITTER, JITTER)
         if hint is not None and hint > 0:
             delay = max(delay, min(hint, self.max_delay))
@@ -188,11 +194,23 @@ def _refuse_constant(name: str) -> Any:
     raise ValueError("NaN and Infinity are not JSON numbers")
 
 
+def clamp_rate_wait(wait: float) -> float:
+    """A finite pause: non-positive and NaN become 60 seconds, and a huge wait becomes 900."""
+    if isinstance(wait, bool) or not isinstance(wait, int | float):
+        return DEFAULT_RATE_LIMIT_WAIT
+    value = float(wait)
+    if math.isnan(value) or value <= 0:
+        return DEFAULT_RATE_LIMIT_WAIT
+    if math.isinf(value) or value > MAX_RATE_LIMIT_WAIT:
+        return MAX_RATE_LIMIT_WAIT
+    return value
+
+
 def _wait_seconds(payload: Mapping[str, Any]) -> float | None:
     body = payload.get("body")
     wait = body.get("wait_seconds") if isinstance(body, dict) else None
     if isinstance(wait, int | Decimal) and not isinstance(wait, bool) and wait > 0:
-        return float(wait)
+        return clamp_rate_wait(float(wait))
     return None
 
 
@@ -258,7 +276,9 @@ __all__ = [
     "DEFAULT_RATE_LIMIT_WAIT",
     "JITTER",
     "MALFORMED",
+    "MAX_BACKOFF_EXPONENT",
     "MAX_PAGES",
+    "MAX_RATE_LIMIT_WAIT",
     "NETWORK",
     "PAGINATION",
     "STATUS_CATEGORIES",
@@ -273,6 +293,7 @@ __all__ = [
     "TokenInvalid",
     "Transient",
     "WithingsError",
+    "clamp_rate_wait",
     "http_error",
     "interpret",
     "paginate",

@@ -151,6 +151,13 @@ SELECT 'GRANT SELECT (id, client_id, callback_base, client_secret, client_secret
  WHERE to_regclass('public.withings_apps') IS NOT NULL \gexec
 SELECT 'REVOKE ALL ON TABLE public.webhook_events FROM ownvitals_app'
  WHERE to_regclass('public.webhook_events') IS NOT NULL \gexec
+-- The rate tables (#23, migration 0010): no privilege for the app role.
+SELECT 'REVOKE ALL ON TABLE public.withings_rate_buckets FROM ownvitals_app'
+ WHERE to_regclass('public.withings_rate_buckets') IS NOT NULL \gexec
+SELECT 'REVOKE ALL ON TABLE public.withings_rate_slots FROM ownvitals_app'
+ WHERE to_regclass('public.withings_rate_slots') IS NOT NULL \gexec
+SELECT 'REVOKE ALL ON TABLE public.withings_rate_demand FROM ownvitals_app'
+ WHERE to_regclass('public.withings_rate_demand') IS NOT NULL \gexec
 SELECT format('REVOKE ALL ON TABLE %s FROM ownvitals_app, PUBLIC', c.oid::regclass)
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
  WHERE n.nspname = 'public' AND c.relispartition \gexec

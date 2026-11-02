@@ -1,6 +1,7 @@
 #!/bin/sh
 # Entrypoint of the one-shot compose service `db-functions` (ADR 0005 section 3, #126): run
-# 20-queue.sql, then 30-maint.sql, then 40-withings.sql as the superuser, in one transaction,
+# 20-queue.sql, then 30-maint.sql, then 40-withings.sql, then rate.sql as the superuser, in one
+# transaction,
 # after the migrations and before web and the worker start. The runner is
 # ownvitals.db.install_functions.
 #
@@ -47,4 +48,4 @@ export PGPASSFILE="$pgpass"
 exec python -m ownvitals.db.install_functions \
   "host=db port=5432 dbname=ownvitals user=postgres" \
   /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \
-  /app/db-functions/40-withings.sql
+  /app/db-functions/40-withings.sql /app/db-functions/rate.sql
