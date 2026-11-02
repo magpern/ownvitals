@@ -71,12 +71,13 @@ WITHINGS_ROLES = {SECRETS, EVENTS}
 WITHINGS_RELATIONS: dict[str, dict[str, set[str]]] = {
     "admin_audit:r": {SECRETS: {"INSERT"}},
     "admin_audit_id_seq:S": {SECRETS: {"USAGE"}},
-    "webhook_events:r": {EVENTS: {"INSERT"}},
+    "webhook_events:r": {EVENTS: {"INSERT", "DELETE"}},
 }
 WITHINGS_FUNCTIONS = {
     "ensure_month_partitions": OWNER,
     "webhook_secrets_apply": SECRETS,
     "webhook_event_insert": EVENTS,
+    "webhook_events_purge_owner": EVENTS,
 }
 # rate.sql (#23): the app role may EXECUTE these and no other new function. Same owner.
 RATE_FUNCTIONS = {
@@ -97,6 +98,10 @@ WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("connections", "app_id"): {(EVENTS, "SELECT")},
     ("connections", "withings_userid"): {(EVENTS, "SELECT")},
     ("connections", "status"): {(EVENTS, "SELECT")},
+    # Account deletion matches notification rows to this owner (ADR 0002 section 3).
+    ("connections", "owner_id"): {(EVENTS, "SELECT")},
+    ("webhook_events", "app_id"): {(EVENTS, "SELECT")},
+    ("webhook_events", "withings_userid"): {(EVENTS, "SELECT")},
 }
 SEQUENCE_PRIVILEGES = {"USAGE", "SELECT"}
 # Built-in languages that PUBLIC may use (Postgres' own default).
@@ -401,7 +406,7 @@ def check_roles(conn: Connection) -> list[str]:
 
     # Functions (in public, and user-made ones anywhere): PUBLIC may call none, and ownvitals_app
     # may EXECUTE only the queue functions (ADR 0005 section 3) and, once 40-withings.sql has
-    # run, the three functions that script creates. 16384 is FirstNormalObjectId: every function
+    # run, the functions that script creates. 16384 is FirstNormalObjectId: every function
     # a user made.
     functions = _acl(
         conn,

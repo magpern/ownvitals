@@ -200,9 +200,10 @@ END $$;
 -- No user code may run as ownvitals_queue (ADR 0005 section 3): no other user function,
 -- operator, trigger or rule, and no expression calling a built-in that runs SQL text or changes
 -- settings. The queue check (ownvitals.db.queue_check) refuses the same: stop here, naming each
--- object as it and guard 9 do. ensure_month_partitions, webhook_secrets_apply and
--- webhook_event_insert (40-withings.sql), and withings_rate_claim, withings_rate_release
--- and withings_rate_pause (rate.sql), are admitted here by name, and no other function is.
+-- object as it and guard 9 do. ensure_month_partitions, webhook_secrets_apply,
+-- webhook_event_insert and webhook_events_purge_owner (40-withings.sql), and
+-- withings_rate_claim, withings_rate_release and withings_rate_pause (rate.sql), are
+-- admitted here by name, and no other function is.
 -- Their bodies are pinned by digest with the queue functions (ownvitals/db/queue_digests.py).
 DO $$
 DECLARE
@@ -215,6 +216,7 @@ BEGIN
      WHERE NOT (n.nspname = 'public' AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
             'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay',
             'ensure_month_partitions', 'webhook_secrets_apply', 'webhook_event_insert',
+            'webhook_events_purge_owner',
             'withings_rate_claim', 'withings_rate_release', 'withings_rate_pause'))
        AND (p.oid >= 16384 OR n.nspname = 'public'
             OR (n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')

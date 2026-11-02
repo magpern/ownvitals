@@ -42,7 +42,8 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
         "section 4): read before a user is known; no runtime role writes it, and "
         "webhook secret entries are HMACs",
         "webhook_events": "a notification is a trigger to fetch (PLAN section 5): written "
-        "only through webhook_event_insert, purged after 30 days; no owner_id",
+        "only through webhook_event_insert, purged after 30 days and, for one owner, "
+        "through webhook_events_purge_owner; no owner_id",
         # The rate limiter (#23, PLAN section 4.4). Cross-user, so not an owned table.
         "withings_rate_buckets": "per-app Withings token bucket: written only through the "
         "rate functions; a token is consumed when claimed and never refunded",

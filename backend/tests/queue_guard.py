@@ -189,7 +189,7 @@ def check_queue(conn: Connection) -> list[str]:
 
     # Nothing that could shadow a built-in called by a function body, and nothing a function body
     # fires that could run user code as ownvitals_queue: no user-defined function, procedure,
-    # aggregate or operator in any schema besides the queue functions and the three Withings
+    # aggregate or operator in any schema besides the queue functions and the Withings
     # functions, no trigger but the internal ones of foreign keys, no rule but the _RETURN rules
     # of views. Named as the startup check and the script name them.
     admitted = [*QUEUE_FUNCTIONS, *WITHINGS_FUNCTION_NAMES, *RATE_FUNCTION_NAMES]

@@ -9,9 +9,10 @@ exactly the fixed ``search_path``, the version comment, the shipped ``md5(pg_get
 (``ownvitals.db.queue_digests``) and the ACL ``{ownvitals_queue=X/ownvitals_queue,
 ownvitals_app=X/ownvitals_queue}``; the role has exactly its attributes, no memberships either way,
 no settings, no default privileges and exactly its privileges; no other user-defined function,
-procedure, aggregate or operator exists in any schema, except the three Withings functions
-``ensure_month_partitions``, ``webhook_secrets_apply`` and ``webhook_event_insert`` admitted by
-name in ``20-queue.sql``, and the rate functions ``withings_rate_claim``,
+procedure, aggregate or operator exists in any schema, except the Withings functions
+``ensure_month_partitions``, ``webhook_secrets_apply``, ``webhook_event_insert`` and
+``webhook_events_purge_owner`` admitted by name in ``20-queue.sql``, and the rate functions
+``withings_rate_claim``,
 ``withings_rate_release`` and ``withings_rate_pause`` admitted the same way, each pinned like a
 queue function when it is installed;
 no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
@@ -67,6 +68,7 @@ WITHINGS_FUNCTION_NAMES = (
     "ensure_month_partitions",
     "webhook_secrets_apply",
     "webhook_event_insert",
+    "webhook_events_purge_owner",
 )
 WITHINGS_VERSION = "ownvitals-withings v1"
 # name -> (identity arguments, owner, proconfig joined by ';', ACL joined by ',')
@@ -89,6 +91,12 @@ WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
     "webhook_event_insert": (
         "p_app_id integer, p_withings_userid bigint, p_appli integer, p_startdate bigint, "
         "p_enddate bigint, p_dedupe_key text, p_job_id uuid",
+        "ownvitals_webhook_events",
+        "search_path=pg_catalog, pg_temp",
+        "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
+    ),
+    "webhook_events_purge_owner": (
+        "",
         "ownvitals_webhook_events",
         "search_path=pg_catalog, pg_temp",
         "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
