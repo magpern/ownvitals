@@ -41,6 +41,11 @@ _INTRA_FIELDS = (
     "rr",
     "rmssd",
     "sdnn1",
+    "duration",
+    "stroke",
+    "pool_lap",
+    "hrv_quality",
+    "core_body_temperature",
 )
 _INSERT_SLEEP = text(
     "INSERT INTO sleep_series (owner_id, connection_id, ts, source_tz, series, value_raw, unit) "
@@ -84,33 +89,59 @@ def _point(
     return Point(instant, zone, name, raw, unit)
 
 
-def sleep_points(body: SleepBody, zone: str, now: datetime) -> list[Point]:
+def _take(
+    points: list[Point],
+    stream: str,
+    epoch: int,
+    value: Decimal,
+    zone: str,
+    name: str,
+    now: datetime,
+) -> int:
+    """Append one point. Returns 1 when it was out of range or not a storable number."""
+    point = _point(stream, epoch, value, zone, name, now)
+    if point is None:
+        return 1
+    points.append(point)
+    return 0
+
+
+def sleep_points(body: SleepBody, zone: str, now: datetime) -> tuple[list[Point], int]:
+    """Series samples plus each segment's ``state``. The count is rows that were not written."""
     named = zone_name(None, zone)
     points: list[Point] = []
+    skipped = 0
     for segment in body.series:
+        if segment.state is not None:
+            skipped += _take(
+                points,
+                "sleep_series",
+                segment.startdate,
+                Decimal(segment.state),
+                named,
+                "state",
+                now,
+            )
         for field in _SLEEP_FIELDS:
             series = getattr(segment, field)
             if not series:
                 continue
             for epoch, value in series.items():
-                point = _point("sleep_series", int(epoch), value, named, field, now)
-                if point is not None:
-                    points.append(point)
-    return points
+                skipped += _take(points, "sleep_series", int(epoch), value, named, field, now)
+    return points, skipped
 
 
-def intraday_points(body: IntradayBody, zone: str, now: datetime) -> list[Point]:
+def intraday_points(body: IntradayBody, zone: str, now: datetime) -> tuple[list[Point], int]:
     named = zone_name(None, zone)
     points: list[Point] = []
+    skipped = 0
     for epoch, sample in body.series.items():
         for field in _INTRA_FIELDS:
             value = getattr(sample, field)
             if value is None:
                 continue
-            point = _point("intraday", int(epoch), value, named, field, now)
-            if point is not None:
-                points.append(point)
-    return points
+            skipped += _take(points, "intraday", int(epoch), value, named, field, now)
+    return points, skipped
 
 
 async def write_points(

@@ -5,7 +5,8 @@ import json
 import urllib.request
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import text
@@ -15,9 +16,10 @@ from ctx import make_context
 from jobtools import engine_for, ensure_user
 from ownvitals import egress
 from ownvitals.config import Settings
-from ownvitals.db import create_engine, create_session_factory
+from ownvitals.db import create_engine, create_session_factory, user_session
 from ownvitals.egress import core
 from ownvitals.ingest.calls import Account, Halt
+from ownvitals.ingest.cursors import write_cursor
 from ownvitals.ingest.revisions import current
 from ownvitals.jobs.errors import RunStopped
 from ownvitals.jobs.fence import Lease
@@ -25,10 +27,11 @@ from ownvitals.jobs.run import JobRun
 from ownvitals.jobs.withings import StreamInput
 from ownvitals.withings.capabilities import shown_count
 from ownvitals.withings.client import WithingsApp, WithingsClient
-from ownvitals.withings.sync import execute_backfill
+from ownvitals.withings.sync import execute_backfill, execute_sync
 from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport
 from withingsschema import new_app
+from withingsstreams import START
 
 
 @pytest.fixture(autouse=True)
@@ -218,3 +221,181 @@ async def test_a_missing_scope_is_not_authorized_and_makes_no_call(
     assert shown_count(capability, 0) is None
     assert fake.request_count == before
     assert await _rows(sessions, owner) == 0
+
+
+def _number(value: object) -> Decimal:
+    return Decimal(str(value))
+
+
+async def _mark_complete(
+    factory: async_sessionmaker[AsyncSession],
+    owner: uuid.UUID,
+    connection: uuid.UUID,
+    stream: str,
+    lastupdate: int | None,
+) -> None:
+    async with user_session(factory, make_context(owner)) as db:
+        await write_cursor(
+            db,
+            owner,
+            connection,
+            stream,
+            capability="supported",
+            state={"status": "complete", "index": 1, "skipped_out_of_range": 0},
+            lastupdate=lastupdate,
+            zone="UTC",
+        )
+
+
+async def test_a_change_older_than_a_day_is_fetched_by_lastupdate(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    app_id = new_app(database_url)
+    owner, connection, job_id = _plant(database_url, app_id)
+    fake = FakeWithings(seed=25)
+    app = fake.add_app()
+    user = fake.add_user(days=5, ecg_count=0, sleep_series_nights=0, intraday_days=0)
+    token = fake.tokens_for(app.client_id, user.userid)["access_token"]
+    account = Account(connection, app_id, ("user.activity",), "UTC", token)
+    await _mark_complete(sessions, owner, connection, "activity_daily", None)
+    moment = datetime.fromtimestamp(START, UTC)
+    job = _run(sessions, owner, connection, job_id)
+    async with WithingsClient.open(
+        WithingsApp(app.client_id, app.client_secret), inner=FakeWithingsTransport(fake)
+    ) as client:
+        await execute_sync(job, account, client, "activity_daily", now=moment)
+        old = user.data.activities[0]
+        changed = datetime.fromtimestamp(START + 3 * 86_400, UTC)
+        assert (changed.date() - date.fromisoformat(old["date"])).days > 1
+        old["steps"] = 400
+        old["elevation"] = 12345
+        old["modified"] = int(changed.timestamp())
+        await execute_sync(job, account, client, "activity_daily", now=changed)
+    calls = [entry for entry in fake.log if entry.endpoint == "v2/measure:getactivity"]
+    assert calls[-1].params["lastupdate"] == str(START)
+    assert "startdateymd" not in calls[-1].params
+    async with user_session(sessions, make_context(owner)) as db:
+        raw = (
+            await db.execute(
+                text(
+                    "SELECT raw FROM activity_daily WHERE owner_id = :owner AND day = :day"
+                ),
+                {"owner": owner, "day": date.fromisoformat(old["date"])},
+            )
+        ).scalar_one()
+        cursor = (
+            await db.execute(
+                text(
+                    "SELECT lastupdate FROM sync_cursors "
+                    "WHERE owner_id = :owner AND stream = 'activity_daily'"
+                ),
+                {"owner": owner},
+            )
+        ).scalar_one()
+    assert _number(raw["fields"]["steps"]) == 400
+    assert _number(raw["fields"]["elevation"]) == 12345
+    assert cursor == int(changed.timestamp())
+
+
+async def test_an_outage_longer_than_a_day_fetches_the_missed_sample(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    app_id = new_app(database_url)
+    owner, connection, job_id = _plant(database_url, app_id)
+    fake = FakeWithings(seed=8)
+    app = fake.add_app()
+    user = fake.add_user(days=1, ecg_count=0, sleep_series_nights=0, intraday_days=0)
+    sample = START + 86_400
+    user.data.intraday = {
+        sample: {
+            "steps": 7,
+            "duration": 15,
+            "stroke": 3,
+            "pool_lap": 2,
+            "hrv_quality": 1,
+        }
+    }
+    token = fake.tokens_for(app.client_id, user.userid)["access_token"]
+    account = Account(connection, app_id, ("user.activity",), "UTC", token)
+    await _mark_complete(sessions, owner, connection, "intraday", START)
+    moment = datetime.fromtimestamp(START + 3 * 86_400, UTC)
+    job = _run(sessions, owner, connection, job_id)
+    async with WithingsClient.open(
+        WithingsApp(app.client_id, app.client_secret), inner=FakeWithingsTransport(fake)
+    ) as client:
+        await execute_sync(job, account, client, "intraday", now=moment)
+    async with user_session(sessions, make_context(owner)) as db:
+        stored = {
+            row.metric: row.value_raw
+            for row in (
+                await db.execute(
+                    text("SELECT metric, value_raw FROM intraday WHERE owner_id = :owner"),
+                    {"owner": owner},
+                )
+            )
+        }
+    assert stored["steps"] == 7
+    assert stored["duration"] == 15
+    assert stored["stroke"] == 3
+    assert stored["pool_lap"] == 2
+    assert stored["hrv_quality"] == 1
+
+
+async def test_out_of_range_series_and_devices_move_the_skip_count(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    app_id = new_app(database_url)
+    owner, connection, job_id = _plant(database_url, app_id)
+    fake = FakeWithings(seed=9)
+    app = fake.add_app()
+    user = fake.add_user(days=1, ecg_count=0, sleep_series_nights=0, intraday_days=0)
+    user.data.sleep_series = [
+        {
+            "model": 63,
+            "series": [
+                {
+                    "startdate": 1_200_000_000,
+                    "enddate": 1_230_768_000 + 3600,
+                    "state": 3,
+                    "hr": {"1200000000": 61},
+                }
+            ],
+        }
+    ]
+    user.data.devices = [
+        {
+            "deviceid": "synthetic-device",
+            "type": "scale",
+            "model": "Body",
+            "model_id": 1,
+            "battery": "high",
+            "hash_deviceid": "synthetic-device",
+            "timezone": "UTC",
+            "last_session_date": 1_200_000_000,
+        }
+    ]
+    token = fake.tokens_for(app.client_id, user.userid)["access_token"]
+    account = Account(connection, app_id, ("user.activity", "user.info"), "UTC", token)
+    job = _run(sessions, owner, connection, job_id)
+    async with WithingsClient.open(
+        WithingsApp(app.client_id, app.client_secret), inner=FakeWithingsTransport(fake)
+    ) as client:
+        await execute_backfill(
+            job, account, client, "sleep_series", now=datetime(2009, 1, 2, 12, tzinfo=UTC)
+        )
+        await execute_backfill(
+            job, account, client, "devices", now=datetime(2026, 11, 2, tzinfo=UTC)
+        )
+    async with user_session(sessions, make_context(owner)) as db:
+        rows = (
+            await db.execute(
+                text(
+                    "SELECT stream, backfill_state FROM sync_cursors WHERE owner_id = :owner "
+                    "AND stream IN ('sleep_series', 'devices')"
+                ),
+                {"owner": owner},
+            )
+        ).all()
+    counts = {row.stream: row.backfill_state["skipped_out_of_range"] for row in rows}
+    assert counts["sleep_series"] == 1
+    assert counts["devices"] == 1

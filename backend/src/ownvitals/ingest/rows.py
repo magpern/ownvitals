@@ -15,12 +15,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.ingest.codec import (
+    ACTIVITY_FIELDS,
     SignalRejected,
     canonical,
     check_rate,
+    ecg_unchanged,
     frame_signal,
     missing_estimate,
     payload_hash,
+    plain_object,
+    reported_body,
 )
 from ownvitals.ingest.revisions import bump
 from ownvitals.ingest.skips import INVALID, OUT_OF_RANGE, note
@@ -170,7 +174,8 @@ async def soft_delete_measure(db: AsyncSession, owner: UUID, connection: UUID, g
 
 
 _ECG_ROW = text(
-    "SELECT payload_hash, signal IS NULL AS missing FROM ecg_recordings "
+    "SELECT payload_hash, signal IS NULL AS missing, recorded_at, source_tz, model_id, afib, "
+    "heart_rate, sampling_hz, wearposition, reported, afib_details FROM ecg_recordings "
     "WHERE owner_id = :owner AND connection_id = :connection AND signalid = :signalid"
 )
 _INSERT_ECG = text(
@@ -235,19 +240,6 @@ async def upsert_ecg(
     existing = (
         await db.execute(_ECG_ROW, {"owner": owner, "connection": connection, "signalid": signalid})
     ).first()
-    same_hash = (
-        existing is not None
-        and not rejected
-        and digest is not None
-        and existing.payload_hash is not None
-        and bytes(existing.payload_hash) == digest
-    )
-    if same_hash:
-        return "unchanged"
-    if existing is not None and rejected and existing.missing:
-        return "unchanged"
-    revision = await bump(db, owner, "ecg")
-    estimated = json.dumps(missing_estimate(signalid, rate, revision)) if rejected else None
     details = (
         None if entry.ecg.afib_details is None else json.dumps({"code": entry.ecg.afib_details})
     )
@@ -264,10 +256,15 @@ async def upsert_ecg(
         "wear": wear,
         "signal": frame,
         "hash": digest,
-        "reported": json.dumps(canonical({"deviceid": entry.deviceid, "raw": entry.raw})),
-        "estimated": estimated,
+        "reported": json.dumps(canonical(reported_body(entry))),
+        "estimated": None,
         "details": details,
     }
+    if ecg_unchanged(existing, values, rejected=rejected, digest=digest):
+        return "unchanged"
+    revision = await bump(db, owner, "ecg")
+    if rejected:
+        values["estimated"] = json.dumps(missing_estimate(signalid, rate, revision))
     await db.execute(_INSERT_ECG if existing is None else _UPDATE_ECG, values)
     return "inserted" if existing is None else "updated"
 
@@ -318,9 +315,7 @@ async def upsert_activity(
         note("activity_daily", OUT_OF_RANGE)
         return "skipped"
     kept = {
-        name: getattr(row, name)
-        for name in ("steps", "distance", "elevation", "calories", "totalcalories", "hr_average")
-        if getattr(row, name) is not None
+        name: getattr(row, name) for name in ACTIVITY_FIELDS if getattr(row, name) is not None
     }
     body = {"date": row.date, "fields": kept, "raw": row.raw, "timezone": named}
     found = (
@@ -365,7 +360,13 @@ async def upsert_workout(
         note("workouts", OUT_OF_RANGE)
         return "skipped"
     named = zone_name(row.timezone, zone)
-    body = {"end": row.enddate, "id": row.id, "raw": row.raw, "start": row.startdate}
+    body = {
+        "data": plain_object(row.data),
+        "end": row.enddate,
+        "id": row.id,
+        "raw": row.raw,
+        "start": row.startdate,
+    }
     found = (
         await db.execute(
             _WORKOUT,
@@ -417,7 +418,13 @@ async def upsert_sleep_summary(
             return "skipped"
     else:
         day = local_day(start, named)
-    body = {"end": row.enddate, "id": row.id, "raw": row.raw, "start": row.startdate}
+    body = {
+        "data": plain_object(row.data),
+        "end": row.enddate,
+        "id": row.id,
+        "raw": row.raw,
+        "start": row.startdate,
+    }
     found = (
         await db.execute(
             _SUMMARY,

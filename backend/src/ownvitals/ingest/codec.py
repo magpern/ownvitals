@@ -22,12 +22,14 @@ the 24-hour bound (ADR 0006 section 11).
 import hashlib
 import json
 import struct
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 import zstandard
 
 from ownvitals.ecg.pipeline import analyse, to_estimated
+from ownvitals.withings.models import HeartListEntry
 
 MAGIC = b"OVE1"
 ZSTD_LEVEL = 19
@@ -191,3 +193,87 @@ def hold_pending(
     if elapsed_seconds >= bound_seconds:
         return False
     return another_group_may_link or not estimates_current
+
+
+ACTIVITY_FIELDS = (
+    "steps",
+    "distance",
+    "elevation",
+    "soft",
+    "moderate",
+    "intense",
+    "active",
+    "calories",
+    "totalcalories",
+    "hr_average",
+    "hr_min",
+    "hr_max",
+    "hr_zone_0",
+    "hr_zone_1",
+    "hr_zone_2",
+    "hr_zone_3",
+)
+
+
+def plain_object(model: Any) -> dict[str, Any]:
+    """Known fields of a nested object, plus unknown ones. A missing field is left out."""
+    if model is None:
+        return {}
+    kept = {
+        name: getattr(model, name)
+        for name in type(model).model_fields
+        if name != "raw" and getattr(model, name) is not None
+    }
+    extra = model.raw if isinstance(model.raw, dict) else {}
+    return {**kept, **{key: value for key, value in extra.items() if key not in kept}}
+
+
+def reported_body(entry: HeartListEntry) -> dict[str, Any]:
+    """List-row fields that are not their own columns. Blood pressure is one of them."""
+    body: dict[str, Any] = {"deviceid": entry.deviceid, "raw": entry.raw}
+    pressure = entry.bloodpressure
+    if pressure is None:
+        return body
+    kept = {
+        name: getattr(pressure, name)
+        for name in ("diastole", "systole")
+        if getattr(pressure, name) is not None
+    }
+    if kept or pressure.raw:
+        body["bloodpressure"] = {**kept, **pressure.raw}
+    return body
+
+
+def _same_json(stored: Any, encoded: str | None) -> bool:
+    parsed = None if encoded is None else json.loads(encoded)
+    return canonical(stored) == canonical(parsed)
+
+
+def ecg_unchanged(
+    existing: Any, values: dict[str, Any], *, rejected: bool, digest: bytes | None
+) -> bool:
+    """True when the signal and the source columns already match. ``estimated`` is not compared."""
+    if existing is None:
+        return False
+    if rejected:
+        if not existing.missing:
+            return False
+    elif digest is None or existing.payload_hash is None or bytes(existing.payload_hash) != digest:
+        return False
+    recorded = existing.recorded_at
+    if isinstance(recorded, datetime) and recorded.tzinfo is None:
+        recorded = recorded.replace(tzinfo=UTC)
+    same_time = isinstance(recorded, datetime) and int(recorded.timestamp()) == int(
+        values["at"].timestamp()
+    )
+    return bool(
+        same_time
+        and existing.source_tz == values["zone"]
+        and existing.model_id == values["model"]
+        and existing.afib == values["afib"]
+        and existing.heart_rate == values["heart"]
+        and existing.sampling_hz == values["rate"]
+        and existing.wearposition == values["wear"]
+        and _same_json(existing.reported, values["reported"])
+        and _same_json(existing.afib_details, values["details"])
+    )

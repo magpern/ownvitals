@@ -24,7 +24,7 @@ from uuid import UUID
 from ownvitals.ingest.calls import Account, Classified, Halt, limited
 from ownvitals.ingest.codec import payload_hash
 from ownvitals.ingest.cursors import read_cursor, write_cursor
-from ownvitals.ingest.fetch import ecg_window, measure_window, once, window
+from ownvitals.ingest.fetch import ecg_window, incremental, measure_window, once, window
 from ownvitals.ingest.revisions import bump
 from ownvitals.ingest.when import from_epoch
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
@@ -217,7 +217,12 @@ async def execute_sync(
     lane: int | None = None,
     now: datetime | None = None,
 ) -> str:
-    """Incremental pass. A stream whose backfill is not complete is left incomplete."""
+    """Incremental pass. A stream whose backfill is not complete is left incomplete.
+
+    Activity, workouts and sleep summary call ``lastupdate`` and store the new cursor.
+    Sleep series and intraday walk forward from the cursor, a day at a time, so a gap
+    longer than 24 hours is still fetched. Backfill keeps its own windows.
+    """
     try:
         spec = stream_named(name)
     except KeyError:
@@ -244,9 +249,18 @@ async def execute_sync(
     elif spec.shape in {"devices", "goals"}:
         got = await once(job, account, client, lane, budget, spec.shape, moment)
     else:
-        start = int(cursor["lastupdate"] or int(moment.timestamp()) - 86_400)
-        got = await window(
-            job, account, client, lane, budget, spec.shape, start, int(moment.timestamp()), moment
+        mark = None if cursor["lastupdate"] is None else int(cursor["lastupdate"])
+        got = await incremental(
+            job,
+            account,
+            client,
+            lane,
+            budget,
+            spec.shape,
+            mark,
+            int(moment.timestamp()),
+            moment,
+            history_days=spec.history_days,
         )
     if isinstance(got, Classified):
         state = dict(cursor["state"])
@@ -319,7 +333,12 @@ async def execute_connect(
             if isinstance(got, Classified)
             else after_success(stream=stream, empty=got.empty, devices_known_empty=False)
         )
-        state: dict[str, Any] = {"status": "complete", "index": 1, "skipped_out_of_range": 0}
+        skipped = 0 if isinstance(got, Classified) else got.skipped
+        state: dict[str, Any] = {
+            "status": "complete",
+            "index": 1,
+            "skipped_out_of_range": skipped,
+        }
         if not isinstance(got, Classified) and got.no_devices is not None:
             state["no_devices"] = got.no_devices
         goals_changed = False
