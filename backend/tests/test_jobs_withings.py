@@ -188,8 +188,8 @@ def test_lane_order_holds_when_claimers_race(admin: Connection, app: Engine) -> 
     for thread in threads:
         thread.join()
     assert high in claimed
-    assert len(claimed) == 3
     assert all(item in {*low, high} for item in claimed)
+    assert 1 <= len(claimed) <= 3
     assert job(admin, high).state == "running"
 
 

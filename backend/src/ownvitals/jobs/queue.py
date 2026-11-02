@@ -46,8 +46,6 @@ class ReplayRefused(Exception):
 class Replayed:
     """The new queued job and the owner it belongs to."""
 
-    __slots__ = ("job_id", "owner_id")
-
     def __init__(self, job_id: UUID, owner_id: UUID) -> None:
         self.job_id = job_id
         self.owner_id = owner_id
