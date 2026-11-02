@@ -100,7 +100,7 @@ class Recording:
     device_id: str | None
 
     def __repr__(self) -> str:
-        return "Recording(redacted)"
+        return "Recording redacted"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -114,7 +114,7 @@ class MeasureLink:
     types: frozenset[int]
 
     def __repr__(self) -> str:
-        return "MeasureLink(redacted)"
+        return "MeasureLink redacted"
 
 
 def input_fingerprint(signalid: int, digest: bytes | None, sampling_hz: int | None) -> str:

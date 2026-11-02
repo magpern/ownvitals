@@ -153,6 +153,20 @@ def test_oc5_counts_recordings_without_a_matching_group() -> None:
     assert "device-a" not in "\n".join(missing.lines)
 
 
+def test_oc5_a_missing_device_id_is_not_a_match() -> None:
+    unnamed = _rec(device_id=None, model_id=10)
+    other_device = MeasureLink(WHEN, CONN, frozenset({"device-a"}), 10, frozenset({135}))
+    missing = evaluate((unnamed,), (other_device,), OwnerAnswers())
+    assert "OC5 fail" in missing.lines
+    assert "OC5 without 1" in missing.lines
+    other_model = MeasureLink(WHEN, CONN, frozenset(), 11, frozenset({130}))
+    assert "OC5 fail" in evaluate((unnamed,), (other_model,), OwnerAnswers()).lines
+    same_model = MeasureLink(WHEN, CONN, frozenset(), 10, frozenset({136}))
+    assert "OC5 fail" in evaluate((unnamed,), (same_model,), OwnerAnswers()).lines
+    named = _rec(device_id="device-b", model_id=10)
+    assert "OC5 fail" in evaluate((named,), (other_device,), OwnerAnswers()).lines
+
+
 def test_v1_uses_the_eighty_percent_floor_and_ignores_noisy_codes() -> None:
     clean_pass = tuple(_rec(signalid=index, estimated=_gate("pass")) for index in range(4))
     clean_fail = (_rec(signalid=4, estimated=_gate("fail")),)
@@ -277,7 +291,15 @@ def test_stdout_drops_samples_rates_reasons_and_ids() -> None:
         },
     )
     text = "\n".join(evaluate((recording,), (), OwnerAnswers()).lines)
-    assert repr(recording) == "Recording(redacted)"
+    link = MeasureLink(
+        datetime(2024, 7, 4, 4, 5, 6, tzinfo=UTC),
+        CONN,
+        frozenset({"canary-device-token"}),
+        3210,
+        frozenset({135}),
+    )
+    assert repr(recording) == "Recording redacted"
+    assert repr(link) == "MeasureLink redacted"
     for needle in (
         "918273645",
         "135791357",
@@ -295,6 +317,8 @@ def test_stdout_drops_samples_rates_reasons_and_ids() -> None:
         "44",
     ):
         assert needle not in text, needle
+        assert needle not in repr(recording), needle
+        assert needle not in repr(link), needle
 
 
 def test_partial_v4_answers_are_refused_without_the_numbers() -> None:

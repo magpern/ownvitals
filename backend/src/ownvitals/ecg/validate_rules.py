@@ -260,8 +260,9 @@ def _matches(recording: Recording, link: MeasureLink) -> bool:
         return False
     if not (link.types & ECG_TYPES):
         return False
+    # ADR 0006 A7: the same device. A missing device id is not a match.
     if recording.device_id is None:
-        return True
+        return False
     if recording.device_id in link.device_ids:
         return True
     return (
