@@ -238,8 +238,9 @@ jobs:
           persist-credentials: false
 
       # The script the compose db container runs (docker/postgres/init, ADR 0002 section 5),
-      # against the service container, twice: the second run proves it is idempotent. The test
-      # fixtures replace the role passwords with random ones of their own.
+      # against the service container, twice: the second run proves it is idempotent. It also
+      # creates ownvitals_maint LOGIN from database_maint_password (#126). The test fixtures
+      # replace the owner and app passwords with random ones of their own.
       - name: Create the application database and its roles
         working-directory: .
         env:
@@ -253,10 +254,14 @@ jobs:
           mkdir -p "$secrets"
           openssl rand -hex 16 > "$secrets/database_owner_password"
           openssl rand -hex 16 > "$secrets/database_password"
+          openssl rand -hex 16 > "$secrets/database_maint_password"
           export DATABASE_OWNER_PASSWORD_FILE="$secrets/database_owner_password"
           export DATABASE_PASSWORD_FILE="$secrets/database_password"
+          export DATABASE_MAINT_PASSWORD_FILE="$secrets/database_maint_password"
           psql -v ON_ERROR_STOP=1 -d ownvitals -f docker/postgres/init/10-roles.sql
           psql -v ON_ERROR_STOP=1 -d ownvitals -f docker/postgres/init/10-roles.sql
+          login=$(psql -v ON_ERROR_STOP=1 -d ownvitals -tAc "SELECT rolcanlogin FROM pg_roles WHERE rolname = 'ownvitals_maint'")
+          test "$login" = t
 
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:

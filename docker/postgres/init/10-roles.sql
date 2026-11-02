@@ -8,13 +8,16 @@
 -- Passwords are read from secret files, never from arguments or the environment:
 --   $DATABASE_OWNER_PASSWORD_FILE  (default /run/secrets/database_owner_password)
 --   $DATABASE_PASSWORD_FILE        (default /run/secrets/database_password)
+--   $DATABASE_MAINT_PASSWORD_FILE  (default /run/secrets/database_maint_password)
 -- The superuser's own password (postgres_password) is the image's POSTGRES_PASSWORD_FILE.
 --
 -- Idempotent: running it again repairs drift in what it manages (attributes, passwords,
--- memberships, role settings, grants and default privileges of the two roles). ACL kinds it
--- does not manage (large objects, types, parameters) are not touched. The function owners of
--- ADR 0005 section 3 (ownvitals_queue, #9) and the admin role ownvitals_maint (#12) come with
--- their own scripts; neither is touched here.
+-- memberships, role settings, grants and default privileges of the owner and app roles, and
+-- the maint role's login and password). ACL kinds it does not manage (large objects, types,
+-- parameters) are not touched. The function owner ownvitals_queue (ADR 0005 section 3, #9)
+-- comes with its own script and is not touched here. ownvitals_maint's attributes,
+-- memberships and grants are docker/postgres/maint/30-maint.sql (#12); this script only
+-- creates that LOGIN role and sets its password from database_maint_password (#126).
 
 \set ON_ERROR_STOP on
 -- Same bytes as config.py: strip exactly one trailing LF, then one trailing CR, nothing else.
@@ -23,14 +26,19 @@
 -- never interpreted by it, and reaches SQL only as a psql-quoted literal (:'name').
 \set owner_raw `cat "${DATABASE_OWNER_PASSWORD_FILE:-/run/secrets/database_owner_password}"`
 \set app_raw `cat "${DATABASE_PASSWORD_FILE:-/run/secrets/database_password}"`
+\set maint_raw `cat "${DATABASE_MAINT_PASSWORD_FILE:-/run/secrets/database_maint_password}"`
 SELECT CASE WHEN right(:'owner_raw', 1) = E'\r' THEN left(:'owner_raw', -1) ELSE :'owner_raw' END
          AS owner_password,
        CASE WHEN right(:'app_raw', 1) = E'\r' THEN left(:'app_raw', -1) ELSE :'app_raw' END
-         AS app_password \gset
+         AS app_password,
+       CASE WHEN right(:'maint_raw', 1) = E'\r' THEN left(:'maint_raw', -1) ELSE :'maint_raw' END
+         AS maint_password \gset
 \unset owner_raw
 \unset app_raw
+\unset maint_raw
 
-SELECT (:'owner_password' = '' OR :'app_password' = '') AS empty_password,
+SELECT (:'owner_password' = '' OR :'app_password' = '' OR :'maint_password' = '')
+         AS empty_password,
        NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS not_superuser \gset
 \if :empty_password
   DO $$ BEGIN RAISE EXCEPTION 'a database password secret file is missing or empty'; END $$;
@@ -44,13 +52,19 @@ SELECT 'CREATE ROLE ownvitals_owner LOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ownvitals_owner') \gexec
 SELECT 'CREATE ROLE ownvitals_app LOGIN'
  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ownvitals_app') \gexec
+SELECT 'CREATE ROLE ownvitals_maint LOGIN'
+ WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ownvitals_maint') \gexec
 
 ALTER ROLE ownvitals_owner WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
   NOREPLICATION INHERIT CONNECTION LIMIT -1 PASSWORD :'owner_password';
 ALTER ROLE ownvitals_app WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
   NOREPLICATION NOINHERIT CONNECTION LIMIT -1 PASSWORD :'app_password';
+-- Login and password only. 30-maint.sql sets the attributes, settings and grants, and does
+-- not change this password.
+ALTER ROLE ownvitals_maint WITH LOGIN PASSWORD :'maint_password';
 
--- Neither role is a member of any role (a BYPASSRLS membership would defeat RLS through SET ROLE).
+-- Neither the owner nor the app role is a member of any role (a BYPASSRLS membership would
+-- defeat RLS through SET ROLE). ownvitals_maint's memberships are 30-maint.sql.
 SELECT format('REVOKE %I FROM %I GRANTED BY %I', r.rolname, m.rolname, g.rolname)
   FROM pg_auth_members am
   JOIN pg_roles r ON r.oid = am.roleid
