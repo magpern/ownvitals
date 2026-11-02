@@ -68,7 +68,7 @@ class WipeResult:
     totp_reset: bool
 
     def __repr__(self) -> str:
-        return "WipeResult(...)"
+        return f"{type(self).__name__} redacted"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -80,7 +80,7 @@ class PendingWipe:
     totp_reset: bool
 
     def __repr__(self) -> str:
-        return "PendingWipe(...)"
+        return f"{type(self).__name__} redacted"
 
 
 async def user_ids(factory: Factory) -> list[UUID]:

@@ -25,10 +25,10 @@ class Credentials:
     refresh_token: str
 
     def __repr__(self) -> str:
-        return "Credentials(...)"
+        return f"{type(self).__name__} redacted"
 
     def __str__(self) -> str:
-        return "Credentials(...)"
+        return f"{type(self).__name__} redacted"
 
     def __reduce__(self) -> NoReturn:
         raise TypeError("credentials are never serialized")

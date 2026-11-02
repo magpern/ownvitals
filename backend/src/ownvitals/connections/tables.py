@@ -18,6 +18,7 @@ from sqlalchemy import (
     MetaData,
     Table,
     Text,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -34,7 +35,7 @@ metadata = MetaData()
 connections = Table(
     "connections",
     metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")),
+    Column("id", UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()),
     Column("owner_id", UUID(as_uuid=True), ForeignKey("users.id"), nullable=False),
     Column("provider", Text, nullable=False),
     Column("status", Text, nullable=False),
@@ -49,8 +50,8 @@ connections = Table(
     Column("refresh_in_flight", BigInteger),
     Column("refresh_intent_at", DateTime(timezone=True)),
     Column("expires_at", DateTime(timezone=True)),
-    Column("connected_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
-    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
+    Column("connected_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_used_at", DateTime(timezone=True)),
     CheckConstraint(
         "(secret IS NULL AND secret_nonce IS NULL AND wrapped_dek IS NULL "

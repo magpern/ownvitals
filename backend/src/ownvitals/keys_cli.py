@@ -10,7 +10,7 @@ It refuses while the app role still has a session, or while the configured KEK i
 has a check row. Per account, credentials are removed and the row kept, the authenticator
 is reset, and a mail is sent after the commit. Then every check row is deleted and the
 affected tables are rewritten. ``CHECKPOINT`` needs a superuser; when it is refused, the
-command prints the statement to run.
+command prints the step to finish.
 """
 
 import argparse
@@ -44,7 +44,10 @@ from ownvitals.db import (
 from ownvitals.jobs.issuer import owner_context
 from ownvitals.mail import Mailer, MailError, MailMessage
 
-CHECKPOINT_STEP = "docker compose exec db psql -U postgres -d ownvitals -c CHECKPOINT"
+CHECKPOINT_STEP = (
+    "in the db service, as the postgres user, use psql on the ownvitals database "
+    "and issue CHECKPOINT"
+)
 _OK_OUTCOMES = (" rewrapped", " skipped")
 Factory = Any
 
@@ -61,7 +64,7 @@ def add_keys_subcommands(sub: Any) -> None:
         description=(
             "Run in the maint service with web and worker stopped: docker compose --profile "
             "maint run --rm maint python -m ownvitals keys wipe --confirm. If CHECKPOINT is "
-            f"refused, run: {CHECKPOINT_STEP}"
+            f"refused, finish it this way: {CHECKPOINT_STEP}"
         ),
     )
     mode = wipe.add_mutually_exclusive_group(required=True)
@@ -207,7 +210,10 @@ async def _finish(engine: AsyncEngine, out: TextIO) -> None:
         except DBAPIError as error:
             if getattr(error.orig, "sqlstate", None) != "42501":
                 raise
-            print(f"CHECKPOINT refused for the owner role; run it now: {CHECKPOINT_STEP}", file=out)
+            print(
+                f"CHECKPOINT refused for the owner role; finish it this way: {CHECKPOINT_STEP}",
+                file=out,
+            )
         else:
             print("CHECKPOINT done", file=out)
 
