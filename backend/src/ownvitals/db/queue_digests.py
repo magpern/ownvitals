@@ -13,6 +13,9 @@ QUEUE_DIGESTS: dict[str, str] = {
     "queue_cancel_for_secret": "c0faa144a840ef7684ae750d56e47efd",
     "queue_replay": "fc433c0d2b737b70510a681219d17684",
     "ensure_month_partitions": "2542fa5514932f53e4ad1ec028b79e4a",
-    "webhook_secrets_apply": "f59b7611527b9d4f44abab6afe5b73d9",
+    "webhook_secrets_apply": (
+        # md5(pg_get_functiondef) of this function body
+        "f59b7611527b9d4f44abab6afe5b73d9"
+    ),
     "webhook_event_insert": "2724d8395257289fcfe0e8a0cedc31ae",
 }

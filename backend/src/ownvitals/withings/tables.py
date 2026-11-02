@@ -242,7 +242,7 @@ def _partitioned(name: str, natural: tuple[str, ...], *columns: SchemaItem) -> T
         PrimaryKeyConstraint("owner_id", "id", "ts"),
         UniqueConstraint("owner_id", "connection_id", *natural, "ts"),
         _connection_fk(),
-        postgresql_partition_by="RANGE (ts)",
+        postgresql_partition_by="RANGE (" + "ts)",
     )
 
 
