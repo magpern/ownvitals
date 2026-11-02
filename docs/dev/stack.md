@@ -62,13 +62,18 @@ bytes, hex) and `connection_kek` (32 bytes, 64 lowercase hex characters). They a
 container user can read the bind mount; `secrets/` itself is `0700`. The image contains none of
 them; `docker inspect` shows only the file mounts.
 
-The database roles ([isolation.md](isolation.md)): `db` creates `ownvitals_owner` and
-`ownvitals_app` from `docker/postgres/init/10-roles.sql` on the first start of an empty volume,
-with the passwords of `database_owner_password` and `database_password` (an older volume needs
-`docker compose down -v`). `migrate` connects as `ownvitals_owner` with `database_owner_password`,
-`web` and `worker` as `ownvitals_app` with `database_password`; only `db` and `db-functions` hold
-`postgres_password` (`db-functions` writes it to a `PGPASSFILE` on a tmpfs, [jobs.md](jobs.md)).
-Web and the worker refuse to start as a privileged role.
+The database roles ([isolation.md](isolation.md)): `db` creates `ownvitals_owner`,
+`ownvitals_app` and the `ownvitals_maint` LOGIN role from `docker/postgres/init/10-roles.sql`
+on the first start of an empty volume, with the passwords of `database_owner_password`,
+`database_password` and `database_maint_password` (an older volume needs
+`docker compose down -v`). `migrate` connects as `ownvitals_owner` with
+`database_owner_password`, `web` and `worker` as `ownvitals_app` with `database_password`.
+`web` alone also has `OWNVITALS_MAINT_DATABASE_URL`
+(`postgresql+psycopg://ownvitals_maint@db:5432/ownvitals`) and the `database_maint_password`
+secret, so with both set the admin routes do not answer 503 `admin_unavailable`. The worker
+does not get that URL or secret. Only `db` and `db-functions` hold `postgres_password`
+(`db-functions` writes it to a `PGPASSFILE` on a tmpfs, [jobs.md](jobs.md)). Web and the worker
+refuse to start as a privileged role.
 
 ## Where the database's SQL comes from
 
@@ -77,9 +82,9 @@ exception:
 
 | SQL | Runs | From |
 |---|---|---|
-| `docker/postgres/queue/20-queue.sql` (the queue's role and definer functions) | `db-functions`, on every start | the application image (`/app/db-functions`), so on the server the deployed release's digest: a deploy installs that release's functions and a rollback re-installs the previous release's ([deploy.md](deploy.md), "Database functions") |
+| `docker/postgres/queue/20-queue.sql` (the queue's role and definer functions), then `docker/postgres/maint/30-maint.sql` (the admin role's attributes and allowlist) | `db-functions`, on every start, both files in one transaction through `ownvitals.db.install_functions` | the application image (`/app/db-functions`), so on the server the deployed release's digest: a deploy installs that release's functions and a rollback re-installs the previous release's ([deploy.md](deploy.md), "Database functions") |
 | migrations | `migrate` | the application image |
-| `docker/postgres/init/10-roles.sql` (the two roles, grants, defaults) | `db`'s own init, **only on the first start of an empty volume** | the host: `./docker/postgres/init:/docker-entrypoint-initdb.d:ro` |
+| `docker/postgres/init/10-roles.sql` (the owner and app roles, grants and defaults; the maint LOGIN role and its password) | `db`'s own init, **only on the first start of an empty volume** | the host: `./docker/postgres/init:/docker-entrypoint-initdb.d:ro` |
 
 The init mount is the one allowed exception, by its exact source and target. It runs once, when
 the volume is created, and never again on a deploy, a rollback or a restart; it creates the
@@ -100,7 +105,8 @@ The repository's compose uses none of them. A change to any of these files runs 
 `Dockerfile` builds the backend only: `ghcr.io/astral-sh/uv:0.13.6` installs the locked
 dependencies (`uv sync --locked --no-dev`) into `python:3.12.16-slim-bookworm`, then the app runs as
 the non-root user `ownvitals`: `python -m ownvitals --host 0.0.0.0 --port 8000`. It also carries the
-queue functions and their entrypoint under `/app/db-functions` (`db-functions` runs them). The
+queue functions, `30-maint.sql` and their entrypoint under `/app/db-functions` (`db-functions` runs
+them in one transaction, `20-queue.sql` then `30-maint.sql`). The
 single-page-app build stage is added with the end-to-end harness. `.dockerignore` keeps `.git`, `.env*`,
 `secrets/`, virtualenvs, caches and docs out of the build context.
 

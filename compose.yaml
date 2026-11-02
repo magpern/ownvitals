@@ -1,10 +1,11 @@
 # Local stack: db, migrate and db-functions (one-shot), web and worker.
 # Ports bind 127.0.0.1 only and come from .env (scripts/worktree.sh init writes it).
 # Passwords are files under secrets/ mounted as Docker secrets, never environment variables.
-# The database roles (ADR 0002 section 5): db creates ownvitals_owner and ownvitals_app on the
-# first start of an empty volume (docker/postgres/init); migrate connects as the owner, web and
-# the worker as the app role. Only db and db-functions (the job queue's functions, ADR 0005
-# section 3) hold the postgres superuser's password.
+# The database roles (ADR 0002 section 5): db creates ownvitals_owner, ownvitals_app and the
+# ownvitals_maint login on the first start of an empty volume (docker/postgres/init); migrate
+# connects as the owner, web and the worker as the app role. Web alone also has the maint URL.
+# Only db and db-functions (the job queue's functions and 30-maint.sql, ADR 0005 section 3)
+# hold the postgres superuser's password.
 
 x-app: &app
   build: .
@@ -33,13 +34,14 @@ services:
       - postgres_password
       - database_owner_password
       - database_password
+      - database_maint_password
     volumes:
       - db-data:/var/lib/postgresql/data
-      # Creates ownvitals_owner and ownvitals_app with their passwords from the two secret files
-      # on the first start of an empty volume (`docker compose down -v` to get them on an older
-      # volume). The one host path holding SQL that a service reads, allowed because it runs on
-      # the first start only and creates roles, not the functions a deploy updates
-      # (docs/dev/stack.md; test_compose_host_sql.py allows exactly this mount).
+      # Creates ownvitals_owner, ownvitals_app and the ownvitals_maint login from the three
+      # password files on the first start of an empty volume (`docker compose down -v` to get
+      # them on an older volume). The one host path holding SQL that a service reads, allowed
+      # because it runs on the first start only and creates roles, not the functions a deploy
+      # updates (docs/dev/stack.md; test_compose_host_sql.py allows exactly this mount).
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
       - "127.0.0.1:${DB_PORT:-55432}:5432"
@@ -90,11 +92,15 @@ services:
     # the worker (roadmap Amendment 1). Plain SMTP is allowed for the mailpit host only.
     environment:
       <<: *app-env
+      # The admin role, web only. Without this URL or the database_maint_password file, admin
+      # routes answer 503 admin_unavailable.
+      OWNVITALS_MAINT_DATABASE_URL: postgresql+psycopg://ownvitals_maint@db:5432/ownvitals
       OWNVITALS_SMTP_HOST: mailpit
       OWNVITALS_SMTP_PORT: "1025"
       OWNVITALS_SMTP_TLS: none
     secrets:
       - database_password
+      - database_maint_password
       - app_secret_key
       - connection_kek
     ports:
@@ -145,6 +151,8 @@ secrets:
     file: ./secrets/database_owner_password
   database_password:
     file: ./secrets/database_password
+  database_maint_password:
+    file: ./secrets/database_maint_password
   app_secret_key:
     file: ./secrets/app_secret_key
   connection_kek:

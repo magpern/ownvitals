@@ -5,16 +5,16 @@ role, **admins cannot read health data**), [ADR 0003](../adr/0003-accounts-and-s
 and §7 (the admin window, step-up for admin writes, stricter-wins flags), and classbeat ADR 0011 at
 `d806051`. It ships the gate and router shell, the audit log, the stored flags (`signup_mode`,
 `experimental_findings`, `ai_insights`, `banner`) with `/api/settings/public`, and a Jobs view.
-The Users view and the account helpers it needs are #127 (after #11, which owns `auth/**`); the
-stack wiring of the maint role (its password, compose, `db-functions`, the `Dockerfile`, CI) is
-#126.
+The Users view and the account helpers it needs are #127 (after #11, which owns `auth/**`).
+The maint role's password, compose, `db-functions`, the `Dockerfile` and CI are wired (#126).
 
 ## The pieces
 
 | Path | What |
 |---|---|
 | `backend/migrations/versions/0006_admin.py` | `app_settings` and `admin_audit` (system tables); the app role reads the flags and holds nothing on the audit log |
-| `docker/postgres/maint/30-maint.sql` | the role `ownvitals_maint`: attributes, settings, revoke-all, the column allowlist; plain SQL, idempotent, run as the superuser after the migrations |
+| `docker/postgres/init/10-roles.sql` | creates `ownvitals_maint` `LOGIN` and sets its password from the `database_maint_password` secret, beside the owner and app roles |
+| `docker/postgres/maint/30-maint.sql` | the role `ownvitals_maint`: attributes, settings, revoke-all, the column allowlist; plain SQL, idempotent, run as the superuser after the migrations. `db-functions` installs it after `20-queue.sql` in the same transaction. It sets no password |
 | `backend/src/ownvitals/admin/db.py` | the maint engine and its role check, `admin_session` (the audited transaction), `audit_refusal` |
 | `backend/src/ownvitals/admin/audit.py` | the action codes, each action's `params` model, the refusal and request limiters |
 | `backend/src/ownvitals/admin/routes.py` | `admin_gate`, `admin_router()`, `install(app)` (handlers, body limit), the route guard's helpers |
@@ -47,8 +47,17 @@ registry in guard 11 names the secret columns and forbidden tables; a grant on o
 CI even if the allowlist is edited too. A new grant goes into `30-maint.sql` and guard 11's
 `EXPECTED` in the same PR, with its reason; a health table never does without a new ADR.
 
-Without `OWNVITALS_MAINT_DATABASE_URL` and the `database_maint_password` secret file there is no
-maint engine and every admin route answers 503 `admin_unavailable` (until #126 wires them).
+`db` creates the LOGIN role on the first start of an empty volume and sets its password from the
+`database_maint_password` secret (`docker/postgres/init/10-roles.sql`). `db-functions` then
+installs `30-maint.sql` after `20-queue.sql`, in one transaction through
+`ownvitals.db.install_functions` (no psql). That script sets the attributes and the allowlist
+and does not change the password.
+
+Compose gives that secret to `db` and `web`, and `OWNVITALS_MAINT_DATABASE_URL`
+(`postgresql+psycopg://ownvitals_maint@db:5432/ownvitals`) to `web` only. With both set, web
+builds the maint engine and the admin routes do not answer 503 `admin_unavailable`. Without
+the URL or the secret file there is no maint engine and every admin route answers 503
+`admin_unavailable`.
 
 ## Every transaction is audited
 
