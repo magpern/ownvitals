@@ -3,7 +3,8 @@
 The worker calls ``purge_expired``. Account deletion and the "also remove imported
 rows" option call the other functions here, after the Withings revoke. Owned rows
 go with the account because each one cascades from it. Imported rows can also be
-removed on their own; the Withings row itself stays until the account goes.
+removed on their own. That option deletes the Withings row too, so the account can
+be linked again. A plain disconnect keeps the row until the account goes.
 """
 
 from collections.abc import Awaitable, Callable
@@ -11,7 +12,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Column, MetaData, Table, and_, case, delete, func, or_, update
+from sqlalchemy import Column, MetaData, Table, and_, case, delete, func, or_, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.admin_accounts import delete_user_account
@@ -26,7 +27,7 @@ from ownvitals.auth.tables import (
     sessions,
 )
 from ownvitals.config import Settings
-from ownvitals.connections.repository import list_connections
+from ownvitals.connections.repository import delete_disconnected_row, list_connections
 from ownvitals.context import UserContext
 from ownvitals.crypto.keks import KeyRing
 from ownvitals.db import system_session, user_session
@@ -180,7 +181,11 @@ async def finish_disconnect(
     budget: RetryBudget | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> DisconnectResult:
-    """Revoke and clear credentials, then optionally remove imported rows."""
+    """Revoke and clear credentials, then optionally remove imported rows.
+
+    The option that deletes imported data also deletes this connection row. A plain
+    disconnect keeps the row.
+    """
     result = await disconnect_withings(
         factory,
         ring,
@@ -193,6 +198,7 @@ async def finish_disconnect(
     )
     if delete_imported:
         await purge_imported(factory, ctx)
+        await delete_disconnected_row(factory, ctx, connection_id)
     return result
 
 
@@ -210,7 +216,9 @@ async def delete_owner(
     """Revoke a live Withings grant, then delete the account.
 
     The audit row is the account-deleted event: no measurement and no credential.
-    Owned rows cascade with the account. A missing step-up deletes nothing.
+    This owner's webhook events are removed first, through the definer, while the
+    connection row still names them. Owned rows then cascade with the account.
+    A missing step-up deletes nothing.
     """
     if stepped_up is not True:
         raise DisconnectRefused("step_up_required")
@@ -228,6 +236,8 @@ async def delete_owner(
                 budget=budget,
                 sleep=sleep,
             )
+    async with user_session(factory, ctx) as db:
+        await db.execute(text("SELECT public.webhook_events_purge_owner()"))
     async with system_session(factory) as db:
         await delete_user_account(db, ctx.user_id, ip=ip)
     return result

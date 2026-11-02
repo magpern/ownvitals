@@ -243,6 +243,14 @@ async def test_disconnect_revokes_and_keeps_other_owners_rows(
     assert (
         _scalar(
             database_url,
+            "SELECT last_error FROM connections WHERE owner_id = :o",
+            o=linked.ctx.user_id,
+        )
+        is None
+    )
+    assert (
+        _scalar(
+            database_url,
             "SELECT count(*) FROM connections WHERE owner_id = :o "
             "AND (secret IS NOT NULL OR secret_nonce IS NOT NULL OR wrapped_dek IS NOT NULL "
             "OR dek_nonce IS NOT NULL OR key_id IS NOT NULL)",
@@ -334,6 +342,14 @@ async def test_a_failed_revoke_still_removes_secrets(
             o=linked.ctx.user_id,
         )
         == 0
+    )
+    assert (
+        _scalar(
+            database_url,
+            "SELECT last_error FROM connections WHERE owner_id = :o",
+            o=linked.ctx.user_id,
+        )
+        == "revoke_failed"
     )
 
 

@@ -23,6 +23,7 @@ DROP FUNCTION IF EXISTS public.webhook_secrets_apply(
     integer, text, text, text, text, bytea, timestamptz, timestamptz, text);
 DROP FUNCTION IF EXISTS public.webhook_event_insert(
     integer, bigint, integer, bigint, bigint, text, uuid);
+DROP FUNCTION IF EXISTS public.webhook_events_purge_owner();
 """
 
 

@@ -205,9 +205,14 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
 def _count(url: str, table: str, owner_id: UUID) -> int:
     if _NAME.fullmatch(table) is None:
         raise AssertionError(table)
-    return int(
-        _scalar(url, f"SELECT count(*) FROM public.{table} WHERE owner_id = :o", o=owner_id)  # noqa: S608
+    counted = _scalar(
+        url,
+        f"SELECT count(*) FROM public.{table} WHERE owner_id = :o",  # noqa: S608
+        o=owner_id,
     )
+    if isinstance(counted, int) and not isinstance(counted, bool):
+        return counted
+    raise AssertionError("count is not an integer")
 
 
 async def test_account_delete_revokes_and_removes_every_owned_row(
@@ -295,6 +300,13 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
         assert (
             _scalar(
                 database_url,
+                "SELECT count(*) FROM webhook_events WHERE dedupe_key = 'synthetic-event-a'",
+            )
+            == 0
+        )
+        assert (
+            _scalar(
+                database_url,
                 "SELECT count(*) FROM webhook_events WHERE dedupe_key = 'synthetic-event-b'",
             )
             == 1
@@ -358,7 +370,7 @@ async def test_delete_imported_removes_only_that_owners_rows(
         assert (
             _scalar(
                 database_url,
-                "SELECT count(*) FROM connections WHERE owner_id = :o AND secret IS NOT NULL",
+                "SELECT count(*) FROM connections WHERE owner_id = :o",
                 o=linked.ctx.user_id,
             )
             == 0
@@ -366,10 +378,22 @@ async def test_delete_imported_removes_only_that_owners_rows(
         assert (
             _scalar(
                 database_url,
-                "SELECT count(*) FROM connections WHERE owner_id = :o AND secret IS NOT NULL",
+                "SELECT count(*) FROM connections WHERE owner_id = :o",
                 o=other.user_id,
             )
             == 1
+        )
+        third = make_context(await env.user("relink-import@example.com"))
+        await store_grant(
+            env.factory,
+            env.app.state.keyring,
+            third,
+            linked.app_id,
+            linked.userid,
+            "user.metrics",
+            "synthetic-access-token-eee",
+            "synthetic-refresh-token-eee",
+            expires_in=10800,
         )
     finally:
         _partitions(database_url, False)

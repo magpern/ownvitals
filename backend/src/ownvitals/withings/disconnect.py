@@ -206,7 +206,7 @@ async def disconnect_withings(
         # The credential is removed even when the provider call fails closed.
         failed = True
         unexpected = exc
-    cleared = await disconnect(factory, ctx, _PROVIDER)
+    cleared = await disconnect(factory, ctx, _PROVIDER, revoke_failed=failed)
     logger.info(
         "withings disconnect finished",
         extra={

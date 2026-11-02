@@ -9,10 +9,9 @@
 -- ownvitals_webhook_events inserts webhook_events. When the caller passes no job id it also
 -- resolves (app_id, withings_userid) and enqueues the singleton sync through queue_enqueue
 -- (ADR 0002 section 4). That read needs BYPASSRLS and column SELECT only: id, app_id,
--- withings_userid and status. It never reads a credential column.
---
--- 20-queue.sql admits exactly ensure_month_partitions, webhook_secrets_apply and
--- webhook_event_insert, and no other function. A re-run of that script after this one keeps them.
+-- withings_userid, status and owner_id. It never reads a credential column.
+-- 20-queue.sql admits ensure_month_partitions, webhook_secrets_apply, webhook_event_insert
+-- and webhook_events_purge_owner, and no other function. A re-run keeps them.
 
 DO $$
 BEGIN
@@ -89,11 +88,13 @@ REVOKE ALL ON SEQUENCE public.admin_audit_id_seq FROM ownvitals_webhook_secrets;
 GRANT USAGE ON SEQUENCE public.admin_audit_id_seq TO ownvitals_webhook_secrets;
 
 REVOKE ALL ON TABLE public.webhook_events FROM ownvitals_webhook_events;
-GRANT INSERT ON TABLE public.webhook_events TO ownvitals_webhook_events;
+GRANT INSERT, DELETE ON TABLE public.webhook_events TO ownvitals_webhook_events;
+GRANT SELECT (app_id, withings_userid)
+  ON TABLE public.webhook_events TO ownvitals_webhook_events;
 
 -- The connection lookup. Column SELECT only; credential columns stay revoked.
 REVOKE ALL ON TABLE public.connections FROM ownvitals_webhook_events;
-GRANT SELECT (id, app_id, withings_userid, status)
+GRANT SELECT (id, app_id, withings_userid, status, owner_id)
   ON TABLE public.connections TO ownvitals_webhook_events;
 
 -- Repair the app and maint grants the migration and 30-maint.sql also set.
@@ -462,6 +463,30 @@ COMMENT ON FUNCTION public.webhook_secrets_apply(
   IS 'ownvitals-withings v1';
 COMMENT ON FUNCTION public.webhook_event_insert(integer, bigint, integer, bigint, bigint, text, uuid)
   IS 'ownvitals-withings v1';
+
+-- The owner id is the session setting, never an argument. A bad setting deletes nothing.
+CREATE OR REPLACE FUNCTION public.webhook_events_purge_owner()
+  RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE v_owner uuid;
+BEGIN
+  v_owner := pg_catalog.current_setting('app.user_id', true)::pg_catalog.uuid;
+  IF v_owner IS NULL THEN
+    RAISE EXCEPTION 'bad_owner' USING ERRCODE = '22023';
+  END IF;
+  DELETE FROM public.webhook_events AS e WHERE EXISTS (
+    SELECT 1 FROM public.connections AS c
+     WHERE c.owner_id = v_owner AND c.app_id = e.app_id
+       AND c.withings_userid = e.withings_userid);
+EXCEPTION WHEN invalid_text_representation THEN
+  RAISE EXCEPTION 'bad_owner' USING ERRCODE = '22023';
+END
+$fn$;
+ALTER FUNCTION public.webhook_events_purge_owner() OWNER TO ownvitals_webhook_events;
+REVOKE ALL ON FUNCTION public.webhook_events_purge_owner() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.webhook_events_purge_owner() TO ownvitals_app;
+COMMENT ON FUNCTION public.webhook_events_purge_owner() IS 'ownvitals-withings v1';
 
 -- queue_enqueue is installed by 20-queue.sql, which runs before this script. A database that
 -- has not installed it yet still loads this file; the grant waits until the function exists.

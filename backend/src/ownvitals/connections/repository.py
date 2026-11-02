@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -251,11 +251,15 @@ async def connect(
     return _info(row)
 
 
-async def disconnect(factory: Factory, ctx: UserContext, provider: str) -> bool:
+async def disconnect(
+    factory: Factory, ctx: UserContext, provider: str, *, revoke_failed: bool = False
+) -> bool:
     """Drop the live row's credentials and mark it disconnected. The row stays.
 
-    ``False`` when the user has no live row for ``provider`` (the route still answers 204).
-    The generation is a token-write counter, so a disconnect does not change it.
+    ``revoke_failed`` stores that category on the row (ADR 0004 section 8). Otherwise
+    ``last_error`` is cleared. ``False`` when the user has no live row for ``provider``
+    (the route still answers 204). The generation is a token-write counter, so a
+    disconnect does not change it.
     """
     async with user_session(factory, ctx) as db:
         row = (
@@ -281,7 +285,7 @@ async def disconnect(factory: Factory, ctx: UserContext, provider: str) -> bool:
                 wrapped_dek=None,
                 dek_nonce=None,
                 key_id=None,
-                last_error=None,
+                last_error="revoke_failed" if revoke_failed else None,
                 refresh_in_flight=None,
                 refresh_intent_at=None,
                 updated_at=func.now(),
@@ -293,6 +297,21 @@ async def disconnect(factory: Factory, ctx: UserContext, provider: str) -> bool:
         extra={"connection_id": str(connection_id), "provider": provider},
     )
     return True
+
+
+async def delete_disconnected_row(factory: Factory, ctx: UserContext, connection_id: UUID) -> None:
+    """Delete this user's disconnected row so its Withings account can be linked again.
+
+    A live row is left in place. Credential columns are not written here.
+    """
+    async with user_session(factory, ctx) as db:
+        await db.execute(
+            delete(connections).where(
+                _C.id == connection_id,
+                _C.owner_id == ctx.user_id,
+                _C.status == DISCONNECTED,
+            )
+        )
 
 
 async def _load_for_open(db: AsyncSession, ctx: UserContext, connection_id: UUID) -> Any:
