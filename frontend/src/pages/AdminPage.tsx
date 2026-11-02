@@ -7,7 +7,7 @@ import { DataState, StatePill } from '../components/ui/DataState'
 import { Icon } from '../components/ui/Icon'
 import { signedInAt } from './SecurityPage'
 
-// Admin (docs/design/mockups/html/Admin.html). #127 builds the Accounts table. Overview counts,
+// Admin (docs/design/mockups/html/Admin.html). Issue 127 builds the Accounts table. Overview counts,
 // jobs, the Withings app, flags, the audit log, invites and "Sign out all" stay "Coming later":
 // those writes are not the account helpers, and connection status cannot be read here.
 

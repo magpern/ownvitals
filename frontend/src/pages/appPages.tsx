@@ -10,7 +10,7 @@ import { SecurityPage } from './SecurityPage'
 
 /** Screens that are built, by route. */
 const BUILT: Partial<Record<RouteId, ComponentType>> = {
-  // #127: the Accounts table. The rest of the admin mock-up stays "Coming later".
+  // Issue 127: the Accounts table. The rest of the admin mock-up stays "Coming later".
   admin: AdminPage,
   // #11: the lock band, "Where you're signed in" and the step-up dialog; the rest comes later.
   security: SecurityPage,

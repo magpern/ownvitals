@@ -1,7 +1,7 @@
 import { get } from './client'
 import { DecodeError, count, list, object, optionalText, text } from './decode'
 
-// The admin Users view (#127). Answers are decoded here; pages only see typed values.
+// The admin Users view (issue 127). Answers are decoded here; pages only see typed values.
 // Synthetic in tests. Nothing here is a measurement.
 
 export interface AdminAccount {
