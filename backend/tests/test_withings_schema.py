@@ -27,7 +27,15 @@ SRC = REPO / "backend" / "src" / "ownvitals"
 # None of those modules exist yet; each joins this set in the PR that calls the function.
 # db/queue_locks.py only records advisory-lock namespace 3. db/queue_check.py and
 # db/queue_digests.py may name the function to pin it.
-PARTITION_CALLERS = frozenset({"db/queue_check.py", "db/queue_digests.py", "db/queue_locks.py"})
+PARTITION_CALLERS = frozenset(
+    {
+        "db/queue_check.py",
+        "db/queue_digests.py",
+        "db/queue_locks.py",
+        # #25: every partitioned write asks for its months here, one short transaction each.
+        "ingest/partitions.py",
+    }
+)
 
 
 def test_only_listed_modules_name_the_partition_function() -> None:
