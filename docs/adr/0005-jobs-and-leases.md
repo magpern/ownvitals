@@ -156,6 +156,25 @@ queued ──claim──> running ──> completed | failed | cancelled
     `queue_enqueue` (origin `scheduler`) under the namespace-1 owner lock; at most 500 per call.
     It returns the count only. It needs no privilege beyond the queue role's (`jobs`, and
     `connections (id, owner_id, status)`).
+  - from #205, the AI cost cap's family (ADR 0014 §7; amended 2026-11-03, #205):
+    `ai_reserve(p_amount bigint, p_job_id uuid, p_user_cap bigint, p_global_cap bigint)`,
+    `ai_settle(p_id uuid, p_actual bigint)`, `ai_release(p_id uuid)` and
+    `ai_settle_lost(p_limit int)`, in `docker/postgres/ai/50-ai.sql`, owned by the `NOLOGIN`
+    role `ownvitals_ai` (`BYPASSRLS`, member of no role, no settings, no default privileges)
+    with the queue functions' `search_path` and the comment `ownvitals-ai v1`; `ownvitals_app`
+    may execute them, `PUBLIC` nothing. None takes an owner: the first three act for the
+    transaction's `app.user_id` and refuse without one; `ai_settle_lost` is the reaper's
+    cross-user path and returns a count. One lock order in all four: the month's
+    `ai_spend_global` row, the user's `ai_spend` row, the reservation. The role's privileges are
+    column grants only, exactly: `USAGE` on `public`; `SELECT (id, owner_id, state,
+    lease_version, lease_expires_at)` on `jobs`; on `ai_spend_global` `SELECT (month, reserved,
+    spent)`, `INSERT (month)`, `UPDATE (reserved, spent, updated_at)`; on `ai_spend` `SELECT
+    (owner_id, month, reserved, spent)`, `INSERT (owner_id, month)`, `UPDATE (reserved, spent,
+    updated_at)`; on `ai_reservations` `SELECT (id, owner_id, month, amount, state, job_id,
+    lease_version)`, `INSERT (owner_id, month, amount, job_id, lease_version)`, `UPDATE (state,
+    actual, ended_at)`; no `DELETE`, no account or health table. Their digests are in
+    `ownvitals.db.queue_digests` with the others, and `20-queue.sql` admits the four by name.
+    `db-functions` runs the script last, after `rate.sql`.
 
   - from #194, the mail outbox's family (ADR 0007 §3; amended 2026-11-03, #194):
     `mail_outbox_claim(p_limit int, p_lease_seconds int)`, `mail_outbox_mark(p_id uuid,
@@ -420,3 +439,15 @@ interval whitelist keeps the function from creating any other work or a flood of
 jobs table (so restarts and several workers add nothing), and the cap of 500 per call bounds how
 long one transaction holds owner locks; the rest stay due for the next tick. The queue version
 stays `ownvitals-queue v2`: no existing function's contract changed.
+
+### 2026-11-03 (#205): the AI cost cap's definer functions
+
+Architect decision for ADR 0014 §7, recorded in §3 and marked "amended 2026-11-03, #205": the
+reservations of the per-user monthly AI cost cap are written only by four definer functions of a
+new family owned by its own `NOLOGIN` role `ownvitals_ai`, installed by the superuser script
+`docker/postgres/ai/50-ai.sql` (never a migration) and pinned like the others. ADR 0002 §3
+requires an amendment here per new family, with its role, grants and digests; §3 lists them.
+The caps are passed on every reservation from the worker's settings, which are the authoritative
+source (ADR 0014 left open whether a stored column or the setting decides; nothing stores a cap).
+A reservation records the job's fencing token, so the reaper settles it only once that attempt
+is over (the job is gone, not running, under a newer token, or its lease expired).

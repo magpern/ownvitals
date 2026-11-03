@@ -229,6 +229,19 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
                 ),
                 {"o": owner_id},
             )
+            # The AI cost cap (#205): the user's month and one settled reservation.
+            conn.execute(
+                text("INSERT INTO ai_spend (owner_id, month, spent) VALUES (:o, '2026-11-01', 5)"),
+                {"o": owner_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO ai_reservations (owner_id, month, amount, actual, state, "
+                    "job_id, lease_version, ended_at) "
+                    "VALUES (:o, '2026-11-01', 5, 5, 'settled', :j, 0, now())"
+                ),
+                {"o": owner_id, "j": job},
+            )
     finally:
         engine.dispose()
 
@@ -310,6 +323,8 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
     names = {name for name, _ in catalog}
     assert names == {
         "activity_daily",
+        "ai_reservations",
+        "ai_spend",
         "connections",
         "data_revisions",
         "devices",
@@ -418,7 +433,7 @@ async def test_delete_imported_removes_only_that_owners_rows(
     names = {str(name) for name, _ in _rows(database_url, _OWNED)}
     assert names == purged | kept
     assert {"observations", "metric_daily", "findings", "scores"} <= purged
-    assert kept == {"user_profiles", "mail_outbox"}
+    assert kept == {"user_profiles", "mail_outbox", "ai_spend", "ai_reservations"}
     _partitions(database_url, True)
     try:
         _plant(database_url, linked.ctx.user_id, linked.connection_id, "c")

@@ -133,6 +133,12 @@ ROWS: Final[Mapping[str, str]] = {
     # The mail outbox (#194). A sent row, so the one-pending-per-kind index never collides.
     "mail_outbox": "INSERT INTO public.mail_outbox (owner_id, kind, route, state) "
     "VALUES (:owner, 'findings_waiting', 'findings', 'sent') RETURNING id",
+    # The AI cost cap (#205): one month row per planting (n) and a settled reservation.
+    "ai_spend": "INSERT INTO public.ai_spend (owner_id, month) VALUES "
+    "(:owner, CAST(DATE '2000-01-01' + make_interval(months => :n) AS date)) RETURNING id",
+    "ai_reservations": "INSERT INTO public.ai_reservations (owner_id, month, amount, actual, "
+    "state, job_id, lease_version, ended_at) VALUES (:owner, DATE '2026-01-01', :n, :n, "
+    "'settled', :job, 0, :ts) RETURNING id",
 }
 # Tables with one row per owner (a unique key on ``owner_id`` alone): the own-insert control
 # first removes the context's own row, in the same rolled-back savepoint, or the planted row

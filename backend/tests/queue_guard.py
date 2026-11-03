@@ -17,6 +17,9 @@ from sqlalchemy.engine import Connection
 
 from ownvitals.db.outbox_digests import OUTBOX_DIGESTS
 from ownvitals.db.queue_check import (
+    AI_FUNCTION_NAMES,
+    AI_PINS,
+    AI_VERSION,
     OUTBOX_FUNCTION_NAMES,
     OUTBOX_PINS,
     OUTBOX_VERSION,
@@ -201,6 +204,7 @@ def check_queue(conn: Connection) -> list[str]:
         *WITHINGS_FUNCTION_NAMES,
         *RATE_FUNCTION_NAMES,
         *OUTBOX_FUNCTION_NAMES,
+        *AI_FUNCTION_NAMES,
     ]
     hooks = (
         conn.execute(
@@ -350,6 +354,28 @@ def check_queue(conn: Connection) -> list[str]:
         need(
             f.md5 == OUTBOX_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one"
         )
+        expected_acl = set(acl.split(","))
+        need(
+            set(f.acl or []) == expected_acl and len(f.acl or []) == len(expected_acl),
+            f"{prefix}: ACL must be {expected_acl}",
+        )
+    # 50-ai.sql (#205, ADR 0014 section 7): absent, or all four functions, each pinned.
+    ai_installed = any(f.proname in AI_FUNCTION_NAMES for f in functions)
+    for name in AI_FUNCTION_NAMES if ai_installed else ():
+        found = [f for f in functions if f.proname == name]
+        args, owner, config, acl = AI_PINS[name]
+        if len(found) != 1:
+            problems.append(f"{name}: must exist exactly once, found {len(found)}")
+            continue
+        f = found[0]
+        prefix = f"public.{name}"
+        need(f.nspname == "public" and f.args == args, f"{prefix}: wrong schema or arguments")
+        need(f.prosecdef, f"{prefix}: must be SECURITY DEFINER")
+        need(f.prokind == "f" and f.lanname == "plpgsql", f"{prefix}: must be a plpgsql function")
+        need(f.owner_name == owner, f"{prefix}: must be owned by {owner}")
+        need(list(f.proconfig or []) == config.split(";"), f"{prefix}: settings must be fixed")
+        need(f.comment == AI_VERSION, f"{prefix}: comment must be {AI_VERSION!r}")
+        need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
         expected_acl = set(acl.split(","))
         need(
             set(f.acl or []) == expected_acl and len(f.acl or []) == len(expected_acl),

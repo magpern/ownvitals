@@ -61,17 +61,19 @@ IMPORTED = (
 )
 # Owned tables this option deliberately keeps, because they hold no imported or derived health
 # data: ``user_profiles`` (settings) and ``mail_outbox`` (notification state: a fixed kind, a
-# route and its send state, ADR 0007; Architect decision on #225). Both go with the account
-# through the ``owner_id`` cascade. The connection row is removed by ``delete_disconnected_row``
-# and ``job_events`` follow their job, so neither is listed here or in ``IMPORTED``. A test
-# enumerates every owned table against these lists, so a new owned table must be added to one of
-# them.
-KEPT = ("user_profiles", "mail_outbox")
+# route and its send state, ADR 0007; Architect decision on #225), and the AI cost cap's
+# ``ai_spend`` and ``ai_reservations`` (micro-USD accounting, ADR 0014 section 7; #205): spend
+# that was billed must stay counted, or deleting imported data would reset the month's budget.
+# All go with the account through the ``owner_id`` cascade. The connection row is removed by
+# ``delete_disconnected_row`` and ``job_events`` follow their job, so neither is listed here or
+# in ``IMPORTED``. A test enumerates every owned table against these lists, so a new owned table
+# must be added to one of them.
+KEPT = ("user_profiles", "mail_outbox", "ai_spend", "ai_reservations")
 
 
 async def purge_imported(factory: Factory, ctx: UserContext) -> None:
     """Remove this user's imported rows and the analysis rows derived from them. The Withings
-    row, the user's settings and their mail outbox (``KEPT``) stay.
+    row, the user's settings, their mail outbox and their AI spend ledger (``KEPT``) stay.
 
     The session is this user's, and every statement names their id, so another
     user's rows are left alone. The queue's events follow their job.

@@ -213,6 +213,7 @@ def test_the_image_carries_the_functions_and_their_entrypoint() -> None:
         "COPY --chmod=0555 docker/postgres/withings/40-withings.sql /app/db-functions/",
         "COPY --chmod=0555 docker/postgres/withings/rate.sql /app/db-functions/",
         "COPY --chmod=0555 docker/postgres/notify/50-outbox.sql /app/db-functions/",
+        "COPY --chmod=0555 docker/postgres/ai/50-ai.sql /app/db-functions/",
     ]
     user = dockerfile.index("\nUSER ownvitals\n")
     assert all(dockerfile.index(copy) < user for copy in copies)
@@ -264,14 +265,14 @@ def test_the_maint_url_check_fails_when_the_worker_would_inherit_it(compose: str
 
 
 def test_db_functions_installs_maint_after_the_queue() -> None:
-    """The five files go to install_functions, queue first, in the one transaction it runs."""
+    """The six files go to install_functions, queue first, in the one transaction it runs."""
     script = DB_FUNCTIONS_SCRIPT.read_text(encoding="utf-8")
     assert script.rstrip("\n").endswith(
         "exec python -m ownvitals.db.install_functions \\\n"
         '  "host=db port=5432 dbname=ownvitals user=postgres" \\\n'
         "  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \\\n"
         "  /app/db-functions/40-withings.sql /app/db-functions/rate.sql \\\n"
-        "  /app/db-functions/50-outbox.sql"
+        "  /app/db-functions/50-outbox.sql /app/db-functions/50-ai.sql"
     )
     assert "psql" not in script
     from ownvitals.db.install_functions import read_scripts
@@ -283,15 +284,19 @@ def test_db_functions_installs_maint_after_the_queue() -> None:
             str(ROOT / "docker" / "postgres" / "withings" / "40-withings.sql"),
             str(ROOT / "docker" / "postgres" / "withings" / "rate.sql"),
             str(ROOT / "docker" / "postgres" / "notify" / "50-outbox.sql"),
+            str(ROOT / "docker" / "postgres" / "ai" / "50-ai.sql"),
         ]
     )
     assert sql.index("ownvitals_queue") < sql.index("ownvitals_maint")
     assert sql.index("ownvitals_maint") < sql.index(
         "CREATE OR REPLACE FUNCTION public.ensure_month_partitions"
     )
-    # The outbox (#194) last: its role and functions after the queue's admission list.
+    # The outbox (#194), then the AI cost cap (#205), after the queue's admission list.
     assert sql.index("CREATE OR REPLACE FUNCTION public.withings_rate_claim") < sql.index(
         "CREATE OR REPLACE FUNCTION public.mail_outbox_claim"
+    )
+    assert sql.index("CREATE OR REPLACE FUNCTION public.mail_outbox_claim") < sql.index(
+        "CREATE OR REPLACE FUNCTION public.ai_reserve"
     )
 
 
