@@ -111,7 +111,6 @@ Nothing blocks M0 or any open issue. These are needed later (live Withings, the 
 | ECG A7 (above) is also relied on by the ECG gate overlay of the findings read function (#228, `docs/dev/views.md`): a `grpid` shared by two connections links both groups | `read_findings` evidence and overlay | the probe (counts); OC5 |
 | ECG A8: `heart list`'s `heart_rate` is the strip's mean rate | V3's comparison only | V3 (ADR 0006 §14) |
 | ECG A9: Withings lists an ECG in `heart list` by the time its 135–138 group is in `getmeas` | ADR 0006 §11's notification hold | OC5's late-link count, once the M6/M7 hold records its end reasons (#88) |
-
 | Read API (#233): a stream is `stale` after 48 h without a successful sync; `importing` versus `incomplete` is decided by a queued or running `withings_backfill` job (not scoped to the connection); `withings_plus_needed` shows when `connections.last_error` or a cursor's `last_error_category` is `blocked_by_provider_plan`, which nothing writes yet; ECG intervals 135–138 take their capability from the `ecg` stream; the metric detail returns one display band as of the window's end | #189 `views/*` (`docs/dev/views.md`) | the owner's first real sync; the Withings+ signal needs the probe or the owner |
 | Rule evaluation (#234): the `getdevice` battery enum is `high`/`medium`/`low`; attrib 15 means a guided measurement; per-foot types 158/159/197/198 | rules Q1, N2, N5 | the probe (capability states, attrib values, meastypes) |
 
