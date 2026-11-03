@@ -34,6 +34,7 @@ from ownvitals.crypto.keks import KeyRing, KeyUnavailable
 from ownvitals.db import user_session
 from ownvitals.db.queue_locks import TOKEN_REFRESH
 from ownvitals.jobs.fence import Lease, fenced_session
+from ownvitals.notify.outbox import queue_owner_notice
 
 PROVIDER = "withings"
 _REFRESH_TTL = timedelta(days=365)
@@ -429,7 +430,9 @@ async def give_up(
     generation: int,
     lease: Lease | None = None,
 ) -> bool:
-    """``needs_reconnect`` and the in-app notice. Credentials stay. No mail."""
+    """``needs_reconnect`` and the in-app notice, plus the owner notice in the mail outbox, in
+    the same transaction (PLAN section 4.3 step 4, ADR 0007 section 4). Credentials stay. The
+    worker opens no SMTP connection: web sends the notice."""
     async with _writes(factory, ctx, lease) as (db, _fenced):
         given = (
             await db.execute(
@@ -449,6 +452,8 @@ async def give_up(
                 .returning(_C.id)
             )
         ).first()
+        if given is not None:
+            await queue_owner_notice(db, "connection_needs_reconnect")
     return given is not None
 
 
