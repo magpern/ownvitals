@@ -433,7 +433,7 @@ async def test_delete_imported_removes_only_that_owners_rows(
     names = {str(name) for name, _ in _rows(database_url, _OWNED)}
     assert names == purged | kept
     assert {"observations", "metric_daily", "findings", "scores"} <= purged
-    assert kept == {"user_profiles", "mail_outbox"}
+    assert kept == {"user_profiles", "mail_outbox", "ai_spend", "ai_reservations"}
     _partitions(database_url, True)
     try:
         _plant(database_url, linked.ctx.user_id, linked.connection_id, "c")

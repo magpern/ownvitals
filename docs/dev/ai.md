@@ -25,6 +25,11 @@ the audit log come with their own M7 issues and extend this file.
   nothing in the database stores a cap, so a change applies to the next reservation. Lowering a
   cap below what is already spent simply refuses every further request that month.
 
+Disconnecting Withings with "delete imported data" (#225) keeps `ai_spend` and
+`ai_reservations` (`KEPT` in `ownvitals.connections.purge`): billed spend stays counted, so the
+option cannot reset a month's budget. Account deletion removes both through the `owner_id`
+cascade; the month's global total keeps the spend.
+
 ## The flow of one request
 
 1. Bound it: `pricing.request_bound(model, request_bytes, max_tokens)`. An unpriced model raises
