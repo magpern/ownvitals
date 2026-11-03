@@ -166,6 +166,13 @@ def test_every_context_has_a_module_that_probes_the_catalog() -> None:
             "TO PUBLIC USING (true)",
             "DROP POLICY IF EXISTS ctx_mutation ON public.data_revisions",
         ),
+        # Insert-only hole: the probe's inserts return nothing, so the read policy can't mask it.
+        (
+            "ecg_recordings",
+            "CREATE POLICY ctx_mutation ON public.ecg_recordings AS PERMISSIVE FOR INSERT "
+            "TO PUBLIC WITH CHECK (true)",
+            "DROP POLICY IF EXISTS ctx_mutation ON public.ecg_recordings",
+        ),
     ],
 )
 async def test_the_probe_catches_a_hole_in_one_tables_row_security(
@@ -176,8 +183,8 @@ async def test_the_probe_catches_a_hole_in_one_tables_row_security(
     mutation: str,
     undo: str,
 ) -> None:
-    """With one table's row security broken (off, or an extra allow-all write policy), the same
-    probe in a user's session fails on that table."""
+    """With one table's row security broken (off, or an extra allow-all write or insert
+    policy), the same probe in a user's session fails on that table."""
     a, b = plant(database_url, new_user()), plant(database_url, new_user())
     tables = owned_tables(database_url)
     async with user_session(factory, make_context(a.user)) as db:

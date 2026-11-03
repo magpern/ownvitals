@@ -188,6 +188,16 @@ class Owner:
         return cls(**{k: UUID(data[k]) for k in ("user", "connection", "job", "group")})
 
 
+def without_returning(statement: str) -> str:
+    """``statement`` without its ``RETURNING`` clause. The probe's inserts must not return
+    anything: a returned row has to pass the read policy too, which would refuse a cross-user
+    insert that an allow-all ``FOR INSERT`` policy lets through, and hide that hole."""
+    head, returning, _ = statement.rpartition(" RETURNING ")
+    if not returning:
+        raise AssertionError("a ROWS statement ends in RETURNING id")
+    return head
+
+
 def bind(statement: str, params: Mapping[str, Any]) -> dict[str, Any]:
     """The parameters ``statement`` names, from ``params``."""
     return {name: params[name] for name in set(_PARAM.findall(statement))}
@@ -310,7 +320,7 @@ async def probe(
         if table not in ROWS:
             raise Uncovered(f"owned table {table!r} has no row in contexttools.ROWS")
         name = checked(table)
-        insert = ROWS[table]
+        insert = without_returning(ROWS[table])
         seen = await db.execute(
             text(f"SELECT DISTINCT CAST(owner_id AS text) FROM public.{name} ORDER BY 1")  # noqa: S608
         )
@@ -487,6 +497,7 @@ async def admin_probe(
         if table not in ROWS:
             raise Uncovered(f"owned table {table!r} has no row in contexttools.ROWS")
         name = checked(table)
+        insert = without_returning(ROWS[table])
         readable = await db.execute(_READABLE, {"t": f"public.{name}"})
         columns = [
             checked(str(c)) for c in (await db.execute(_COLUMNS, {"t": f"public.{name}"})).scalars()
@@ -509,7 +520,7 @@ async def admin_probe(
                     f"DELETE FROM public.{name} WHERE owner_id = :o",  # noqa: S608
                     {"o": owner.user},
                 ),
-                await attempt(db, ROWS[table], bind(ROWS[table], owner.params(n))),
+                await attempt(db, insert, bind(insert, owner.params(n))),
             ]
         row["writes"].append(await attempt(db, f"DELETE FROM public.{name}", {}))  # noqa: S608
         for column in columns:

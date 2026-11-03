@@ -425,6 +425,8 @@ issuer), `_scheduler.py` (`queue_enqueue`, then the claimed job), `_webhook.py` 
 `webhook_event_insert`, then the claimed job), `_maintenance.py` (the reaper and
 `webhook_events_purge_owner`) and `_admin.py` (admin routes on `ownvitals_maint`). The probe reads,
 then writes at the other user's rows, both with a `WHERE` on the owner and without reading any
-column (so a write-only hole shows), every write in a rolled-back savepoint.
+column (so a write-only hole shows), and inserts a row for the other user with no `RETURNING`
+(a returned row must also pass the read policy, which would hide an insert-only hole); every write
+runs in a rolled-back savepoint.
 `test_isolation_contexts_guard.py` fails while `ROWS` and the catalog's owned tables differ, so a
 **new owned table needs its row in `ROWS`** in the same PR.
