@@ -1,6 +1,7 @@
 # ADR 0001: Stack, repository layout and the classbeat port rule
 
-Status: Accepted (2026-10-31, #4)
+Status: Accepted (2026-10-31, #4). Post-port review (#16, 2026-11-03): the port kept the pinned
+classbeat commit and the layout; no decision changed.
 
 ## Context
 
