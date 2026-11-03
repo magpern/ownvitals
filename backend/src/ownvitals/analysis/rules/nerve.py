@@ -20,7 +20,7 @@ schedules evaluations, §1).
 ``attrib`` 15. N4 is not in v1.
 """
 
-from collections.abc import Sequence
+from collections.abc import MutableMapping, Sequence
 from datetime import date, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -40,6 +40,7 @@ from ownvitals.analysis.policy import (
 from ownvitals.analysis.quality import Reading
 from ownvitals.analysis.rules.body import symmetry_index
 from ownvitals.analysis.rules.core import (
+    Band,
     Insufficient,
     NoFinding,
     ProvenanceMap,
@@ -130,13 +131,15 @@ def n2_routine(
     *,
     metric_key: str,
     provenance: ProvenanceMap | None = None,
+    bands: MutableMapping[date, Band | InsufficientData] | None = None,
 ) -> RuleResult:
     """N2, routine: the daily values of the routine readings (``attrib`` other than 15) on the last
     2 or more consecutive days with data (sparse data: measure days, not calendar days) ending at
     ``day`` are all below the finding threshold at the first of them. The longest such run wins,
     so a growing run keeps its first day and band. The band and N1 read the daily values of all
     usable readings. Window: the run; reference day: its first day. ``ValueError`` without a
-    routine reading on ``day``."""
+    routine reading on ``day``. ``bands`` is an optional memo of the finding band at each first
+    day, as in ``heart.c1``: only for many days of the same ``readings``."""
     _check_key(metric_key)
     routine = daily_values(r for r in readings if r.attrib != GUIDED_ATTRIB)
     require_value(routine, day, metric_key)
@@ -150,7 +153,11 @@ def n2_routine(
     shortest = len(chain) - N2_MIN_RUN
     for index in range(shortest + 1):
         run = chain[index:]
-        band = finding_band(metric_key, daily, run[0].day)
+        band = bands.get(run[0].day) if bands is not None else None
+        if band is None:
+            band = finding_band(metric_key, daily, run[0].day)
+            if bands is not None:
+                bands[run[0].day] = band
         if isinstance(band, InsufficientData):
             if index == shortest:
                 return insufficient_from(

@@ -59,6 +59,11 @@ ALLOWED: dict[str, str] = {
     "ownvitals.ingest.rows": "ingest writes ecg_recordings; the recompute writes estimated (§15)",
     "ownvitals.ecg_validate": "ownvitals ecg validate (#47) reads the stored estimated (V5)",
     "ownvitals.connections.purge": "the purge path: delete imported data removes both tables",
+    # #187: the rules engine's findings writer (ADR 0010 §4 episodes; ADR 0006 section 11 allows
+    # the rules engine's writes) and the owner's read-only reproducibility check, which compares
+    # the stored rows with a recompute and prints counts only.
+    "ownvitals.derived.findings_store": "the rules engine's writer of findings (#187)",
+    "ownvitals.derived.check_cli": "ownvitals analysis check (#187) compares the stored rows",
 }
 # Strings outside ``ALLOWED`` that hold a word and were reviewed as no read: exact, by module,
 # with how many times each occurs there.
@@ -202,6 +207,8 @@ def test_the_allow_list_is_exact() -> None:
         "ownvitals.ingest.rows",
         "ownvitals.ecg_validate",
         "ownvitals.connections.purge",
+        "ownvitals.derived.findings_store",
+        "ownvitals.derived.check_cli",
     }
     paths = {module_name(path): path for path in _modules()}
     for module in ALLOWED:

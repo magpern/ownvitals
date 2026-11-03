@@ -19,6 +19,10 @@ row (``job.replay``). It prints the new job id. The dead-lettered row is not cha
 ``ecg validate --user <uuid>`` (#47) prints ADR 0006's owner checks as counts, yes/no and whole
 percents. It reads that one account through a user session; the ECG library itself stays pure.
 
+``analysis check --user <uuid>`` (#187) recomputes one account's daily values and finding
+episodes in memory and compares them with the stored rows (``ownvitals.derived.check_cli``):
+counts, versions and rule ids only, never a value, a date or an id. Exit 1 on a mismatch.
+
 ``probe --connection <uuid> [--json]`` (#29) is the owner's shape-only check of a real Withings
 account (PLAN-operations section 10.4, ``docs/runbooks/m2-probe.md``): counts, codes and field
 names, never a value or a timestamp. It makes its process the worker (the worker allowlist).
@@ -59,6 +63,8 @@ from ownvitals.db import (
     verify_database_role,
 )
 from ownvitals.db.queue_check import install_queue_check, verify_queue
+from ownvitals.derived.check_cli import add_analysis_subcommands
+from ownvitals.derived.check_cli import run as run_analysis
 from ownvitals.ecg.validate_cli import add_ecg_subcommands
 from ownvitals.ecg_validate import run as run_ecg
 from ownvitals.egress import install_egress_hook, require_standard_event_loop
@@ -114,6 +120,7 @@ def add_subcommands(parser: argparse.ArgumentParser) -> None:
     add_keys_subcommands(sub)
     add_withings_subcommands(sub)
     add_ecg_subcommands(sub)
+    add_analysis_subcommands(sub)
     add_probe_subcommand(sub)
 
 
@@ -228,6 +235,7 @@ COMMANDS: dict[str, Command] = {
     "keys": run_keys,
     "withings-apps": run_withings_apps,
     "ecg": run_ecg,
+    "analysis": run_analysis,
     "probe": run_probe,
 }
 

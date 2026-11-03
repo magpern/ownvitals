@@ -286,3 +286,26 @@ def test_a_changed_algorithm_version_changes_the_fingerprint(
     before = fingerprint([a])
     monkeypatch.setattr(module, "ALGO_VERSION", "daily/2")
     assert fingerprint([a]) != before
+
+
+def test_a_fixed_zone_gives_every_reading_that_zone_for_the_day_and_the_morning() -> None:
+    """ADR 0010 §1: under ``fixed_tz`` the trip of the test above lands on Stockholm days."""
+    trip = [
+        obs(1, "2026-06-10T22:30:00", "80.0", tz=STO),  # 00:30 on the 11th in Stockholm
+        obs(2, "2026-06-10T22:45:00", "81.0", tz=NYC),  # 00:45 on the 11th in Stockholm
+        obs(4, "2026-06-11T12:00:00", "83.0", tz=NYC),  # 14:00 Stockholm: not morning there
+    ]
+    days = by_day(compute(trip, day_tz=STO).rows)
+    assert sorted(days) == [date(2026, 6, 11)]
+    eleventh = days[date(2026, 6, 11)]
+    assert (eleventh.method, eleventh.n, eleventh.source_groups) == ("median", 3, (1, 2, 4))
+    # Each reading's own zone: the New York reading of 18:45 is the 10th there.
+    assert sorted(by_day(compute(trip).rows)) == [date(2026, 6, 10), date(2026, 6, 11)]
+
+
+def test_the_day_setting_is_part_of_the_fingerprint() -> None:
+    rows = [obs(1, "2026-06-10T22:30:00", "80.0")]
+    per_reading = fingerprint(rows)
+    assert fingerprint(rows, day_tz=None) == per_reading
+    assert fingerprint(rows, day_tz=STO) != per_reading
+    assert fingerprint(rows, day_tz=NYC) != fingerprint(rows, day_tz=STO)
