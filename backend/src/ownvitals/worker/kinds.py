@@ -32,6 +32,7 @@ from sqlalchemy import text
 
 from ownvitals.auth.purge import register_disconnect_kind
 from ownvitals.crypto.keks import KeyRing, KeyRingError, KeyUnavailable
+from ownvitals.derived.normalize_job import enqueue_normalize, register_normalize_kind
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
 from ownvitals.jobs.withings import ConnectInput, SecretTargets
@@ -134,6 +135,7 @@ async def run_reconcile(job: JobRun) -> Complete:
     base, current = await current_callback(job, await _ring(job), account.app_id)
     async with WithingsClient.open(app) as client:
         await execute_nightly(job, account, client, callback_base=base, current_url=current)
+    await enqueue_normalize(job.factory, parsed.connection_id, "live")
     return Complete()
 
 
@@ -160,4 +162,5 @@ def worker_registry() -> KindRegistry:
     registry.register(JobKind("withings_reconcile", ConnectInput, run_reconcile))
     registry.register(JobKind("token_refresh_recover", ConnectInput, run_token_recover))
     register_disconnect_kind(registry)
+    register_normalize_kind(registry)
     return registry

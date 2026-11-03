@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from ownvitals.derived.normalize_job import TRIGGERS, enqueue_normalize
 from ownvitals.ingest.calls import Account, Classified, Halt, limited
 from ownvitals.ingest.codec import payload_hash
 from ownvitals.ingest.cursors import read_cursor, write_cursor
@@ -444,6 +445,8 @@ async def run_backfill(job: JobRun) -> Complete:
     account, app = await open_materials(job, parsed.connection_id)
     async with WithingsClient.open(app) as client:
         await execute_backfill(job, account, client, parsed.stream)
+    if parsed.stream in TRIGGERS:
+        await enqueue_normalize(job.factory, parsed.connection_id, "backfill")
     return Complete()
 
 
@@ -454,6 +457,8 @@ async def run_sync_kind(job: JobRun) -> Complete:
     account, app = await open_materials(job, parsed.connection_id)
     async with WithingsClient.open(app) as client:
         await execute_sync(job, account, client, parsed.stream)
+    if parsed.stream in TRIGGERS:
+        await enqueue_normalize(job.factory, parsed.connection_id, "live")
     return Complete()
 
 
