@@ -29,10 +29,11 @@ The tests and CI never reach the network (AGENTS.md): every model call in CI goe
 
 ## Decision
 
-### 1. Four locks before any call
+### 1. Five locks before any user call
 
-A model call happens only when **all four** hold, each checked by the worker immediately before
-the call (not only when the job was queued):
+A model call for a user happens only when **all five** hold, each checked by the worker
+immediately before the call (not only when the job was queued). The owner-run eval (§9) has its
+own path with its own lock, described there; it bypasses none of these for user data.
 
 1. **The feature is on**: the effective `ai_insights` flag (environment on and stored not `off`),
    which also puts `api.anthropic.com` on the worker's allowlist (ADR 0009).
@@ -40,15 +41,19 @@ the call (not only when the job was queued):
    owner sets it to a reference (an issue URL or a dated document id) once the checklist of §2 is
    complete; agents never set it. Empty: AI is off whatever the flag says, and the admin page
    says "provider review not recorded".
-3. **The user consented** (§3), to the current consent version, and has not withdrawn.
-4. **The user's monthly budget allows it** (§7): a reservation succeeded.
+3. **The evals passed for this model and prompt** (§9): the setting `ai_eval_ref` holds the
+   model id and `ai_prompt_version` the owner's eval run passed with, and they equal the current
+   ones. The owner sets it after reading the summary; agents never set it.
+4. **The user consented** (§3), to the current consent version, and has not withdrawn.
+5. **The user's monthly budget allows it** (§7): a reservation succeeded.
 
 A secret file `anthropic_api_key` exists only in the worker's secrets (never mounted into web);
 without it the worker refuses AI jobs with `ai_not_configured`. The key never enters a log,
 a job row, an event or a model request body other than the SDK's header.
 
 Proved by: `test_ai_gates.py` (each lock alone off → no call, the fake model records zero
-requests; all four on → one call), `test_egress_runtime.py` (already: the model host only with AI
+requests; all five on → one call; an `ai_eval_ref` naming another model or prompt version → no
+call), `test_egress_runtime.py` (already: the model host only with AI
 on, worker only), the compose checks of the backend suite extended (the key file only in the worker
 service of `compose.yaml`).
 
@@ -82,11 +87,17 @@ provider's terms needs a new review reference; the admin page shows the referenc
   a third party; ADR 0003 §4 gains the row). Stored in `ai_consents` (owned): `consent_version`,
   the SHA-256 of the text shown, `given_at`, `withdrawn_at`. A new `consent_version` (a changed
   text) requires consent again before the next call.
-- **Withdrawal** (no step-up: leaving must be easy) in one transaction: sets `withdrawn_at`,
-  cancels the user's queued and running AI jobs (a running job's next fenced write fails, ADR 0005
-  §4, and the worker checks the consent again before every model call and every write of a reply,
-  so no reply is stored after withdrawal), and **deletes** `ai_conversations`, `ai_messages` and
-  `ai_digests` of the user. The redacted audit rows (§6) and the spend counters (§7) stay: they
+- **Withdrawal** (no step-up: leaving must be easy) in one transaction, in this order: (1)
+  `UPDATE ai_consents SET withdrawn_at …` (which takes the consent row's lock), (2) cancel the
+  user's queued and running AI jobs (a running job's next fenced write fails, ADR 0005 §4), (3)
+  **delete** `ai_conversations`, `ai_messages` and `ai_digests` of the user.
+- **Storing a reply** is a transaction that first reads the consent row `FOR SHARE` and checks it
+  is not withdrawn, then inserts the reply. The two transactions therefore serialise on the
+  consent row: either the reply commits first and the withdrawal then deletes it, or the
+  withdrawal commits first and the reply transaction sees `withdrawn_at` and stores nothing. The
+  worker also re-checks consent before each model call, so no new call starts after withdrawal.
+  Both transactions lock the consent row before any job row, so they can't deadlock.
+- Withdrawal keeps the redacted audit rows (§6) and the spend records (§7): they
   hold no content. The confirmation says that data already sent is subject to the provider's
   retention (§2).
 - **The weekly digest** is a separate opt-in inside AI settings (default off), covered by the
@@ -94,7 +105,9 @@ provider's terms needs a new review reference; the admin page shows the referenc
 
 Proved by: `test_ai_consent.py` (no consent, withdrawn, old version: no call; step-up required
 to consent; withdrawal deletes the three tables' rows and keeps audit and spend; a reply computed
-while consent was withdrawn mid-call is not stored, using the fake model with a pause hook),
+while consent was withdrawn mid-call is not stored, using the fake model with a pause hook; the
+withdrawal committing between the reply's consent check and its insert is impossible: run with two
+connections, the withdrawal blocks on the row until the reply commits, then deletes it),
 `test_auth_stepup.py` extended.
 
 ### 4. Data minimization: tools, not data
@@ -125,13 +138,17 @@ an allowlist of fields:
   (the owner-only flag on household accounts, ADR 0010 §7; M8 adds a per-account household
   marker before any non-household account exists). For every other account they are absent, not
   redacted in place, and the model is not told they exist. Hidden findings (ADR 0006 §11) are
-  absent for everyone. Only up-to-date estimates (ADR 0006 §9).
+  absent for everyone. Only up-to-date estimates (ADR 0006 §9). The same filter covers
+  **experimental scores** in the `scores` tool (the Health Improvement Score is experimental by
+  default, ADR 0012 §1). On top of the gate, the setting `ai_include_experimental` (default
+  **false**, open question 4) must be true for any of them to reach the model.
 - Tool results are capped (64 KiB serialized per result, 8 tool calls per turn, our choice); over
   the cap the tool returns an error object, never truncated data that could mislead.
 
 Proved by: `test_ai_tools_schema.py` (the allowlist walk; a planted secret, email, id and device
 name in the synthetic account never appear in any tool output, over every tool and argument),
-`test_ai_tools_tiers.py` (flagged vs unflagged accounts; hidden findings; stale estimates),
+`test_ai_tools_tiers.py` (flagged vs unflagged accounts, with `ai_include_experimental` false and
+true; hidden findings; stale estimates; the HIS absent unless both allow it),
 `test_ai_tools_isolation.py` (two users; tool calls in A's context never return B's rows, in the
 worker context's RLS tests).
 
@@ -168,12 +185,15 @@ version, no user identifier, at most 20 messages; the call goes through the egre
 
 ### 6. Audit log with redacted content
 
-`ai_audit` (owned), one row per model call: job id, kind (`chat`, `digest`), model, prompt version,
-the **names** of the tools called with their (enum) arguments, input and output token counts,
-cost in micro-USD, latency, status and error category, and the SHA-256 of the request and of the
-response. **Never** message text, tool results, the system prompt or the key. Kept 12 months
-(setting), survives withdrawal (§3), deleted with the account. Logs carry the same fields; the
-redaction test plants a message and a tool result and greps the logs and `ai_audit`.
+`ai_audit` (owned), one row per model call: job id, kind (`chat`, `digest`, `eval`), model, prompt
+version, the **names** of the tools called with their (enum) arguments, input and output token
+counts, cost in micro-USD, the reservation id, latency, status and error category, and an
+**HMAC-SHA-256** of the request and of the response under a key derived from `app_secret_key`
+(HKDF label `ai-audit`, ADR 0003 §1 "Derived keys"), so a row can be matched to a body we hold but
+a guessed message can't be confirmed from the row alone. **Never** message text, tool results, the
+system prompt or the API key. Kept 12 months (setting), survives withdrawal (§3), deleted with the
+account. Logs carry the same fields; the redaction test plants a message and a tool result and
+greps the logs and `ai_audit`.
 
 ### 7. The per-user monthly cost cap (D11)
 
@@ -182,33 +202,39 @@ redaction test plants a message and a tool result and greps the logs and `ai_aud
 - **Pricing table as code** (`ownvitals.ai.pricing`): per model id, the prices per million input,
   output, cache-write and cache-read tokens, the date and source of the prices. A model not in the
   table can't be called (`ai_model_unpriced`). A price change is a reviewed PR.
-- **Reserve before every call.** Before each request (each step of a tool loop is one request), the
-  worker computes an **upper bound** of its cost: input tokens bounded by the UTF-8 byte length of
-  the serialized request (a token covers at least one byte of text) plus a fixed allowance of
-  2,000 tokens per request for what the provider adds around tools and system text (our choice),
-  output tokens by `max_tokens`, each at its price (cache-write price for input, the higher one).
-  The owner's eval run (§9) reports the largest ratio of actual to bounded input tokens; a ratio
-  above 1 blocks enabling until the allowance is raised. It then reserves
-  that amount in one statement:
-
-  `UPDATE ai_spend SET reserved = reserved + $r WHERE owner_id = $o AND month = $m AND
-  spent + reserved + $r <= cap RETURNING …`
-
-  (the row created first by an `INSERT … ON CONFLICT DO NOTHING`). Row locking makes concurrent
-  reservations serialise, so `spent + reserved` never exceeds the cap whatever the concurrency.
-  No reservation → no call.
-- **Settle after the call**: in one transaction, `reserved −= r` and `spent += actual`, with the
-  actual cost from the response's usage. A failed call with no usage releases the reservation; a
-  failed call with usage is charged. The reservation id is recorded on the job, so a settle runs
-  once.
-- **Crash**: a reservation whose job's lease expired without a settle is settled by the reaper
-  **as spent at the reserved amount** (conservative: the call may have been billed).
-- **A global cap** (our choice, the owner's total exposure): `ai_global_monthly_cap_microusd`, held
-  in a system row and reserved in the same transaction through a narrow `SECURITY DEFINER`
-  function `ai_reserve(amount)` that locks the global row then the user's row (one lock order
-  everywhere, no deadlock) and returns only success or failure (ADR 0002 §3's rules: owned by a
-  `NOLOGIN` role, fixed `search_path`, no caller-supplied owner: the owner comes from the session's
-  `UserContext`).
+- **Upper bound per request.** Each request (each step of a tool loop) is bounded before it is
+  sent: input tokens by the UTF-8 byte length of the serialized request (a token covers at least
+  one byte of text) plus a fixed allowance of 2,000 tokens for what the provider adds around tools
+  and system text (our choice), output tokens by `max_tokens`, each at its price (the cache-write
+  price for input, the higher one). The owner's eval run (§9) reports the largest ratio of actual
+  to bounded input tokens; a ratio above 1 blocks setting `ai_eval_ref`.
+- **Tables.** `ai_reservations` (owned): `id`, `owner_id`, `month`, `amount` (micro-USD,
+  `CHECK (amount >= 0)`), `actual` (NULL until settled), `state` (`reserved`, `settled`,
+  `released`), `job_id`, `created_at`. `ai_spend` (owned, one row per owner and month):
+  `reserved`, `spent`, both `CHECK (… >= 0)`. `ai_spend_global` (system, one row per month): the
+  same two columns and checks, and the global cap.
+- **Functions** (ADR 0002 §3's rules: `SECURITY DEFINER`, owned by a `NOLOGIN` role
+  `ownvitals_ai`, fixed `search_path`, no caller-supplied owner: the owner is the transaction's
+  `UserContext` user, as RLS reads it; minimal returns; installed by the migration and reviewed):
+  - `ai_reserve(amount, job_id) → reservation id | NULL`: locks the global row, then the user's
+    row (one lock order everywhere), and only if `spent + reserved + amount ≤ cap` on **both**
+    adds `amount` to both `reserved` and inserts the reservation (`reserved`). NULL → no call.
+  - `ai_settle(id, actual)`: `UPDATE ai_reservations SET state = 'settled', actual = $2 WHERE id
+    = $1 AND owner_id = <context user> AND state = 'reserved' RETURNING month, amount`; only if a
+    row returns, in the **same transaction**, both counters of **the reservation's own month**
+    move `reserved −= amount, spent += actual`. A second settle, or a settle after a release, finds
+    no `reserved` row and changes nothing.
+  - `ai_release(id)`: the same with `state = 'released'` and `reserved −= amount` only.
+  - `ai_settle_lost()`: the reaper's cross-user path. It settles, at their full `amount`, the
+    reservations still `reserved` whose job is terminal or whose lease expired, with the same
+    conditional update per row, and returns only a count. It is the only cross-user AI spend path.
+- **When each runs.** Settle with the response's usage after a completed call. **Release only
+  when the request provably wasn't processed**: a connection failure before the request was sent,
+  or an answer of 400, 401, 403, 404, 413, 429 or 529 (refused or overloaded before processing).
+  A timeout, a broken connection after sending, or any other 5xx is **charged at the reserved
+  amount**, like a crash, because it may have been billed. A worker crash leaves the reservation
+  to `ai_settle_lost()`.
+- **Global cap** (our choice, the owner's total exposure): `ai_global_monthly_cap_microusd`.
 - **Defaults**: per-user cap **0** and global cap **0**: no call can be reserved until the owner
   sets the amounts (open question 2). Settings refuse a per-user cap above the global one.
 - **At the cap**: no call; the chat says "This month's AI budget for your account is used up. It
@@ -216,11 +242,16 @@ redaction test plants a message and a tool result and greps the logs and `ai_aud
   else in the app changes; no partial answer is stored.
 
 Proved by: `test_ai_cost_cap.py` (with PostgreSQL, not mocks): 50 concurrent reservations
-against a cap that admits 10 → exactly 10 succeed and `spent + reserved` never exceeds the cap,
-sampled during the run; settle with usage lower than reserved; release on a failed call; the
-reaper's conservative settle; month rollover; the global cap binding before the user cap; an
-unpriced model refused; caps of 0 refuse everything. `test_ai_pricing.py`: the bound is never below
-the actual cost for every recorded fake response (input bound ≥ tokens, output ≤ `max_tokens`).
+against a cap that admits 10 → exactly 10 succeed and `spent + reserved` never exceeds either cap,
+sampled during the run; **double settle** (the second changes nothing); **settle then crash**
+(the settle committed, the job not marked done; `ai_settle_lost()` then changes nothing);
+release then settle (no change); a timeout and a 500 charged at the reserved amount, a 429
+released; a reservation made in January and settled in February charges January; the global cap
+binding before the user cap; the `CHECK`s refuse a negative counter; an unpriced model refused;
+caps of 0 refuse everything; `ai_reserve` with no `UserContext` refused. `test_ai_pricing.py`:
+the bound is never below the actual cost for every recorded fake response.
+The definer-function tests (as `test_queue_functions.py` does for the queue): the four
+functions' owner, `search_path` and grants.
 
 ### 8. Prompt injection: threat model
 
@@ -247,14 +278,38 @@ Two layers, both on **synthetic accounts only**:
 
 - **In CI (deterministic, fake model)**: the guards that don't depend on the model's judgement.
   Pass threshold **100 %**: tool-schema allowlist, tier filter, isolation, no identifier in a
-  request, the four locks, the cost cap under concurrency, output rendering, withdrawal, audit
-  redaction. A scripted fake model plays the attacker's side (it requests other tools, passes
-  out-of-range arguments, emits links and HTML) and the backend must refuse each.
-- **The model evals (real model, run by the owner, outside CI)**: `ownvitals ai eval` against the
-  configured model with a key on the owner's machine or server, on synthetic accounts only, before
-  AI is first enabled and on every change of model, prompt version or tool set; the summary
-  (category, cases, passes, the model and prompt versions; no content) is pasted into the M7
-  issue, like the probe (PLAN-operations §10.4). Categories and pass thresholds:
+  request, the five locks, the cost cap under concurrency, output rendering, withdrawal, audit
+  redaction, and every refusal of the eval path below. A scripted fake model plays the attacker's
+  side (it requests other tools, passes out-of-range arguments, emits links and HTML) and the
+  backend must refuse each.
+- **The model evals (real model, run by the owner, outside CI)**: `python -m ownvitals.ai.eval`,
+  a module of its own, not a subcommand of the generic operator CLI.
+  - **Process role.** It is a worker-role module: it joins `WORKER_ROLE_MODULES` (the egress
+    guard's list of modules that may call `install_worker_allowlist`, `docs/dev/egress.md`, ADR
+    0009), and calls it with `ai_enabled=True` only after the checks below pass. Web-only entry
+    points stay refused in it. Its outbound host is `api.anthropic.com` only.
+  - **Its own database, synthetic only.** It refuses to start unless its database URL differs from
+    the app's configured one and the database name ends in `_ai_eval`. It creates the schema there,
+    seeds its own synthetic accounts (each with `users.synthetic = true`, a column only seeders
+    set), and before every call checks that **every** account in that database is marked
+    synthetic; one unmarked account and it stops without a call.
+  - **Locks.** It never reads `ai_eval_ref` (lock 3) or user consent (it seeds consent for its
+    accounts). It still requires `ai_provider_review_ref` (lock 2) and `ai_model` to be set, the
+    API key file, and its **own lock**: the environment setting `OWNVITALS_AI_EVAL=on` (default
+    off) that only the owner sets for the run. It is not affected by, and does not need, the
+    `ai_insights` flag (lock 1), because it serves no user.
+  - **Its own small cap.** Every call goes through §7's reservation functions in its database,
+    against `ai_eval_cap_microusd` (default 0, set by the owner per run); no reservation, no call.
+  - Its `ai_audit` rows have kind `eval`. It prints a summary (category, cases, passes, the model
+    and prompt versions, the largest actual-to-bounded input-token ratio; no content), which the
+    owner pastes into the M7 issue, like the probe (PLAN-operations §10.4), and then sets
+    `ai_eval_ref` if every category passed.
+  - CI covers the path with the fake model: each refusal (the app's database URL, a name without
+    `_ai_eval`, an unmarked account, `OWNVITALS_AI_EVAL` off, no review reference, no model, a cap
+    of 0) makes zero model requests (`test_ai_eval_cli.py`).
+
+  It runs before AI is first enabled and on every change of model, prompt version or tool set.
+  Categories and pass thresholds:
 
 | Category | Cases (at least) | Pass |
 |---|---|---|
@@ -267,8 +322,8 @@ Two layers, both on **synthetic accounts only**:
 
   Graders are rule-based where possible (regular expressions for links, numbers, disclosure
   markers, a word list for diagnoses and drugs); where a judgement is needed, the case is marked
-  for the owner's reading, not graded by another model. A failed category blocks enabling (lock 2
-  stays empty) until the prompt or mapping is fixed and the category passes.
+  for the owner's reading, not graded by another model. A failed category means `ai_eval_ref`
+  stays unset (lock 3) until the prompt or mapping is fixed and the category passes.
 
 ## Alternatives
 
@@ -289,16 +344,21 @@ Two layers, both on **synthetic accounts only**:
 
 - The M7 AI issues (security-critical, Opus): the gates and consent (`ai_consents`, settings,
   step-up row); the tools and their schema test; the worker client, jobs and conversations; the
-  audit log; the cost cap with `ai_spend`, the global row and `ai_reserve`; the CI evals and the
-  `ownvitals ai eval` command; the UI (consent, chat, digest, budget messages), whose screens the
+  audit log; the cost cap with `ai_reservations`, `ai_spend`, the global row and the definer
+  functions `ai_reserve`, `ai_settle`, `ai_release` and `ai_settle_lost`; the CI evals and the
+  `ownvitals.ai.eval` module, which joins `WORKER_ROLE_MODULES` (an egress-guard change, ADR 0009);
+  the 90-day conversation purge as a worker maintenance task through a narrow definer function,
+  `ai_purge_expired()`, which deletes conversations past retention and returns a count; the UI (consent, chat, digest, budget messages), whose screens the
   mock-ups don't cover and so go to the Architect (AGENTS.md "UI design").
 - ADR 0003 §4's table gains "Give AI consent: step-up yes"; ADR 0007 gains the outbox kind
   `ai_digest_ready` (a fixed text, no content).
 - `compose.yaml` mounts `anthropic_api_key` into the worker only; `docs/dev/ai.md` is written by
   the first AI issue.
-- With the defaults (no review reference, no model id, caps 0) **AI is off** even when the flag is
+- With the defaults (no review reference, no eval reference, no model id, caps 0) **AI is off** even when the flag is
   on: M7 can be IMPLEMENTED on fakes while every real call waits for the owner.
-- Threat model: section K's T96 to T104; T73 points there.
+- Threat model: section K's T96 to T105; T73 points there.
+- This ADR and ADR 0013 cite ADR 0012 (scores, #213); the Architect merges #213 first or the
+  references wait for it.
 
 ## Open questions
 
@@ -313,14 +373,19 @@ Two layers, both on **synthetic accounts only**:
 3. **The model** (`ai_model`) and with it the pricing table's first entry. Default meanwhile:
    **empty**, no call.
 4. **Experimental findings and ECG estimates to the model for flagged household accounts** (§4
-   allows it, as PLAN §7.4 only forbids it for non-household users). Default meanwhile: allowed
-   for accounts that pass the experimental gate. Safe-off: a setting `ai_include_experimental`
-   (default true) that removes them from every tool when false.
+   allows it, as PLAN §7.4 only forbids it for non-household users). Default meanwhile: **not
+   sent**: `ai_include_experimental` defaults to false, so the owner opts in explicitly; the HIS
+   and other experimental scores fall under it. Safe-off: false.
 5. **Conversation and audit retention** (90 days and 12 months, §5, §6). Default meanwhile: as
    stated.
+6. **The eval run** (§9): turning on `OWNVITALS_AI_EVAL` for a run, its cap, reading the summary
+   and setting `ai_eval_ref`. Default meanwhile: **unset**, so AI is off (lock 3). Safe-off: unset.
 
-**Decided by the Architect (2026-11-03, this ADR).** The four locks; consent with step-up and
+**Decided by the Architect (2026-11-03, this ADR; the #214 review's fixes the same day).** The
+five locks and the separate eval path with its own lock, database and cap; consent with step-up and
 withdrawal semantics; the tool set, allowlist and tier filter in the tool layer; worker-only jobs
 and request construction; the redacted audit row; micro-USD, UTC months, the byte-length bound,
-reserve-and-settle, the conservative crash settle and the global cap through a definer function;
+the reservation table with settle-once definer functions and the reaper's `ai_settle_lost()`, the
+conservative charge for timeouts, 5xx and crashes, and the global cap; the consent-row lock order;
+the keyed audit hashes;
 the two-layer eval suite and its thresholds.
