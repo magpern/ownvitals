@@ -128,8 +128,9 @@ async def test_nothing_is_claimed_before_the_queue_check_passed(
         await until(lambda: jenv.row(job_id).state == "completed")
 
 
-async def test_the_shipped_registry_claims_nothing(jenv: JobsEnv) -> None:
-    """#9 registers no kind (``KINDS`` is empty): the worker claims nothing."""
+async def test_the_default_registry_claims_nothing(jenv: JobsEnv) -> None:
+    """``Worker``'s default is the API's registry, ``KINDS``, which stays empty: a worker given
+    no registry claims nothing. The process entry passes ``worker_registry()`` (#164)."""
     from ownvitals.jobs import KINDS
 
     assert KINDS.names() == []
