@@ -23,7 +23,8 @@ WEBHOOK_SECRET_ROTATION: Final = 4
 # failure in an hour mails the user once; ``ownvitals.auth.mfa.record_failure``, #10).
 MFA_FAILURES: Final = 5
 # 6: normalisation, ``pg_advisory_xact_lock``, keyed by the user id: one write of
-# ``observations`` per owner at a time (``ownvitals.derived.normalize_db``, #229).
+# ``observations`` or ``metric_daily`` per owner at a time (``ownvitals.derived.normalize_db``,
+# #229, and ``ownvitals.derived.daily_db``, #186).
 NORMALISATION: Final = 6
 
 NAMESPACES: Final = {
