@@ -113,6 +113,9 @@ ROWS: Final[Mapping[str, str]] = {
     "RETURNING id",
     "intraday": "INSERT INTO public.intraday (owner_id, ts, source_tz, connection_id, metric, "
     "value_raw, unit) VALUES (:owner, :ts, 'Etc/UTC', :connection, :tag, 0, 0) RETURNING id",
+    # The mail outbox (#194). A sent row, so the one-pending-per-kind index never collides.
+    "mail_outbox": "INSERT INTO public.mail_outbox (owner_id, kind, route, state) "
+    "VALUES (:owner, 'findings_waiting', 'findings', 'sent') RETURNING id",
 }
 _PARAM = re.compile(r"(?<![:\w]):([a-z_]+)")
 _WITHINGS_CONNECTION = text(

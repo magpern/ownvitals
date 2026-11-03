@@ -110,6 +110,9 @@ FORBIDDEN_TABLES = {
     "workouts",
     "sleep_series",
     "intraday",
+    # The mail outbox (#194): the admin area has no view of it.
+    "mail_outbox",
+    "owner_notices",
 }
 WRITE_PRIVILEGES = ("INSERT", "UPDATE", "DELETE", "TRUNCATE")
 

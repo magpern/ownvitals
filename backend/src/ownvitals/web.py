@@ -30,6 +30,7 @@ from ownvitals.db.queue_check import install_queue_check, verify_queue
 from ownvitals.flags.routes import router as flags_router
 from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
+from ownvitals.notify import sender as outbox_sender
 from ownvitals.withings.webhooks import WebhookMiddleware, load_cache
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     role or digest, on this startup and on every later connection. Then the
     accounts state (``ownvitals.auth.setup.attach_state``): it refuses to start without the
     ``app_secret_key`` secret file, from which the auth keys are derived (ADR 0003 section 1).
+    Then the outbox sender (``ownvitals.notify.sender``, ADR 0007), when an SMTP host is set.
     Last the admin database (#12): without the maint URL or its password file there is none and
     the admin routes answer 503; with them, a role other than exactly ``ownvitals_maint``
     refuses the start (``MaintRoleError``).
@@ -131,6 +133,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(settings)
         install_queue_check(engine)  # every new connection, before the first one is opened
         admin_db: AdminDb | None = None
+        outbox_task = None
         try:
             await verify_database_role(engine)
             session_factory = create_session_factory(engine)
@@ -139,6 +142,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.engine = engine
             app.state.session_factory = session_factory
             attach_state(app, settings, session_factory)
+            # The outbox sender (ADR 0007 section 2): web sends what the worker queued.
+            outbox_task = outbox_sender.start(
+                session_factory, app.state.mailer, settings.public_base_url
+            )
             admin_db = AdminDb.from_settings(settings)
             if admin_db is not None:
                 await admin_db.verify()
@@ -150,6 +157,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 logger.warning("webhook cache not loaded", extra={"error_type": type(exc).__name__})
             yield
         finally:
+            await outbox_sender.stop(outbox_task)
             app.state.admin_db = None
             if admin_db is not None:
                 await admin_db.dispose()
