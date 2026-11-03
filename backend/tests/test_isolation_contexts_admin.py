@@ -6,12 +6,15 @@ real app with its admin area on maint, an admin signed in through ``ownvitals.au
 ``admin_gate``, and two test-only admin routes that run ``contexttools.admin_probe`` in an audited
 ``admin_session``: a read (``job.list``) and a write (``setting.clear``, after step-up) aimed at
 both users' rows. Neither reads an owner or a health column, and neither writes an owned row.
+``test_the_admin_probe_catches_a_write_grant`` shows a write grant to maint fails the probe.
 """
 
 from typing import Any
 
+import pytest
 from fastapi import Request
 from pydantic import BaseModel
+from sqlalchemy import text
 
 from admintools import (  # noqa: F401 - fixtures
     AdminEnv,
@@ -26,6 +29,7 @@ from contexttools import (
     owned_tables,
     plant,
     snapshot,
+    superuser,
 )
 from ownvitals.admin.db import admin_session
 from ownvitals.admin.routes import AdminActor, admin_router, require_db
@@ -78,3 +82,45 @@ async def test_an_admin_route_reads_no_owner_or_health_column_and_writes_no_owne
     audited = [(row.action, row.outcome) for row in await aenv.audit_rows()]
     assert ("job.list", "ok") in audited
     assert ("setting.clear", "ok") in audited
+
+
+@pytest.mark.parametrize(
+    ("table", "grant", "revoke"),
+    [
+        (
+            "connections",
+            "GRANT UPDATE (status) ON public.connections TO ownvitals_maint",
+            "REVOKE UPDATE (status) ON public.connections FROM ownvitals_maint",
+        ),
+        (
+            "devices",
+            "GRANT DELETE ON public.devices TO ownvitals_maint",
+            "REVOKE DELETE ON public.devices FROM ownvitals_maint",
+        ),
+    ],
+)
+async def test_the_admin_probe_catches_a_write_grant(
+    aenv: AdminEnv, database_url: str, table: str, grant: str, revoke: str
+) -> None:
+    """maint bypasses row security, so a write grant is the hole: the probe's writes that read
+    no column find it, though maint may not read the owner."""
+    app = aenv.env.app
+    app.include_router(router)
+    tables = owned_tables(database_url)
+    app.state.ctx_tables = tables
+    admin = await caller(aenv)
+    a = plant(database_url, await aenv.env.user("ctx-admin-ma@example.com"))
+    b = plant(database_url, await aenv.env.user("ctx-admin-mb@example.com"))
+    body = {"owners": [a.as_json(), b.as_json()]}
+    before = snapshot(database_url, (a, b))
+    with superuser(database_url) as conn:
+        conn.execute(text(grant))
+    try:
+        written = await admin.request("PUT", "/api/admin" + PATH, json=body)
+    finally:
+        with superuser(database_url) as conn:
+            conn.execute(text(revoke))
+    assert written.status_code == 200, written.text
+    with pytest.raises(AssertionError, match=table):
+        assert_admin_isolated(written.json(), tables, write=True)
+    assert snapshot(database_url, (a, b)) == before

@@ -414,6 +414,17 @@ test-only table `t_parent`) the way each execution context reaches owned rows:
 `test_two_user_isolation.py` runs two users at once in each context and in a mix, and verifies
 nothing crosses; it also shows RLS alone holds when the repository's filter is removed, and that
 the check fails when both walls are gone. `test_owner_filter.py` shows the repository's own filter
-holds with RLS bypassed (`bypass_url`, a superuser engine). #15 adds the scheduler, webhook and
-admin contexts to `EXECUTION_CONTEXTS`; later repositories reuse `bypass_url` to prove their own
-filters.
+holds with RLS bypassed (`bypass_url`, a superuser engine); later repositories reuse
+`bypass_url` to prove their own filters.
+
+**Every context on every owned table** (#15, guard "ctx"): `tests/contexttools.py` plants one
+synthetic row per owned table (`ROWS`) for two users, and one module per context of ADR 0002 §4
+runs the same probe the way that context reaches owned rows: `test_isolation_contexts_web.py`
+(a route behind `require_user`), `_worker.py` (a user's job through `runner.execute` and the job
+issuer), `_scheduler.py` (`queue_enqueue`, then the claimed job), `_webhook.py` (the receiver and
+`webhook_event_insert`, then the claimed job), `_maintenance.py` (the reaper and
+`webhook_events_purge_owner`) and `_admin.py` (admin routes on `ownvitals_maint`). The probe reads,
+then writes at the other user's rows, both with a `WHERE` on the owner and without reading any
+column (so a write-only hole shows), every write in a rolled-back savepoint.
+`test_isolation_contexts_guard.py` fails while `ROWS` and the catalog's owned tables differ, so a
+**new owned table needs its row in `ROWS`** in the same PR.

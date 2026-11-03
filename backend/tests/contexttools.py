@@ -8,6 +8,7 @@ the test module of that context asserts what the probe may and may not do:
 - ``test_isolation_contexts_worker.py``: a worker job a user created, issued by the job issuer;
 - ``test_isolation_contexts_scheduler.py``: a job the scheduler enqueued (``queue_enqueue``);
 - ``test_isolation_contexts_webhook.py``: a job the webhook receiver's ingest function created;
+- ``test_isolation_contexts_maintenance.py``: the reaper and the per-owner purge function;
 - ``test_isolation_contexts_admin.py``: an admin route on ``ownvitals_maint``.
 
 ``probe`` runs in one transaction of the context, for each owned table: which owners it sees,
@@ -58,7 +59,7 @@ READ_ONLY: Final = "25006"
 SYNTHETIC_HASH: Final = b"\x5a" * 32
 TABLE_NAME: Final = re.compile(r"[a-z][a-z0-9_]{0,62}")
 PARTITIONED: Final = ("sleep_series", "intraday")
-CONTEXTS: Final = ("web", "worker", "scheduler", "webhook", "admin")
+CONTEXTS: Final = ("web", "worker", "scheduler", "webhook", "maintenance", "admin")
 LEASE_SECONDS: Final = 60
 
 OWNED_TABLES_SQL: Final = """
@@ -136,7 +137,8 @@ def owned_tables(url: str) -> frozenset[str]:
     engine = create_engine(url)
     try:
         with engine.connect() as connection:
-            return frozenset(str(name) for name in connection.execute(text(OWNED_TABLES_SQL)))
+            names = connection.execute(text(OWNED_TABLES_SQL)).scalars()
+            return frozenset(str(name) for name in names)
     finally:
         engine.dispose()
 
@@ -294,8 +296,15 @@ async def attempt(db: AsyncSession, statement: str, params: Mapping[str, Any]) -
 async def probe(
     db: AsyncSession, me: Owner, other: Owner, tables: Iterable[str]
 ) -> dict[str, dict[str, Any]]:
-    """For each owned table, in the context's own transaction ``db``: the owners it sees and
-    what each write aimed at ``other`` (and the control write of ``me``) did."""
+    """For each owned table, in the context's own transaction ``db``: the owners it sees, how
+    many rows it sees, and what each write aimed at ``other`` (and the control write of ``me``)
+    did.
+
+    ``foreign_update`` and ``foreign_delete`` name the other owner in their ``WHERE``, which
+    makes the read policy apply too. ``blind_update`` and ``blind_delete`` read no column (no
+    ``WHERE``, a constant ``SET``), so only the write policies decide which rows they touch: an
+    extra permissive ``FOR UPDATE`` or ``FOR DELETE`` policy shows up there as more rows than
+    the context can see."""
     report: dict[str, dict[str, Any]] = {}
     for table in sorted(tables):
         if table not in ROWS:
@@ -308,8 +317,10 @@ async def probe(
         privilege = await db.execute(
             text("SELECT has_table_privilege(:t, 'INSERT')"), {"t": f"public.{name}"}
         )
+        visible = await db.execute(text(f"SELECT count(*) FROM public.{name}"))  # noqa: S608
         report[table] = {
             "seen": [str(v) for v in seen.scalars()],
+            "visible": int(visible.scalar_one()),
             "insert_privilege": bool(privilege.scalar_one()),
             "foreign_update": await attempt(
                 db,
@@ -327,9 +338,20 @@ async def probe(
                 f"UPDATE public.{name} SET owner_id = :other WHERE owner_id = :me",  # noqa: S608
                 {"other": other.user, "me": me.user},
             ),
+            "blind_update": await attempt(
+                db,
+                f"UPDATE public.{name} SET owner_id = :me",  # noqa: S608
+                {"me": me.user},
+            ),
+            "blind_delete": await attempt(db, f"DELETE FROM public.{name}", {}),  # noqa: S608
             "own_insert": await attempt(db, insert, bind(insert, me.params(2))),
         }
     return report
+
+
+def _within(outcome: Outcome, visible: int) -> bool:
+    """A write that read no column was refused or touched at most the rows the context sees."""
+    return outcome == REFUSED or (isinstance(outcome, int) and 0 <= outcome <= visible)
 
 
 def assert_isolated(
@@ -345,6 +367,8 @@ def assert_isolated(
         assert row["foreign_delete"] in (0, REFUSED), (table, "delete", row["foreign_delete"])
         assert row["foreign_insert"] == REFUSED, (table, "insert", row["foreign_insert"])
         assert row["own_move"] in (0, REFUSED), (table, "move", row["own_move"])
+        for key in ("blind_update", "blind_delete"):
+            assert _within(row[key], row["visible"]), (table, key, row[key], row["visible"])
         expected = 1 if row["insert_privilege"] else REFUSED
         assert row["own_insert"] == expected, (table, "own insert", row["own_insert"])
 
@@ -355,7 +379,8 @@ def assert_no_context(report: Mapping[str, Mapping[str, Any]], tables: Iterable[
     assert set(report) == set(tables), "the probe did not cover every owned table"
     for table, row in report.items():
         assert row["seen"] == [], (table, "read")
-        for key in ("foreign_update", "foreign_delete", "own_move"):
+        assert row["visible"] == 0, (table, "count")
+        for key in ("foreign_update", "foreign_delete", "own_move", "blind_update", "blind_delete"):
             assert row[key] in (0, REFUSED), (table, key, row[key])
         assert row["foreign_insert"] == REFUSED, (table, "insert", row["foreign_insert"])
         assert row["own_insert"] == REFUSED, (table, "own insert", row["own_insert"])
@@ -436,6 +461,10 @@ def assert_job_isolated(
 # Owned tables whose status and metadata columns the admin area may read (ADR 0002 section 4);
 # every other owned table holds health data, of which it may read nothing.
 ADMIN_METADATA_TABLES: Final = frozenset({"connections", "jobs", "job_events"})
+_COLUMNS = text(
+    "SELECT a.attname FROM pg_catalog.pg_attribute a "
+    "WHERE a.attrelid = to_regclass(:t) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY 1"
+)
 _READABLE = text(
     "SELECT a.attname FROM pg_catalog.pg_attribute a "
     "WHERE a.attrelid = to_regclass(:t) AND a.attnum > 0 AND NOT a.attisdropped "
@@ -448,14 +477,20 @@ async def admin_probe(
 ) -> dict[str, dict[str, Any]]:
     """For each owned table, in an admin transaction as ``ownvitals_maint`` (``BYPASSRLS``, so
     only its grants and the read-only default stand between it and every user's rows): the
-    columns it may read, a read of the owner and of every column, and an update, a delete and an
-    insert aimed at each user's rows."""
+    columns it may read, a read of the owner and of every column, an update, a delete and an
+    insert aimed at each user's rows, and the writes that read no column, so only a write grant
+    could let them through: an unconditional ``DELETE``, and for every column an ``UPDATE`` that
+    sets it to ``DEFAULT`` and an ``INSERT`` of it alone (one per column, so a column-level grant
+    on any of them shows)."""
     report: dict[str, dict[str, Any]] = {}
     for table in sorted(tables):
         if table not in ROWS:
             raise Uncovered(f"owned table {table!r} has no row in contexttools.ROWS")
         name = checked(table)
         readable = await db.execute(_READABLE, {"t": f"public.{name}"})
+        columns = [
+            checked(str(c)) for c in (await db.execute(_COLUMNS, {"t": f"public.{name}"})).scalars()
+        ]
         row: dict[str, Any] = {
             "readable": [str(v) for v in readable.scalars()],
             "read_owner": await attempt(db, f"SELECT owner_id FROM public.{name}", {}),  # noqa: S608
@@ -475,6 +510,16 @@ async def admin_probe(
                     {"o": owner.user},
                 ),
                 await attempt(db, ROWS[table], bind(ROWS[table], owner.params(n))),
+            ]
+        row["writes"].append(await attempt(db, f"DELETE FROM public.{name}", {}))  # noqa: S608
+        for column in columns:
+            row["writes"] += [
+                await attempt(db, f'UPDATE public.{name} SET "{column}" = DEFAULT', {}),  # noqa: S608
+                await attempt(
+                    db,
+                    f'INSERT INTO public.{name} ("{column}") VALUES (DEFAULT)',  # noqa: S608
+                    {},
+                ),
             ]
         report[table] = row
     return report
