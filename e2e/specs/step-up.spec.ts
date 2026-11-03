@@ -6,7 +6,7 @@ import {
   signUpAndConfirm,
   typeCode,
 } from '../helpers/flows.ts'
-import { createInvite } from '../helpers/invite.ts'
+import { ageStepUp, createInvite } from '../helpers/invite.ts'
 
 // A step-up action (ADR 0003 §3): "Sign out everywhere" asks for a fresh code first.
 test('signing out everywhere needs a fresh code, then ends the session', async ({ page }) => {
@@ -17,6 +17,9 @@ test('signing out everywhere needs a fresh code, then ends the session', async (
 
   await page.goto('/settings/security')
   await expect(page.getByRole('heading', { name: "Where you're signed in" })).toBeVisible()
+  // The enrolment's code counts as a step-up for ten minutes, so the action would go straight
+  // through (the app is right); age it the way ten minutes would.
+  ageStepUp(account.email)
   await page.getByRole('button', { name: 'Sign out everywhere…' }).click()
 
   const dialog = page.getByRole('dialog', { name: "Confirm it's you" })
@@ -38,6 +41,8 @@ test('a wrong code in the step-up dialog changes nothing', async ({ page }) => {
   const authenticator = await enrolAuthenticator(page)
 
   await page.goto('/settings/security')
+  await expect(page.getByRole('heading', { name: "Where you're signed in" })).toBeVisible()
+  ageStepUp(account.email)
   await page.getByRole('button', { name: 'Sign out everywhere…' }).click()
   const dialog = page.getByRole('dialog', { name: "Confirm it's you" })
   const right = await authenticator.next()

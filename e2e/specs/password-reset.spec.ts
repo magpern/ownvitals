@@ -18,7 +18,7 @@ test('reset the password from the mailed link', async ({ page }) => {
   await page.goto(tokenLink(mail))
   await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible()
   const newPassword = `synthetic-${randomBytes(9).toString('hex')}`
-  await page.getByLabel('New password').fill(newPassword)
+  await page.getByLabel('New password', { exact: true }).fill(newPassword)
   await page.getByRole('button', { name: 'Change password' }).click()
   await expect(page.getByRole('heading', { name: 'Password changed' })).toBeVisible()
 

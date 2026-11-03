@@ -21,6 +21,12 @@ services:
       fake-oidc:
         condition: service_healthy
 
+  # The worker refuses to start without the KEK ring (connection_kek, a synthetic file that
+  # scripts/worktree.sh init creates); the base file mounts it for web only.
+  worker:
+    secrets:
+      - connection_kek
+
   fake-oidc:
     build: ./e2e/fake-oidc
     image: ${COMPOSE_PROJECT_NAME:-ownvitals}-fake-oidc:local

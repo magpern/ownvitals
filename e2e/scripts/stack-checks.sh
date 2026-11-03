@@ -25,6 +25,20 @@ asset="$(curl -fsS "$base/" | sed -n 's/.*src="\(\/assets\/[^"]*\.js\)".*/\1/p' 
 if [ -n "$asset" ] && [ "$(curl -s -o /dev/null -w '%{http_code}' "$base$asset")" = 200 ]; then ok "the built script $asset is served"; else fail "no built script is served"; fi
 if curl -fsS "$base/api/does-not-exist" > /dev/null 2>&1; then fail "an unknown /api path answered 200"; else ok "an unknown /api path is not the single-page app"; fi
 
+# Every service is where it should be: the long-running ones running (and healthy, where they
+# have a healthcheck; a restarting worker is "restarting"), the one-shots exited with 0.
+states="$("${compose[@]}" ps -a --format json | jq -s -r '(if .[0]|type=="array" then .[0] else . end)[] | [.Service, .State, (.Health // ""), (.ExitCode|tostring)] | @tsv')"
+for service in db web worker mailpit fake-oidc; do
+  line="$(awk -F'\t' -v s="$service" '$1 == s' <<< "$states")"
+  state="$(cut -f2 <<< "$line")"
+  health="$(cut -f3 <<< "$line")"
+  if [ "$state" = running ] && { [ -z "$health" ] || [ "$health" = healthy ]; }; then ok "$service is running ${health}"; else fail "$service is '${state:-missing}' ${health}"; fi
+done
+for service in migrate db-functions; do
+  line="$(awk -F'\t' -v s="$service" '$1 == s' <<< "$states")"
+  if [ "$(cut -f2 <<< "$line")" = exited ] && [ "$(cut -f4 <<< "$line")" = 0 ]; then ok "$service exited 0"; else fail "$service did not exit 0"; fi
+done
+
 for service in web worker; do
   uid="$("${compose[@]}" exec -T "$service" id -u | tr -d '\r')"
   if [ "$uid" != 0 ] && [ -n "$uid" ]; then ok "$service runs as uid $uid"; else fail "$service runs as root"; fi
