@@ -64,7 +64,8 @@ async def sessions(
         await engine.dispose()
 
 
-def test_import_leaves_the_kind_registry_empty() -> None:
+def test_import_leaves_the_api_kind_registry_empty() -> None:
+    """The reconcile handler is registered only on the worker's own registry (#164)."""
     assert KINDS.names() == []
 
 

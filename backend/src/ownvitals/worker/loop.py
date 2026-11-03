@@ -7,8 +7,14 @@ passed (``queue_verified``) and, when it holds a key ring, until that ring's che
 Every ``worker_maintenance_seconds`` (30 s) it runs the reaper, and
 every ``purge_interval_seconds`` (an hour) the auth purge of ADR 0003 section 1
 (``ownvitals.auth.purge``: expired sessions and flows, used tokens, old invites, unused known
-devices, old auth events and session IPs). M1 adds the scheduler's ticks and the owner-less
-upkeep (ADR 0005 section 8).
+devices, old auth events and session IPs), and every ``SCHEDULE_TICK_SECONDS`` (5 minutes) the
+scheduler: ``queue_schedule`` for each kind in ``schedules`` that the registry runs (the process
+entry passes ``ownvitals.worker.kinds.SCHEDULES``: the poll and the reconciliation, PLAN section
+4.4). The function decides what is due from the jobs table, so restarts and several workers
+create no extra work. The owner-less upkeep of ADR 0005 section 8 comes later.
+
+Runs ask ``targets`` before a job that names a webhook secret (the process entry passes
+``ownvitals.worker.kinds.WORKER_TARGETS``); the default, ``NO_TARGETS``, confirms none.
 
 Several workers are safe: ``SKIP LOCKED`` gives each job to one claimer, and the fence makes a
 lost lease harmless.
@@ -40,7 +46,7 @@ import re
 import secrets
 import socket
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -57,11 +63,13 @@ from ownvitals.db import (
 from ownvitals.db.queue_check import install_queue_check, queue_verified, verify_queue
 from ownvitals.jobs import KINDS, NO_ACCOUNTS, Accounts, KindRegistry, queue
 from ownvitals.jobs.runner import Execution, RunConfig, execute, hand_back
+from ownvitals.jobs.withings import NO_TARGETS, SecretTargets
 from ownvitals.worker.listen import listen
 
 logger = logging.getLogger(__name__)
 
 CHECK_BACKOFF_MAX_SECONDS = 30.0
+SCHEDULE_TICK_SECONDS = 300.0
 
 
 def worker_pool(settings: Settings) -> dict[str, Any]:
@@ -118,6 +126,8 @@ class Worker:
         registry: KindRegistry = KINDS,
         accounts: Accounts = NO_ACCOUNTS,
         keyring: KeyRing | None = None,
+        targets: SecretTargets = NO_TARGETS,
+        schedules: Mapping[str, int] | None = None,
     ) -> None:
         self.settings = settings
         self.engine = engine
@@ -125,7 +135,15 @@ class Worker:
         self.keyring = keyring
         self.registry = registry
         self.id = worker_id()
-        self.config = RunConfig(lease_seconds=settings.job_lease_seconds, accounts=accounts)
+        self.config = RunConfig(
+            lease_seconds=settings.job_lease_seconds, accounts=accounts, targets=targets
+        )
+        # Only kinds this worker runs are scheduled.
+        self.schedules = {
+            kind: seconds
+            for kind, seconds in (schedules or {}).items()
+            if registry.get(kind) is not None
+        }
         self.shutdown = asyncio.Event()  # set on SIGTERM: runs stop at their next checkpoint
         self.wake = asyncio.Event()
         self.running: dict[asyncio.Task[None], Execution] = {}
@@ -186,6 +204,17 @@ class Worker:
             logger.warning("auth purge failed", extra={"error_type": type(exc).__name__})
             return
         logger.info("auth purge", extra={"deleted": counts})
+
+    async def schedule(self) -> None:
+        """One scheduler tick: ``queue_schedule`` per scheduled kind. Nothing is scheduled
+        before the key ring's check; a failure is logged by its class and retried next tick."""
+        if not self._startup_passed():
+            return
+        for kind, seconds in self.schedules.items():
+            await _quietly(
+                f"schedule {kind}",
+                lambda kind=kind, seconds=seconds: queue.schedule(self.factory, kind, seconds),
+            )
 
     def verified(self) -> bool:
         """The role, queue and key-ring checks passed (ADR 0005 section 3, ADR 0004 section 3).
@@ -273,7 +302,7 @@ class Worker:
         listen_stop = asyncio.Event()
         listener = asyncio.ensure_future(listen(self.engine, self.wake, listen_stop))
         stopper = asyncio.ensure_future(self._wake_on(stop))
-        next_maintenance = next_purge = time.monotonic()
+        next_maintenance = next_purge = next_schedule = time.monotonic()
         try:
             while not stop.is_set():
                 self.passes += 1
@@ -292,7 +321,12 @@ class Worker:
                     if time.monotonic() >= next_purge and not stop.is_set():
                         await self._unless_stopped(self.purge(), stop)
                         next_purge = time.monotonic() + self.settings.purge_interval_seconds
+                    if self.schedules and time.monotonic() >= next_schedule and not stop.is_set():
+                        await self._unless_stopped(self.schedule(), stop)
+                        next_schedule = time.monotonic() + SCHEDULE_TICK_SECONDS
                     upcoming = min(next_maintenance, next_purge)
+                    if self.schedules:
+                        upcoming = min(upcoming, next_schedule)
                     timeout = min(timeout, max(upcoming - time.monotonic(), 0.01))
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self.wake.wait(), timeout=timeout)
@@ -357,6 +391,8 @@ async def run_worker(
     accounts: Accounts = NO_ACCOUNTS,
     engine: AsyncEngine | None = None,
     keyring: KeyRing | None = None,
+    targets: SecretTargets = NO_TARGETS,
+    schedules: Mapping[str, int] | None = None,
 ) -> None:
     """Run until ``stop`` is set, then hand back what is still running.
 
@@ -370,9 +406,15 @@ async def run_worker(
         engine = create_worker_engine(settings)  # connects lazily
     try:
         logger.info("worker started")
-        await Worker(settings, engine, registry=registry, accounts=accounts, keyring=keyring).run(
-            stop
-        )
+        await Worker(
+            settings,
+            engine,
+            registry=registry,
+            accounts=accounts,
+            keyring=keyring,
+            targets=targets,
+            schedules=schedules,
+        ).run(stop)
         logger.info("worker stopped")
     finally:
         if owns_engine:

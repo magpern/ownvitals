@@ -4,7 +4,8 @@ How ownvitals runs background work: [ADR 0005](../adr/0005-jobs-and-leases.md) (
 §4.4). One queue table in Postgres, claimed with `FOR UPDATE SKIP LOCKED` through three reviewed
 `SECURITY DEFINER` functions; a lease per run with a fencing token (`lease_version`) that every
 worker write checks first; `LISTEN/NOTIFY` wake-ups; a worker process; a jobs API and an SSE
-progress stream. #9 ships the machinery with **no kind** registered: M1 adds the Withings kinds.
+progress stream. #9 shipped the machinery with no kind; #164 registers the Withings kinds in the
+worker process ("The worker's kinds" below).
 
 ## The pieces
 
@@ -36,6 +37,7 @@ function is `SECURITY DEFINER` with `search_path = pg_catalog, pg_temp`, the com
 | `queue_enqueue(...)` | webhook or scheduler job owned by the connection's owner; a queued singleton collapses and its `available_at` moves 30 s out (namespace 1) | the job id |
 | `queue_cancel_for_secret(kind, secret_id)` | cancels queued jobs of that kind for that webhook secret, any owner | the count |
 | `queue_replay(id)` | a new queued job from a dead-lettered one; the terminal row stays | `(job_id, owner_id)` |
+| `queue_schedule(kind, interval_seconds)` | the scheduler (#164): through `queue_enqueue`, one `withings_poll` or `withings_reconcile` job (origin `scheduler`) for every `connected` connection with none queued or running and none created in the last `interval_seconds` (3600 to 604800); at most 500 per call | the count |
 
 No user code may run as `ownvitals_queue`: the script, the queue check and guard 9 all refuse
 any other user-defined function, operator, trigger or rule, and any default, check, index or
@@ -160,8 +162,32 @@ validated against its model when written and again when sent (`jobs/events.py`).
 `python -m ownvitals jobs replay <id>` queues a new job with the same kind and input (origin
 `operator`) and writes an `admin_audit` row `job.replay`. The dead-lettered row is not changed.
 A job with `target_secret_id` set is cancelled when it runs unless a target check confirms the
-entry is still active (`NoTargets` confirms none). Handlers for the Withings kinds are not
-registered yet: `KINDS` stays empty, so the worker still claims nothing until those issues.
+entry is still active (`NoTargets` confirms none; the worker process passes `WebhookTargets`).
+
+## The worker's kinds, target check and schedule (#164)
+
+`ownvitals/worker/kinds.py` holds what `python -m ownvitals.worker` passes to `run_worker`:
+
+- `worker_registry()`: a new registry with `withings_connect`, `withings_backfill`,
+  `withings_sync`, `ecg_fetch` and `withings_poll` (`withings/sync.py`), `withings_reconcile`
+  (`execute_nightly`, `withings/reconcile.py`) and `token_refresh_recover` (`recover_refresh`,
+  `withings/tokens.py`, inside one `provider_call`; `needs_reconnect` and `not_connected` are
+  kept as the job's category). `KINDS` is the API's registry and stays empty, so
+  `POST /api/jobs` refuses every kind and web imports no handler; `Worker` and `run_worker`
+  default to it, so a caller that passes no registry claims nothing. `notify_update` has no
+  handler yet.
+- `WORKER_TARGETS`: `withings.webhooks.WebhookTargets`. A job with `target_secret_id` runs only
+  while that entry exists, is open (`active_from` passed) and is not retired; otherwise it is
+  cancelled before its handler.
+- `SCHEDULES`: `withings_poll` every 6 hours and `withings_reconcile` every 24 hours. The loop
+  calls `queue_schedule` for each kind its registry runs, every 5 minutes after its checks have
+  passed; the function decides from the jobs table what is due, so restarts and several workers
+  add nothing.
+- The reconciliation's subscription repair needs the current callback URL: `current_callback`
+  derives it in the worker from the newest open entry of the app's `webhook_secrets` and that
+  entry's seed, passes it to `execute_nightly` and drops it (never logged, stored or put on a
+  job). With no open entry, or the seed unavailable (logged as `webhook seed unavailable` with
+  the app id), the run reconciles without the repair.
 
 ## Seams until #10, #13 and #77 (fail closed)
 
@@ -171,7 +197,7 @@ registered yet: `KINDS` stays empty, so the worker still claims nothing until th
 | account directory (`jobs/issuer.py`, `NO_ACCOUNTS`) | every owner inactive: every job fails `account_disabled`, no connection refs | #10 (`ownvitals.auth`) and #13 (`ownvitals.connections`) |
 | `current_user` (`jobs/deps.py`) | every jobs route answers 401 `not_signed_in` | #10 (full session, CSRF) |
 | `stream_session_probe` | the session is never valid: a stream ends at its first check | #10 |
-| `KINDS` | empty: the worker claims nothing, the API refuses every kind | M1 |
+| `KINDS` | empty: the API refuses every kind; the worker process claims from `worker_registry()` | done in #164 |
 | worker start-up | `install_worker_allowlist` and `load_keyring` run before any claim (#77) | done in #77 |
 
 Each default is pinned by a test (`test_jobs_fence.py`, `test_jobs_api.py`, `test_jobs_stream.py`,
@@ -182,7 +208,7 @@ Each default is pinned by a test (`test_jobs_fence.py`, `test_jobs_api.py`, `tes
 Guard 2 (`tests/role_guard.py`) knows `ownvitals_queue`: exactly `USAGE` on `public`,
 `SELECT, INSERT, UPDATE` on `jobs`, `SELECT, INSERT` on `job_events`, `SELECT` on
 `connections.id`, `connections.owner_id` and `connections.status`, and `EXECUTE` for
-`ownvitals_queue` and `ownvitals_app` on the six queue functions. The migrated-schema harness
+`ownvitals_queue` and `ownvitals_app` on the seven queue functions. The migrated-schema harness
 (`tests/dbtools.migrated`) applies `20-queue.sql` and `30-maint.sql` after `upgrade head`, so
 guard 2 and web startup see the installed queue. The harness drops the queue only before a
 downgrade, because the functions depend on the tables.
@@ -202,3 +228,6 @@ synthetic owners (random UUIDs) and the test-only kind `test_kind` only:
 | `test_jobs_runner.py`, `test_jobs_cancel.py` | runs end to end, retries, cancel |
 | `test_jobs_api.py`, `test_jobs_stream.py`, `test_jobs_events.py` | the API, SSE and the hub |
 | `test_jobs_errors.py`, `test_worker.py` | categories and backoff; the worker process |
+| `test_queue_schedule.py` | `queue_schedule`: due connections only, no doubling, refused kinds and intervals, its ACL (#164) |
+| `test_worker_kinds.py` | the worker's registry and the API's empty one, the process entry's wiring, the target check through the runner, the current callback, the reconcile and recovery handlers, the loop's schedule (#164) |
+| `test_worker_withings_e2e.py` | a webhook queues `withings_sync`, the worker runs it against the fake and the measures are stored (#164; synthetic data) |
