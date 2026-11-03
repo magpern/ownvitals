@@ -9,9 +9,9 @@ be linked again. A plain disconnect keeps the row until the account goes.
 The revoke itself runs in the worker (roadmap Amendment 1: web makes no Withings call but
 the code exchange). The routes enqueue a ``withings_disconnect`` job; its handler here
 (``disconnect_kind``) checks the step-up of the session named in the input again, then runs
-``disconnect_withings``. The worker registers the kind (the worker-kinds follow-up of #173,
-which also lists ``register_disconnect_kind`` in guard 8's entry points). The web side then
-finishes with ``connections.purge.purge_connection`` or ``delete_account``.
+``disconnect_withings``. The worker registers the kind (``ownvitals.worker.kinds``; guard 8
+lists ``register_disconnect_kind`` among the entry points). The web side then finishes with
+``connections.purge.purge_connection`` or ``delete_account``.
 """
 
 import time
@@ -333,7 +333,7 @@ def disconnect_kind(
 def register_disconnect_kind(registry: KindRegistry) -> None:
     """Register ``withings_disconnect`` on the worker's registry.
 
-    The worker-kinds follow-up of #173 calls this; it also adds the name to guard 8's
+    ``ownvitals.worker.kinds.worker_registry`` calls this; guard 8 lists it in
     ``PUBLIC_ENTRY_POINTS`` (``tests/auth_tables_scan.py``)."""
     if registry.get(DISCONNECT_KIND) is None:
         registry.register(disconnect_kind())

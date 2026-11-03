@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 _PROVIDER = "withings"
 # The job kind a disconnect or an account deletion enqueues. Its handler is in
-# ``ownvitals.auth.purge``; the worker registers it (the worker-kinds follow-up of #173).
+# ``ownvitals.auth.purge``; ``ownvitals.worker.kinds`` registers it.
 DISCONNECT_KIND = "withings_disconnect"
 REMOVAL = (
     "The upstream revoke did not finish. Remove this application's access in the Withings account."

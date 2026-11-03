@@ -12,6 +12,7 @@ import urllib.request
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 from urllib.parse import parse_qs
 from uuid import UUID, uuid4
 
@@ -601,3 +602,51 @@ async def test_a_late_run_leaves_a_reconnected_connection_alone(
     finally:
         engine.dispose()
     assert (row.status, row.last_error) == ("connected", None)
+
+
+# --- end to end through the real worker loop and its registry -----------------------------------
+
+
+async def test_the_worker_loop_runs_the_registered_disconnect(
+    env: Env, owner: object, database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Route, job, ``Worker.run`` over ``worker_registry()`` (the production registration),
+    revokes against the fake, credentials cleared, no revoke failure. Only the transport (the
+    fake instead of the egress client) and the key ring (the app's) are substituted."""
+    from ownvitals.auth import purge as purge_module
+    from ownvitals.worker.kinds import worker_registry
+    from ownvitals.worker.loop import Worker, create_worker_engine
+
+    linked = await _linked(env, owner, database_url)
+    install_worker_allowlist(ai_enabled=False)
+    real = purge_module.disconnect_withings
+
+    async def over_the_fake(*args: Any, **kwargs: Any) -> Any:
+        return await real(*args, **{**kwargs, "inner": linked.spy, "sleep": _asleep})
+
+    async def app_ring(_: object) -> object:
+        return env.app.state.keyring
+
+    monkeypatch.setattr(purge_module, "disconnect_withings", over_the_fake)
+    monkeypatch.setattr(purge_module, "_worker_ring", app_ring)
+    registry = worker_registry()
+    assert registry.get(DISCONNECT_KIND) is not None
+    settings = env.settings.model_copy(update={"worker_poll_seconds": 0.1})
+    engine = create_worker_engine(settings)
+    loop = Worker(
+        settings, engine, registry=registry, accounts=ACCOUNTS, keyring=env.app.state.keyring
+    )
+    stop = asyncio.Event()
+    task = asyncio.ensure_future(loop.run(stop))
+    try:
+        response = await linked.browser.request("DELETE", "/api/connections/withings")
+    finally:
+        stop.set()
+        await asyncio.wait_for(task, 40)
+        await engine.dispose()
+    assert response.status_code == 200, response.text
+    assert response.json()["revoke_failed"] is False
+    assert response.json()["removal"] is None
+    assert linked.spy.revokes == [("notify", True), ("notify", True), ("v2/oauth2", True)]
+    assert _scalar(database_url, _CREDENTIALS, c=linked.connection_id) == 0
+    assert _job_states(database_url, linked.ctx.user_id) == [("completed", None)]

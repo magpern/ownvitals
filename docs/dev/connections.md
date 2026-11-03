@@ -64,8 +64,8 @@ Both answer 200: `{"status": "disconnected", "revoke_failed", "removal", "import
 and `{"status": "deleted", "revoke_failed", "removal"}`. `removal` is the instruction to remove
 access in the Withings account, set exactly when `revoke_failed` is; `GET /api/connections`
 shows the same as `last_error: "revoke_failed"`. No live Withings row: 409 `not_connected`.
-The worker registers the kind with `auth.purge.register_disconnect_kind` (the worker-kinds
-follow-up of #173, which adds the name to guard 8's `PUBLIC_ENTRY_POINTS`).
+The worker registers the kind (`worker.kinds.worker_registry` calls
+`auth.purge.register_disconnect_kind`, a guard 8 entry point); the API's registry stays empty.
 
 The job issuer's account directory (`ownvitals.auth.owners.ACCOUNTS.connection_refs`) reads
 live `(provider, id)` pairs in the owner's session. A disconnected row is not a ref.
