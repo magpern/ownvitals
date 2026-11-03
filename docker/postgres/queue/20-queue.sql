@@ -204,7 +204,8 @@ END $$;
 -- settings. The queue check (ownvitals.db.queue_check) refuses the same: stop here, naming each
 -- object as it and guard 9 do. ensure_month_partitions, webhook_secrets_apply,
 -- webhook_event_insert and webhook_events_purge_owner (40-withings.sql), and
--- withings_rate_claim, withings_rate_release and withings_rate_pause (rate.sql), are
+-- withings_rate_claim, withings_rate_release and withings_rate_pause (rate.sql), and
+-- ai_reserve, ai_settle, ai_release and ai_settle_lost (ai/50-ai.sql, #205), are
 -- admitted here by name, and no other function is.
 -- Their bodies are pinned by digest with the queue functions (ownvitals/db/queue_digests.py).
 DO $$
@@ -219,7 +220,8 @@ BEGIN
             'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay', 'queue_schedule',
             'ensure_month_partitions', 'webhook_secrets_apply', 'webhook_event_insert',
             'webhook_events_purge_owner',
-            'withings_rate_claim', 'withings_rate_release', 'withings_rate_pause'))
+            'withings_rate_claim', 'withings_rate_release', 'withings_rate_pause',
+            'ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost'))
        AND (p.oid >= 16384 OR n.nspname = 'public'
             OR (n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                 AND n.nspname !~ '^pg_(toast_)?temp_[0-9]+$'))

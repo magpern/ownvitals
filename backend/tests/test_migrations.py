@@ -16,7 +16,7 @@ from dbtools import (
     ready_to_downgrade,
 )
 
-HEAD = "0010_withings_rate"
+HEAD = "0013_ai_budget"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -25,6 +25,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0010_withings_rate",
         "0009_withings_schema",
         "0008_withings_jobs",
         "0007_connections",
@@ -70,8 +71,10 @@ def test_the_migrations_create_exactly_their_tables(
 ) -> None:
     """Besides Alembic's own table, 0003's job tables (ADR 0005 section 1), 0004's key-ring
     check table (ADR 0004 section 3), 0005's account tables (ADR 0003, #10), 0006's stored
-    flags and admin audit log (#12), 0007's connections table (#13) and 0009's Withings tables.
+    flags and admin audit log (#12), 0007's connections table (#13), 0009's Withings tables
+    and 0013's AI cost cap (#205).
     """
+    from ownvitals.ai.budget import AI_OWNED
     from ownvitals.auth.tables import metadata
     from ownvitals.ingest.tables import INGEST_OWNED
     from ownvitals.withings.tables import WITHINGS_OWNED
@@ -90,6 +93,8 @@ def test_the_migrations_create_exactly_their_tables(
             "withings_rate_buckets",
             "withings_rate_slots",
             "withings_rate_demand",
+            "ai_spend_global",
+            *AI_OWNED,
             *metadata.tables,
             *WITHINGS_OWNED,
             *INGEST_OWNED,

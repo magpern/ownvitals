@@ -14,7 +14,9 @@ procedure, aggregate or operator exists in any schema, except the Withings funct
 ``webhook_events_purge_owner`` admitted by name in ``20-queue.sql``, and the rate functions
 ``withings_rate_claim``,
 ``withings_rate_release`` and ``withings_rate_pause`` admitted the same way, each pinned like a
-queue function when it is installed;
+queue function when it is installed, and the AI cost cap's ``ai_reserve``, ``ai_settle``,
+``ai_release`` and ``ai_settle_lost`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 section 7;
+#205), owned by ``ownvitals_ai``: absent until that script has run, then all four, each pinned;
 no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
 CHECK, index or partition expression of any table or domain calls one of ``SQL_TEXT_BUILTINS``.
 So nothing can shadow a built-in a function body calls, and nothing a function fires (a trigger,
@@ -128,6 +130,25 @@ RATE_PINS: dict[str, tuple[str, str, str, str]] = {
         _RATE_ACL,
     ),
 }
+# The AI cost cap's family (docker/postgres/ai/50-ai.sql, ADR 0014 section 7; #205), owned by
+# its own NOLOGIN role. Absent until db-functions has run that script; once one is present, all
+# four must be, each pinned (its digest in queue_digests.py with the others).
+AI_ROLE = "ownvitals_ai"
+AI_FUNCTION_NAMES = ("ai_reserve", "ai_settle", "ai_release", "ai_settle_lost")
+AI_VERSION = "ownvitals-ai v1"
+# Sorted as the query sorts the entries: "ownvitals_ai" comes before "ownvitals_app".
+_AI_ACL = f"{AI_ROLE}=X/{AI_ROLE},ownvitals_app=X/{AI_ROLE}"
+AI_PINS: dict[str, tuple[str, str, str, str]] = {
+    "ai_reserve": (
+        "p_amount bigint, p_job_id uuid, p_user_cap bigint, p_global_cap bigint",
+        AI_ROLE,
+        SEARCH_PATH,
+        _AI_ACL,
+    ),
+    "ai_settle": ("p_id uuid, p_actual bigint", AI_ROLE, SEARCH_PATH, _AI_ACL),
+    "ai_release": ("p_id uuid", AI_ROLE, SEARCH_PATH, _AI_ACL),
+    "ai_settle_lost": ("p_limit integer", AI_ROLE, SEARCH_PATH, _AI_ACL),
+}
 EXPECTED_ACL = "ownvitals_app=X/ownvitals_queue,ownvitals_queue=X/ownvitals_queue"
 # 40-withings.sql grants the ingest role EXECUTE on queue_enqueue so the notification and the
 # job commit together. 20-queue.sql revokes that grant when it is re-run on its own, so both
@@ -184,7 +205,13 @@ SQL_TEXT_BUILTINS = (
     "set_config",
 )
 _NAMES = ", ".join(
-    f"'{name}'" for name in (*QUEUE_FUNCTIONS, *WITHINGS_FUNCTION_NAMES, *RATE_FUNCTION_NAMES)
+    f"'{name}'"
+    for name in (
+        *QUEUE_FUNCTIONS,
+        *WITHINGS_FUNCTION_NAMES,
+        *RATE_FUNCTION_NAMES,
+        *AI_FUNCTION_NAMES,
+    )
 )
 
 # 16384 is FirstNormalObjectId: below it is only what initdb created (pg_catalog,
@@ -391,6 +418,17 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
             continue
         args, owner, config, acl = RATE_PINS[name]
         expected = [name, args, "true", owner, config, RATE_VERSION, QUEUE_DIGESTS[name], acl]
+        if len(rows) != 1 or rows[0] != expected:
+            found.append(
+                f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
+                "settings, version, md5 or ACL)"
+            )
+    # The AI family is all or nothing: one dropped function of an installed family is drift.
+    ai_installed = any(by_name.get(name) for name in AI_FUNCTION_NAMES)
+    for name in AI_FUNCTION_NAMES if ai_installed else ():
+        rows = by_name.get(name, [])
+        args, owner, config, acl = AI_PINS[name]
+        expected = [name, args, "true", owner, config, AI_VERSION, QUEUE_DIGESTS[name], acl]
         if len(rows) != 1 or rows[0] != expected:
             found.append(
                 f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "

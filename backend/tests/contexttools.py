@@ -113,6 +113,12 @@ ROWS: Final[Mapping[str, str]] = {
     "RETURNING id",
     "intraday": "INSERT INTO public.intraday (owner_id, ts, source_tz, connection_id, metric, "
     "value_raw, unit) VALUES (:owner, :ts, 'Etc/UTC', :connection, :tag, 0, 0) RETURNING id",
+    # The AI cost cap (#205): one month row per planting (n) and a settled reservation.
+    "ai_spend": "INSERT INTO public.ai_spend (owner_id, month) VALUES "
+    "(:owner, CAST(DATE '2000-01-01' + make_interval(months => :n) AS date)) RETURNING id",
+    "ai_reservations": "INSERT INTO public.ai_reservations (owner_id, month, amount, actual, "
+    "state, job_id, lease_version, ended_at) VALUES (:owner, DATE '2026-01-01', :n, :n, "
+    "'settled', :job, 0, :ts) RETURNING id",
 }
 _PARAM = re.compile(r"(?<![:\w]):([a-z_]+)")
 _WITHINGS_CONNECTION = text(

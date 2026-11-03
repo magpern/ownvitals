@@ -11,7 +11,12 @@ and ``ensure_month_partitions`` hold exactly the grants that script creates, and
 may ``EXECUTE`` those three functions as well and no other function. The admin role
 ``ownvitals_maint`` (#12) is an allowed grantee; guard 11 (``tests/test_maint_privileges.py``)
 checks that it holds exactly its allowlist, so its column privileges are left out of the column
-check here. Maint is not granted the client secret or ``webhook_secrets``. Any other grantee fails.
+check here. Maint is not granted the client secret or ``webhook_secrets``. When
+``docker/postgres/ai/50-ai.sql`` has run (#205, ADR 0014 section 7), the NOLOGIN role
+``ownvitals_ai`` has exactly its attributes and the column grants that script creates, owns the
+four AI budget functions, and the app role may ``EXECUTE`` them. The app role holds ``SELECT``
+only on ``ai_spend`` and ``ai_reservations`` and nothing on ``ai_spend_global``. Any other
+grantee fails.
 """
 
 from sqlalchemy import text
@@ -40,6 +45,10 @@ RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
     # Migration 0009: column SELECT only, and no privilege on the identity sequence.
     "withings_apps": set(),
     "withings_apps_id_seq": set(),
+    # Migration 0013 (#205, ADR 0014 section 7): the app role reads its budget and writes
+    # nothing; every write is a definer function of 50-ai.sql. ai_spend_global is NO_APP_ACCESS.
+    "ai_spend": {"SELECT"},
+    "ai_reservations": {"SELECT"},
 }
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
 # Maint's columns are guard 11's. The queue role reads three columns of ``connections`` and
@@ -87,7 +96,43 @@ RATE_FUNCTIONS = {
     "withings_rate_release": OWNER,
     "withings_rate_pause": OWNER,
 }
-_CALLABLE = {**WITHINGS_FUNCTIONS, **RATE_FUNCTIONS}
+# 50-ai.sql (#205): the AI cost cap's family, owned by its own NOLOGIN role.
+AI = "ownvitals_ai"
+AI_FUNCTIONS = {
+    "ai_reserve": AI,
+    "ai_settle": AI,
+    "ai_release": AI,
+    "ai_settle_lost": AI,
+}
+# Its privileges are all column grants (ADR 0014 section 7): no table-level privilege, no DELETE.
+AI_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
+    ("jobs", "id"): {(AI, "SELECT")},
+    ("jobs", "owner_id"): {(AI, "SELECT")},
+    ("jobs", "state"): {(AI, "SELECT")},
+    ("jobs", "lease_version"): {(AI, "SELECT")},
+    ("jobs", "lease_expires_at"): {(AI, "SELECT")},
+    ("ai_spend_global", "month"): {(AI, "SELECT"), (AI, "INSERT")},
+    ("ai_spend_global", "reserved"): {(AI, "SELECT"), (AI, "UPDATE")},
+    ("ai_spend_global", "spent"): {(AI, "SELECT"), (AI, "UPDATE")},
+    ("ai_spend_global", "updated_at"): {(AI, "UPDATE")},
+    ("ai_spend", "owner_id"): {(AI, "SELECT"), (AI, "INSERT")},
+    ("ai_spend", "month"): {(AI, "SELECT"), (AI, "INSERT")},
+    ("ai_spend", "reserved"): {(AI, "SELECT"), (AI, "UPDATE")},
+    ("ai_spend", "spent"): {(AI, "SELECT"), (AI, "UPDATE")},
+    ("ai_spend", "updated_at"): {(AI, "UPDATE")},
+    ("ai_reservations", "id"): {(AI, "SELECT")},
+    ("ai_reservations", "owner_id"): {(AI, "SELECT"), (AI, "INSERT")},
+    ("ai_reservations", "month"): {(AI, "SELECT"), (AI, "INSERT")},
+    ("ai_reservations", "amount"): {(AI, "SELECT"), (AI, "INSERT")},
+    ("ai_reservations", "state"): {(AI, "SELECT"), (AI, "UPDATE")},
+    ("ai_reservations", "job_id"): {(AI, "SELECT"), (AI, "INSERT")},
+    ("ai_reservations", "lease_version"): {(AI, "SELECT"), (AI, "INSERT")},
+    ("ai_reservations", "actual"): {(AI, "UPDATE")},
+    ("ai_reservations", "ended_at"): {(AI, "UPDATE")},
+}
+# rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
+AI_ATTRIBUTES = (False, False, False, False, False, True, False)
+_CALLABLE = {**WITHINGS_FUNCTIONS, **RATE_FUNCTIONS, **AI_FUNCTIONS}
 # Column grants of ownvitals_webhook_secrets. Not maint, and not the client secret.
 WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("withings_apps", "id"): {(SECRETS, "SELECT")},
@@ -244,6 +289,7 @@ def check_roles(conn: Connection) -> list[str]:
     need("CONNECT" in _privileges(databases, OWNER, db), "ownvitals_owner needs CONNECT")
     need(_grantees(databases) <= GRANTEES, "unexpected grantee on the database")
     need(QUEUE not in _grantees(databases), "ownvitals_queue must hold nothing on the database")
+    need(AI not in _grantees(databases), f"{AI} must hold nothing on the database")
     need(
         not (WITHINGS_ROLES & _grantees(databases)),
         "webhook roles must hold nothing on the database",
@@ -272,6 +318,53 @@ def check_roles(conn: Connection) -> list[str]:
             present_webhook_roles == WITHINGS_ROLES,
             "ownvitals_webhook_secrets and ownvitals_webhook_events must exist together",
         )
+    # 50-ai.sql: absent until that script runs, then exactly its role and grants.
+    ai_role = conn.execute(
+        text(
+            "SELECT r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, "
+            "r.rolbypassrls, r.rolinherit, r.oid FROM pg_roles r WHERE r.rolname = :a"
+        ),
+        {"a": AI},
+    ).first()
+    ai_installed = ai_role is not None
+    if ai_role is not None:
+        need(
+            tuple(ai_role[:7]) == AI_ATTRIBUTES,
+            f"{AI} must be NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
+            "BYPASSRLS NOINHERIT",
+        )
+        ai_memberships = conn.execute(
+            text("SELECT count(*) FROM pg_auth_members WHERE :oid IN (member, roleid)"),
+            {"oid": ai_role.oid},
+        ).scalar_one()
+        need(ai_memberships == 0, f"{AI} must be a member of no role and have no members")
+        ai_settings = conn.execute(
+            text(
+                "SELECT (SELECT count(*) FROM pg_db_role_setting WHERE setrole = :oid) "
+                "+ (SELECT count(*) FROM pg_default_acl WHERE defaclrole = :oid)"
+            ),
+            {"oid": ai_role.oid},
+        ).scalar_one()
+        need(ai_settings == 0, f"{AI} must have no settings and no default privileges")
+        ai_owned = (
+            conn.execute(
+                text(
+                    "SELECT p.proname FROM pg_shdepend s JOIN pg_proc p ON p.oid = s.objid "
+                    "WHERE s.refobjid = :oid AND s.deptype = 'o' "
+                    "AND s.classid = CAST('pg_proc' AS regclass) "
+                    "UNION ALL SELECT s.classid::regclass::text FROM pg_shdepend s "
+                    "WHERE s.refobjid = :oid AND s.deptype = 'o' "
+                    "AND s.classid <> CAST('pg_proc' AS regclass)"
+                ),
+                {"oid": ai_role.oid},
+            )
+            .scalars()
+            .all()
+        )
+        need(
+            sorted(ai_owned) == sorted(AI_FUNCTIONS),
+            f"{AI} must own exactly the AI budget functions, owns {sorted(ai_owned)}",
+        )
 
     # Schemas.
     schemas = _acl(
@@ -299,6 +392,10 @@ def check_roles(conn: Connection) -> list[str]:
             not (WITHINGS_ROLES & _grantees(schemas)),
             "webhook roles must not be schema grantees",
         )
+    if ai_installed:
+        need(_privileges(schemas, AI, "public") == {"USAGE"}, f"{AI}: USAGE only on public")
+    else:
+        need(AI not in _grantees(schemas), f"{AI} must not be a schema grantee")
     need(not _privileges(schemas, "PUBLIC", "public"), "PUBLIC must have no privilege on public")
     need(
         {"USAGE", "CREATE"} <= _privileges(schemas, OWNER, "public"),
@@ -307,8 +404,10 @@ def check_roles(conn: Connection) -> list[str]:
     schema_grantees = GRANTEES | {QUEUE}
     if withings_installed:
         schema_grantees |= WITHINGS_ROLES
+    if ai_installed:
+        schema_grantees |= {AI}
     need(_grantees(schemas) <= schema_grantees, "unexpected grantee on a schema")
-    elsewhere = {APP, "PUBLIC", QUEUE} | WITHINGS_ROLES
+    elsewhere = {APP, "PUBLIC", QUEUE, AI} | WITHINGS_ROLES
     need(
         not [1 for o, g, _, _ in schemas if o != "public" and g in elsewhere],
         "no privilege for the app, PUBLIC, the queue or a webhook role on another schema",
@@ -359,6 +458,8 @@ def check_roles(conn: Connection) -> list[str]:
         else:
             for role in WITHINGS_ROLES:
                 need(role not in _grantees(relations, obj), f"{obj}: {role} must hold nothing")
+        # The AI role holds column grants only (checked below), never a table privilege.
+        need(AI not in _grantees(relations, obj), f"{obj}: {AI} must hold no table privilege")
         need(_grantees(relations, obj) <= allowed, f"{obj}: unexpected grantee")
     need(
         not [1 for *_, grantable in relations if grantable], "no grantable privilege on a relation"
@@ -400,6 +501,10 @@ def check_roles(conn: Connection) -> list[str]:
         for key, extra in WITHINGS_COLUMNS.items():
             if key[0] in present:
                 expected_columns[key] = set(expected_columns.get(key, ())) | extra
+    if ai_installed:
+        for key, extra in AI_COLUMNS.items():
+            if key[0] in present:
+                expected_columns[key] = set(expected_columns.get(key, ())) | extra
     need(
         found_columns == expected_columns,
         f"column-level privileges in public must be exactly {expected_columns}, "
@@ -432,6 +537,10 @@ def check_roles(conn: Connection) -> list[str]:
         found_names = {signature.partition("(")[0] for signature in signatures}
         missing = set(WITHINGS_FUNCTIONS) - found_names
         need(not missing, f"withings functions missing: {sorted(missing)}")
+    if ai_installed:
+        found_names = {signature.partition("(")[0] for signature in signatures}
+        missing = set(AI_FUNCTIONS) - found_names
+        need(not missing, f"AI budget functions missing: {sorted(missing)}")
     for obj in sorted({o for o, *_ in functions}):
         signature = _bare_signature(obj)
         if queue_installed and signature in QUEUE_EXECUTE:
@@ -462,7 +571,9 @@ def check_roles(conn: Connection) -> list[str]:
                 f"{obj}: no grantable privilege",
             )
         elif signature.partition("(")[0] in _CALLABLE and (
-            signature.partition("(")[0] in RATE_FUNCTIONS or withings_installed
+            signature.partition("(")[0] in RATE_FUNCTIONS
+            or (signature.partition("(")[0] in WITHINGS_FUNCTIONS and withings_installed)
+            or (signature.partition("(")[0] in AI_FUNCTIONS and ai_installed)
         ):
             owner = _CALLABLE[signature.partition("(")[0]]
             need(

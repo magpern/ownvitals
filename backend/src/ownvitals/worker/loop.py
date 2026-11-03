@@ -51,6 +51,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from ownvitals.ai import budget
 from ownvitals.auth.purge import purge_expired
 from ownvitals.config import Settings
 from ownvitals.crypto.keks import KeyRing, KeyRingError, load_keyring
@@ -188,10 +189,18 @@ class Worker:
             self.wake.set()
 
     async def maintain(self) -> None:
-        """Reap once (ADR 0005 section 3). Nothing is reaped before the key ring's check."""
+        """Reap once (ADR 0005 section 3). Nothing is reaped before the key ring's check.
+
+        With ``ai_insights`` on, the AI reservations of job attempts that are over are then
+        settled at their full amount (``ai_settle_lost``, ADR 0014 section 7). With it off the
+        function is not called (50-ai.sql need not be installed); a reservation left open then
+        keeps counting against both caps, which errs on the safe side.
+        """
         if not self._startup_passed():
             return
         await _quietly("reap", lambda: queue.reap(self.factory))
+        if self.settings.ai_insights:
+            await _quietly("ai settle lost", lambda: budget.settle_lost(self.factory))
 
     async def purge(self) -> None:
         """The auth purge, once (ADR 0003 section 1). A failure is logged by its class and
