@@ -26,17 +26,21 @@ It prints **shapes only**:
 | `call <endpoint> <result>` | `ok`, `skipped (no scope)`, or an error category with the API status number |
 | `capability <stream> <state>` | `supported`, `unsupported`, `not_authorized`, `not_available` or `unknown` |
 | `measures meastype <type> count <n>` | which measure types the account has, and how many |
-| `measures attrib`, `category`, `position` | the codes seen, with counts |
-| `measures group_fields`, `measure_fields` | the field names the answers carry (no values) |
+| `measures attrib`, `category`, `position` | the codes seen, with counts; a code outside the documented list is `other` |
+| `measures group_fields`, `measure_fields` | which documented field names the answers carry (no values); `other` means at least one undocumented key was sent |
 | `ecg listed`, `fetched` | recordings listed, signals fetched |
 | `ecg arrays <n> count <k>` | `k` signals carried `n` arrays (more than one would be extra leads) |
 | `ecg lengths <samples> count <k>` | array lengths |
-| `ecg sampling_rate`, `ecg wearposition` | the codes seen, with counts |
+| `ecg sampling_rate`, `ecg wearposition` | the codes seen, with counts (out-of-bound values are `other`) |
 | `notify appli`, `notify fields` | your subscriptions' appli numbers and field names |
 
 It never prints a measurement value, an ECG sample, a timestamp, a date, a time zone, a device
-or Withings user id, a callback URL, a comment or a token. Field names that are not plain
-lower-case identifiers show as `other`. A failure prints the error's type, never its text.
+or Withings user id, a callback URL, a comment or a token. Only documented field names are
+printed: any other key (it could be an id or a timestamp) shows as `other`, and so does a code
+outside its documented list or bound. A failure prints the error's type, never its text.
+
+The report goes to stdout; log lines (for example `withings call failed`) and errors go to
+stderr, so with `--json` stdout is a single JSON document.
 
 ## Before you run it
 
@@ -70,8 +74,8 @@ Exit code 0: complete. Exit code 1: it stopped or was refused; the output says w
 1. Read the output once yourself. If any line shows a number that looks like a measurement, a
    date or a timestamp, or any text you recognise as yours, **do not paste it**: open an issue
    that says only which line kind it was.
-2. Otherwise paste the whole plain-text output (stdout only, from the `# ownvitals probe` line
-   to the last line) into a comment on issue #29, or on the issue the Architect names for M1
+2. Otherwise paste the whole plain-text report (stdout only, from the `# ownvitals probe` line
+   to the last line; with `--json`, the one JSON document on stdout) into a comment on issue #29, or on the issue the Architect names for M1
    INTEGRATION_VERIFIED, in a fenced code block. Add which devices you own (for example
    "ScanWatch, Body Smart"); the probe does not print device names.
 3. The Architect compares it with the documented assumptions in `docs/status.md` (attrib values,

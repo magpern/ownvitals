@@ -16,8 +16,10 @@ worker does, and prints **shapes only**:
 
 **Never** a measurement value, a sample, a timestamp, a date, a time zone, a device or user id, a
 callback URL, a comment, a token or the provider's text: the report types hold only counts,
-small codes the list above names, field names (filtered to plain identifiers) and categories
-from fixed sets, so nothing else can reach the output (``tests/test_withings_probe*.py``).
+codes from fixed sets or below fixed bounds (anything else is ``other``), field names from the
+models' fixed lists (an unknown key is only ``other``: a real account's key could be an id or a
+timestamp) and categories from fixed sets, so nothing else can reach the output
+(``tests/test_withings_probe*.py``).
 
 Process role: this module is the one besides the worker's entry point that may install the
 worker allowlist (``tests/egress_scan.py``, ``WORKER_ROLE_MODULES``); it never enables the model
@@ -33,7 +35,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import re
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -60,6 +61,7 @@ from ownvitals.db import (
 )
 from ownvitals.egress import install_worker_allowlist
 from ownvitals.jobs.issuer import owner_context
+from ownvitals.log import configure_logging
 from ownvitals.withings import models as m
 from ownvitals.withings import rate
 from ownvitals.withings.capabilities import (
@@ -79,6 +81,7 @@ from ownvitals.withings.errors import (
     Transient,
 )
 from ownvitals.withings.streams import stream_named
+from ownvitals.withings.subscriptions import APPLIS
 from ownvitals.withings.tokens import recover_refresh, refresh_tokens
 
 if TYPE_CHECKING:
@@ -95,10 +98,19 @@ MAX_ECG_SIGNALS: Final = 10
 RECENT_DAYS: Final = 30  # the window of the activity, workout and sleep-summary capability calls
 MAX_RATE_WAIT: Final = 120.0  # seconds the probe waits for the limiter in all, then stops
 ABSENT: Final = "absent"
-# A field name the report may print: a plain lower-case identifier. Anything else (a key that is
-# a number, a date or free text) is only counted as ``other``.
-_NAME = re.compile(r"[a-z][a-z0-9_]{0,39}")
 _OTHER: Final = "other"
+# The codes the report may print as sent; any other value is ``other``. The documented enums
+# (``models.DOCUMENTED_*``, the public spec's position enum 0..31, the notify applis) and, for the
+# numbers that have no documented list, a bound well below any id or timestamp.
+_ATTRIB: Final = m.DOCUMENTED_ATTRIB
+_CATEGORY: Final = m.DOCUMENTED_CATEGORY
+_POSITION: Final = frozenset(range(32))
+_APPLI: Final = frozenset(APPLIS)
+MAX_MEASTYPE: Final = 9_999
+MAX_WEARPOSITION: Final = 31
+MAX_SAMPLING_RATE: Final = 9_999
+MAX_LENGTH: Final = 99_999
+MAX_ARRAYS: Final = 12
 
 
 def _label(path: str, action: str) -> str:
@@ -178,25 +190,32 @@ class Report:
         return "complete" if self.stopped is None else f"stopped {self.stopped}"
 
 
-def _code(value: object) -> Code:
-    """An integer code as sent, or ``absent``. Anything that is not an integer is ``other``."""
+def _code(
+    value: object, *, known: frozenset[int] | None = None, at_most: int | None = None
+) -> Code:
+    """An integer code as sent when it is in ``known`` or in ``0..at_most``; ``absent`` when not
+    sent; anything else (a non-integer, an undocumented or out-of-bound value) is ``other``."""
     if value is None:
         return ABSENT
     if isinstance(value, bool) or not isinstance(value, int):
         return _OTHER
-    return value
+    if known is not None and value in known:
+        return value
+    if at_most is not None and 0 <= value <= at_most:
+        return value
+    return _OTHER
 
 
 def _names(model: BaseModel) -> set[str]:
-    """The names of the fields ``model`` carries: known ones that are set, and unknown ones."""
+    """The names of the fields ``model`` carries. Only the model's own field names (the public
+    spec's) are printed; every unknown key is ``other``, never its text."""
     found = {
         name
         for name in type(model).model_fields
         if name != "raw" and getattr(model, name) is not None
     }
-    raw = getattr(model, "raw", {})
-    for key in raw:
-        found.add(key if isinstance(key, str) and _NAME.fullmatch(key) else _OTHER)
+    if getattr(model, "raw", None):
+        found.add(_OTHER)
     return found
 
 
@@ -375,12 +394,12 @@ async def _measures(call: _Caller, client: WithingsClient, scopes: tuple[str, ..
     for page in pages:
         for group in page.measuregrps:
             shape.groups += 1
-            shape.attrib[_code(group.attrib)] += 1
-            shape.category[_code(group.category)] += 1
+            shape.attrib[_code(group.attrib, known=_ATTRIB)] += 1
+            shape.category[_code(group.category, known=_CATEGORY)] += 1
             shape.group_fields |= _names(group)
             for measure in group.measures:
-                shape.meastypes[_code(measure.type)] += 1
-                shape.position[_code(measure.position)] += 1
+                shape.meastypes[_code(measure.type, at_most=MAX_MEASTYPE)] += 1
+                shape.position[_code(measure.position, known=_POSITION)] += 1
                 shape.measure_fields |= _names(measure)
     got = pages if pages else failed
     report.capabilities["measures"] = _capability(
@@ -432,11 +451,11 @@ async def _ecg(
             continue
         shape.fetched += 1
         lengths = [len(body.signal), *_int_arrays(body.raw)]
-        shape.arrays[len(lengths)] += 1
+        shape.arrays[_code(len(lengths), at_most=MAX_ARRAYS)] += 1
         for length in lengths:
-            shape.lengths[length] += 1
-        shape.sampling_rate[_code(body.sampling_frequency)] += 1
-        shape.wearposition[_code(body.wearposition)] += 1
+            shape.lengths[_code(length, at_most=MAX_LENGTH)] += 1
+        shape.sampling_rate[_code(body.sampling_frequency, at_most=MAX_SAMPLING_RATE)] += 1
+        shape.wearposition[_code(body.wearposition, at_most=MAX_WEARPOSITION)] += 1
         shape.signal_fields |= _names(body)
 
 
@@ -498,7 +517,7 @@ async def _notify(call: _Caller, client: WithingsClient) -> None:
     shape = call.report.notify
     for profile in got.profiles:
         shape.subscriptions += 1
-        shape.appli[_code(profile.appli)] += 1
+        shape.appli[_code(profile.appli, known=_APPLI)] += 1
         shape.fields |= _names(profile)
 
 
@@ -734,6 +753,11 @@ async def probe(
         async with WithingsClient.open(app, inner=inner) as client:
 
             async def renew() -> tuple[str, str]:
+                # The worker may have rotated the grant since it was opened: use its new token
+                # rather than rotate it again.
+                now_open = await open_withings(factory, ring, ctx, connection_id)
+                if now_open.generation != view.generation:
+                    return "current", now_open.access_token
                 done = await refresh_tokens(factory, ring, ctx, connection_id, client)
                 if done.outcome == "recover":
                     done = await recover_refresh(factory, ring, ctx, connection_id, client)
@@ -796,6 +820,9 @@ async def run(args: argparse.Namespace, settings: Settings, out: TextIO, err: Te
         print("error: the connection id is not a uuid", file=err)
         return 1
     install_worker_allowlist(ai_enabled=False)  # never the model host
+    # Log lines (the client's call warnings) go to stderr: stdout holds the report only, so
+    # ``--json`` output is pure JSON.
+    configure_logging(settings.log_level, stream=err)
     return await probe(
         settings,
         connection_id,

@@ -8,6 +8,7 @@ by a plain substring search.
 import argparse
 import io
 import json
+import logging
 import re
 import urllib.request
 from collections import Counter
@@ -23,14 +24,23 @@ import pytest
 from ownvitals import cli, egress
 from ownvitals.config import Settings
 from ownvitals.egress import core
+from ownvitals.withings import probe as probe_module
 from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.errors import RetryBudget
+from ownvitals.withings.models import (
+    DOCUMENTED_ATTRIB,
+    DOCUMENTED_CATEGORY,
+    HeartSignal,
+    MeasureGroup,
+)
 from ownvitals.withings.probe import (
     EP_GOALS,
     EP_HEART_GET,
     EP_HEART_LIST,
     EP_MEASURES,
     HEADER,
+    MAX_ECG_PAGES,
+    MAX_MEASURE_PAGES,
     SKIPPED_SCOPE,
     Report,
     as_dict,
@@ -68,10 +78,23 @@ PLANTED_GROUP: dict[str, Any] = {
     "measures": [
         {"value": 987_654_321, "type": 1, "unit": -7, "algo": 0, "fm": 131, "position": 13},
         {"value": 123_456_789, "type": 9_876, "unit": -2},
+        {"value": 5, "type": 4, "unit": 0, "position": 77_665_544},
     ],
     "lat_extra": 59.123456,
     "1771234570": 5,
     "Synthetic Note": "synthetic-free-text-qq",
+    # Keys that look like plain identifiers but hold an id or a timestamp (review of #172).
+    "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678": 1,
+    "x1771234599": 1,
+    "user987654": 1,
+}
+# Codes outside every documented list or bound: printed as ``other``, never as sent.
+PLANTED_ODD_GROUP: dict[str, Any] = {
+    "grpid": 4_242_425,
+    "attrib": 66_554_433,
+    "date": 1_771_234_571,
+    "category": 55_443_322,
+    "measures": [{"value": 6, "type": 44_332_211, "unit": 0}],
 }
 PLANTED_SAMPLES = [31_337, -27_183, 16_180, -14_142, 17_320] * 600
 PLANTED_ECG: dict[str, Any] = {
@@ -125,6 +148,17 @@ NEEDLES = (
     "24601",
     "s3cr3t",
     "Synthetic Note",
+    "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "x1771234599",
+    "user987654",
+    "lat_extra",
+    "signal_lead2",
+    "77665544",
+    "66554433",
+    "55443322",
+    "44332211",
+    "4242425",
+    "1771234571",
 )
 
 
@@ -167,6 +201,8 @@ class Held:
 
     async def renew(self) -> bool:
         self.renewed += 1
+        if self.renewed > 3:  # a loop that would rotate the grant again and again
+            raise AssertionError("renewed in a loop")
         if self.fresh is None:
             self.state = "needs_reconnect"
             return False
@@ -177,6 +213,7 @@ class Held:
 def _dataset() -> SyntheticDataset:
     ds = generate_dataset(29, days=20, quirks=True, ecg_count=4)
     ds.measuregrps.append(dict(PLANTED_GROUP))
+    ds.measuregrps.append(dict(PLANTED_ODD_GROUP))
     ds.ecg.append(PLANTED_ECG)
     return ds
 
@@ -216,6 +253,12 @@ async def _collect(
             now=NOW,
             budget=budget,
         )
+
+
+def _bucket(value: Any, known: Any) -> Any:
+    if value is None:
+        return "absent"
+    return value if value in known else "other"
 
 
 def _leaves(value: Any) -> Iterator[Any]:
@@ -292,12 +335,23 @@ async def test_the_shapes_match_the_dataset(fake: FakeWithings) -> None:
     ds = fake.users[userid].data
     measures = [measure for group in ds.measuregrps for measure in group["measures"]]
     assert report.measures.groups == len(ds.measuregrps)
-    assert report.measures.meastypes == Counter(measure["type"] for measure in measures)
-    assert report.measures.attrib == Counter(g.get("attrib", "absent") for g in ds.measuregrps)
-    assert report.measures.position == Counter(m.get("position", "absent") for m in measures)
+    assert report.measures.meastypes == Counter(
+        _bucket(measure["type"], range(10_000)) for measure in measures
+    )
+    assert report.measures.meastypes["other"] == 1
+    assert report.measures.attrib == Counter(
+        _bucket(g.get("attrib"), DOCUMENTED_ATTRIB) for g in ds.measuregrps
+    )
+    assert report.measures.category == Counter(
+        _bucket(g.get("category"), DOCUMENTED_CATEGORY) for g in ds.measuregrps
+    )
+    assert report.measures.position == Counter(
+        _bucket(m.get("position"), range(32)) for m in measures
+    )
     assert report.measures.position[13] == 1
-    assert "other" in report.measures.group_fields  # the numeric and the spaced keys
-    assert {"lat_extra", "deviceid", "timezone"} <= report.measures.group_fields
+    assert "other" in report.measures.group_fields  # every unknown key
+    assert {"deviceid", "timezone"} <= report.measures.group_fields
+    assert report.measures.group_fields <= set(MeasureGroup.model_fields) | {"other"}
     ecg = report.ecg
     assert ecg.listed == len(ds.ecg)
     assert ecg.fetched == 3
@@ -306,7 +360,8 @@ async def test_the_shapes_match_the_dataset(fake: FakeWithings) -> None:
     assert ecg.lengths[2_000] == 1
     assert ecg.sampling_rate[512] == 1
     assert ecg.wearposition[3] >= 1
-    assert "signal_lead2" in ecg.signal_fields
+    assert "other" in ecg.signal_fields
+    assert ecg.signal_fields <= set(HeartSignal.model_fields) | {"other"}
     assert report.notify.subscriptions == 2
     assert report.notify.appli == Counter({1: 1, 54: 1})
     assert report.notify.fields == {"appli", "callbackurl", "comment"}
@@ -431,3 +486,60 @@ def test_a_connection_that_is_not_a_uuid_is_refused_before_anything_runs() -> No
     out, err = io.StringIO(), io.StringIO()
     assert cli.run_command(args, Settings(), out, err) == 1
     assert (out.getvalue(), err.getvalue()) == ("", "error: the connection id is not a uuid\n")
+
+
+async def test_the_token_is_renewed_once_per_run_even_when_the_new_one_is_refused(
+    fake: FakeWithings,
+) -> None:
+    _user(fake)
+    tokens = Held("synthetic-expired-token", fresh="synthetic-also-refused-token")
+    report = await _collect(fake, tokens)
+    assert tokens.renewed == 1
+    assert report.stopped == "token_invalid"
+    assert render_text(report).splitlines()[3] == "outcome stopped token_invalid"
+    assert len(fake.log) == 2  # the refused call and its one retry, nothing after
+
+
+async def test_paging_stops_at_the_caps_and_says_so(fake: FakeWithings) -> None:
+    fake.page_size = 1
+    userid, access = _user(fake)
+    ds = fake.users[userid].data
+    assert len(ds.measuregrps) > MAX_MEASURE_PAGES
+    assert len(ds.ecg) <= MAX_ECG_PAGES
+    for extra in range(MAX_ECG_PAGES + 2 - len(ds.ecg)):
+        record = json.loads(json.dumps(ds.ecg[0]))
+        record["list"]["ecg"]["signalid"] = 9_100 + extra
+        record["list"]["timestamp"] -= 1_000 + extra
+        ds.ecg.append(record)
+    report = await _collect(fake, Held(access))
+    assert (report.measures.pages, report.measures.truncated) == (MAX_MEASURE_PAGES, True)
+    assert report.measures.groups == MAX_MEASURE_PAGES
+    assert (report.ecg.pages, report.ecg.truncated) == (MAX_ECG_PAGES, True)
+    assert sum(1 for e in fake.log if e.endpoint == EP_MEASURES) == MAX_MEASURE_PAGES
+    assert sum(1 for e in fake.log if e.endpoint == EP_HEART_LIST) == MAX_ECG_PAGES
+    lines = render_text(report).splitlines()
+    assert "measures truncated yes" in lines
+    assert "ecg truncated yes" in lines
+
+
+async def test_run_installs_the_worker_list_without_the_model_host_and_logs_to_stderr(
+    monkeypatch: pytest.MonkeyPatch, restore_logging: None
+) -> None:
+    monkeypatch.setattr(core, "_worker_list", None)
+    seen: list[frozenset[str]] = []
+
+    async def fake_probe(settings: Settings, connection: UUID, out: Any, err: Any, **_: Any) -> int:
+        seen.append(core.installed_worker_hosts())
+        logging.getLogger("ownvitals.withings").warning("withings call failed")
+        print(json.dumps({"connection": str(connection)}), file=out)
+        return 0
+
+    monkeypatch.setattr(probe_module, "probe", fake_probe)
+    args = _parser().parse_args(["probe", "--connection", CONNECTION, "--json"])
+    out, err = io.StringIO(), io.StringIO()
+    assert await probe_run(args, Settings(ai_insights=True), out, err) == 0
+    assert seen
+    assert "wbsapi.withings.net" in seen[0]
+    assert "api.anthropic.com" not in seen[0]
+    assert json.loads(out.getvalue()) == {"connection": CONNECTION}  # stdout is pure JSON
+    assert "withings call failed" in err.getvalue()

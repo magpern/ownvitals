@@ -5,6 +5,7 @@ import io
 import json
 import re
 import urllib.request
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -16,8 +17,11 @@ from ctx import make_context
 from ownvitals import egress
 from ownvitals.connections.providers.withings import open_withings, store_grant
 from ownvitals.egress import core
+from ownvitals.withings import probe as probe_module
 from ownvitals.withings.apps import create_app
+from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.probe import probe
+from ownvitals.withings.tokens import refresh_tokens
 from test_withings_probe import NEEDLES, PLANTED_COMMENT, PLANTED_URL, _dataset
 from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport
@@ -107,7 +111,8 @@ async def _run(
     return code, out.getvalue(), err.getvalue()
 
 
-def _assert_shapes_only(output: str, *secrets: str) -> None:
+def _assert_shapes_only(output: str, connection: UUID, *secrets: str) -> None:
+    output = output.replace(str(connection), "<connection>")  # the one id the output holds
     leaked = sorted(n for n in (*NEEDLES, *secrets, PLANTED_URL, PLANTED_COMMENT) if n in output)
     assert leaked == [], leaked
     assert not re.search(r"\d{9,}", output.replace("-", " "))  # no timestamp, grpid or user id
@@ -121,13 +126,13 @@ async def test_the_probe_prints_shapes_only_in_both_formats(env: Env, owner: obj
     assert f"connection {connection}" in text_out
     assert "outcome complete" in text_out
     assert "capability ecg supported" in text_out
-    _assert_shapes_only(text_out, access)
+    _assert_shapes_only(text_out, connection, access)
     code, json_out, err = await _run(env, fake, connection, as_json=True)
     assert (code, err) == (0, "")
     data = json.loads(json_out)
     assert data["connection"] == str(connection)
     assert data["notify"]["subscriptions"] == 1
-    _assert_shapes_only(json_out, access)
+    _assert_shapes_only(json_out, connection, access)
 
 
 async def test_every_call_takes_a_rate_token_and_frees_its_slot(
@@ -191,7 +196,7 @@ async def test_an_expired_access_token_is_refreshed_through_the_crash_safe_path(
     opened = await open_withings(env.factory, env.app.state.keyring, ctx, connection)
     assert opened.generation == 2
     assert opened.access_token != access
-    _assert_shapes_only(out, access, opened.access_token, opened.refresh_token)
+    _assert_shapes_only(out, connection, access, opened.access_token, opened.refresh_token)
 
 
 async def _user_id(env: Env, email: str) -> UUID:
@@ -218,3 +223,49 @@ async def test_an_unknown_connection_prints_nothing_but_the_refusal(
     assert (code, out) == (1, "")
     assert err == "error: no live Withings connection has this id\n"
     assert fake.request_count == 0
+
+
+LEAK = "synthetic-leak-987654321-s3cr3t"
+
+
+@pytest.mark.parametrize("where", ["open_withings", "collect"])
+async def test_a_failure_prints_the_exception_type_only(
+    env: Env, owner: object, monkeypatch: pytest.MonkeyPatch, where: str
+) -> None:
+    fake = FakeWithings(seed=29)
+    connection, _ = await _connect(env, owner, fake, f"probe-fail-{where}@example.com")
+
+    async def boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError(LEAK)
+
+    monkeypatch.setattr(probe_module, where, boom)
+    code, out, err = await _run(env, fake, connection)
+    assert (code, out, err) == (1, "", "error: RuntimeError\n")
+
+
+async def test_a_grant_the_worker_rotated_meanwhile_is_used_not_rotated_again(
+    env: Env, owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeWithings(seed=29)
+    connection, _ = await _connect(env, owner, fake, "probe-rotated@example.com")
+    fake.advance(ACCESS_TTL + 60)  # the stored access token is expired
+    opened: list[int] = []
+
+    async def open_then_rotate(factory: Any, ring: Any, ctx: Any, connection_id: UUID) -> Any:
+        view = await open_withings(factory, ring, ctx, connection_id)
+        if not opened:  # the worker refreshes right after the probe read the grant
+            async with WithingsClient.open(
+                WithingsApp(CLIENT, SECRET), inner=FakeWithingsTransport(fake)
+            ) as client:
+                assert (
+                    await refresh_tokens(factory, ring, ctx, connection_id, client)
+                ).outcome == ("refreshed")
+        opened.append(view.generation)
+        return view
+
+    monkeypatch.setattr(probe_module, "open_withings", open_then_rotate)
+    code, out, _ = await _run(env, fake, connection)
+    assert code == 0
+    assert "grant current" in out
+    assert opened == [1, 2]
+    assert sum(1 for e in fake.log if e.endpoint == "v2/oauth2:requesttoken") == 1
