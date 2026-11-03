@@ -6,6 +6,10 @@ callback URL is compared and passed straight to the provider; it is not stored a
 logged. Credentials are removed even when a provider call fails. That failure cannot be
 retried once the credential is gone, so the result says so and carries a short instruction
 for the person to remove access in their Withings account.
+
+The web process makes no Withings call here (roadmap Amendment 1). The routes enqueue a
+``withings_disconnect`` job (``DISCONNECT_KIND``, input ``DisconnectInput``) and the worker
+runs this function from that job's handler (``ownvitals.auth.purge``).
 """
 
 import asyncio
@@ -17,6 +21,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.connections.errors import ConnectionFailure
@@ -31,9 +36,13 @@ from ownvitals.withings.errors import RetryBudget, Transient, WithingsError
 logger = logging.getLogger(__name__)
 
 _PROVIDER = "withings"
-_REMOVAL = (
+# The job kind a disconnect or an account deletion enqueues. Its handler is in
+# ``ownvitals.auth.purge``; the worker registers it (#164).
+DISCONNECT_KIND = "withings_disconnect"
+REMOVAL = (
     "The upstream revoke did not finish. Remove this application's access in the Withings account."
 )
+_REMOVAL = REMOVAL
 _REASONS = frozenset({"step_up_required", "not_connected"})
 # Jitter for the OAuth revoke retries. Not a secret.
 _JITTER = random.Random()  # noqa: S311
@@ -49,6 +58,19 @@ class DisconnectRefused(Exception):
             raise ValueError("unknown disconnect refusal")
         super().__init__(reason)
         self.reason = reason
+
+
+class DisconnectInput(BaseModel):
+    """The ``withings_disconnect`` job's input: ids only, no credential.
+
+    ``session_id`` names the session that passed the step-up. The handler checks it again
+    against the owner's sessions before it revokes anything.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    connection_id: UUID
+    session_id: UUID
 
 
 @dataclass(frozen=True, slots=True)

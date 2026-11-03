@@ -5,14 +5,21 @@ rows" option call the other functions here, after the Withings revoke. Owned row
 go with the account because each one cascades from it. Imported rows can also be
 removed on their own. That option deletes the Withings row too, so the account can
 be linked again. A plain disconnect keeps the row until the account goes.
+
+The revoke itself runs in the worker (roadmap Amendment 1: web makes no Withings call but
+the code exchange). The routes enqueue a ``withings_disconnect`` job; its handler here
+(``disconnect_kind``) checks the step-up of the session named in the input again, then runs
+``disconnect_withings``. The worker registers the kind (#164). The web side then finishes
+with ``connections.purge.purge_connection`` or ``delete_account``.
 """
 
+import time
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Column, MetaData, Table, and_, case, delete, func, or_, text, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.admin_accounts import delete_user_account
@@ -27,47 +34,27 @@ from ownvitals.auth.tables import (
     sessions,
 )
 from ownvitals.config import Settings
-from ownvitals.connections.repository import delete_disconnected_row, list_connections
+from ownvitals.connections.purge import purge_connection, purge_webhook_events
+from ownvitals.connections.repository import list_connections
 from ownvitals.context import UserContext
-from ownvitals.crypto.keks import KeyRing
-from ownvitals.db import system_session, user_session
-from ownvitals.ingest.tables import data_revisions, sync_cursors
-from ownvitals.withings.disconnect import DisconnectRefused, DisconnectResult, disconnect_withings
-from ownvitals.withings.errors import RetryBudget
-from ownvitals.withings.tables import (
-    activity_daily,
-    devices,
-    ecg_recordings,
-    intraday,
-    measure_groups,
-    measures,
-    sleep_series,
-    sleep_summaries,
-    workouts,
+from ownvitals.crypto.keks import KeyRing, KeyRingError, load_keyring
+from ownvitals.db import system_session
+from ownvitals.jobs.errors import JobFailure
+from ownvitals.jobs.kinds import Complete, JobKind, KindRegistry
+from ownvitals.jobs.run import JobRun
+from ownvitals.withings.disconnect import (
+    DISCONNECT_KIND,
+    DisconnectInput,
+    DisconnectRefused,
+    DisconnectResult,
+    disconnect_withings,
 )
+from ownvitals.withings.errors import RetryBudget
 
 # Owned tables that do not cascade from the account and must be removed by name.
 # Empty: every owned table cascades, which the account-deletion test enumerates.
 EXPLICIT_PURGE: tuple[str, ...] = ()
 _PROVIDER = "withings"
-# A narrow handle for the queue table, which has no Core table in this package.
-_JOBS = Table("jobs", MetaData(), Column("owner_id"))
-# Children before parents. Jobs last, so a failure leaves the queue row to retry from.
-_IMPORTED = (
-    measures,
-    measure_groups,
-    devices,
-    ecg_recordings,
-    sleep_summaries,
-    activity_daily,
-    workouts,
-    sleep_series,
-    intraday,
-    sync_cursors,
-    data_revisions,
-    _JOBS,
-)
-
 RETENTION_DAYS = 30
 DEVICE_RETENTION_DAYS = 90
 # The longest rate-limit window is an hour; older windows can never be hit again.
@@ -75,6 +62,17 @@ RATE_LIMIT_KEEP = timedelta(hours=2)
 # ``sessions.PENDING_WINDOW``, repeated so the worker does not load the session module (a test
 # holds them equal).
 PENDING_WINDOW = timedelta(minutes=10)
+# ``sessions.STEPUP_WINDOW`` (the largest ``stepup_window_minutes`` allows) and
+# ``sessions.RECENT_AUTH_WINDOW``, repeated for the same reason (a test holds them equal).
+STEPUP_WINDOW = timedelta(minutes=10)
+RECENT_AUTH_WINDOW = timedelta(minutes=10)
+# How much older than the route's check the proof may be when the job runs. The route waits
+# far less than this for the job (``connections.routes.REVOKE_WAIT_SECONDS``).
+JOB_SLACK = timedelta(minutes=2)
+# The lease extension for the revoke calls of one job, and the retry deadline inside it.
+DISCONNECT_DEADLINE_SECONDS = 300.0
+_RETRY_SECONDS = 240.0
+Sleep = Callable[[float], Awaitable[None]]
 
 
 def _ago(days: int) -> Any:
@@ -158,15 +156,36 @@ async def purge_expired(
     return counts
 
 
-async def purge_imported(factory: async_sessionmaker[AsyncSession], ctx: UserContext) -> None:
-    """Remove this user's imported rows. The Withings row stays.
+async def delete_account(
+    factory: async_sessionmaker[AsyncSession], ctx: UserContext, *, ip: str | None = None
+) -> None:
+    """Delete the account once the revoke ran. Webhook events first, while the connection
+    rows still name them; every owned row then cascades with the account. The audit row is the
+    account-deleted event: no measurement and no credential."""
+    await purge_webhook_events(factory, ctx)
+    async with system_session(factory) as db:
+        await delete_user_account(db, ctx.user_id, ip=ip)
 
-    The session is this user's, and every statement names their id, so another
-    user's rows are left alone. The queue's events follow their job.
-    """
-    async with user_session(factory, ctx) as db:
-        for table in _IMPORTED:
-            await db.execute(delete(table).where(table.c.owner_id == ctx.user_id))
+
+async def session_stepped_up(
+    factory: async_sessionmaker[AsyncSession], ctx: UserContext, session_id: UUID
+) -> bool:
+    """Whether ``session_id`` is a live, full session of this user with a recent
+    authentication and a step-up (``require_sensitive``), allowing ``JOB_SLACK`` for the time
+    the job waited. A timestamp after now is not a proof."""
+    now = func.now()
+    query = select(sessions.c.id).where(
+        sessions.c.id == session_id,
+        sessions.c.user_id == ctx.user_id,
+        sessions.c.expires_at > now,
+        sessions.c.mfa_at.is_not(None),
+        sessions.c.reauth_at <= now,
+        sessions.c.reauth_at >= now - (RECENT_AUTH_WINDOW + JOB_SLACK),
+        sessions.c.stepup_at <= now,
+        sessions.c.stepup_at >= now - (STEPUP_WINDOW + JOB_SLACK),
+    )
+    async with system_session(factory) as db:
+        return (await db.execute(query)).first() is not None
 
 
 async def finish_disconnect(
@@ -197,8 +216,7 @@ async def finish_disconnect(
         sleep=sleep,
     )
     if delete_imported:
-        await purge_imported(factory, ctx)
-        await delete_disconnected_row(factory, ctx, connection_id)
+        await purge_connection(factory, ctx, connection_id)
     return result
 
 
@@ -213,12 +231,10 @@ async def delete_owner(
     budget: RetryBudget | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> DisconnectResult:
-    """Revoke a live Withings grant, then delete the account.
+    """Revoke a live Withings grant, then delete the account (``delete_account``).
 
-    The audit row is the account-deleted event: no measurement and no credential.
-    This owner's webhook events are removed first, through the definer, while the
-    connection row still names them. Owned rows then cascade with the account.
-    A missing step-up deletes nothing.
+    In-process: the worker or a test. The route enqueues the revoke instead. A missing
+    step-up deletes nothing.
     """
     if stepped_up is not True:
         raise DisconnectRefused("step_up_required")
@@ -236,8 +252,79 @@ async def delete_owner(
                 budget=budget,
                 sleep=sleep,
             )
-    async with user_session(factory, ctx) as db:
-        await db.execute(text("SELECT public.webhook_events_purge_owner()"))
-    async with system_session(factory) as db:
-        await delete_user_account(db, ctx.user_id, ip=ip)
+    await delete_account(factory, ctx, ip=ip)
     return result
+
+
+async def _worker_ring(job: JobRun) -> KeyRing:
+    try:
+        return await load_keyring(job.factory, Settings(), role="worker")
+    except KeyRingError:
+        raise JobFailure("key_unavailable") from None
+
+
+async def execute_disconnect(
+    job: JobRun,
+    ring: KeyRing,
+    *,
+    inner: object = None,
+    budget: RetryBudget | None = None,
+    sleep: Sleep | None = None,
+) -> DisconnectResult:
+    """One ``withings_disconnect`` run: the step-up check, then the revoke-first path.
+
+    A session that is not this owner's, or whose proof is too old, fails the run
+    (``invalid_input``) and nothing is revoked or cleared: the route clears the credentials
+    itself and reports the revoke as failed. A row that is not live fails ``not_connected``.
+    """
+    parsed = job.input
+    if not isinstance(parsed, DisconnectInput):
+        raise JobFailure("invalid_input")
+    if not await session_stepped_up(job.factory, job.ctx, parsed.session_id):
+        raise JobFailure("invalid_input")
+    limit = budget or RetryBudget(retries=2, deadline=time.monotonic() + _RETRY_SECONDS)
+    refused: str | None = None
+    result: DisconnectResult | None = None
+    async with job.provider_call(DISCONNECT_DEADLINE_SECONDS):
+        try:
+            result = await disconnect_withings(
+                job.factory,
+                ring,
+                job.ctx,
+                parsed.connection_id,
+                stepped_up=True,
+                inner=inner,
+                budget=limit,
+                sleep=sleep,
+            )
+        except DisconnectRefused as exc:
+            refused = exc.reason
+    if result is None:
+        raise JobFailure("not_connected" if refused == "not_connected" else "invalid_input")
+    return result
+
+
+def disconnect_kind(
+    *,
+    ring: KeyRing | None = None,
+    inner: object = None,
+    budget: Callable[[], RetryBudget] | None = None,
+    sleep: Sleep | None = None,
+) -> JobKind:
+    """The ``withings_disconnect`` kind. The worker passes nothing: the key ring is loaded per
+    run as the worker. Tests pass a ring and the fake's transport."""
+
+    async def run(job: JobRun) -> Complete:
+        held = ring if ring is not None else await _worker_ring(job)
+        await execute_disconnect(
+            job, held, inner=inner, budget=budget() if budget else None, sleep=sleep
+        )
+        return Complete()
+
+    return JobKind(DISCONNECT_KIND, DisconnectInput, run)
+
+
+def register_disconnect_kind(registry: KindRegistry) -> None:
+    """Register ``withings_disconnect`` on the worker's registry (#164 calls this)."""
+    if registry.get(DISCONNECT_KIND) is None:
+        registry.register(disconnect_kind())

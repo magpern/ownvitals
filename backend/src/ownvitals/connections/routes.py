@@ -1,21 +1,42 @@
 """``/api/connections``: list, connect and disconnect (ADR 0004 section 7).
 
 Connect and disconnect need recent authentication and a step-up (``require_sensitive``).
-With no Withings flow yet, every provider but the test-only one answers ``unknown_provider``.
-The test provider is registered only when ``environment`` is ``test``, so production has no
-connect target. Bodies that fail validation are refused without echoing them.
+Connect offers only the test-only provider, registered when ``environment`` is ``test``, so
+production has no connect target here. Bodies that fail validation are refused without
+echoing them.
+
+**Withings disconnect** (PLAN section 4.3, ADR 0004 section 7; #163). The revoke runs in the
+worker: web makes no Withings call but the code exchange (roadmap Amendment 1). The route
+enqueues a ``withings_disconnect`` job for the live row, naming the session that passed the
+step-up, and waits for it up to ``REVOKE_WAIT_SECONDS``. Then it reads the row:
+
+- the job cleared it: ``revoke_failed`` is what the job recorded on the row;
+- the row is still live (the job did not finish in time, failed before the revoke, or no
+  worker runs the kind): the job is cancelled if still queued, the route clears the
+  credentials itself and records ``revoke_failed``. Secrets never outlive the request.
+
+``?delete_imported=true`` then removes the imported rows, this owner's webhook events and the
+disconnected row (``connections.purge.purge_connection``). The answer is ``DisconnectOut``; with
+``revoke_failed`` it carries the instruction to remove access in the Withings account. The
+account deletion route (``auth.email_routes``) uses ``revoke_withings`` the same way.
 """
 
+import asyncio
+import hashlib
+import json
+import secrets
+import time
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Protocol
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, SecretStr, ValidationError
 
-from ownvitals.auth.deps import require_sensitive, require_user
+from ownvitals.auth.deps import current_session, require_sensitive, require_user
 from ownvitals.connections.errors import ConnectionFailure
+from ownvitals.connections.purge import purge_connection
 from ownvitals.connections.repository import (
     ConnectionInfo,
     connect,
@@ -24,8 +45,25 @@ from ownvitals.connections.repository import (
 )
 from ownvitals.connections.tables import PROVIDER_NAME, TEST_PROVIDER, live_providers
 from ownvitals.context import UserContext
+from ownvitals.jobs import service
+from ownvitals.jobs.user import NewJob
+from ownvitals.withings.disconnect import DISCONNECT_KIND, REMOVAL, DisconnectInput
 
 router = APIRouter(prefix="/api/connections", tags=["connections"])
+
+WITHINGS = "withings"
+# How long a disconnect or an account deletion waits for the worker's revoke.
+REVOKE_WAIT_SECONDS = 25.0
+_POLL_SECONDS = 0.25
+_WAITING = frozenset({"queued", "running"})
+
+
+class Session(Protocol):
+    """The signed-in session (``auth.deps.current_session``): only its id is used here."""
+
+    @property
+    def id(self) -> UUID: ...
+
 
 _STATUS = {
     "not_connected": 409,
@@ -70,6 +108,23 @@ class ConnectionsOut(BaseModel):
     connections: list[ConnectionOut]
 
 
+class DisconnectOut(BaseModel):
+    """What a disconnect did. ``removal`` is set exactly when ``revoke_failed`` is."""
+
+    status: str = "disconnected"
+    revoke_failed: bool
+    removal: str | None
+    imported_deleted: bool
+
+    @classmethod
+    def of(cls, revoke_failed: bool, imported_deleted: bool) -> "DisconnectOut":
+        return cls(
+            revoke_failed=revoke_failed,
+            removal=REMOVAL if revoke_failed else None,
+            imported_deleted=imported_deleted,
+        )
+
+
 def _unknown() -> HTTPException:
     return HTTPException(status_code=404, detail={"reason": "unknown_provider"})
 
@@ -78,6 +133,69 @@ def _offered(request: Request, provider: str) -> bool:
     return PROVIDER_NAME.fullmatch(provider) is not None and provider in live_providers(
         request.app.state.settings.environment
     )
+
+
+def _disconnectable(request: Request, provider: str) -> bool:
+    return provider == WITHINGS or _offered(request, provider)
+
+
+def _live(rows: list[ConnectionInfo], provider: str) -> ConnectionInfo | None:
+    return next(
+        (row for row in rows if row.provider == provider and row.status != "disconnected"), None
+    )
+
+
+def _job(connection_id: UUID, session_id: UUID) -> NewJob:
+    payload = DisconnectInput(connection_id=connection_id, session_id=session_id)
+    stored = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    canonical = json.dumps(
+        {"input": payload.model_dump(mode="json"), "kind": DISCONNECT_KIND},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return NewJob(
+        kind=DISCONNECT_KIND,
+        input=stored,
+        idempotency_key=secrets.token_urlsafe(24),
+        request_hash=hashlib.sha256(canonical.encode()).digest(),
+    )
+
+
+async def _ended(request: Request, ctx: UserContext, job_id: UUID) -> bool:
+    """Wait for the job to leave ``queued`` and ``running``; ``False`` at the deadline."""
+    factory = request.app.state.session_factory
+    deadline = time.monotonic() + REVOKE_WAIT_SECONDS
+    while True:
+        view = await service.get(factory, ctx, job_id)
+        if view is None or view.state not in _WAITING:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        await asyncio.sleep(_POLL_SECONDS)
+
+
+async def revoke_withings(
+    request: Request, ctx: UserContext, info: Session, connection_id: UUID
+) -> bool:
+    """Revoke upstream through the worker, then make sure the credentials are gone.
+
+    Returns ``revoke_failed``. Web never calls Withings here: the job does, and when it did
+    not clear the row in time this clears it and records the failure. 429 ``busy`` when the
+    owner's queue is full (nothing is changed).
+    """
+    factory = request.app.state.session_factory
+    limit = request.app.state.settings.jobs_per_user + 1
+    created = await service.create(factory, ctx, _job(connection_id, info.id), limit=limit)
+    if created.job is None:
+        raise HTTPException(status_code=429, detail={"reason": "busy"})
+    if not await _ended(request, ctx, created.job.id):
+        await service.cancel(factory, ctx, created.job.id)
+    rows = await list_connections(factory, ctx)
+    row = next((item for item in rows if item.id == connection_id), None)
+    if row is not None and row.status != "disconnected":
+        await disconnect(factory, ctx, WITHINGS, revoke_failed=True)
+        return True
+    return row is None or row.last_error == "revoke_failed"
 
 
 def _failure(failure: ConnectionFailure) -> JSONResponse:
@@ -131,12 +249,24 @@ async def connect_provider(
     return ConnectionOut.of(info)
 
 
-@router.delete("/{provider}", status_code=204)
+@router.delete("/{provider}")
 async def disconnect_provider(
     provider: str,
     request: Request,
     ctx: Annotated[UserContext, Depends(require_sensitive)],
-) -> None:
-    if not _offered(request, provider):
+    info: Annotated[Session | None, Depends(current_session)],
+    delete_imported: bool = False,
+) -> DisconnectOut:
+    if not _disconnectable(request, provider):
         raise _unknown()
-    await disconnect(request.app.state.session_factory, ctx, provider)
+    factory = request.app.state.session_factory
+    if provider != WITHINGS:
+        await disconnect(factory, ctx, provider)
+        return DisconnectOut.of(revoke_failed=False, imported_deleted=False)
+    live = _live(await list_connections(factory, ctx), WITHINGS)
+    if live is None or info is None:
+        raise HTTPException(status_code=409, detail={"reason": "not_connected"})
+    failed = await revoke_withings(request, ctx, info, live.id)
+    if delete_imported:
+        await purge_connection(factory, ctx, live.id)
+    return DisconnectOut.of(revoke_failed=failed, imported_deleted=delete_imported)

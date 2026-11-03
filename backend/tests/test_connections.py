@@ -77,7 +77,8 @@ async def test_connect_and_disconnect_require_step_up(env: Env) -> None:
     assert reason(await disconnect_call(browser)) == "step_up_required"
     await _stepup(env, browser)
     removed = await disconnect_call(browser)
-    assert removed.status_code == 204, removed.text
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["revoke_failed"] is False
     listed = await browser.get("/api/connections")
     assert listed.status_code == 200, listed.text
     assert listed.json()["connections"][0]["status"] == "disconnected"
