@@ -80,12 +80,12 @@ class Observation:
     source_unit: int
     conversion: str
     quality_flags: tuple[str, ...]
-    source_grpid: int
-    source_type: int
+    source_grpid: int | None
+    source_type: int | None
     source_position: int | None
 
     @property
-    def natural_key(self) -> tuple[str, int, int, int | None, datetime]:
+    def natural_key(self) -> tuple[str, int | None, int | None, int | None, datetime]:
         """The unique key of ``observations`` (``observations_source_key``)."""
         return (
             self.metric_key,
@@ -104,9 +104,16 @@ class Skipped:
     bad_zone: int = 0
     outside_partitions: int = 0  # instant before 2009 or three months past ``now``
     duplicate_rows: int = 0
+    invalid: int = 0  # a stream field that is not a number, or whose name cannot be a key (#229)
 
     def total(self) -> int:
-        return self.out_of_range + self.bad_zone + self.outside_partitions + self.duplicate_rows
+        return (
+            self.out_of_range
+            + self.bad_zone
+            + self.outside_partitions
+            + self.duplicate_rows
+            + self.invalid
+        )
 
 
 @dataclass(frozen=True, slots=True)
