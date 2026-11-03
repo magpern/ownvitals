@@ -24,8 +24,8 @@ RESULTS="${RESULTS:-}"
 echo "results: $RESULTS"
 
 # The jobs of `needs` (sorted) and the `changes` output that gates each optional one.
-JOBS='["backend", "changes", "checks", "frontend"]'
-FILTERS='{"backend": "backend", "frontend": "frontend"}'
+JOBS='["backend", "changes", "checks", "e2e", "frontend"]'
+FILTERS='{"backend": "backend", "e2e": "stack", "frontend": "frontend"}'
 
 die() { echo "::error::$*"; exit 1; }
 
