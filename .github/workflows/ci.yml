@@ -170,17 +170,13 @@ jobs:
           package-manager-cache: false
 
       # High and critical advisories fail; the moderate, dev-only ones of the ESLint chain
-      # (minimatch, PR #34) do not. frontend/ is required; e2e/ is audited once it exists (its
-      # harness issue makes it required too).
+      # (minimatch, PR #34) do not. frontend/ and e2e/ are both required: removing either fails
+      # this step (cd fails) instead of silently skipping its audit.
       - name: npm audit
         run: |
           set -euo pipefail
           (cd frontend && npm audit --audit-level=high)
-          if [ -d e2e ]; then
-            (cd e2e && npm audit --audit-level=high)
-          else
-            echo "::notice::no e2e/ yet; nothing to audit there"
-          fi
+          (cd e2e && npm audit --audit-level=high)
 
       # Trivy fails on HIGH and CRITICAL findings that have a fix available (--ignore-unfixed):
       # unfixed ones are an accepted risk (AGENTS.md, "CI"). Exceptions go in .trivyignore with a
@@ -341,13 +337,95 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # The compose stack with fakes only (Google's back channel, mail), the image scan, then the
+  # Playwright specs against it (docs/dev/e2e.md). Runs when the stack changed (filter `stack`).
+  # No step is skipped: a missing e2e/ fails the job. The Trivy release is the same one, with the
+  # same checksum, as the `checks` job's (bump both together).
+  e2e:
+    name: E2E
+    needs: changes
+    if: needs.changes.outputs.stack == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install Trivy
+        env:
+          VERSION: 0.76.1
+          SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o trivy.tgz \
+            "https://github.com/aquasecurity/trivy/releases/download/v${VERSION}/trivy_${VERSION}_Linux-64bit.tar.gz"
+          echo "${SHA256}  trivy.tgz" | sha256sum --check
+          tar -xzf trivy.tgz trivy
+
+      # Builds web and fake-oidc, generates the throwaway CA and the OAuth secret, starts the
+      # stack and waits for /api/ready.
+      - name: Build and start the stack
+        run: e2e/scripts/stack-up.sh
+
+      - name: Stack checks
+        run: e2e/scripts/stack-checks.sh
+
+      # The image web and the worker run, as built above. Fails on HIGH and CRITICAL findings
+      # that have a fix (--ignore-unfixed); .trivyignore applies (AGENTS.md, "CI").
+      - name: Trivy image scan
+        run: |
+          set -euo pipefail
+          image="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env):local"
+          "$RUNNER_TEMP/trivy" image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            "$image"
+
+      - name: Install the e2e dependencies and Chromium
+        working-directory: e2e
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Type check
+        working-directory: e2e
+        run: npm run typecheck
+
+      - name: Playwright specs
+        working-directory: e2e
+        env:
+          CI: "true"
+        run: npm test
+
+      # What a failed run needs to be read: the last log lines of each service. Compose prints no
+      # secret (they are files); the filter is a second guard.
+      - name: Stack logs
+        if: failure()
+        run: |
+          docker compose -f compose.yaml -f compose.e2e.yaml ps -a || true
+          docker compose -f compose.yaml -f compose.e2e.yaml logs --tail 25 --no-color 2>&1 \
+            | sed -E 's/(token|secret|password)=[^ ]*/\1=<redacted>/Ig' || true
+
+      - name: Stop the stack
+        if: always()
+        run: e2e/scripts/stack-down.sh
+
   # The one required check besides `pr-title`. `changes` and `checks` must succeed. Every other job
   # must succeed, or be skipped while its filter output is false (scripts/ci-gate.sh, tested in
   # `checks`). A job that is needed but skipped, cancelled or failed fails the gate.
   ci:
     name: ci
     if: always()
-    needs: [changes, checks, backend, frontend]
+    needs: [changes, checks, backend, frontend, e2e]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

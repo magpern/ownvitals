@@ -25,9 +25,8 @@ updates:
       major:
         update-types: [major]
 
-  # /frontend only for now: the e2e harness issue adds /e2e here when it creates e2e/.
   - package-ecosystem: npm
-    directories: [/frontend]
+    directories: [/frontend, /e2e]
     schedule:
       interval: weekly
     commit-message:
@@ -56,9 +55,9 @@ updates:
       major:
         update-types: [major]
 
-  # The Dockerfile's base images.
+  # The Dockerfile's base images, and the e2e stack's fake-oidc image.
   - package-ecosystem: docker
-    directory: /
+    directories: [/, /e2e/fake-oidc]
     schedule:
       interval: weekly
     commit-message:

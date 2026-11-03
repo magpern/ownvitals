@@ -61,6 +61,7 @@ QUEUE_FUNCTIONS: dict[str, str] = {
     ),
     "queue_cancel_for_secret": "p_kind text, p_secret_id uuid",
     "queue_replay": "p_job_id uuid",
+    "queue_schedule": "p_kind text, p_interval_seconds integer",
 }
 # Admitted beside the queue (20-queue.sql). A queue-only database does not have them; a deploy
 # installs them and the check then pins each body the same way as a queue function.

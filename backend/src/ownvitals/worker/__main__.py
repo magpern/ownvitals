@@ -10,6 +10,10 @@ First thing it installs the egress hook (``install_egress_hook("worker")``, ADR 
 worker allowlist (``install_worker_allowlist``, the only non-test module besides the probe that
 may call it). The loop refuses to run unless it is the standard library's selector loop, the
 only one whose sockets the hook sees.
+
+It runs the Withings kinds (``ownvitals.worker.kinds.worker_registry``), re-checks a job's
+webhook-secret target (``WORKER_TARGETS``) and schedules the poll and the reconciliation
+(``SCHEDULES``).
 """
 
 import asyncio
@@ -32,6 +36,7 @@ from ownvitals.egress import (
     worker_allowlist_installed,
 )
 from ownvitals.log import configure_logging
+from ownvitals.worker.kinds import SCHEDULES, WORKER_TARGETS, worker_registry
 from ownvitals.worker.loop import create_worker_engine, run_worker, verify_startup
 
 logger = logging.getLogger("ownvitals.worker")
@@ -63,7 +68,16 @@ async def _run(settings: Settings) -> None:
         stop = asyncio.Event()
         # Before "worker started" is logged, so a signal after that line is always handled.
         _install_signal_handlers(asyncio.get_running_loop(), stop)
-        await run_worker(settings, stop, accounts=ACCOUNTS, engine=engine, keyring=ring)
+        await run_worker(
+            settings,
+            stop,
+            registry=worker_registry(),
+            accounts=ACCOUNTS,
+            engine=engine,
+            keyring=ring,
+            targets=WORKER_TARGETS,
+            schedules=SCHEDULES,
+        )
     finally:
         await engine.dispose()
 

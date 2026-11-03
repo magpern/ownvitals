@@ -115,9 +115,9 @@ one for majors. Dependabot PRs go through the review gate like any other.
 | Ecosystem | Directory | Prefix | Groups | Cooldown | Not offered |
 |---|---|---|---|---|---|
 | `uv` | `/backend` | `build(deps)`, dev group `build(deps-dev)` | `uv`, `major` | 5 days | — |
-| `npm` | `/frontend` (the e2e issue adds `/e2e`) | `build(deps)`, dev `build(deps-dev)` | `npm`, `major` | 5 days | `@types/node` majors (it follows Node 24) |
+| `npm` | `/frontend`, `/e2e` | `build(deps)`, dev `build(deps-dev)` | `npm`, `major` | 5 days | `@types/node` majors (it follows Node 24) |
 | `github-actions` | `/` | `ci(deps)` | `actions`, `major` | — | — |
-| `docker` | `/` (`Dockerfile`) | `build(deps)` | `docker`, `major` | — | Python minors and majors (3.12), Node majors (24), `astral-sh/uv` |
+| `docker` | `/` (`Dockerfile`), `/e2e/fake-oidc` | `build(deps)` | `docker`, `major` | — | Python minors and majors (3.12), Node majors (24), `astral-sh/uv` |
 | `docker-compose` | `/` (`compose.yaml`) | `build(deps)` | `compose`, `major` | — | Postgres majors (17) |
 
 **Cooldown:** a uv or npm version is offered only once it is 5 days old, so a hijacked release
