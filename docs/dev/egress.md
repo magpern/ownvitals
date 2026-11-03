@@ -24,8 +24,8 @@ until it joins the enumeration.
 **Process roles.** `install_worker_allowlist(ai_enabled=settings.ai_insights)` makes the process
 the worker. Only two modules may call it (the guard's `WORKER_ROLE_MODULES`): the worker's entry
 point `ownvitals.worker.__main__` (#9), first thing at start, and the probe CLI
-`ownvitals.withings.probe` (#29); tests may too. Neither module exists yet: an issue that names
-its entry point differently changes that list in its PR. From then on the
+`ownvitals.withings.probe` (#29, always with `ai_enabled=False`); tests may too. A new entry
+point joins that list in its own PR. From then on the
 web-only entry points (Google, the code exchange, mail) raise `OutboundBlocked` before any
 connection (`refuse_in_worker`), and the worker-only clients work only there: in the web process
 `withings_async_client()` and `model_async_client()` raise `OutboundBlocked`, so web can make no
