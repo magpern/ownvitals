@@ -203,6 +203,14 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
                 {"o": owner_id, "c": connection},
             )
             _plant_derived(conn, owner_id, digest)
+            # The mail outbox (#194): an owned row, gone with its account.
+            conn.execute(
+                text(
+                    "INSERT INTO mail_outbox (owner_id, kind, route) "
+                    "VALUES (:o, 'findings_waiting', 'findings')"
+                ),
+                {"o": owner_id},
+            )
     finally:
         engine.dispose()
 
@@ -292,6 +300,7 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
         "intraday",
         "job_events",
         "jobs",
+        "mail_outbox",
         "measure_groups",
         "measures",
         "metric_daily",

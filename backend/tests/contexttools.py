@@ -130,6 +130,9 @@ ROWS: Final[Mapping[str, str]] = {
     "input_revision, input_fingerprint) VALUES (:owner, 'body_path:' || :tag, :day, 0, "
     "CAST('{\"status\": \"computed\"}' AS jsonb), 'synthetic/1', 0, :hash) RETURNING id",
     "user_profiles": "INSERT INTO public.user_profiles (owner_id) VALUES (:owner) RETURNING id",
+    # The mail outbox (#194). A sent row, so the one-pending-per-kind index never collides.
+    "mail_outbox": "INSERT INTO public.mail_outbox (owner_id, kind, route, state) "
+    "VALUES (:owner, 'findings_waiting', 'findings', 'sent') RETURNING id",
 }
 # Tables with one row per owner (a unique key on ``owner_id`` alone): the own-insert control
 # first removes the context's own row, in the same rolled-back savepoint, or the planted row
