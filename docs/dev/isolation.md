@@ -414,6 +414,33 @@ test-only table `t_parent`) the way each execution context reaches owned rows:
 `test_two_user_isolation.py` runs two users at once in each context and in a mix, and verifies
 nothing crosses; it also shows RLS alone holds when the repository's filter is removed, and that
 the check fails when both walls are gone. `test_owner_filter.py` shows the repository's own filter
-holds with RLS bypassed (`bypass_url`, a superuser engine). #15 adds the scheduler, webhook and
-admin contexts to `EXECUTION_CONTEXTS`; later repositories reuse `bypass_url` to prove their own
-filters.
+holds with RLS bypassed (`bypass_url`, a superuser engine); later repositories reuse
+`bypass_url` to prove their own filters.
+
+**Every context on every owned table** (#15, guard "ctx"): `tests/contexttools.py` plants one
+synthetic row per owned table (`ROWS`) for two users, and one module per context of ADR 0002 §4
+runs the same probe the way that context reaches owned rows: `test_isolation_contexts_web.py`
+(a route behind `require_user`), `_worker.py` (a user's job through `runner.execute` and the job
+issuer), `_scheduler.py` (`queue_enqueue`, then the claimed job), `_webhook.py` (the receiver and
+`webhook_event_insert`, then the claimed job), `_maintenance.py` (the reaper and
+`webhook_events_purge_owner`) and `_admin.py` (admin routes on `ownvitals_maint`).
+
+The probe tries every write in its **minimal shape**: no `WHERE` and no `RETURNING`, because
+either makes Postgres apply the read policy too and would hide a hole in a write policy. Per
+owned table: what a plain `SELECT` returns; an insert for the other user (refused) and for itself
+(the positive control); `UPDATE t SET owner_id = :other` (refused, or 0 rows); `UPDATE t SET
+owner_id = :me` and `DELETE FROM t` (exactly the rows it sees, 0 under a restrictive policy,
+refused without the privilege); and `TRUNCATE` (refused). The admin probe does the same for
+maint, plus `UPDATE t SET col = DEFAULT` and `INSERT INTO t (col) VALUES (DEFAULT)` for every
+column. Every write runs in a rolled-back savepoint.
+
+The guard module runs a **mutation matrix**: on representative tables (ordinary, a child, a
+partitioned parent, `connections`, append-only `job_events`) an extra permissive policy for each
+command and each relaxation (`USING (true)`, `WITH CHECK (true)`, `USING (own) WITH CHECK (true)`,
+allow-all) must make the probe fail, except an `UPDATE` or `DELETE` policy on `job_events`, which
+its restrictive policies still close. The admin module runs the **grant matrix**: each privilege
+kind for maint on representative tables, table-wide and on `owner_id`, must make the admin probe
+fail. A new probe shape or relaxation joins these matrices.
+
+`test_isolation_contexts_guard.py` fails while `ROWS` and the catalog's owned tables differ, so a
+**new owned table needs its row in `ROWS`** in the same PR.
