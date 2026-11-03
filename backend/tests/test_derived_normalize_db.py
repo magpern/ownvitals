@@ -354,7 +354,7 @@ class _Job:
         self.factory = "factory"
 
 
-async def test_the_measures_streams_queue_a_pass_and_the_others_do_not(
+async def test_the_normalised_streams_queue_a_pass_and_the_others_do_not(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     queued: list[tuple[object, uuid.UUID, str]] = []
@@ -374,13 +374,18 @@ async def test_the_measures_streams_queue_a_pass_and_the_others_do_not(
     monkeypatch.setattr(sync, "execute_backfill", done)
     monkeypatch.setattr(sync, "execute_sync", done)
     connection = uuid.uuid4()
-    for stream in ("measures", "activity_daily"):
+    # #229: the sleep summaries, activity days and workouts are normalised too; the two
+    # high-volume series are not.
+    queuing = ("measures", "sleep_summary", "activity_daily", "workouts")
+    for stream in (*queuing, "sleep_series", "intraday"):
         parsed = StreamInput(connection_id=connection, stream=stream)
         await sync.run_backfill(_Job(parsed))  # type: ignore[arg-type]
         await sync.run_sync_kind(_Job(parsed))  # type: ignore[arg-type]
     assert queued == [
-        ("factory", connection, "backfill"),  # the backfill and the incremental pass stay apart
-        ("factory", connection, "live"),
+        # the backfill and the incremental pass stay apart
+        ("factory", connection, origin)
+        for _ in queuing
+        for origin in ("backfill", "live")
     ]
 
 
