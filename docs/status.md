@@ -9,29 +9,27 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement), #101 (#118), #10 (#125), #11 (#132), #12 (#129, admin gate, audit log and stored flags), #122 (#123, static egress guard), #140 (#142, step-up window bounds), #89 (#115, guard 5 follow-ups), #143 (#145, pending-session expiry) and #146 (#147, purge and session-list bounds) merged; #13 (#151), #18 (#153), #77 (#155), #124 (#149), #126 (#150) and #127 (#152) merged (2026-11-02, Cursor Grok 4.7 Developers); open: #14 (e2e harness), #15 (RLS in every context), #16 | — |
-| M1 | Withings core | #19 (#63), #66 (#71) and #20 (#128, the API client, error taxonomy and response models) merged; #21 (#154), #22 (#156), #23 (#157), #24 (#158), #25 (#159), #26 (#160) and #27 (#161) merged (IMPLEMENTED, synthetic only); open: #28 (PR #166, metrics registry; wiring in #167), #29 (probe), #30, #36; #163 (mount the disconnect and delete routes), #164 (register the job kinds) (dependency graph in [status/dependency-graphs.md](status/dependency-graphs.md)) | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement), #101 (#118), #10 (#125), #11 (#132), #12 (#129, admin gate, audit log and stored flags), #122 (#123, static egress guard), #140 (#142, step-up window bounds), #89 (#115, guard 5 follow-ups), #143 (#145, pending-session expiry) and #146 (#147, purge and session-list bounds) merged; #13 (#151), #18 (#153), #77 (#155), #124 (#149), #126 (#150) and #127 (#152) merged (2026-11-02, Cursor Grok 4.7 Developers); #14 (#169, the e2e harness and the CI `E2E` job), #15 (#170, RLS tests in every execution context, after four review rounds), #163 (#171, disconnect and account delete on the revoke-first worker job) and #164 (#173, the Withings job kinds in the worker, the webhook target check and the `queue_schedule` scheduler function) merged (2026-11-03, Claude Developers); open: #16 (threat-model update, now unblocked) | — |
+| M1 | Withings core | #19 (#63), #66 (#71) and #20 (#128, the API client, error taxonomy and response models) merged; #21 (#154), #22 (#156), #23 (#157), #24 (#158), #25 (#159), #26 (#160) and #27 (#161) merged (IMPLEMENTED, synthetic only); #28 (#166, the metrics registry; the endpoint and wiring are #167) and #29 (#172, the shape-only probe CLI: the owner runs it, INTEGRATION_VERIFIED is the owner's) merged; open: #30, #36 (both unblocked by #14 and #15), #167 (dependency graph in [status/dependency-graphs.md](status/dependency-graphs.md)) | — |
 | M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward) merged: IMPLEMENTED, not installed (installing it is the owner's); #101 (#118, the deploy-side follow-up) merged; the rest are mostly owner actions (see "Blocked on the owner") | — |
-| M3 | Identity additions | not started | — |
-| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74), #68 (#87), #76 (#94), #99 (#102) and #95 (#109) merged; ADR 0010, the v1 finding rules (#110, #112; accepted in #116, #117) and roadmap Amendment 3 merged | — |
-| M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 (#114, the signal-processing core, with its ADR 0006 amendments) and its follow-ups #119 (#120) merged; #47 (#162, the owner `validate` command) merged | — |
-| M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (#105: shell, tokens, theme, fonts and primitives; pulled forward) merged | — |
-| M7 | AI & reports | not started | — |
+| M3 | Identity additions | ADR 0011 (#177, passkeys and QR approve-login; #212) merged as Proposed; issues #178–#180 are the backlog | — |
+| M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74), #68 (#87), #76 (#94), #99 (#102) and #95 (#109) merged; ADR 0010, the v1 finding rules (#110, #112; accepted in #116, #117) and roadmap Amendment 3 merged; ADR 0012 (#182, scores; #213) merged as Proposed; in review: #181 (analysis schema, PR #216) and #183 (rule core, body and heart rules, PR #215); backlog #184–#190 | — |
+| M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 (#114, the signal-processing core, with its ADR 0006 amendments) and its follow-ups #119 (#120) merged; #47 (#162, the owner `validate` command) merged; backlog #191, #192 | — |
+| M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (#105: shell, tokens, theme, fonts and primitives; pulled forward) merged; in review: #193 (chart primitives and the data layer, PR #217); open: #194 (mail outbox); backlog #195–#203 | — |
+| M7 | AI & reports | ADR 0013 (reports and export) and ADR 0014 (AI insights) (#204; #214) merged as Proposed; backlog #205–#211 | — |
 | M8 | Beyond-household gate | owner-gated | — |
 
 ## Active
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #14 | E2E harness: Playwright, fake-oidc, auth flows and image scan | Sonnet | — | in progress. Holds `e2e/**`, `compose.e2e.yaml`, `Dockerfile` frontend stage, `ci.yml`, `scripts/ci-gate.sh`, `scripts/test-ci-gate.sh`, `.github/dependabot.yml`, `docs/dev/e2e.md` |
-| #15 | RLS tests in every execution context | Opus | — | in progress. Holds `tests/test_isolation_contexts*.py`, `tests/contexttools.py` |
-| #29 | Probe CLI (shape-only) | Opus | — | in progress. Holds `withings/probe.py`, `tests/test_withings_probe*.py`, `docs/runbooks/m2-probe.md`, `cli.py` |
-| #28 | Withings metrics registry and endpoint | Sonnet | #166 | in review (Opus). Holds `metrics.py`, `withings/metrics.py`, `docs/dev/metrics.md`. The rest is #167 |
-| #163 | Mount disconnect and account delete on the revoke-first paths | Opus | — | in progress. Holds `connections/routes.py`, `auth/email_routes.py`, `withings/disconnect.py`, `auth/purge.py` |
-| #164 | Register the Withings job kinds and the webhook target check | Opus | — | in progress. Holds `jobs/kinds.py`, `worker/**` |
+| #181 | Analysis schema (observations, metric_daily, findings, scores, user_profiles) | Opus | #216 | fix round after an Opus FAIL (probe could not catch an open insert policy on `user_profiles`; `scores` and `metric_key` checks too strict). Holds migration `0011`, `derived/**`, `tests/contexttools.py` additions |
+| #183 | Shared rule logic plus body and heart rules (pure functions) | Sonnet | #215 | Sonnet PASS `77220eb`; updated from `main`, CI running. Holds `analysis/rules/**` |
+| #193 | Chart primitives, value styles, data layer | Sonnet | #217 | Sonnet PASS `9bfc9e3`; waits for its merge slot. Holds `frontend/src/components/charts/**`, `api/useResource.ts`, `package.json` (uplot) |
+| #194 | Mail outbox and web sender (ADR 0007) | Opus | — | in progress. Holds `mail*`, the outbox migration, `notify/**` |
 
-Backlog: #167 (wire the metrics, `blocked-deps` on #28 and #164), #165 (hardening umbrella of non-blocking findings from the Cursor PRs #149–#162; the Architect splits it before the M2 real-data gate), #30 and #36 (wait for #14 and #15), #16 (waits for #14 and #15).
-Merged since the last reconcile (`main` was `4e10259`, now `75d874d`): #148 through #162, all IMPLEMENTED, reviewed by Cursor Grok 4.7 high Reviewers (FAIL, fix, delta PASS, merge check). Development moved back to Claude on 2026-11-03.
+Backlog: #218 (derived rows in "delete imported data"; before the first M4 writer), #167 (metrics listener, wiring, definer aggregates), #165 (hardening umbrella: non-blocking findings from the Cursor PRs #149–#162 and the Claude PRs #166–#217; the Architect splits it before the M2 real-data gate), #16 (threat-model update), #30 and #36 (e2e/M1 done-when), #184–#190 (M4), #177's follow-ups #178–#180 (M3), #191–#192 (M5), #195–#203 (M6), #205–#211 (M7). The first four issues to start when a slot frees are #184, #185, #36 and #16.
+Merged since the last reconcile (`main` was `75d874d`): #14, #15, #163, #164, #28, #29, #177, #182, #204, all IMPLEMENTED (ADRs: Proposed), reviewed by fresh Claude Reviewers (Opus for security-critical). Rule observed on 2026-11-03: `main` requires branches up to date, so every merge makes the other open PRs stale; the Architect merges one at a time and records a merge check for each update.
 At most five Developers work on issues at once; a fix round on an open PR may run while five are busy.
 
 ## Detail files
@@ -52,14 +50,13 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `e2e/**`, `compose.e2e.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `scripts/ci-gate.sh`, `scripts/test-ci-gate.sh`, `.github/dependabot.yml`, `docs/dev/e2e.md` | #14 |
-| `backend/src/ownvitals/cli.py`, `withings/probe.py`, `docs/runbooks/` | #29 |
-| `backend/tests/test_isolation_contexts*.py`, `backend/tests/contexttools.py` | #15 |
-| `backend/src/ownvitals/metrics.py`, `withings/metrics.py`, `docs/dev/metrics.md` | #28 (PR #166) |
-| `connections/routes.py`, `auth/email_routes.py`, `withings/disconnect.py`, `auth/purge.py` | #163 |
-| `jobs/kinds.py`, `backend/src/ownvitals/worker/**` | #164 |
-| `docs/status.md`, `docs/status/completed.md` | Architect (this reconcile) |
-| everything else (`config.py`, `web.py`, `pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile` roles, `egress/**`, `db/**`, `docs/dev/*` of merged areas) | — (released) |
+| `backend/migrations/versions/0011_analysis_schema.py`, `backend/src/ownvitals/derived/**`, `backend/tests/contexttools.py` ROWS/PARTITIONED, `docker/postgres/withings/40-withings.sql` (`ensure_month_partitions`), `docs/dev/derived.md` | #181 (PR #216) |
+| `backend/src/ownvitals/analysis/rules/**`, `docs/dev/analysis-rules.md` | #183 (PR #215) |
+| `frontend/src/components/charts/**`, `frontend/src/api/useResource.ts`, `frontend/package.json` and lock, `frontend/src/styles/charts.css`, `frontend/src/main.tsx` | #193 (PR #217) |
+| `backend/src/ownvitals/mail.py`, `notify/**`, the outbox migration | #194 |
+| `backend/src/ownvitals/web.py`, `frontend/src/pages/appPages.tsx`, `jobs/kinds.py`, `worker/**`, `derived/evaluate.py`, `cli.py`, `config.py`, `pyproject.toml` and `uv.lock` | — (free now); the M4–M7 issues that need them take the lock when they start (planner's note: `appPages.tsx` one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds) |
+| `docs/status.md`, `docs/status/completed.md` | Architect |
+| everything else | — (released) |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
 migration merges first, it renumbers and re-chains on its update, which needs a fresh scoped
@@ -85,6 +82,11 @@ assumptions below.
 | Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section of `docs/security/threat-model.md` (merged with #41; risks 20 and 21 are new; #49, #72, #78 and #88 extend 21, including the ways code with the app role could stall a rotation) |
 | ECG (ADR 0006, merged in #46): whether our ECG estimates may be shown to anyone but the owner; whether public research ECG datasets may ever be used | M5 | Decide when M5 reaches them |
 | Receiving mail through Proton Mail Bridge (IMAP, or a `mail-worker` that posts to a REST API): production sending through Bridge on the owner's own domain is decided, receiving may come later | Not in the frozen spec; not before M2 mail works | A product decision; then the Architect writes a roadmap amendment and a threat-model entry for the new inbound path |
+| ADR 0011 (passkeys, QR login): does a passkey with user verification count as the second factor (default no: TOTP stays); the source of the city on the QR approval screen (default none, "Place unknown"); QR approve-login beyond the household (default household only) | M3 | Answer when #178/#179/#180 start; defaults are safe-off |
+| ADR 0012 (scores): the Health Improvement Score band table (values, source, licence under §9.4); whether the score is visible to every household account or only the experimental-flag account; the scoring anchors; a Body Path goal date | M4, M6 | Default: no table, so the score shows "not set"; the Dashboard mock-up (71/100) differs from the default until you decide |
+| ADR 0013 (reports, export): estimated or experimental items in a doctor-PDF variant (default none); which FIT streams (default off); ECG estimates in an unflagged account's export (default withheld) | M7 | Answer when the export issues start |
+| ADR 0014 (AI insights): the provider data-handling and retention review (default not recorded, so AI is off); the per-user and global monthly cost caps (default 0); the model; whether experimental content may go to the model for flagged accounts (default no); retention of conversations (90 days) and audit rows (12 months); the eval run and its reference `ai_eval_ref` (default unset) | M7 | Answer before AI is enabled; defaults keep every call refused |
+| The loading state of the UI (design has none; plain "Loading…" line used) and tick formats | M6 | Say if you want a skeleton design when the dashboard screens land |
 | ADR 0010 open items: the C2 score-card band, the HIS table, Readiness and Body Path | M4 wiring, M6 | Decide when the wiring issue or the screen reaches them |
 
 ## Assumptions (unverified; each needs the probe or the owner)

@@ -4,6 +4,7 @@ Moved out of [docs/status.md](../status.md) so the index stays short; the text i
 
 ## Completed
 
+- 2026-11-03: #14 (#169), #15 (#170), #163 (#171), #164 (#173), #28 (#166), #29 (#172) merged through the review gate by Claude Developers and Reviewers → IMPLEMENTED (synthetic only). #177 (#212), #182 (#213) and #204 (#214): ADR 0011, 0012, 0013 and 0014 merged as Proposed. Dependabot #176, #174, #175 are open. The non-blocking findings are collected in #165.
 - 2026-11-02: #13 (#151), #18 (#153), #21 (#154), #77 (#155), #22 (#156), #23 (#157), #24 (#158), #25 (#159), #26 (#160), #27 (#161), #47 (#162), #124 (#149), #126 (#150), #127 (#152) merged through the review gate by Cursor Grok 4.7 Developers and Reviewers → IMPLEMENTED (synthetic only). Their non-blocking findings are collected in #165.
 - 2026-11-01: #146 purge and session-list future-proof bounds merged as #147 (Grok 4.7 PASS `686d656`) → IMPLEMENTED.
 - 2026-11-01: #143 pending-session expiry merged as #145 (Grok 4.7 PASS `5527006`, merge check `8362769`) → IMPLEMENTED. Follow-up #146 is merged as #147.
