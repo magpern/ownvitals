@@ -142,3 +142,6 @@ def test_the_exit_signal_tells_the_event_streams_to_end() -> None:
     app.state.event_hub = Hub()
     server.handle_exit(signal.SIGTERM, None)
     assert app.state.event_hub.closed == 1
+    app.state.qr_hub = Hub()  # the QR login streams too (ADR 0011 section 5)
+    server.handle_exit(signal.SIGTERM, None)
+    assert (app.state.event_hub.closed, app.state.qr_hub.closed) == (2, 1)
