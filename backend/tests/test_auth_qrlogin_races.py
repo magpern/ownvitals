@@ -2,9 +2,9 @@
 
 Each pair runs concurrently through the real routes; exactly one outcome may win. Where the
 read-only pre-check would otherwise settle the race, the requests are held after it, inside their
-transactions (``held_after``, or an event), so the conditional ``UPDATE`` is what decides. ``complete``
-and ``admin mfa-reset`` follow the passkeys' lock order (the account row first): whichever
-commits first, no live session is left. Synthetic accounts and codes only."""
+transactions (``held_after``, or an event), so the conditional ``UPDATE`` is what decides.
+``complete`` and ``admin mfa-reset`` follow the passkeys' lock order (the account row first):
+whichever commits first, no live session is left. Synthetic accounts and codes only."""
 
 import asyncio
 from collections.abc import Awaitable, Callable
