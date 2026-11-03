@@ -9,12 +9,12 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | # | Milestone | State | Level |
 |---|---|---|---|
-| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement), #101 (#118), #10 (#125), #11 (#132), #12 (#129, admin gate, audit log and stored flags), #122 (#123, static egress guard), #140 (#142, step-up window bounds), #89 (#115, guard 5 follow-ups), #143 (#145, pending-session expiry) and #146 (#147, purge and session-list bounds) merged; ready: #13, #14, #18, #77, #124, #126 and #127 | — |
-| M1 | Withings core | #19 (#63), #66 (#71) and #20 (#128, the API client, error taxonomy and response models) merged; backlog #18, #21–#30, #36 (dependency graph in [status/dependency-graphs.md](status/dependency-graphs.md)) | — |
+| M0 | Platform | in progress: #2 (#35), #3 (#34), #4 (#41), #5 (#65), #7 (#53), #8 (#82), #9 (#96), #42 (#106), #45 (#48), #49 (#58), #52 (#64), #57 (#111), #72 (#73), #75 (#81) and #78 (#83) merged; #6 (#55, ADR 0009 runtime egress enforcement), #101 (#118), #10 (#125), #11 (#132), #12 (#129, admin gate, audit log and stored flags), #122 (#123, static egress guard), #140 (#142, step-up window bounds), #89 (#115, guard 5 follow-ups), #143 (#145, pending-session expiry) and #146 (#147, purge and session-list bounds) merged; #13 (#151), #18 (#153), #77 (#155), #124 (#149), #126 (#150) and #127 (#152) merged (2026-11-02, Cursor Grok 4.7 Developers); open: #14 (e2e harness), #15 (RLS in every context), #16 | — |
+| M1 | Withings core | #19 (#63), #66 (#71) and #20 (#128, the API client, error taxonomy and response models) merged; #21 (#154), #22 (#156), #23 (#157), #24 (#158), #25 (#159), #26 (#160) and #27 (#161) merged (IMPLEMENTED, synthetic only); open: #28 (PR #166, metrics registry; wiring in #167), #29 (probe), #30, #36; #163 (mount the disconnect and delete routes), #164 (register the job kinds) (dependency graph in [status/dependency-graphs.md](status/dependency-graphs.md)) | — |
 | M2 | Home deploy (early) | #84 (#100, the forced-command deploy script, pulled forward) merged: IMPLEMENTED, not installed (installing it is the owner's); #101 (#118, the deploy-side follow-up) merged; the rest are mostly owner actions (see "Blocked on the owner") | — |
 | M3 | Identity additions | not started | — |
 | M4 | Analysis v1 | pulled forward: #37 (#54), #38 (#67), #56 (#74), #68 (#87), #76 (#94), #99 (#102) and #95 (#109) merged; ADR 0010, the v1 finding rules (#110, #112; accepted in #116, #117) and roadmap Amendment 3 merged | — |
-| M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 (#114, the signal-processing core, with its ADR 0006 amendments) and its follow-ups #119 (#120) merged; #47 waits for #21 and #25 | — |
+| M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 (#114, the signal-processing core, with its ADR 0006 amendments) and its follow-ups #119 (#120) merged; #47 (#162, the owner `validate` command) merged | — |
 | M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (#105: shell, tokens, theme, fonts and primitives; pulled forward) merged | — |
 | M7 | AI & reports | not started | — |
 | M8 | Beyond-household gate | owner-gated | — |
@@ -23,18 +23,16 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #13 | Connections layer, rewrap and keys CLI | Grok 4.7 | — | ready; starting. Holds `connections/**`, `keys_cli.py`, `cli.py`, migration `0007`, `connections.md`, the connections install in `web.py`, and `auth/owners.py` `connection_refs` |
-| #14 | E2E harness: Playwright, fake-oidc, auth flows and image scan | Composer | — | blocked. Composer 2.5 is not selectable, so this issue is not starting and holds no files |
-| #124 | Egress hook exemptions and psycopg entries after #118 | Grok 4.7 | — | starting. Holds `docs/dev/deploy.md`, `docs/dev/egress.md`, ADR 0009 and the egress guard tests. Depends on #118, #123 and #115, all merged |
-| #18 | Jobs for Withings: system and webhook kinds, lanes, singletons, retry budget, dead-letter | Grok 4.7 | — | ready. Waits: `cli.py` is held by #13, and `worker/**` will be #77's |
-| #77 | Wire the KEK ring, egress allowlist and queue checks | Grok 4.7 | — | ready. Waits: `web.py` is held by #13 for the connections install |
-| #126 | Wire the maint role, its password and the admin URL | Grok 4.7 | — | starting. Holds `Dockerfile`, the CI roles step, `compose.yaml`, `10-roles.sql`, the maint install, `admin.md` and `stack.md`. Does not edit `web.py` |
-| #127 | Admin users view and account helpers | Grok 4.7 | — | ready (#11 and #12 merged). Waits: `web.py` is held by #13 |
+| #14 | E2E harness: Playwright, fake-oidc, auth flows and image scan | Sonnet | — | in progress. Holds `e2e/**`, `compose.e2e.yaml`, `Dockerfile` frontend stage, `ci.yml`, `scripts/ci-gate.sh`, `scripts/test-ci-gate.sh`, `.github/dependabot.yml`, `docs/dev/e2e.md` |
+| #15 | RLS tests in every execution context | Opus | — | in progress. Holds `tests/test_isolation_contexts*.py`, `tests/contexttools.py` |
+| #29 | Probe CLI (shape-only) | Opus | — | in progress. Holds `withings/probe.py`, `tests/test_withings_probe*.py`, `docs/runbooks/m2-probe.md`, `cli.py` |
+| #28 | Withings metrics registry and endpoint | Sonnet | #166 | in review (Opus). Holds `metrics.py`, `withings/metrics.py`, `docs/dev/metrics.md`. The rest is #167 |
+| #163 | Mount disconnect and account delete on the revoke-first paths | Opus | — | in progress. Holds `connections/routes.py`, `auth/email_routes.py`, `withings/disconnect.py`, `auth/purge.py` |
+| #164 | Register the Withings job kinds and the webhook target check | Opus | — | in progress. Holds `jobs/kinds.py`, `worker/**` |
 
-Merged since the last reconcile: #89 (#115) is on `main` at `e434f49`, #143 (#145) at `bff8eb4` and #146 (#147) at `4e10259`, all IMPLEMENTED. `main` is `4e10259`.
-On GitHub #15, #16, #21–#30, #36 and #47 carry `blocked-deps`. #124 and #126 are starting and hold their files. #18 waits on `cli.py`. #77 and #127 wait on `web.py`. #14 is blocked because Composer 2.5 is not selectable. At most five Developers work on issues at
-once; a fix round on an open PR may run while five are busy, and no new issue starts until fewer
-than five are.
+Backlog: #167 (wire the metrics, `blocked-deps` on #28 and #164), #165 (hardening umbrella of non-blocking findings from the Cursor PRs #149–#162; the Architect splits it before the M2 real-data gate), #30 and #36 (wait for #14 and #15), #16 (waits for #14 and #15).
+Merged since the last reconcile (`main` was `4e10259`, now `75d874d`): #148 through #162, all IMPLEMENTED, reviewed by Cursor Grok 4.7 high Reviewers (FAIL, fix, delta PASS, merge check). Development moved back to Claude on 2026-11-03.
+At most five Developers work on issues at once; a fix round on an open PR may run while five are busy.
 
 ## Detail files
 
@@ -54,21 +52,14 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `AGENTS.md`, `deploy/`, `scripts/ci-changes.sh`, `scripts/test-release.sh`, `backend/pyproject.toml`, `backend/uv.lock` | — (#118, #55 and #134 released them) |
-| `backend/src/ownvitals/worker/__main__.py`, `backend/src/ownvitals/__main__.py`, `backend/src/ownvitals/mail.py`, `backend/src/ownvitals/egress/**` except `egress/hook.py`, `docs/dev/jobs.md`, `docs/dev/release.md` | — (#55 and #118 released them). #13 holds `cli.py`. #124 holds `docs/dev/deploy.md`. #126 holds `docs/dev/stack.md` |
-| `backend/src/ownvitals/db/engine.py`, `db/role_check.py`, `egress/hook.py`, `backend/tests/user_context_*.py`, `backend/tests/conftest.py`, `docs/dev/backend.md`, `docs/dev/isolation.md`, `docs/dev/isolation-guard5.md`, `docs/dev/crypto.md`, `docs/adr/0002-tenant-isolation.md` | — (#115 released them). #77 is next for `conftest.py`, `isolation.md` and `role_check.py` once `web.py` is free |
-| `backend/tests/egress_*.py`, `backend/tests/test_egress_*.py` except `test_egress_hook.py`, `docs/dev/egress.md`, `docs/adr/0009-runtime-egress-enforcement.md`, `docs/dev/deploy.md` | #124 |
-| `backend/src/ownvitals/connections/**`, `backend/src/ownvitals/keys_cli.py`, `backend/src/ownvitals/cli.py`, `backend/src/ownvitals/web.py`, `backend/src/ownvitals/auth/owners.py`, `docs/dev/connections.md`, migration `0007` | #13 |
-| `e2e/**`, `compose.e2e.yaml`, `scripts/ci-gate.sh`, `scripts/test-ci-gate.sh`, `.github/dependabot.yml`, `docs/dev/e2e.md` | — (#14 is not writing; Composer 2.5 is not selectable) |
-| `Dockerfile`, `.github/workflows/ci.yml`, `compose.yaml`, `docker/postgres/init/10-roles.sql`, `docker/postgres/maint/30-maint.sql`, `docker/postgres/queue/db-functions.sh`, `docs/dev/admin.md`, `docs/dev/stack.md` | #126 |
-| `docs/status.md`, `docs/status/completed.md`, `docs/status/decisions-log.md` | #148 |
-| `backend/src/ownvitals/admin/**`, `backend/src/ownvitals/flags/**`, `db/tables.py`, `backend/tests/role_guard.py`, `session_scan.py`, `auth_tables_scan.py`, `admintools.py`, `backend/migrations/versions/0006_admin.py`, `backend/tests/test_migrations.py`, `test_admin_*.py`, `test_flags*.py`, `test_maint_privileges.py`, `test_session_guard.py` | — (#129 released them). #13 holds `web.py`. #126 holds `10-roles.sql`, `30-maint.sql` and `docs/dev/admin.md` |
-| `docs/roadmap.md`, `.cursor/**`, `docs/dev/agent-tools.md`, `docs/adr/README.md` | — (#139 released them) |
-| `.codex/**` | — (#131 released it) |
-| `backend/src/ownvitals/db/queue_check.py` | — (#77 next) |
-| `backend/src/ownvitals/config.py`, `backend/tests/dbtools.py`, `test_web.py`, `rls_guard.py`, `test_config_milestone.py` | — (#8, #82 and #11 released them) |
-| `scripts/ci-uv-version.sh`, `.trivyignore` | — (#106 released them). `scripts/ci-gate.sh` is free; #14 is not writing |
-| `frontend/**`, `docs/dev/frontend.md` | — (#98 and #105 released them) |
+| `e2e/**`, `compose.e2e.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `scripts/ci-gate.sh`, `scripts/test-ci-gate.sh`, `.github/dependabot.yml`, `docs/dev/e2e.md` | #14 |
+| `backend/src/ownvitals/cli.py`, `withings/probe.py`, `docs/runbooks/` | #29 |
+| `backend/tests/test_isolation_contexts*.py`, `backend/tests/contexttools.py` | #15 |
+| `backend/src/ownvitals/metrics.py`, `withings/metrics.py`, `docs/dev/metrics.md` | #28 (PR #166) |
+| `connections/routes.py`, `auth/email_routes.py`, `withings/disconnect.py`, `auth/purge.py` | #163 |
+| `jobs/kinds.py`, `backend/src/ownvitals/worker/**` | #164 |
+| `docs/status.md`, `docs/status/completed.md` | Architect (this reconcile) |
+| everything else (`config.py`, `web.py`, `pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile` roles, `egress/**`, `db/**`, `docs/dev/*` of merged areas) | — (released) |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
 migration merges first, it renumbers and re-chains on its update, which needs a fresh scoped
@@ -105,6 +96,10 @@ assumptions below.
 | The API hosts are `wbsapi.withings.net` and `account.withings.com`, and the token endpoint is `POST /v2/oauth2` with `action=requesttoken` (findings §2) | #6 egress lists and code exchange | the owner's first real connect (M1) |
 | The fake's readings where the public spec is silent (the module docstrings of `backend/tests/withingscore.py`, `withingswire.py`, `withingsnotify.py`, and the #63 PR body for the full list): status 2553 for a bad refresh token and 214 for a missing scope; the OAuth scope each data endpoint needs (`DATA_ROUTES`, now in `withingsstore.py`); the signed string of `revoke` and its answer for an unknown user | #19's fake, so every M1 client test (#20, #22, #24) | the owner's first real connect and sync (M1) |
 | The fake's stricter readings from #66 (#71; the docstrings of `backend/tests/withingsrules.py`, `withingsnotify.py`, `withingscore.py`, `withingswire.py` and the #71 PR body): a non-POST API call answers 2554 and a secret in the query string 503 (no documented status); webhook success means a 2xx within 3 s (the short reading of "a few seconds"); callback URLs must be HTTPS on port 443 with a domain name, else 293 (the stricter reading); the rate limit is a token bucket of 120 a minute per application, burst 120, and the 601 carries no `wait_seconds`; a new authorization drops all earlier tokens; refreshing with the current token ends an older grace token; the scope check runs before the first-use mark | the M1 client tests (#20, #22, #24, #25) | the owner's first real connect and sync (M1); the probe for the token behaviours |
+| `blocked_by_provider_plan`: how the API signals an account without Withings+ (after 13 Oct 2026) is unknown; `provider_plan_blocked` returns false for every status (#159) | the sync engine's capability states | the probe / the owner's first real sync |
+| The fake's readings used by #156, #160 and #161: refresh grace and lost-response behaviour, callback URL rules, `notify` list/update/revoke semantics, `revoke` for an unknown user, `getmeas` reports no deletions (findings §5 question 3), the 14-day re-pointing mark | M1 token, reconcile and disconnect code | the owner's first real connect and sync |
+| The webhook form is exactly `userid`, `appli`, `startdate`, `enddate`; an extra field is refused (#158, stricter than the public docs). Entry-cache TTL 60 s is a constant | the receiver | the owner's first real webhook; loosen if real notifications are refused |
+| ECG owner thresholds chosen in #162 where ADR 0006 is silent: OC3 mains line (±1 Hz power ≥ 10 dB over the side bands and ≥ 1 % of 5–15 Hz power), OC4 unsupported rate counts as not simultaneous, V3 prints no bpm | `ecg validate` | the owner's OC/V run |
 | ECG A1: ECG integers are µV with no further scale factor (public spec) | #40's amplitude limits (ADR 0006 §7), the viewer | OC1 (#47): the owner compares R amplitudes with the Withings app |
 | ECG A2: the ECG lead is unknown and shown as "lead unverified" | the viewer's label only | the probe (`wearposition`); OC2 |
 | ECG A3: `sampling_frequency` is 300 or 500 Hz | #40 (other rates are stored, not analysed) | the probe (sampling rate) |
