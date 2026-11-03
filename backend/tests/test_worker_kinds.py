@@ -28,6 +28,10 @@ from jobtools import admin_fixture, queue_schema_fixture  # noqa: F401 - fixture
 from ownvitals.crypto.envelope import WebhookSeed
 from ownvitals.crypto.keks import KeyUnavailable
 from ownvitals.db import create_session_factory
+from ownvitals.derived.daily_job import KIND as DAILY_KIND
+from ownvitals.derived.daily_job import DailyInput
+from ownvitals.derived.normalize_job import KIND as NORMALIZE_KIND
+from ownvitals.derived.normalize_job import NormalizeInput
 from ownvitals.jobs import KINDS, Complete, JobFailure, JobRun
 from ownvitals.jobs.runner import RunConfig
 from ownvitals.jobs.withings import INPUT_MODELS, NO_TARGETS, ConnectInput
@@ -49,6 +53,8 @@ from ownvitals.worker.loop import Worker, create_worker_engine
 SEED_BYTES = b"\x11" * 32
 BASE = "https://app.example.test"
 WITHINGS_KINDS = [
+    "derive_daily",  # #186: the metric_daily pass, queued by derive_normalize
+    "derive_normalize",  # #185: the observations pass, queued after the measures streams
     "ecg_fetch",
     "token_refresh_recover",
     "withings_backfill",
@@ -68,7 +74,12 @@ def test_the_worker_registry_holds_the_withings_kinds_and_the_api_none() -> None
     assert registry.names() == WITHINGS_KINDS
     for kind in registry:
         # The disconnect revoke (#163) takes its own input: ids of the row and the session.
-        expected = DisconnectInput if kind.name == DISCONNECT_KIND else INPUT_MODELS[kind.name]
+        own = {
+            DISCONNECT_KIND: DisconnectInput,
+            NORMALIZE_KIND: NormalizeInput,
+            DAILY_KIND: DailyInput,
+        }
+        expected = own[kind.name] if kind.name in own else INPUT_MODELS[kind.name]
         assert kind.input_model is expected
     assert worker_registry() is not registry  # a new one each time; nothing shared
     assert KINDS.names() == []  # the API's registry: POST /api/jobs still refuses every kind
@@ -316,11 +327,19 @@ async def test_reconcile_passes_the_current_callback_to_the_nightly_run(
         faked["nightly"] = (client, kwargs)
         return [], None
 
+    queued: list[tuple[object, UUID, str]] = []
+
+    async def normalize(factory: object, connection_id: UUID, origin: str) -> None:
+        queued.append((factory, connection_id, origin))
+
     monkeypatch.setattr(worker_kinds, "current_callback", callback)
     monkeypatch.setattr(worker_kinds, "execute_nightly", nightly)
+    monkeypatch.setattr(worker_kinds, "enqueue_normalize", normalize)
     connection = uuid4()
-    outcome = await run_reconcile(_Job(ConnectInput(connection_id=connection)))  # type: ignore[arg-type]
+    job = _Job(ConnectInput(connection_id=connection))
+    outcome = await run_reconcile(job)  # type: ignore[arg-type]
     assert isinstance(outcome, Complete)
+    assert queued == [(job.factory, connection, "live")]  # the nightly pass re-derives
     assert faked["materials"] == connection
     assert faked["nightly"] == (
         "client-for-app",

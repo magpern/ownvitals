@@ -1,6 +1,10 @@
 """The texts of the mails we send (ADR 0003 section 5). Plain text; links come from
 ``OWNVITALS_PUBLIC_BASE_URL`` with the token in the URL fragment, never from the Host header."""
 
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
+
 from ownvitals.config import Settings
 from ownvitals.mail import MailMessage
 
@@ -31,13 +35,59 @@ def account_exists(settings: Settings, to: str) -> MailMessage:
     )
 
 
-def password_reset(settings: Settings, to: str, token: str) -> MailMessage:
+@dataclass(frozen=True, slots=True)
+class ResetRemoved:
+    """What ``admin mfa-reset`` removed besides the TOTP, recovery codes and password."""
+
+    passkeys: int = 0
+    identities: int = 0
+
+
+def _removed_text(removed: ResetRemoved) -> str:
+    parts = ["your authenticator app and recovery codes were removed"]
+    if removed.passkeys:
+        parts.append(
+            "your passkey was removed" if removed.passkeys == 1 else "your passkeys were removed"
+        )
+    if removed.identities:
+        parts.append("Google sign-in was unlinked")
+    parts += ["your password was cleared", "you were signed out everywhere"]
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def password_reset(
+    settings: Settings,
+    to: str,
+    token: str,
+    *,
+    passkeys: Sequence[tuple[str, datetime]] = (),
+    after_mfa_reset: ResetRemoved | None = None,
+) -> MailMessage:
+    """The reset link. A plain reset lists the account's passkeys, which it keeps (ADR 0011
+    section 3); after ``admin mfa-reset`` the mail says what the reset removed, naming only
+    what the account had."""
+    intro = ""
+    if after_mfa_reset is not None:
+        intro = (
+            "The operator reset the two-factor authentication of your ownvitals account: "
+            f"{_removed_text(after_mfa_reset)}. Choose a new password with the link below, then "
+            "set up two-factor authentication again.\n\n"
+        )
+    listed = ""
+    if passkeys and after_mfa_reset is None:
+        names = "".join(f"- {name} (added {created:%Y-%m-%d})\n" for name, created in passkeys)
+        listed = (
+            "\nResetting the password keeps these passkeys on your account:\n"
+            f"{names}"
+            f"Review them on the Security page: {settings.public_base_url}/settings/security\n"
+        )
     return MailMessage(
         to,
         "Reset your ownvitals password",
-        "To choose a new password, open this link (valid for 30 minutes):\n"
+        f"{intro}To choose a new password, open this link (valid for 30 minutes):\n"
         f"{link(settings, '/reset', token)}\n\n"
-        "Resetting signs you out everywhere. If this wasn't you, ignore this mail.\n",
+        "Resetting signs you out everywhere. If this wasn't you, ignore this mail.\n"
+        f"{listed}",
     )
 
 
@@ -109,4 +159,39 @@ def identity_linked_notice(to: str, provider: str) -> MailMessage:
         f"{provider.title()} was linked to your ownvitals account as a way to sign in.\n"
         "If this wasn't you, sign in, remove it from your account page and change your "
         "password.\n",
+    )
+
+
+def passkey_added_notice(to: str, name: str) -> MailMessage:
+    return MailMessage(
+        to,
+        "A passkey was added to your ownvitals account",
+        f'A passkey named "{name}" was added to your ownvitals account as a way to sign in.\n'
+        "If this wasn't you, sign in, remove it on the Security page and change your password.\n",
+    )
+
+
+def passkey_suspended_notice(to: str, name: str) -> MailMessage:
+    return MailMessage(
+        to,
+        "A passkey on your ownvitals account was refused and suspended",
+        f'A sign-in with your passkey "{name}" was refused and the passkey was suspended: its '
+        "counter went backwards, which can mean it was copied.\n"
+        "It can't be used any more. Remove it on the Security page and add it again. If you "
+        "didn't just try to sign in with it, change your password.\n",
+    )
+
+
+def qr_login_approved_notice(
+    settings: Settings, to: str, browser: str, system: str, place: str
+) -> MailMessage:
+    """ADR 0011 section 7: every completed QR approval is mailed. The new device as its browser
+    reported it, never a code, nonce, token or health data (T59)."""
+    return MailMessage(
+        to,
+        "A new sign-in to ownvitals was approved from your phone",
+        "A new sign-in to your ownvitals account was approved from your phone:\n"
+        f"{browser} on {system} ({place}), as reported by that browser.\n\n"
+        "If this wasn't you, sign that device out and change your password: "
+        f"{settings.public_base_url}/settings/security\n",
     )

@@ -3,7 +3,8 @@
 * ``series``: ``Series`` (times in days, float values) and ``InputSummary`` (n and coverage);
 * ``baseline``: robust rolling median and MAD over time windows;
 * ``ewma``: exponentially weighted average weighted by the time gap;
-* ``trend``: Theil-Sen slope with the Mann-Kendall test and the Hamed-Rao correction;
+* ``trend``: Theil-Sen slope with the Mann-Kendall test and an autocorrelation correction (AR(1)
+  by default, Hamed-Rao optional);
 * ``changepoint``: PELT change points, gated by the minimum-data policy.
 
 numpy and scipy only; nothing from the database, web, Withings, job or egress code (the guard

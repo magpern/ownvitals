@@ -2,7 +2,9 @@
 
 Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88 (see "Amendments").
 Its two open questions were decided by the Architect on 2026-10-31 (§2 partitions, whose keys
-[roadmap Amendment 2](../roadmap.md) sets; §3 `webhook_events` retention).
+[roadmap Amendment 2](../roadmap.md) sets; §3 `webhook_events` retention). Post-port review (#16,
+2026-11-03): no decision changed; guard 7 is enforced per route, without an enumeration (threat
+model gap G5).
 
 ## Context
 
@@ -172,6 +174,8 @@ CREATE POLICY owner_isolation ON <t>
 |---|---|
 | M0 | the account tables (ADR 0003 §1, reached only through `ownvitals.auth`, guard 8); the KEK check table (ADR 0004 §3); stored flags and the admin audit log (#12) |
 | M1 | `withings_apps` (below); `webhook_events`; the per-app rate bucket (PLAN §4.4) |
+| M6 | `owner_notices`, the mail outbox's system table (ADR 0007; amended 2026-11-03, #194) |
+| M7 | `ai_spend_global`, the AI cost cap's monthly total of all users (ADR 0014 §7; amended 2026-11-03, #205) |
 
 - `withings_apps` holds each app's configuration (client id, enveloped client secret, callback
   base; ADR 0004 §2) and its `webhook_secrets` entries (ADR 0004 §4). `ownvitals_app` gets
@@ -301,12 +305,17 @@ CREATE POLICY owner_isolation ON <t>
 | `ownvitals_app` | yes | web and worker | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT`, member of no role, owns nothing; the allowlist below |
 | `ownvitals_queue` (M0), M1's ingest, scheduler and rate roles | no | `SECURITY DEFINER` functions | `BYPASSRLS`; only the privileges their functions need (§3) |
 | `ownvitals_webhook_secrets` (M1; amended 2026-10-31, #49) | no | the webhook-secret function (§3) | the attributes of §3 (`NOBYPASSRLS`, member of no role) and exactly its privileges |
+| `ownvitals_mail_outbox` (M6; amended 2026-11-03, #194) | no | the mail outbox's definer functions (ADR 0007 §3) | `BYPASSRLS`, member of no role; column privileges on the two outbox tables only (ADR 0007 §3) |
+| `ownvitals_ai` (M7; amended 2026-11-03, #205) | no | the AI cost cap's definer functions (ADR 0014 §7, ADR 0005 §3) | `BYPASSRLS`, member of no role; column privileges on `jobs` and the three AI tables only (ADR 0005 §3) |
 | `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; of `withings_apps` the non-secret columns only, and no write (amended 2026-10-31, #49); default read-only; every use audited |
 
 - `ownvitals_app`'s grants are an **allowlist**: `CONNECT` on its database, `USAGE` on `public`,
   `SELECT, INSERT, UPDATE, DELETE` on tables and `USAGE, SELECT` on sequences through default
   privileges of `ownvitals_owner`, minus explicit revokes (`webhook_events`; `withings_apps`,
-  whose table privileges give way to §3's column-level `SELECT`, amended 2026-10-31, #49), and
+  whose table privileges give way to §3's column-level `SELECT`, amended 2026-10-31, #49;
+  `owner_notices`, ADR 0007 §3, amended 2026-11-03, #194; `ai_spend_global`, and every
+  privilege but `SELECT` on `ai_spend` and `ai_reservations`, ADR 0014 §7, amended 2026-11-03,
+  #205), and
   `EXECUTE` on the definer functions meant for it. Never `TRUNCATE` (it ignores RLS),
   `REFERENCES`, `TRIGGER`, `MAINTAIN`, `CREATE` or `TEMP`.
 - `statement_timeout` 30 s, `lock_timeout` 5 s and `idle_in_transaction_session_timeout` 60 s are

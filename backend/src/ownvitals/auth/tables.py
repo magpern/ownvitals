@@ -2,13 +2,17 @@
 
 Only ``ownvitals.auth`` (and migrations and tests) may import this module or name these tables
 in SQL; guard 8 (``tests/test_auth_tables_guard.py``) fails the build otherwise. The migration
-``0005_auth`` creates the same tables; ``tests/test_auth_schema.py`` keeps the two in step.
+``0005_auth`` creates the first twelve tables, ``0014_passkeys`` the passkey tables (ADR 0011
+sections 2 and 4) and ``0015_qr_login`` the QR approve-login table (section 5);
+``tests/test_auth_schema.py`` keeps the migrations and this module in step.
 """
 
 from typing import Any
 
 from sqlalchemy import (
+    ARRAY,
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -63,6 +67,8 @@ users = Table(
     Column("role", Text, nullable=False, server_default="user"),
     _ts("disabled_at"),
     _ts("created_at", nullable=False, default_now=True),
+    # The random WebAuthn user handle (ADR 0011 section 1), set at the first registration.
+    Column("webauthn_handle", LargeBinary, unique=True),
     CheckConstraint("role IN ('user', 'admin')", name="users_role_check"),
 )
 
@@ -106,6 +112,11 @@ sessions = Table(
     _ts("stepup_at"),
     Column("user_agent", Text),
     Column("ip", Text),
+    # QR approve-login (ADR 0011 section 5; migration 0015_qr_login).
+    Column("origin", Text, nullable=False, server_default="signin"),
+    Column("mfa_by_approval", Boolean, nullable=False, server_default="false"),
+    Column("approved_factor", Text),
+    Column("approved_by_session_id", UUID(as_uuid=True)),
     Index("sessions_user_id_idx", "user_id"),
     Index("sessions_expires_at_idx", "expires_at"),
 )
@@ -236,6 +247,81 @@ auth_events = Table(
     _ts("at", nullable=False, default_now=True),
     Column("detail", JSONB),
     Index("auth_events_at_idx", "at"),
+)
+
+# Passkeys (ADR 0011 sections 1, 2 and 4; migration 0014_passkeys).
+pre_sessions = Table(
+    "pre_sessions",
+    metadata,
+    _id(),
+    Column("token_hash", LargeBinary, nullable=False, unique=True),
+    _ts("created_at", nullable=False, default_now=True),
+    _ts("expires_at", nullable=False),
+    Index("pre_sessions_expires_at_idx", "expires_at"),
+)
+
+webauthn_credentials = Table(
+    "webauthn_credentials",
+    metadata,
+    _id(),
+    _user_fk(),
+    Column("credential_id", LargeBinary, nullable=False, unique=True),
+    Column("public_key", LargeBinary, nullable=False),
+    Column("sign_count", BigInteger, nullable=False, server_default="0"),
+    Column("transports", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("aaguid", UUID(as_uuid=True)),
+    Column("backup_eligible", Boolean, nullable=False, server_default="false"),
+    Column("backup_state", Boolean, nullable=False, server_default="false"),
+    Column("name", Text, nullable=False),
+    _ts("created_at", nullable=False, default_now=True),
+    _ts("last_used_at"),
+    _ts("suspended_at"),
+    Index("webauthn_credentials_user_id_idx", "user_id"),
+)
+
+webauthn_challenges = Table(
+    "webauthn_challenges",
+    metadata,
+    _id(),
+    Column("challenge_hash", LargeBinary, nullable=False, unique=True),
+    Column("purpose", Text, nullable=False),
+    _user_fk(nullable=True),
+    Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE")),
+    Column("presession_id", UUID(as_uuid=True), ForeignKey("pre_sessions.id", ondelete="CASCADE")),
+    _ts("created_at", nullable=False, default_now=True),
+    _ts("expires_at", nullable=False),
+    CheckConstraint(
+        "purpose IN ('register', 'signin', 'reauth')", name="webauthn_challenges_purpose"
+    ),
+)
+
+# QR approve-login (ADR 0011 section 5; migration 0015_qr_login).
+qr_logins = Table(
+    "qr_logins",
+    metadata,
+    _id(),
+    Column("nonce_hash", LargeBinary, nullable=False, unique=True),
+    Column("presession_id", UUID(as_uuid=True), ForeignKey("pre_sessions.id", ondelete="SET NULL")),
+    Column("state", Text, nullable=False, server_default="pending"),
+    _ts("created_at", nullable=False, default_now=True),
+    _ts("scan_deadline", nullable=False),
+    Column("desktop_ip", Text),
+    Column("desktop_browser", Text, nullable=False),
+    Column("desktop_os", Text, nullable=False),
+    Column("desktop_place", Text),
+    Column("approver_user_id", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")),
+    Column(
+        "approver_session_id", UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL")
+    ),
+    _ts("scanned_at"),
+    _ts("approve_deadline"),
+    _ts("approved_at"),
+    Column("approved_factor", Text),
+    _ts("complete_deadline"),
+    CheckConstraint(
+        "state IN ('pending', 'scanned', 'approved', 'completed', 'denied', 'expired')",
+        name="qr_logins_state",
+    ),
 )
 
 TABLE_NAMES = tuple(metadata.tables)

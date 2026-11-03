@@ -178,6 +178,26 @@ class Settings(BaseSettings):
     # How long a fresh TOTP check authorises a sensitive action (step-up, PLAN §6: within 10
     # minutes). The environment can shorten the window, never lengthen it.
     stepup_window_minutes: int = Field(default=10, ge=1, le=10)
+    # Passkeys (ADR 0011 sections 1 to 3). The WebAuthn relying-party id: unset means the host
+    # of ``public_base_url``; set, it must be that host or a parent domain of it. The only
+    # accepted origin is ``public_base_url``. An IP-address host has no relying-party id (browsers
+    # refuse one), so passkeys are off there; local development uses ``http://localhost:<port>``.
+    webauthn_rp_id: str | None = None
+    # At most this many passkeys per account (ADR 0011 section 2: 10).
+    passkeys_per_account: int = Field(default=10, ge=1, le=10)
+    # ADR 0011 open question 1. Refused true until the owner answers it: a passkey replaces the
+    # password only, and every sign-in still completes TOTP. No code path reads it as true.
+    passkey_satisfies_second_factor: bool = False
+    # QR approve-login (ADR 0011 sections 5 to 7). ``qr_login_enabled`` is open question 3's
+    # safe-off: false hides the start route and refuses scans. ``geo_source`` is where the
+    # desktop's place comes from (open question 2): ``none`` (default, "Place unknown") or
+    # ``cloudflare`` (the visitor-location headers, from a ``cf_connecting_ip_proxies`` peer
+    # only); ``geoip_file`` is refused until the owner answers and a reviewed PR adds a reader.
+    # The SSE streams of the desktop: at most this many per IP (IPv6 by /64) and per web process.
+    qr_login_enabled: bool = True
+    geo_source: Literal["none", "cloudflare", "geoip_file"] = "none"
+    qr_streams_per_ip: int = Field(default=5, ge=1, le=5)
+    qr_streams_per_process: int = Field(default=100, ge=1, le=100)
     # How often the worker purges expired auth rows.
     purge_interval_seconds: float = 3600.0
 
@@ -230,6 +250,12 @@ class Settings(BaseSettings):
     # model host on the worker's egress allowlist.
     experimental_findings: bool = False
     ai_insights: bool = False
+    # The AI cost cap (D11, ADR 0014 section 7), integer micro-USD per calendar month in UTC: per
+    # user, and for all users together (the owner's total exposure). Both 0 until the owner sets
+    # them (ADR 0014 open question 2): no request can be reserved. These settings are the
+    # authoritative caps; the worker passes them on every reservation and nothing stores them.
+    ai_user_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
+    ai_global_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
 
     @classmethod
     def settings_customise_sources(
@@ -307,6 +333,49 @@ class Settings(BaseSettings):
         ):
             raise ValueError("public_base_url must be an http(s) origin without a path")
         return public_origin(value)
+
+    @field_validator("passkey_satisfies_second_factor")
+    @classmethod
+    def _refuse_passkey_second_factor(cls, value: bool) -> bool:
+        if value:
+            raise ValueError(
+                "passkey_satisfies_second_factor=true is refused until the owner decides "
+                "(ADR 0011 open question 1)"
+            )
+        return value
+
+    @field_validator("geo_source")
+    @classmethod
+    def _refuse_geoip_file(cls, value: str) -> str:
+        if value == "geoip_file":
+            raise ValueError(
+                "geo_source=geoip_file is refused until the owner decides (ADR 0011 open "
+                "question 2) and a reviewed PR adds the reader"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _check_webauthn_rp_id(self) -> "Settings":
+        host = urlsplit(self.public_base_url).hostname or ""
+        rp_id = self.webauthn_rp_id
+        if rp_id is None:
+            return self
+        if _is_ip(host) or rp_id != rp_id.strip().lower() or not rp_id or _is_ip(rp_id):
+            raise ValueError("webauthn_rp_id must be a lower-case domain name")
+        if not (host == rp_id or host.endswith("." + rp_id)) or (
+            "." not in rp_id and rp_id != "localhost"
+        ):
+            raise ValueError(
+                "webauthn_rp_id must be the host of public_base_url or a parent domain of it"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _ai_user_cap_within_global(self) -> "Settings":
+        # ADR 0014 section 7: settings refuse a per-user cap above the global one.
+        if self.ai_user_monthly_cap_microusd > self.ai_global_monthly_cap_microusd:
+            raise ValueError("ai_user_monthly_cap_microusd must not exceed the global cap")
+        return self
 
     @model_validator(mode="after")
     def _prod_needs_https(self) -> "Settings":
@@ -395,6 +464,15 @@ class Settings(BaseSettings):
         return value
 
     @property
+    def passkey_rp_id(self) -> str | None:
+        """The WebAuthn relying-party id (ADR 0011 section 1), or ``None`` when the public host
+        is an IP address and passkeys are therefore off."""
+        if self.webauthn_rp_id is not None:
+            return self.webauthn_rp_id
+        host = urlsplit(self.public_base_url).hostname or ""
+        return None if not host or _is_ip(host) else host
+
+    @property
     def admin_email_set(self) -> frozenset[str]:
         """``admin_emails`` in the normalized form (ASCII lower case)."""
         return frozenset(normalize_email(e) for e in self.admin_emails.split(",") if e.strip())
@@ -433,6 +511,14 @@ def _is_local_host(host: str) -> bool:
         return ipaddress.ip_address(host.strip("[]")).is_loopback
     except ValueError:
         return False
+
+
+def _is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return True
 
 
 def public_origin(url: str) -> str:

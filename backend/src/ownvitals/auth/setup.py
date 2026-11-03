@@ -22,7 +22,10 @@ from ownvitals.auth.oauth_client import OAuthRuntime
 from ownvitals.auth.oauth_handoff import router as handoff_router
 from ownvitals.auth.oauth_providers import enabled_providers
 from ownvitals.auth.oauth_routes import router as oauth_router
+from ownvitals.auth.passkey_routes import router as passkey_router
+from ownvitals.auth.passkey_signin_routes import router as passkey_signin_router
 from ownvitals.auth.passwords import PasswordHashBusy, PasswordHasher
+from ownvitals.auth.qrlogin_routes import router as qr_router
 from ownvitals.auth.ratelimit import RateLimited, RateLimiter
 from ownvitals.auth.reset_routes import router as reset_router
 from ownvitals.auth.routes import router
@@ -45,6 +48,9 @@ def install(app: FastAPI) -> None:
     for flow in (signup_router, signin_router, reset_router, email_router):
         app.include_router(flow)
     app.include_router(mfa_router)
+    app.include_router(passkey_router)
+    app.include_router(passkey_signin_router)
+    app.include_router(qr_router)  # its lifespan runs the QR stream hub (ADR 0011 section 5)
     # OAuth: the callback is not under /api and must precede the SPA catch-all (web.create_app
     # installs auth first). "pending" routes before the "{provider}" ones.
     for oauth in (handoff_router, oauth_router, identity_router):

@@ -12,7 +12,7 @@ FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d
 # Node is for this stage only (Node 24, the major CI and Dependabot track; Dependabot's docker
 # entry offers minor and patch bumps of the tag and digest). The lockfile layer is cached until
 # it changes. `npm run build` is `tsc -b && vite build`, so a type error fails the image build.
-FROM node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS spa
+FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS spa
 
 WORKDIR /spa
 COPY frontend/package.json frontend/package-lock.json ./
@@ -50,12 +50,14 @@ COPY --from=spa /spa/dist ./static
 # The database functions and their runner script (compose's db-functions one-shot): installed from
 # the release image, never from the host, so a rollback re-installs the previous release's
 # functions (docs/dev/deploy.md, "Database functions"). 30-maint.sql, then 40-withings.sql, then
-# rate.sql, are installed in the same transaction, after 20-queue.sql. Owned by root; the app
-# user can read them, not change them.
+# rate.sql, then 50-outbox.sql, then 50-ai.sql, are installed in the same transaction, after
+# 20-queue.sql. Owned by root; the app user can read them, not change them.
 COPY --chmod=0555 docker/postgres/queue/20-queue.sql docker/postgres/queue/db-functions.sh /app/db-functions/
 COPY --chmod=0555 docker/postgres/maint/30-maint.sql /app/db-functions/
 COPY --chmod=0555 docker/postgres/withings/40-withings.sql /app/db-functions/
 COPY --chmod=0555 docker/postgres/withings/rate.sql /app/db-functions/
+COPY --chmod=0555 docker/postgres/notify/50-outbox.sql /app/db-functions/
+COPY --chmod=0555 docker/postgres/ai/50-ai.sql /app/db-functions/
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev

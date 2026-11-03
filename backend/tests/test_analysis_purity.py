@@ -46,6 +46,7 @@ FORBIDDEN = (
     "ownvitals.web",
     "ownvitals.withings",
     "ownvitals.jobs",
+    "ownvitals.worker",  # the worker process: jobs, database and Withings calls
     "ownvitals.egress",
     "ownvitals.context",  # who is acting: the pure core takes plain values
     "ownvitals.auth",

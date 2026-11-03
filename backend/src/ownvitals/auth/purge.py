@@ -24,6 +24,7 @@ from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.admin_accounts import delete_user_account
+from ownvitals.auth.qrlogin import expire_overdue, last_deadline
 from ownvitals.auth.tables import (
     auth_events,
     auth_tokens,
@@ -31,8 +32,11 @@ from ownvitals.auth.tables import (
     known_devices,
     oauth_flows,
     pending_signups,
+    pre_sessions,
+    qr_logins,
     rate_limits,
     sessions,
+    webauthn_challenges,
 )
 from ownvitals.config import Settings
 from ownvitals.connections.purge import purge_connection, purge_webhook_events
@@ -60,6 +64,7 @@ RETENTION_DAYS = 30
 DEVICE_RETENTION_DAYS = 90
 # The longest rate-limit window is an hour; older windows can never be hit again.
 RATE_LIMIT_KEEP = timedelta(hours=2)
+QR_KEEP = timedelta(hours=1)  # a QR login row, after its last deadline (ADR 0011 section 5)
 # ``sessions.PENDING_WINDOW``, repeated so the worker does not load the session module (a test
 # holds them equal).
 PENDING_WINDOW = timedelta(minutes=10)
@@ -103,6 +108,10 @@ async def purge_expired(
       second factor ten minutes after their latest proof (a ``reauth_at`` or ``stepup_at``
       after now is not a proof); their ``ip`` is cleared after 30 days;
     - ``pending_signups``, ``auth_tokens`` (also used ones), ``oauth_flows``: expired;
+    - ``pre_sessions`` and ``webauthn_challenges``: expired (ADR 0011 section 4);
+    - ``qr_logins``: one hour after their last deadline (ADR 0011 section 5), so ``desktop_ip``
+      and ``desktop_place`` never outlive it; live rows past their deadline are first set
+      ``expired`` (``qr_login_expired`` for a scanned one), counted as ``qr_logins_expired``;
     - ``rate_limits``: windows over two hours old;
     - ``invites``: used or expired more than 30 days ago;
     - ``known_devices``: unused for 90 days;
@@ -129,6 +138,11 @@ async def purge_expired(
             or_(auth_tokens.c.expires_at <= now, auth_tokens.c.used_at.is_not(None))
         ),
         "oauth_flows": delete(oauth_flows).where(oauth_flows.c.expires_at <= now),
+        "webauthn_challenges": delete(webauthn_challenges).where(
+            webauthn_challenges.c.expires_at <= now
+        ),
+        "pre_sessions": delete(pre_sessions).where(pre_sessions.c.expires_at <= now),
+        "qr_logins": delete(qr_logins).where(last_deadline() <= now - QR_KEEP),
         "rate_limits": delete(rate_limits).where(
             rate_limits.c.window_start < now - RATE_LIMIT_KEEP
         ),
@@ -145,6 +159,7 @@ async def purge_expired(
     }
     counts: dict[str, int] = {}
     async with system_session(factory) as db:
+        counts["qr_logins_expired"] = await expire_overdue(db)
         for name, statement in statements.items():
             result = await db.execute(statement)
             counts[name] = int(result.rowcount or 0)  # pyright: ignore[reportAttributeAccessIssue]
@@ -206,7 +221,8 @@ async def finish_disconnect(
     budget: RetryBudget | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> DisconnectResult:
-    """Revoke and clear credentials, then optionally remove imported rows.
+    """Revoke and clear credentials, then optionally remove imported rows and the rows derived
+    from them (``connections.purge.IMPORTED``).
 
     The option that deletes imported data also deletes this connection row. A plain
     disconnect keeps the row.

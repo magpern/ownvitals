@@ -1,17 +1,19 @@
-"""Account deletion revokes first, then cascades every owned row. Synthetic rows only."""
+"""Account deletion revokes first, then cascades every owned row; "delete imported data" removes
+the imported and derived rows and keeps the settings and the mail outbox. Synthetic rows only."""
 
 import re
 import urllib.request
 from uuid import UUID
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture  # noqa: F401
 from ctx import make_context
 from ownvitals.auth.purge import EXPLICIT_PURGE, delete_owner, finish_disconnect
 from ownvitals.connections.providers.withings import store_grant
+from ownvitals.connections.purge import IMPORTED, KEPT
 from ownvitals.egress import core
 from ownvitals.withings.disconnect import DisconnectRefused
 from test_withings_disconnect import _hits, _linked, _run, _scalar
@@ -27,7 +29,16 @@ _PARTITIONS = (
         "intraday_y2026m11",
         "intraday",
     ),
+    (
+        "observations_y2026m11",
+        "observations",
+    ),
 )
+# Owned tables the import purge reaches without naming them: the connection row is removed by
+# ``delete_disconnected_row`` and job events cascade from their job.
+_PURGED_BESIDE = ("connections", "job_events")
+# The whole row of a kept table, to show the purge left it unchanged.
+_SNAPSHOT = "SELECT to_jsonb(t) FROM public.{table} t WHERE owner_id = :o ORDER BY 1::text"
 _OWNED = """
 SELECT c.relname,
        EXISTS (
@@ -68,6 +79,17 @@ def _rows(url: str, sql: str) -> list[tuple[object, ...]]:
     try:
         with engine.connect() as conn:
             return list(conn.execute(text(sql)).all())
+    finally:
+        engine.dispose()
+
+
+def _snapshot(url: str, table: str, owner_id: UUID) -> list[tuple[object, ...]]:
+    if _NAME.fullmatch(table) is None:
+        raise AssertionError(table)
+    engine = create_engine(url)
+    try:
+        with engine.connect() as conn:
+            return list(conn.execute(text(_SNAPSHOT.format(table=table)), {"o": owner_id}).all())
     finally:
         engine.dispose()
 
@@ -198,8 +220,52 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
                 ),
                 {"o": owner_id, "c": connection},
             )
+            _plant_derived(conn, owner_id, digest)
+            # The mail outbox (#194): an owned row, gone with its account.
+            conn.execute(
+                text(
+                    "INSERT INTO mail_outbox (owner_id, kind, route) "
+                    "VALUES (:o, 'findings_waiting', 'findings')"
+                ),
+                {"o": owner_id},
+            )
+            # The AI cost cap (#205): the user's month and one settled reservation.
+            conn.execute(
+                text("INSERT INTO ai_spend (owner_id, month, spent) VALUES (:o, '2026-11-01', 5)"),
+                {"o": owner_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO ai_reservations (owner_id, month, amount, actual, state, "
+                    "job_id, lease_version, ended_at) "
+                    "VALUES (:o, '2026-11-01', 5, 5, 'settled', :j, 0, now())"
+                ),
+                {"o": owner_id, "j": job},
+            )
     finally:
         engine.dispose()
+
+
+def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
+    """One synthetic row in each derived table (#181)."""
+    for sql in (
+        "INSERT INTO observations (owner_id, metric_key, ts, source_ts, source_tz, value, "
+        "source_value_raw, source_unit, conversion, source_grpid, source_type, algo_version, "
+        "input_revision, input_fingerprint) VALUES (:o, 'weight', '2026-11-02 08:00:00+00', "
+        "'2026-11-02 08:00:00+00', 'Etc/UTC', 0, 0, 0, 'synthetic', 1, 1, 'normalize/1', 0, :h)",
+        "INSERT INTO metric_daily (owner_id, metric_key, day, method, value, mean, min, max, "
+        "mad, n, source_groups, algo_version, input_revision, input_fingerprint) VALUES (:o, "
+        "'weight', '2026-11-02', 'median', 0, 0, 0, 0, 0, 1, '{1}', 'daily/1', 0, :h)",
+        "INSERT INTO findings (owner_id, rule_id, rule_version, tier, severity, confidence, "
+        "origin, subject, window_start, window_end, input_revision, input_fingerprint) VALUES "
+        "(:o, 'Q1', '1', 'system', 'info', 'high', 'live', 'user', '2026-11-02', "
+        "'2026-11-02', 0, :h)",
+        "INSERT INTO scores (owner_id, kind, day, components, algo_version, input_revision, "
+        "input_fingerprint) VALUES (:o, 'his', '2026-11-02', '{\"status\": \"not_set\"}', "
+        "'his/1', 0, :h)",
+        "INSERT INTO user_profiles (owner_id) VALUES (:o)",
+    ):
+        conn.execute(text(sql), {"o": owner_id, "h": digest})
 
 
 def _count(url: str, table: str, owner_id: UUID) -> int:
@@ -257,18 +323,26 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
     names = {name for name, _ in catalog}
     assert names == {
         "activity_daily",
+        "ai_reservations",
+        "ai_spend",
         "connections",
         "data_revisions",
         "devices",
         "ecg_recordings",
+        "findings",
         "intraday",
         "job_events",
         "jobs",
+        "mail_outbox",
         "measure_groups",
         "measures",
+        "metric_daily",
+        "observations",
+        "scores",
         "sleep_series",
         "sleep_summaries",
         "sync_cursors",
+        "user_profiles",
         "workouts",
     }
     for name, cascades in catalog:
@@ -351,10 +425,34 @@ async def test_delete_imported_removes_only_that_owners_rows(
         "synthetic-refresh-token-ddd",
         expires_in=10800,
     )
+    # Every owned table is either removed by the option or deliberately kept: a new owned table
+    # (a derived one included) that is in neither list fails here.
+    purged = {str(table.name) for table in IMPORTED} | set(_PURGED_BESIDE)
+    kept = set(KEPT)
+    assert not purged & kept
+    names = {str(name) for name, _ in _rows(database_url, _OWNED)}
+    assert names == purged | kept
+    assert {"observations", "metric_daily", "findings", "scores"} <= purged
+    assert kept == {"user_profiles", "mail_outbox", "ai_spend", "ai_reservations"}
     _partitions(database_url, True)
     try:
         _plant(database_url, linked.ctx.user_id, linked.connection_id, "c")
         _plant(database_url, other.user_id, other_grant.id, "d")
+        _run(
+            database_url,
+            "UPDATE user_profiles SET birth_year = 1970, sex = 'female', weight_unit = 'lb', "
+            "notify_weekly = true WHERE owner_id = :o",
+            o=linked.ctx.user_id,
+        )
+        before = {
+            (name, owner_id): _snapshot(database_url, name, owner_id)
+            for name in kept
+            for owner_id in (linked.ctx.user_id, other.user_id)
+        }
+        assert all(len(rows) == 1 for rows in before.values())
+        for name in names:
+            assert _count(database_url, name, linked.ctx.user_id) == 1, name
+            assert _count(database_url, name, other.user_id) == 1, name
         await finish_disconnect(
             env.factory,
             env.app.state.keyring,
@@ -364,9 +462,14 @@ async def test_delete_imported_removes_only_that_owners_rows(
             delete_imported=True,
             inner=linked.inner,
         )
-        for name in ("devices", "measures", "jobs", "job_events", "sleep_series"):
+        for name in purged:
             assert _count(database_url, name, linked.ctx.user_id) == 0, name
             assert _count(database_url, name, other.user_id) == 1, name
+        for name in kept:
+            assert _count(database_url, name, linked.ctx.user_id) == 1, name
+            assert _count(database_url, name, other.user_id) == 1, name
+        for (name, owner_id), rows in before.items():
+            assert _snapshot(database_url, name, owner_id) == rows, name
         assert (
             _scalar(
                 database_url,

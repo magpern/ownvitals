@@ -1,5 +1,7 @@
 """Migration 0005_auth: the account tables (system tables), their grants and their ON DELETE
-rules, and the owner foreign keys it adds to ``jobs`` and ``job_events``."""
+rules, and the owner foreign keys it adds to ``jobs`` and ``job_events``; migration
+0014_passkeys's three passkey tables and 0015_qr_login's QR approve-login table (ADR 0011; their
+own checks are in ``test_auth_passkeys_schema.py`` and ``test_auth_qrlogin_schema.py``)."""
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -25,8 +27,8 @@ def admin(auth_schema: None, database_url: str):
     engine.dispose()
 
 
-def test_there_are_twelve_auth_tables_all_listed_with_a_reason() -> None:
-    assert len(AUTH) == 12
+def test_there_are_sixteen_auth_tables_all_listed_with_a_reason() -> None:
+    assert len(AUTH) == 16
     for name in AUTH:
         assert SYSTEM_TABLES[name].strip(), name
 
@@ -111,24 +113,44 @@ def test_on_delete_rules(admin: Connection) -> None:
         ),
         {"tables": [*metadata.tables, "jobs", "job_events"]},
     ).all()
-    # Of jobs and job_events, only the owner keys #10 adds (job_events.job_id is #9's).
+    # Of jobs and job_events, only the owner keys #10 adds. #9's job_events_job_fkey is
+    # (owner_id, job_id) -> jobs, so its first column is owner_id too: without the target in the
+    # filter, which of the two landed in the dict depended on the catalog's row order (#178).
     rules = {
         (r[0], r[1]): (r[2], r[3])
         for r in rows
-        if r[0] not in ("jobs", "job_events") or r[1] == "owner_id"
+        if r[0] not in ("jobs", "job_events") or (r[1] == "owner_id" and r[2] == "users")
     }
-    set_null = {("invites", "created_by"), ("invites", "used_by"), ("auth_events", "user_id")}
+    set_null = {
+        ("invites", "created_by"),
+        ("invites", "used_by"),
+        ("auth_events", "user_id"),
+        # ADR 0011 section 5: a QR row outlives its pre-session and its approving session
+        # unbound (it can then never complete), until the purge.
+        ("qr_logins", "presession_id"),
+        ("qr_logins", "approver_session_id"),
+    }
     for (table, column), (target, action) in rules.items():
         expected = "n" if (table, column) in set_null else "c"
         assert action == expected, (table, column)
-        assert target in {"users", "invites"}
+        assert target in {"users", "invites", "sessions", "pre_sessions"}
     assert set_null <= set(rules)
     assert ("pending_signups", "invite_id") in rules
     assert ("oauth_flows", "invite_id") in rules
     # #10 replaces #9's seam: a job and its events go with their owner (ADR 0005).
     assert rules[("jobs", "owner_id")] == ("users", "c")
     assert rules[("job_events", "owner_id")] == ("users", "c")
-    assert len(rules) == 14
+    # ADR 0011: a passkey goes with its account; a challenge with its account, its session or
+    # its pre-session.
+    assert rules[("webauthn_credentials", "user_id")] == ("users", "c")
+    assert rules[("webauthn_challenges", "user_id")] == ("users", "c")
+    assert rules[("webauthn_challenges", "session_id")] == ("sessions", "c")
+    assert rules[("webauthn_challenges", "presession_id")] == ("pre_sessions", "c")
+    # ADR 0011 section 5: a QR row goes with its approving account.
+    assert rules[("qr_logins", "approver_user_id")] == ("users", "c")
+    assert rules[("qr_logins", "presession_id")] == ("pre_sessions", "n")
+    assert rules[("qr_logins", "approver_session_id")] == ("sessions", "n")
+    assert len(rules) == 21
 
 
 def test_deleting_a_user_cascades_except_events_and_invites(admin: Connection) -> None:
@@ -152,6 +174,10 @@ def test_deleting_a_user_cascades_except_events_and_invites(admin: Connection) -
         "nonce, user_id, expires_at) VALUES ('f', 'google', 'link', 's', repeat('v', 64), 'n', "
         ":u, now())",
         "INSERT INTO auth_events (user_id, kind) VALUES (:u, 'sign_in')",
+        "INSERT INTO webauthn_credentials (user_id, credential_id, public_key, name) "
+        "VALUES (:u, 'c', 'k', 'Passkey')",
+        "INSERT INTO webauthn_challenges (challenge_hash, purpose, user_id, session_id, "
+        "expires_at) SELECT sha256('x'), 'register', :u, id, now() FROM sessions",
         "INSERT INTO invites (code_hash, created_by, used_by, expires_at) "
         "VALUES ('i', :u, :u, now())",
     ):
@@ -159,7 +185,7 @@ def test_deleting_a_user_cascades_except_events_and_invites(admin: Connection) -
     admin.execute(text("DELETE FROM users WHERE id = :u"), {"u": user})
     for table in (
         "sessions", "identities", "known_devices", "auth_tokens", "mfa_totp",
-        "mfa_recovery_codes", "oauth_flows",
+        "mfa_recovery_codes", "oauth_flows", "webauthn_credentials", "webauthn_challenges",
     ):  # fmt: skip
         count = admin.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()  # noqa: S608
         assert count == 0, table

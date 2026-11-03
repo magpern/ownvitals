@@ -92,11 +92,15 @@ class FakeWithings(SubscriptionMixin):
         page_size: int = 100,
         strict_hosts: bool = True,
         rate_limit: int | None = RATE_LIMIT_PER_MINUTE,
+        strict_callbacks: bool = True,
     ) -> None:
         self.clock: Clock = clock or ManualClock()
         self.page_size = page_size
         self.page_sizes: dict[str, int] = {}  # endpoint key -> page size
         self.strict_hosts = strict_hosts  # False: route by path only (one host, e2e)
+        # False: the e2e-only opt-out of the callback URL rules (``callback_url_problem``); the
+        # compose receiver is plain HTTP on a service name. The default refuses such a URL.
+        self.strict_callbacks = strict_callbacks
         self.apps: dict[str, App] = {}
         self.users: dict[int, FakeUser] = {}
         self.subscriptions: list[Subscription] = []
@@ -211,7 +215,7 @@ class FakeWithings(SubscriptionMixin):
         key = f"{request.path.strip('/')}:{p.get('action', '')}"
         self.request_count += 1
         count = self.endpoint_counts[key] = self.endpoint_counts.get(key, 0) + 1
-        masked = {k: ("***" if k in MASKED else v) for k, v in p.items()}
+        masked = {k: ("***" if k.lower() in MASKED else v) for k, v in p.items()}
         entry = LogEntry(
             self.request_count, key, masked, self.clock.now(),
             method=request.method, query_names=tuple(request.query_params()),

@@ -387,11 +387,36 @@ def test_only_in_pins_mail_the_worker_hostname_and_db_functions_psycopg() -> Non
         "socket": ("ownvitals.worker.loop",),
         "psycopg": runner,
         "psycopg.conninfo": runner,
+        # py_webauthn (#178): only the passkey ceremonies, which parse and verify in memory.
+        **dict.fromkeys(WEBAUTHN, ("ownvitals.auth.passkey_ceremonies",)),
     }
     assert TABLE["socket"].names == {"gethostname"}
     assert not TABLE["socket"].exceptions
     assert TABLE["smtplib"].names == {"SMTP", "SMTP_SSL"}
     assert TABLE["smtplib"].exceptions
+
+
+WEBAUTHN = (
+    "webauthn",
+    "webauthn.helpers.options_to_json",
+    "webauthn.helpers.parse_attestation_object",
+    "webauthn.helpers.cose",
+    "webauthn.helpers.structs",
+)
+
+
+def test_webauthn_is_allowed_in_the_ceremonies_module_only() -> None:
+    source = "from webauthn import verify_registration_response\nverify_registration_response"
+    assert scan_source(source, "ownvitals.auth.passkey_ceremonies") == []
+    for other in ("ownvitals.auth.passkeys", "ownvitals.auth.passkey_routes", WEB):
+        assert scan_source(source, other) != []
+    # Names outside the reviewed list are refused even there.
+    for refused in (
+        "from webauthn.helpers import validate_certificate_chain",
+        "import OpenSSL.SSL",
+        "from webauthn.helpers.structs import AuthenticationCredential",
+    ):
+        assert scan_source(refused, "ownvitals.auth.passkey_ceremonies") != [], refused
 
 
 def test_an_exemption_is_per_module_and_per_name() -> None:
