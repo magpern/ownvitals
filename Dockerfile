@@ -4,9 +4,21 @@
 # Dependabot's docker entry bumps the python image's tag and digest. The uv image moves by hand
 # with setup-uv (scripts/ci-uv-version.sh checks the tags agree), and so does the syntax line,
 # which Dependabot does not read (docs/dev/release.md).
-# The single-page-app build stage arrives with the end-to-end harness issue.
+# The single-page app is built in the `spa` stage; only its output reaches the runtime image.
 
 FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
+
+# --- single-page app ----------------------------------------------------------------------
+# Node is for this stage only (Node 24, the major CI and Dependabot track; Dependabot's docker
+# entry offers minor and patch bumps of the tag and digest). The lockfile layer is cached until
+# it changes. `npm run build` is `tsc -b && vite build`, so a type error fails the image build.
+FROM node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS spa
+
+WORKDIR /spa
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
 
 # --- runtime ----------------------------------------------------------------------------
 FROM python:3.12.16-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337 AS runtime
@@ -16,7 +28,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
-    OWNVITALS_ENVIRONMENT=prod
+    OWNVITALS_ENVIRONMENT=prod \
+    OWNVITALS_STATIC_DIR=/app/static
 # The image fails closed: prod (https public URL, no API docs, no password inside a database URL)
 # unless the stack sets OWNVITALS_ENVIRONMENT itself, as compose.yaml does for the local stack.
 
@@ -32,6 +45,8 @@ RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
 COPY backend/alembic.ini ./
 COPY backend/migrations ./migrations
 COPY backend/src ./src
+# The built single-page app, owned by root: web serves it, the app user cannot change it.
+COPY --from=spa /spa/dist ./static
 # The database functions and their runner script (compose's db-functions one-shot): installed from
 # the release image, never from the host, so a rollback re-installs the previous release's
 # functions (docs/dev/deploy.md, "Database functions"). 30-maint.sql, then 40-withings.sql, then

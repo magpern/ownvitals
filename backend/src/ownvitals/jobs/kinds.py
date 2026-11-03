@@ -1,9 +1,11 @@
 """The job kinds (ADR 0005 section 2): each maps to its input model and its handler.
 
 A kind is registered in a ``KindRegistry``; the worker claims only registered kinds and the jobs
-API accepts only registered kinds. #9 ships no real kind (``KINDS`` is empty, so the worker claims
-nothing and ``POST /api/jobs`` refuses every kind); the tests register one test-only kind. M1
-registers PLAN section 4.4's Withings kinds here.
+API accepts only registered kinds. ``KINDS`` is the API's registry and stays empty, so
+``POST /api/jobs`` refuses every kind and the web process imports no handler. The worker process
+claims from its own registry, ``ownvitals.worker.kinds.worker_registry()`` (#164): PLAN section
+4.4's Withings kinds. ``Worker`` and ``run_worker`` default to ``KINDS``, so a caller that passes
+no registry claims nothing. The tests register one test-only kind.
 
 ``run(job_run)`` is the kind's handler for one attempt. It reaches every checkpoint through
 ``job_run`` (``ownvitals.jobs.run``) and ends with ``Complete(store)``: ``store`` (optional) runs
@@ -75,5 +77,6 @@ class KindRegistry:
         return iter(list(self._kinds.values()))
 
 
-# The worker's and the API's registry. Empty until M1 registers the Withings kinds.
+# The API's registry, and the default of ``Worker``: empty. The worker process passes
+# ``ownvitals.worker.kinds.worker_registry()``.
 KINDS = KindRegistry()
