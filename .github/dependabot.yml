@@ -55,9 +55,9 @@ updates:
       major:
         update-types: [major]
 
-  # The Dockerfile's base images, and the e2e stack's fake-oidc image.
+  # The Dockerfile's base images, and the e2e stack's fake-oidc and fake-withings images.
   - package-ecosystem: docker
-    directories: [/, /e2e/fake-oidc]
+    directories: [/, /e2e/fake-oidc, /e2e/fake-withings]
     schedule:
       interval: weekly
     commit-message:

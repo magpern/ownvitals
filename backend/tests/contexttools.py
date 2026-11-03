@@ -58,7 +58,7 @@ READ_ONLY: Final = "25006"
 # Labelled filler, 32 bytes as the hash columns require. Not a digest of anything.
 SYNTHETIC_HASH: Final = b"\x5a" * 32
 TABLE_NAME: Final = re.compile(r"[a-z][a-z0-9_]{0,62}")
-PARTITIONED: Final = ("sleep_series", "intraday")
+PARTITIONED: Final = ("sleep_series", "intraday", "observations")
 CONTEXTS: Final = ("web", "worker", "scheduler", "webhook", "maintenance", "admin")
 LEASE_SECONDS: Final = 60
 
@@ -113,6 +113,31 @@ ROWS: Final[Mapping[str, str]] = {
     "RETURNING id",
     "intraday": "INSERT INTO public.intraday (owner_id, ts, source_tz, connection_id, metric, "
     "value_raw, unit) VALUES (:owner, :ts, 'Etc/UTC', :connection, :tag, 0, 0) RETURNING id",
+    # The derived tables (#181).
+    "observations": "INSERT INTO public.observations (owner_id, metric_key, ts, source_ts, "
+    "source_tz, value, source_value_raw, source_unit, conversion, algo_version, input_revision, "
+    "input_fingerprint) VALUES (:owner, :tag, :ts, :ts, 'Etc/UTC', 0, 0, 0, 'synthetic', "
+    "'synthetic/1', 0, :hash) RETURNING id",
+    "metric_daily": "INSERT INTO public.metric_daily (owner_id, metric_key, day, method, value, "
+    "mean, min, max, mad, n, source_groups, algo_version, input_revision, input_fingerprint) "
+    "VALUES (:owner, :tag, :day, 'median', 0, 0, 0, 0, 0, 1, ARRAY[:n]::bigint[], "
+    "'synthetic/1', 0, :hash) RETURNING id",
+    "findings": "INSERT INTO public.findings (owner_id, rule_id, rule_version, tier, severity, "
+    "confidence, origin, subject, window_start, window_end, input_revision, input_fingerprint) "
+    "VALUES (:owner, 'C1', '1', 'trend', 'attention', 'low', 'live', :tag, :day, :day, 0, "
+    ":hash) RETURNING id",
+    "scores": "INSERT INTO public.scores (owner_id, kind, day, value, components, algo_version, "
+    "input_revision, input_fingerprint) VALUES (:owner, 'body_path:' || :tag, :day, 0, "
+    "CAST('{\"status\": \"computed\"}' AS jsonb), 'synthetic/1', 0, :hash) RETURNING id",
+    "user_profiles": "INSERT INTO public.user_profiles (owner_id) VALUES (:owner) RETURNING id",
+}
+# Tables with one row per owner (a unique key on ``owner_id`` alone): the own-insert control
+# first removes the context's own row, in the same rolled-back savepoint, or the planted row
+# would make it fail on the key. The foreign insert stays a plain insert in its minimal shape:
+# with the policy it is refused (42501) before the key is checked; with a relaxed ``WITH CHECK``
+# it reaches the key (23505) or goes through, and either is not ``REFUSED``.
+CLEAR_BEFORE_OWN_INSERT: Final[Mapping[str, str]] = {
+    "user_profiles": "DELETE FROM public.user_profiles WHERE owner_id = :owner",
 }
 _PARAM = re.compile(r"(?<![:\w]):([a-z_]+)")
 _WITHINGS_CONNECTION = text(
@@ -288,12 +313,17 @@ class _Undo(Exception):
 Outcome = int | str  # rows affected, or the SQLSTATE that refused it
 
 
-async def attempt(db: AsyncSession, statement: str, params: Mapping[str, Any]) -> Outcome:
+async def attempt(
+    db: AsyncSession, statement: str, params: Mapping[str, Any], *, before: str | None = None
+) -> Outcome:
     """Run one write in a savepoint that is always rolled back: the rows it touched, or the
-    SQLSTATE of the error that refused it."""
+    SQLSTATE of the error that refused it. ``before`` runs first in the same savepoint (its
+    rows are not counted)."""
     rows = 0
     try:
         async with db.begin_nested():
+            if before is not None:
+                await db.execute(text(before), dict(params))
             result = await db.execute(text(statement), dict(params))
             rows = int(result.rowcount)  # pyright: ignore[reportAttributeAccessIssue]
             raise _Undo
@@ -365,7 +395,9 @@ async def probe(
             "blind_update": await attempt(db, update, {"owner": me.user}),
             "blind_delete": await attempt(db, f"DELETE FROM public.{name}", {}),  # noqa: S608
             "truncate": await attempt(db, f"TRUNCATE public.{name}", {}),
-            "own_insert": await attempt(db, insert, bind(insert, me.params(2))),
+            "own_insert": await attempt(
+                db, insert, bind(insert, me.params(2)), before=CLEAR_BEFORE_OWN_INSERT.get(table)
+            ),
         }
     return report
 

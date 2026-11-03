@@ -4,6 +4,8 @@
 #   secrets/oauth_google_client_secret   a random value of this run, not a real Google secret
 #   e2e/.certs/oidc.{key,pem}            the certificate fake-oidc serves for Google's two
 #                                        back-channel host names, from a throwaway CA
+#   e2e/.certs/withings.{key,pem}       the same for fake-withings: wbsapi.withings.net and
+#                                        account.withings.com, from the same CA
 #   e2e/.certs/cacert.pem                web's trust bundle (certifi's, read from the image
 #                                        itself) plus that CA: web verifies TLS against certifi
 #                                        only, so the CA has to be in its own bundle
@@ -36,13 +38,22 @@ openssl x509 -req -in "$certs/oidc.csr" -CA "$certs/ca.pem" -CAkey "$certs/ca.ke
   -CAcreateserial -days 2 -sha256 -extfile "$certs/oidc.ext" -out "$certs/oidc.pem" 2> /dev/null
 chmod 644 "$certs/oidc.key" "$certs/oidc.pem"
 
+openssl req -newkey rsa:2048 -nodes -sha256 \
+  -subj "/CN=wbsapi.withings.net" \
+  -keyout "$certs/withings.key" -out "$certs/withings.csr" 2> /dev/null
+printf 'subjectAltName=DNS:wbsapi.withings.net,DNS:account.withings.com\nbasicConstraints=CA:FALSE\n' \
+  > "$certs/withings.ext"
+openssl x509 -req -in "$certs/withings.csr" -CA "$certs/ca.pem" -CAkey "$certs/ca.key" \
+  -CAcreateserial -days 2 -sha256 -extfile "$certs/withings.ext" -out "$certs/withings.pem" 2> /dev/null
+chmod 644 "$certs/withings.key" "$certs/withings.pem"
+
 # certifi's bundle as the image has it, then the CA. The path is asked of the image, not guessed.
 bundle="$(docker run --rm --entrypoint python "$image" -c 'import certifi; print(certifi.where())')"
 docker run --rm --entrypoint cat "$image" "$bundle" > "$certs/cacert.pem"
 printf '\n' >> "$certs/cacert.pem"
 cat "$certs/ca.pem" >> "$certs/cacert.pem"
 chmod 644 "$certs/cacert.pem"
-rm -f "$certs/ca.key" "$certs/ca.srl" "$certs/oidc.csr" "$certs/oidc.ext"
+rm -f "$certs/ca.key" "$certs/ca.srl" "$certs"/*.csr "$certs"/*.ext
 
 # compose.e2e.yaml mounts the bundle over this path; fail early if the image moved it.
 expected="/app/.venv/lib/python3.12/site-packages/certifi/cacert.pem"
