@@ -21,11 +21,12 @@ Each has its own allowlist, of packages (the package and everything under it) an
   exact module ``ownvitals.crypto.keks`` (#8: the key ring records and compares its
   ``connection_keks`` check rows at startup, before any user is known, ADR 0004 section 3), and
   the exact module ``ownvitals.flags.routes`` (#12: the public settings read the stored banner
-  and sign-up mode, a system table, without a user), and the exact module
+  and sign-up mode, a system table, without a user), the exact module
   ``ownvitals.notify.outbox`` (#194: web's outbox sender claims and marks rows only through the
   outbox's ``SECURITY DEFINER`` functions and holds no ``UserContext``, ADR 0007 section 3; the
-  session itself reaches no owned row). The admin area opens neither: it runs on
-  its own audited maint session (``ownvitals.admin.db``).
+  session itself reaches no owned row), and the exact module ``ownvitals.ai.budget`` (#205: the
+  reaper's ``ai_settle_lost``, a definer function returning a count). The admin area opens
+  neither: it runs on its own audited maint session (``ownvitals.admin.db``).
 
 A later package joins a list in its own PR, with its reason, and the tests in
 ``test_session_guard.py`` that pin both lists change with it. Anything else fails
@@ -67,6 +68,9 @@ KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
 FLAGS_SYSTEM_SESSION = ("ownvitals.flags.routes",)
 # The outbox's claim and mark (#194): calls of its definer functions, without a user.
 NOTIFY_SYSTEM_SESSION = ("ownvitals.notify.outbox",)
+# The AI reaper (#205): ``ai_settle_lost``, a definer function that returns a count; the session
+# itself reaches no owned row.
+AI_SYSTEM_SESSION = ("ownvitals.ai.budget",)
 
 USER_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
@@ -79,6 +83,7 @@ SYSTEM_SESSION = Allowlist(
         *KEYS_SYSTEM_SESSION,
         *FLAGS_SYSTEM_SESSION,
         *NOTIFY_SYSTEM_SESSION,
+        *AI_SYSTEM_SESSION,
     ),
 )
 # Each guarded name and who may use it; the private helper behind both is the session module's

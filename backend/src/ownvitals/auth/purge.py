@@ -206,7 +206,8 @@ async def finish_disconnect(
     budget: RetryBudget | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> DisconnectResult:
-    """Revoke and clear credentials, then optionally remove imported rows.
+    """Revoke and clear credentials, then optionally remove imported rows and the rows derived
+    from them (``connections.purge.IMPORTED``).
 
     The option that deletes imported data also deletes this connection row. A plain
     disconnect keeps the row.

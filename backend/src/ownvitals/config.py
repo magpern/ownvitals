@@ -230,6 +230,12 @@ class Settings(BaseSettings):
     # model host on the worker's egress allowlist.
     experimental_findings: bool = False
     ai_insights: bool = False
+    # The AI cost cap (D11, ADR 0014 section 7), integer micro-USD per calendar month in UTC: per
+    # user, and for all users together (the owner's total exposure). Both 0 until the owner sets
+    # them (ADR 0014 open question 2): no request can be reserved. These settings are the
+    # authoritative caps; the worker passes them on every reservation and nothing stores them.
+    ai_user_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
+    ai_global_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
 
     @classmethod
     def settings_customise_sources(
@@ -307,6 +313,13 @@ class Settings(BaseSettings):
         ):
             raise ValueError("public_base_url must be an http(s) origin without a path")
         return public_origin(value)
+
+    @model_validator(mode="after")
+    def _ai_user_cap_within_global(self) -> "Settings":
+        # ADR 0014 section 7: settings refuse a per-user cap above the global one.
+        if self.ai_user_monthly_cap_microusd > self.ai_global_monthly_cap_microusd:
+            raise ValueError("ai_user_monthly_cap_microusd must not exceed the global cap")
+        return self
 
     @model_validator(mode="after")
     def _prod_needs_https(self) -> "Settings":
