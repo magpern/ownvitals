@@ -270,7 +270,9 @@ jobs:
       # compose db-functions service runs it: after the migrations, as the superuser, through its
       # runner (python -m ownvitals.db.install_functions, the password in a PGPASSFILE only), in
       # one transaction, twice (the second run proves it is idempotent). 40-withings.sql is in
-      # that same invocation, after 20-queue.sql, so the second run sees its three functions.
+      # that same invocation, after 20-queue.sql, so the second run sees its three functions, and
+      # so is the AI cost cap's 50-ai.sql (ADR 0014 section 7), whose four functions are pinned
+      # in the same file.
       # The digests the worker checks must then match what this Postgres image renders (a stale
       # queue_digests.py fails here). The queue and those functions stay installed: guard 2 and
       # web startup see them through the migrated harness, which drops them only so a downgrade
@@ -295,7 +297,8 @@ jobs:
               uv run python -m ownvitals.db.install_functions \
               "host=127.0.0.1 port=5432 dbname=ownvitals user=postgres" \
               ../docker/postgres/queue/20-queue.sql \
-              ../docker/postgres/withings/40-withings.sql
+              ../docker/postgres/withings/40-withings.sql \
+              ../docker/postgres/ai/50-ai.sql
           done
           uv run python tests/queue_digests.py --check
 

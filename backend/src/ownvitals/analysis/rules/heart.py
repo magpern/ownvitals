@@ -27,8 +27,8 @@ from ownvitals.analysis.rules.core import (
     lowest,
     make_finding,
     require_value,
-    trend_rule,
 )
+from ownvitals.analysis.rules.trendrule import trend_rule
 
 KEY = "heart_pulse"
 C1_MARGIN_BPM = 10.0  # "10 bpm or more above your usual level" (a product parameter)

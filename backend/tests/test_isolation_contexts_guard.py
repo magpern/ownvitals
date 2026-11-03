@@ -147,7 +147,17 @@ def test_every_context_has_a_module_that_probes_the_catalog() -> None:
 # The mutation matrix. Representative owned tables: an ordinary health table, a child whose
 # foreign key points at another owned table, a partitioned parent, the parent every health row
 # points at, and the append-only events table (restrictive no-update and no-delete policies).
-MATRIX_TABLES = ("workouts", "measures", "sleep_series", "connections", "job_events")
+MATRIX_TABLES = (
+    "workouts",
+    "measures",
+    "sleep_series",
+    "connections",
+    "job_events",
+    # #181: a partitioned derived table, one with a partial unique index, one row per owner.
+    "observations",
+    "findings",
+    "user_profiles",
+)
 OWN = "owner_id = NULLIF(current_setting('app.user_id', true), '')::uuid"
 # command -> relaxations: every valid shape of an extra permissive policy wider than the owner
 # (USING true, WITH CHECK true, USING own WITH CHECK true, allow-all). SELECT and DELETE take

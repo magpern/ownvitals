@@ -31,8 +31,10 @@ from ownvitals.auth.tables import (
     known_devices,
     oauth_flows,
     pending_signups,
+    pre_sessions,
     rate_limits,
     sessions,
+    webauthn_challenges,
 )
 from ownvitals.config import Settings
 from ownvitals.connections.purge import purge_connection, purge_webhook_events
@@ -103,6 +105,7 @@ async def purge_expired(
       second factor ten minutes after their latest proof (a ``reauth_at`` or ``stepup_at``
       after now is not a proof); their ``ip`` is cleared after 30 days;
     - ``pending_signups``, ``auth_tokens`` (also used ones), ``oauth_flows``: expired;
+    - ``pre_sessions`` and ``webauthn_challenges``: expired (ADR 0011 section 4);
     - ``rate_limits``: windows over two hours old;
     - ``invites``: used or expired more than 30 days ago;
     - ``known_devices``: unused for 90 days;
@@ -129,6 +132,10 @@ async def purge_expired(
             or_(auth_tokens.c.expires_at <= now, auth_tokens.c.used_at.is_not(None))
         ),
         "oauth_flows": delete(oauth_flows).where(oauth_flows.c.expires_at <= now),
+        "webauthn_challenges": delete(webauthn_challenges).where(
+            webauthn_challenges.c.expires_at <= now
+        ),
+        "pre_sessions": delete(pre_sessions).where(pre_sessions.c.expires_at <= now),
         "rate_limits": delete(rate_limits).where(
             rate_limits.c.window_start < now - RATE_LIMIT_KEEP
         ),
@@ -206,7 +213,8 @@ async def finish_disconnect(
     budget: RetryBudget | None = None,
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> DisconnectResult:
-    """Revoke and clear credentials, then optionally remove imported rows.
+    """Revoke and clear credentials, then optionally remove imported rows and the rows derived
+    from them (``connections.purge.IMPORTED``).
 
     The option that deletes imported data also deletes this connection row. A plain
     disconnect keeps the row.

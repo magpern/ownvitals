@@ -22,6 +22,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.36",
     "tzdata>=2025.2",  # IANA zones for source_tz day assignment; not the OS database
     "uvicorn>=0.34",  # no extras: uvloop bypasses the egress hook (ADR 0009); h11 serves HTTP
+    "webauthn==3.0.1",  # passkeys (ADR 0011 section 1); BSD-3-Clause; only ownvitals.auth imports it
     "zstandard>=0.23.0",  # ECG signal frames (ADR 0006 section 1); Python 3.12 has no zstd
 ]
 

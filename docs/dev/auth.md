@@ -105,7 +105,7 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 
 | Action | Dependency |
 |---|---|
-| Connect, reconnect, disconnect Withings (#13); delete the account; change or set the password; change the email; link or unlink Google | `require_sensitive` |
+| Connect, reconnect, disconnect Withings (#13); delete the account; change or set the password; change the email; link or unlink Google; add or remove a passkey (ADR 0011) | `require_sensitive` |
 | Replace or remove (reset) the TOTP; new recovery codes; log out everywhere | `require_stepup` |
 | Admin writes (#12) | `require_admin_stepup` |
 | First enrolment | the sign-in itself (no factor to step up with) |
@@ -122,6 +122,15 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   then the code), then tries again. `pages/SecurityPage.tsx` is the Security tab's "Where you're
   signed in" with "Sign out everywhere…".
 
+## Passkeys
+
+Passkeys (ADR 0011, #178) are in [auth-passkeys.md](auth-passkeys.md). A passkey replaces the
+password at sign-in, never the TOTP; a passkey re-authentication counts as recent
+authentication, never as a step-up. `admin mfa-reset` also removes every passkey, unlinks every
+Google identity and clears the password (ADR 0011 §3 amendment, amending ADR 0003 §2): after a
+reset, the only way in is the password set through the mailed link. `keys wipe` removes passkeys
+and Google identities too and keeps the password.
+
 ## Mail locally
 
 The compose stack runs mailpit (`axllent/mailpit`, pinned by digest). Web sends the account
@@ -136,7 +145,7 @@ These run as the app role, after the database-role check, in the web image:
 python -m ownvitals invite create --expires 7d    # prints one code, once
 python -m ownvitals admin grant someone@example.com
 python -m ownvitals admin revoke someone@example.com
-python -m ownvitals admin mfa-reset someone@example.com   # mails a reset link
+python -m ownvitals admin mfa-reset someone@example.com   # clears TOTP, passkeys, Google, password; mails a reset link
 ```
 
 A refusal (an unknown address, a privileged role) exits 1 with a message that names no

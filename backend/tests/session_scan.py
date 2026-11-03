@@ -11,7 +11,10 @@ Each has its own allowlist, of packages (the package and everything under it) an
   it), ``ownvitals.jobs.service`` (the jobs API's own writes for the signed-in user, web only) and
   ``ownvitals.jobs.progress`` (the event stream's owner-scoped reads, web only). The exact
   module ``ownvitals.ecg_validate`` (#47) reads one named owner's ECG rows for the operator
-  command; the pure ``ownvitals.ecg`` library stays outside the allowlist. **The rest of
+  command; the pure ``ownvitals.ecg`` library stays outside the allowlist. The exact module
+  ``ownvitals.views.findings_read`` (#190) is ADR 0006 section 11's one read function for findings
+  and ECG estimates: the findings API, notifications, export, doctor PDF and AI context read
+  through it, so none of them opens a session of its own for those rows. **The rest of
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
   through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
@@ -21,8 +24,12 @@ Each has its own allowlist, of packages (the package and everything under it) an
   exact module ``ownvitals.crypto.keks`` (#8: the key ring records and compares its
   ``connection_keks`` check rows at startup, before any user is known, ADR 0004 section 3), and
   the exact module ``ownvitals.flags.routes`` (#12: the public settings read the stored banner
-  and sign-up mode, a system table, without a user). The admin area opens neither: it runs on
-  its own audited maint session (``ownvitals.admin.db``).
+  and sign-up mode, a system table, without a user), the exact module
+  ``ownvitals.notify.outbox`` (#194: web's outbox sender claims and marks rows only through the
+  outbox's ``SECURITY DEFINER`` functions and holds no ``UserContext``, ADR 0007 section 3; the
+  session itself reaches no owned row), and the exact module ``ownvitals.ai.budget`` (#205: the
+  reaper's ``ai_settle_lost``, a definer function returning a count). The admin area opens
+  neither: it runs on its own audited maint session (``ownvitals.admin.db``).
 
 A later package joins a list in its own PR, with its reason, and the tests in
 ``test_session_guard.py`` that pin both lists change with it. Anything else fails
@@ -57,19 +64,32 @@ class Allowlist:
 JOBS_USER_SESSION = ("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvitals.jobs.progress")
 # The owner ECG report (#47): one module, not the pure ECG library.
 ECG_USER_SESSION = ("ownvitals.ecg_validate",)
+# The one findings read function (#190, ADR 0006 section 11): not the routes, not the package.
+VIEWS_USER_SESSION = ("ownvitals.views.findings_read",)
 JOBS_SYSTEM_SESSION = ("ownvitals.jobs.queue",)
 # The key ring's startup check (#8), the one module of ``ownvitals.crypto`` that may.
 KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
 # The public settings (#12): the stored banner and sign-up mode, read without a user.
 FLAGS_SYSTEM_SESSION = ("ownvitals.flags.routes",)
+# The outbox's claim and mark (#194): calls of its definer functions, without a user.
+NOTIFY_SYSTEM_SESSION = ("ownvitals.notify.outbox",)
+# The AI reaper (#205): ``ai_settle_lost``, a definer function that returns a count; the session
+# itself reaches no owned row.
+AI_SYSTEM_SESSION = ("ownvitals.ai.budget",)
 
 USER_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
-    modules=(*JOBS_USER_SESSION, *ECG_USER_SESSION),
+    modules=(*JOBS_USER_SESSION, *ECG_USER_SESSION, *VIEWS_USER_SESSION),
 )
 SYSTEM_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth"),
-    modules=(*JOBS_SYSTEM_SESSION, *KEYS_SYSTEM_SESSION, *FLAGS_SYSTEM_SESSION),
+    modules=(
+        *JOBS_SYSTEM_SESSION,
+        *KEYS_SYSTEM_SESSION,
+        *FLAGS_SYSTEM_SESSION,
+        *NOTIFY_SYSTEM_SESSION,
+        *AI_SYSTEM_SESSION,
+    ),
 )
 # Each guarded name and who may use it; the private helper behind both is the session module's
 # own (only ``ownvitals.db`` may name it).

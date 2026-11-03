@@ -110,6 +110,7 @@ NOT_SECRET_COLUMNS: dict[tuple[str, str], str] = {
     "webhook secrets; the secret itself is never stored",
     ("observations", "metric_key"): "PLAN section 5: the name of a metric",
     ("metric_daily", "metric_key"): "PLAN section 5: the name of a metric",
+    ("findings", "metric_keys"): "PLAN section 5: the names of the metrics a finding is about",
 }
 
 

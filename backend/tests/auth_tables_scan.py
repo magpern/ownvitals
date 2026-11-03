@@ -141,6 +141,9 @@ TABLE_NAMES = (
     "mfa_recovery_codes",
     "rate_limits",
     "auth_events",
+    "pre_sessions",
+    "webauthn_credentials",
+    "webauthn_challenges",
 )
 SUBMODULES = frozenset(
     {
@@ -165,6 +168,10 @@ SUBMODULES = frozenset(
         "notifier",
         "operator",
         "owners",
+        "passkey_ceremonies",
+        "passkey_routes",
+        "passkey_signin_routes",
+        "passkeys",
         "oauth_client",
         "oauth_handoff",
         "oauth_idtoken",
@@ -173,6 +180,7 @@ SUBMODULES = frozenset(
         "oauth_routes",
         "oauth_store",
         "passwords",
+        "presession",
         "purge",
         "ratelimit",
         "reset_routes",
