@@ -54,6 +54,17 @@ async def seed(env: Env) -> None:
         "SELECT id, 'd2', now() - interval '89 days' FROM users",
         "INSERT INTO auth_events (kind, at) VALUES ('old', now() - interval '31 days')",
         "INSERT INTO auth_events (kind, at) VALUES ('new', now() - interval '29 days')",
+        # ADR 0011 section 4: expired pre-sessions and challenges go.
+        "INSERT INTO pre_sessions (token_hash, expires_at) "
+        "VALUES (sha256('p1'), now() - interval '1 second')",
+        "INSERT INTO pre_sessions (token_hash, expires_at) "
+        "VALUES (sha256('p2'), now() + interval '5 minutes')",
+        "INSERT INTO webauthn_challenges (challenge_hash, purpose, presession_id, expires_at) "
+        "SELECT sha256('c1'), 'signin', id, now() - interval '1 second' FROM pre_sessions "
+        "WHERE token_hash = sha256('p2')",
+        "INSERT INTO webauthn_challenges (challenge_hash, purpose, presession_id, expires_at) "
+        "SELECT sha256('c2'), 'signin', id, now() + interval '5 minutes' FROM pre_sessions "
+        "WHERE token_hash = sha256('p2')",
     ]
     for statement in sql:
         await env.run(statement)
@@ -76,6 +87,8 @@ async def test_purge_deletes_what_is_expired_or_used_and_keeps_the_rest(env: Env
         "pending_signups": 1,
         "auth_tokens": 2,
         "oauth_flows": 1,
+        "webauthn_challenges": 1,
+        "pre_sessions": 1,
         "rate_limits": 1,
         "invites": 2,
         "known_devices": 1,
@@ -92,6 +105,8 @@ async def test_purge_deletes_what_is_expired_or_used_and_keeps_the_rest(env: Env
     assert await env.scalar("SELECT count(*) FROM known_devices") == 1
     assert await env.scalar("SELECT count(*) FROM rate_limits") == 1
     assert await env.scalar("SELECT count(*) FROM users") == 1  # users are never purged
+    assert await env.scalar("SELECT count(*) FROM pre_sessions") == 1
+    assert await env.scalar("SELECT challenge_hash = sha256('c2') FROM webauthn_challenges")
 
 
 async def test_purge_twice_is_a_no_op(env: Env) -> None:

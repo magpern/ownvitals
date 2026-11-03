@@ -2,13 +2,16 @@
 
 Only ``ownvitals.auth`` (and migrations and tests) may import this module or name these tables
 in SQL; guard 8 (``tests/test_auth_tables_guard.py``) fails the build otherwise. The migration
-``0005_auth`` creates the same tables; ``tests/test_auth_schema.py`` keeps the two in step.
+``0005_auth`` creates the first twelve tables and ``0013_passkeys`` the passkey tables (ADR 0011
+sections 2 and 4); ``tests/test_auth_schema.py`` keeps the migrations and this module in step.
 """
 
 from typing import Any
 
 from sqlalchemy import (
+    ARRAY,
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -63,6 +66,8 @@ users = Table(
     Column("role", Text, nullable=False, server_default="user"),
     _ts("disabled_at"),
     _ts("created_at", nullable=False, default_now=True),
+    # The random WebAuthn user handle (ADR 0011 section 1), set at the first registration.
+    Column("webauthn_handle", LargeBinary, unique=True),
     CheckConstraint("role IN ('user', 'admin')", name="users_role_check"),
 )
 
@@ -236,6 +241,52 @@ auth_events = Table(
     _ts("at", nullable=False, default_now=True),
     Column("detail", JSONB),
     Index("auth_events_at_idx", "at"),
+)
+
+# Passkeys (ADR 0011 sections 1, 2 and 4; migration 0013_passkeys).
+pre_sessions = Table(
+    "pre_sessions",
+    metadata,
+    _id(),
+    Column("token_hash", LargeBinary, nullable=False, unique=True),
+    _ts("created_at", nullable=False, default_now=True),
+    _ts("expires_at", nullable=False),
+    Index("pre_sessions_expires_at_idx", "expires_at"),
+)
+
+webauthn_credentials = Table(
+    "webauthn_credentials",
+    metadata,
+    _id(),
+    _user_fk(),
+    Column("credential_id", LargeBinary, nullable=False, unique=True),
+    Column("public_key", LargeBinary, nullable=False),
+    Column("sign_count", BigInteger, nullable=False, server_default="0"),
+    Column("transports", ARRAY(Text), nullable=False, server_default="{}"),
+    Column("aaguid", UUID(as_uuid=True)),
+    Column("backup_eligible", Boolean, nullable=False, server_default="false"),
+    Column("backup_state", Boolean, nullable=False, server_default="false"),
+    Column("name", Text, nullable=False),
+    _ts("created_at", nullable=False, default_now=True),
+    _ts("last_used_at"),
+    _ts("suspended_at"),
+    Index("webauthn_credentials_user_id_idx", "user_id"),
+)
+
+webauthn_challenges = Table(
+    "webauthn_challenges",
+    metadata,
+    _id(),
+    Column("challenge_hash", LargeBinary, nullable=False, unique=True),
+    Column("purpose", Text, nullable=False),
+    _user_fk(nullable=True),
+    Column("session_id", UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE")),
+    Column("presession_id", UUID(as_uuid=True), ForeignKey("pre_sessions.id", ondelete="CASCADE")),
+    _ts("created_at", nullable=False, default_now=True),
+    _ts("expires_at", nullable=False),
+    CheckConstraint(
+        "purpose IN ('register', 'signin', 'reauth')", name="webauthn_challenges_purpose"
+    ),
 )
 
 TABLE_NAMES = tuple(metadata.tables)

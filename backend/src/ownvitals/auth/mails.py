@@ -1,6 +1,9 @@
 """The texts of the mails we send (ADR 0003 section 5). Plain text; links come from
 ``OWNVITALS_PUBLIC_BASE_URL`` with the token in the URL fragment, never from the Host header."""
 
+from collections.abc import Sequence
+from datetime import datetime
+
 from ownvitals.config import Settings
 from ownvitals.mail import MailMessage
 
@@ -31,13 +34,39 @@ def account_exists(settings: Settings, to: str) -> MailMessage:
     )
 
 
-def password_reset(settings: Settings, to: str, token: str) -> MailMessage:
+def password_reset(
+    settings: Settings,
+    to: str,
+    token: str,
+    *,
+    passkeys: Sequence[tuple[str, datetime]] = (),
+    after_mfa_reset: bool = False,
+) -> MailMessage:
+    """The reset link. A plain reset lists the account's passkeys, which it keeps (ADR 0011
+    section 3); after ``admin mfa-reset`` the mail says what the reset removed."""
+    intro = ""
+    if after_mfa_reset:
+        intro = (
+            "The operator reset the two-factor authentication of your ownvitals account. Your "
+            "authenticator app, recovery codes and passkeys were removed, Google sign-in was "
+            "unlinked and you were signed out everywhere. Choose a new password, then set up "
+            "two-factor authentication again.\n\n"
+        )
+    listed = ""
+    if passkeys and not after_mfa_reset:
+        names = "".join(f"- {name} (added {created:%Y-%m-%d})\n" for name, created in passkeys)
+        listed = (
+            "\nResetting the password keeps these passkeys on your account:\n"
+            f"{names}"
+            f"Review them on the Security page: {settings.public_base_url}/settings/security\n"
+        )
     return MailMessage(
         to,
         "Reset your ownvitals password",
-        "To choose a new password, open this link (valid for 30 minutes):\n"
+        f"{intro}To choose a new password, open this link (valid for 30 minutes):\n"
         f"{link(settings, '/reset', token)}\n\n"
-        "Resetting signs you out everywhere. If this wasn't you, ignore this mail.\n",
+        "Resetting signs you out everywhere. If this wasn't you, ignore this mail.\n"
+        f"{listed}",
     )
 
 
@@ -109,4 +138,24 @@ def identity_linked_notice(to: str, provider: str) -> MailMessage:
         f"{provider.title()} was linked to your ownvitals account as a way to sign in.\n"
         "If this wasn't you, sign in, remove it from your account page and change your "
         "password.\n",
+    )
+
+
+def passkey_added_notice(to: str, name: str) -> MailMessage:
+    return MailMessage(
+        to,
+        "A passkey was added to your ownvitals account",
+        f'A passkey named "{name}" was added to your ownvitals account as a way to sign in.\n'
+        "If this wasn't you, sign in, remove it on the Security page and change your password.\n",
+    )
+
+
+def passkey_suspended_notice(to: str, name: str) -> MailMessage:
+    return MailMessage(
+        to,
+        "A passkey on your ownvitals account was refused and suspended",
+        f'A sign-in with your passkey "{name}" was refused and the passkey was suspended: its '
+        "counter went backwards, which can mean it was copied.\n"
+        "It can't be used any more. Remove it on the Security page and add it again. If you "
+        "didn't just try to sign in with it, change your password.\n",
     )

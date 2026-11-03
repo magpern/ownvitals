@@ -105,7 +105,7 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 
 | Action | Dependency |
 |---|---|
-| Connect, reconnect, disconnect Withings (#13); delete the account; change or set the password; change the email; link or unlink Google | `require_sensitive` |
+| Connect, reconnect, disconnect Withings (#13); delete the account; change or set the password; change the email; link or unlink Google; add or remove a passkey (ADR 0011) | `require_sensitive` |
 | Replace or remove (reset) the TOTP; new recovery codes; log out everywhere | `require_stepup` |
 | Admin writes (#12) | `require_admin_stepup` |
 | First enrolment | the sign-in itself (no factor to step up with) |
@@ -121,6 +121,13 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   password first when re-authentication is wanted, "Use Google instead" when Google is linked,
   then the code), then tries again. `pages/SecurityPage.tsx` is the Security tab's "Where you're
   signed in" with "Sign out everywhere…".
+
+## Passkeys
+
+Passkeys (ADR 0011, #178) are in [auth-passkeys.md](auth-passkeys.md). A passkey replaces the
+password at sign-in, never the TOTP; a passkey re-authentication counts as recent
+authentication, never as a step-up. `admin mfa-reset` also removes every passkey and every
+linked Google identity.
 
 ## Mail locally
 

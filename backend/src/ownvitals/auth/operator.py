@@ -17,6 +17,7 @@ from ownvitals.auth import accounts
 from ownvitals.auth.devices import forget_devices
 from ownvitals.auth.events import record_event
 from ownvitals.auth.hooks import register_reset_link_sender, send_reset_link
+from ownvitals.auth.passkeys import lock_user, remove_all_passkeys
 from ownvitals.auth.reset_routes import make_reset_link_sender
 from ownvitals.auth.sessions import revoke_user_sessions
 from ownvitals.auth.tables import auth_events, mfa_recovery_codes, mfa_totp, users
@@ -45,13 +46,16 @@ async def revoke_admin(factory: Factory, settings: Settings, email: str) -> bool
 
 
 async def mfa_reset(factory: Factory, settings: Settings, email: str) -> bool:
-    """Remove the user's TOTP, recovery codes and known devices, revoke every session and write
-    ``mfa_reset`` (one transaction), then mail a reset link. Returns whether it was mailed;
+    """Remove the user's TOTP, recovery codes, passkeys, Google identities and known devices,
+    revoke every session and write ``mfa_reset`` (one transaction), then mail a reset link that
+    says so. Returns whether it was mailed;
     raises ``AccountError`` for an unknown address and ``MailError`` when the mail fails (the
     reset itself stays done)."""
     async with system_session(factory) as db:
         user = await accounts.reset_mfa(db, email)
-    register_reset_link_sender(make_reset_link_sender(settings, factory, Mailer(settings)))
+    register_reset_link_sender(
+        make_reset_link_sender(settings, factory, Mailer(settings), after_mfa_reset=True)
+    )
     try:
         return await send_reset_link(user.id, user.email)
     finally:
@@ -113,11 +117,14 @@ async def app_sessions(factory: Factory, role: str) -> int:
 async def wipe_user(
     db: AsyncSession, user_id: UUID, providers: tuple[str, ...]
 ) -> WipeResult | None:
-    """Reset the authenticator the way ``mfa-reset`` does, and record ``connections_wiped``.
+    """Reset the authenticator as ``mfa-reset`` does (TOTP, recovery codes and every passkey,
+    ADR 0011 section 3; Google identities stay, see ``docs/dev/auth-passkeys.md``), and record
+    ``connections_wiped``.
 
     ``None`` when there is no connection row and no authenticator: nothing was removed.
     ``db`` is the caller's transaction. The mail is sent after that transaction commits.
     """
+    await lock_user(db, user_id)  # before the removals, as reset_mfa (accounts)
     had_totp = (
         await db.execute(select(mfa_totp.c.id).where(mfa_totp.c.user_id == user_id))
     ).first()
@@ -129,6 +136,7 @@ async def wipe_user(
         )
     ).first()
     await db.execute(delete(mfa_recovery_codes).where(mfa_recovery_codes.c.user_id == user_id))
+    await remove_all_passkeys(db, user_id)
     await revoke_user_sessions(db, user_id)
     await forget_devices(db, user_id)
     totp_reset = removed is not None

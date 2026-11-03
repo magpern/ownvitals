@@ -23,6 +23,7 @@ from ownvitals.auth.devices import forget_devices
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import EmailAddress, factory, mailer, reserve
 from ownvitals.auth.hooks import ResetLinkSender
+from ownvitals.auth.passkeys import passkeys_for_mail
 from ownvitals.auth.passwords import PasswordRuleError, normalize_password
 from ownvitals.auth.ratelimit import (
     MAIL_ACCOUNT,
@@ -88,21 +89,39 @@ class Done(BaseModel):
     status: str = "ok"
 
 
-async def reset_mail(settings: Settings, db: AsyncSession, user_id: UUID, email: str):
-    """Issue a reset token for the user and build the mail."""
+async def reset_mail(
+    settings: Settings,
+    db: AsyncSession,
+    user_id: UUID,
+    email: str,
+    *,
+    after_mfa_reset: bool = False,
+):
+    """Issue a reset token for the user and build the mail. A reset keeps the account's
+    passkeys, so the mail lists them (ADR 0011 section 3)."""
     token = await issue_token(db, PURPOSE, user_id, RESET_LIFETIME)
-    return mails.password_reset(settings, email, token)
+    passkeys = await passkeys_for_mail(db, user_id)
+    return mails.password_reset(
+        settings, email, token, passkeys=passkeys, after_mfa_reset=after_mfa_reset
+    )
 
 
 def make_reset_link_sender(
-    settings: Settings, session_factory: async_sessionmaker[AsyncSession], mail: Mailer
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+    mail: Mailer,
+    *,
+    after_mfa_reset: bool = False,
 ) -> ResetLinkSender:
     """The sender ``auth.register_reset_link_sender`` takes: ``admin mfa-reset`` mails the
-    user a reset link (awaited: the CLI has no response to send first)."""
+    user a reset link (awaited: the CLI has no response to send first), saying what the reset
+    removed when ``after_mfa_reset``."""
 
     async def send(user_id: UUID, email: str) -> None:
         async with system_session(session_factory) as db:
-            message = await reset_mail(settings, db, user_id, email)
+            message = await reset_mail(
+                settings, db, user_id, email, after_mfa_reset=after_mfa_reset
+            )
         await mail.send(message)
 
     return send

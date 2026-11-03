@@ -1,5 +1,7 @@
 """Migration 0005_auth: the account tables (system tables), their grants and their ON DELETE
-rules, and the owner foreign keys it adds to ``jobs`` and ``job_events``."""
+rules, and the owner foreign keys it adds to ``jobs`` and ``job_events``; migration
+0013_passkeys's three passkey tables (ADR 0011; their own checks are in
+``test_auth_passkeys_schema.py``)."""
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -25,8 +27,8 @@ def admin(auth_schema: None, database_url: str):
     engine.dispose()
 
 
-def test_there_are_twelve_auth_tables_all_listed_with_a_reason() -> None:
-    assert len(AUTH) == 12
+def test_there_are_fifteen_auth_tables_all_listed_with_a_reason() -> None:
+    assert len(AUTH) == 15
     for name in AUTH:
         assert SYSTEM_TABLES[name].strip(), name
 
@@ -121,14 +123,20 @@ def test_on_delete_rules(admin: Connection) -> None:
     for (table, column), (target, action) in rules.items():
         expected = "n" if (table, column) in set_null else "c"
         assert action == expected, (table, column)
-        assert target in {"users", "invites"}
+        assert target in {"users", "invites", "sessions", "pre_sessions"}
     assert set_null <= set(rules)
     assert ("pending_signups", "invite_id") in rules
     assert ("oauth_flows", "invite_id") in rules
     # #10 replaces #9's seam: a job and its events go with their owner (ADR 0005).
     assert rules[("jobs", "owner_id")] == ("users", "c")
     assert rules[("job_events", "owner_id")] == ("users", "c")
-    assert len(rules) == 14
+    # ADR 0011: a passkey goes with its account; a challenge with its account, its session or
+    # its pre-session.
+    assert rules[("webauthn_credentials", "user_id")] == ("users", "c")
+    assert rules[("webauthn_challenges", "user_id")] == ("users", "c")
+    assert rules[("webauthn_challenges", "session_id")] == ("sessions", "c")
+    assert rules[("webauthn_challenges", "presession_id")] == ("pre_sessions", "c")
+    assert len(rules) == 18
 
 
 def test_deleting_a_user_cascades_except_events_and_invites(admin: Connection) -> None:
@@ -152,6 +160,10 @@ def test_deleting_a_user_cascades_except_events_and_invites(admin: Connection) -
         "nonce, user_id, expires_at) VALUES ('f', 'google', 'link', 's', repeat('v', 64), 'n', "
         ":u, now())",
         "INSERT INTO auth_events (user_id, kind) VALUES (:u, 'sign_in')",
+        "INSERT INTO webauthn_credentials (user_id, credential_id, public_key, name) "
+        "VALUES (:u, 'c', 'k', 'Passkey')",
+        "INSERT INTO webauthn_challenges (challenge_hash, purpose, user_id, session_id, "
+        "expires_at) SELECT sha256('x'), 'register', :u, id, now() FROM sessions",
         "INSERT INTO invites (code_hash, created_by, used_by, expires_at) "
         "VALUES ('i', :u, :u, now())",
     ):
@@ -159,7 +171,7 @@ def test_deleting_a_user_cascades_except_events_and_invites(admin: Connection) -
     admin.execute(text("DELETE FROM users WHERE id = :u"), {"u": user})
     for table in (
         "sessions", "identities", "known_devices", "auth_tokens", "mfa_totp",
-        "mfa_recovery_codes", "oauth_flows",
+        "mfa_recovery_codes", "oauth_flows", "webauthn_credentials", "webauthn_challenges",
     ):  # fmt: skip
         count = admin.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()  # noqa: S608
         assert count == 0, table

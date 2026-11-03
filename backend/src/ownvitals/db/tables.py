@@ -36,6 +36,13 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
                 "mfa_recovery_codes": "recovery-code HMACs, read during sign-in",
                 "rate_limits": "HMAC-keyed counters of anonymous and per-account attempts",
                 "auth_events": "the security event log, written before a user may be known",
+                # Passkeys (ADR 0011 sections 2 and 4, migration 0013_passkeys).
+                "pre_sessions": "the pre-session of a browser without a session, found by "
+                "cookie hash before a user is known",
+                "webauthn_credentials": "passkeys, looked up by credential id at sign-in "
+                "before the user is known",
+                "webauthn_challenges": "single-use WebAuthn challenges, taken by hash before "
+                "the user is known",
             }.items()
         },
         "withings_apps": "Withings application configuration (ADR 0002 section 3, ADR 0004 "

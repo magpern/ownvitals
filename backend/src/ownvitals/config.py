@@ -178,6 +178,16 @@ class Settings(BaseSettings):
     # How long a fresh TOTP check authorises a sensitive action (step-up, PLAN §6: within 10
     # minutes). The environment can shorten the window, never lengthen it.
     stepup_window_minutes: int = Field(default=10, ge=1, le=10)
+    # Passkeys (ADR 0011 sections 1 to 3). The WebAuthn relying-party id: unset means the host
+    # of ``public_base_url``; set, it must be that host or a parent domain of it. The only
+    # accepted origin is ``public_base_url``. An IP-address host has no relying-party id (browsers
+    # refuse one), so passkeys are off there; local development uses ``http://localhost:<port>``.
+    webauthn_rp_id: str | None = None
+    # At most this many passkeys per account (ADR 0011 section 2: 10).
+    passkeys_per_account: int = Field(default=10, ge=1, le=10)
+    # ADR 0011 open question 1. Refused true until the owner answers it: a passkey replaces the
+    # password only, and every sign-in still completes TOTP. No code path reads it as true.
+    passkey_satisfies_second_factor: bool = False
     # How often the worker purges expired auth rows.
     purge_interval_seconds: float = 3600.0
 
@@ -308,6 +318,32 @@ class Settings(BaseSettings):
             raise ValueError("public_base_url must be an http(s) origin without a path")
         return public_origin(value)
 
+    @field_validator("passkey_satisfies_second_factor")
+    @classmethod
+    def _refuse_passkey_second_factor(cls, value: bool) -> bool:
+        if value:
+            raise ValueError(
+                "passkey_satisfies_second_factor=true is refused until the owner decides "
+                "(ADR 0011 open question 1)"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _check_webauthn_rp_id(self) -> "Settings":
+        host = urlsplit(self.public_base_url).hostname or ""
+        rp_id = self.webauthn_rp_id
+        if rp_id is None:
+            return self
+        if _is_ip(host) or rp_id != rp_id.strip().lower() or not rp_id or _is_ip(rp_id):
+            raise ValueError("webauthn_rp_id must be a lower-case domain name")
+        if not (host == rp_id or host.endswith("." + rp_id)) or (
+            "." not in rp_id and rp_id != "localhost"
+        ):
+            raise ValueError(
+                "webauthn_rp_id must be the host of public_base_url or a parent domain of it"
+            )
+        return self
+
     @model_validator(mode="after")
     def _prod_needs_https(self) -> "Settings":
         if self.environment == "prod" and not self.public_base_url.startswith("https://"):
@@ -395,6 +431,15 @@ class Settings(BaseSettings):
         return value
 
     @property
+    def passkey_rp_id(self) -> str | None:
+        """The WebAuthn relying-party id (ADR 0011 section 1), or ``None`` when the public host
+        is an IP address and passkeys are therefore off."""
+        if self.webauthn_rp_id is not None:
+            return self.webauthn_rp_id
+        host = urlsplit(self.public_base_url).hostname or ""
+        return None if not host or _is_ip(host) else host
+
+    @property
     def admin_email_set(self) -> frozenset[str]:
         """``admin_emails`` in the normalized form (ASCII lower case)."""
         return frozenset(normalize_email(e) for e in self.admin_emails.split(",") if e.strip())
@@ -433,6 +478,14 @@ def _is_local_host(host: str) -> bool:
         return ipaddress.ip_address(host.strip("[]")).is_loopback
     except ValueError:
         return False
+
+
+def _is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return True
 
 
 def public_origin(url: str) -> str:

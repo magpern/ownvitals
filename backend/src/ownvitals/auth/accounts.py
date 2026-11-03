@@ -16,8 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth.devices import forget_devices
 from ownvitals.auth.events import record_event
+from ownvitals.auth.passkeys import lock_user, remove_all_passkeys
 from ownvitals.auth.sessions import revoke_user_sessions
-from ownvitals.auth.tables import invites, mfa_recovery_codes, mfa_totp, users
+from ownvitals.auth.tables import identities, invites, mfa_recovery_codes, mfa_totp, users
 from ownvitals.config import Settings
 from ownvitals.emailnorm import normalize_email
 
@@ -156,12 +157,35 @@ async def grant_admin_if_listed(db: AsyncSession, settings: Settings, user_id: U
 
 
 async def reset_mfa(db: AsyncSession, email: str) -> UserRow:
-    """Lost authenticator: remove the user's TOTP and recovery codes, revoke every session and
-    forget their known devices. The caller then sends the password-reset link (``hooks``)."""
+    """Lost authenticator: remove the user's TOTP and recovery codes, every passkey and every
+    linked Google identity, revoke every session and forget their known devices, in one
+    transaction. The caller then sends the password-reset link (``hooks``).
+
+    ADR 0011 section 3: a passkey or a Google identity that someone added while holding the
+    account must not survive the reset and win the first enrolment of ADR 0003 section 2, so
+    after a reset the only way in is the password set through the mailed link. The account row
+    is locked ``FOR UPDATE`` first; a passkey sign-in or registration locks it too
+    (``passkeys.lock_user``), so neither can commit a session or a passkey after this
+    transaction removed them.
+    """
     user = await _require_user(db, email)
+    await lock_user(db, user.id)
     await db.execute(delete(mfa_totp).where(mfa_totp.c.user_id == user.id))
     await db.execute(delete(mfa_recovery_codes).where(mfa_recovery_codes.c.user_id == user.id))
+    passkeys = await remove_all_passkeys(db, user.id)
+    unlinked = len(
+        (
+            await db.execute(
+                delete(identities).where(identities.c.user_id == user.id).returning(identities.c.id)
+            )
+        ).all()
+    )
     await revoke_user_sessions(db, user.id)
     await forget_devices(db, user.id)
-    await record_event(db, "mfa_reset", user_id=user.id, detail={"source": "cli"})
+    await record_event(
+        db,
+        "mfa_reset",
+        user_id=user.id,
+        detail={"source": "cli", "passkeys_removed": passkeys, "identities_removed": unlinked},
+    )
     return user
