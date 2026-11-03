@@ -3,7 +3,8 @@
 `backend/src/ownvitals/analysis/` is the database-free core of the M4 pipeline (PLAN §7.1 steps
 2 to 4 and the `data_quality` of step 6), pulled forward as a pure library. Wiring to
 `observations`, `metric_daily` and jobs comes later in M4. The statistical methods of step 5
-(baseline, EWMA, Theil-Sen, PELT) live in `analysis/methods/` and have their own document.
+(baseline, EWMA, Theil-Sen, PELT) live in `analysis/methods/` and have their own document; the
+v1 finding rules are in `analysis/rules/` ([analysis-rules.md](analysis-rules.md)).
 
 **Pure**: no database, web, Withings, job, egress, account, configuration, logging or HTTP-client
 import (the list is under "Purity guard"), no I/O, no clock, no randomness. Inputs are plain frozen
@@ -210,6 +211,7 @@ included) or `ownvitals.ecg` (once it exists) imports anything in `FORBIDDEN`:
 |---|---|
 | `ownvitals.db`, `ownvitals.jobs`, `ownvitals.connections`, `sqlalchemy`, `psycopg` | the database |
 | `ownvitals.web`, `ownvitals.admin`, `ownvitals.flags`, `ownvitals.headers` | the web app and its routes |
+| `ownvitals.worker` | the worker process: jobs, database and Withings calls |
 | `ownvitals.withings`, `ownvitals.egress`, `httpx`, `requests` | the network |
 | `ownvitals.auth`, `ownvitals.context` | who is acting: the pure core takes plain values |
 | `ownvitals.config`, `ownvitals.log`, `ownvitals.cli` | the environment, secret files, stdout and the operator CLI |
@@ -247,7 +249,9 @@ the top level). A name matches itself and its submodules, not a name that merely
     depth order) an `import ownvitals` nested in a function or class is caught, and a name bound
     by two imports (`import ownvitals as x`, `import os as x`) stands for both;
 - **words to avoid**: whatever the word means in the code, `patch`, `run_module`, `run_path` and
-  `resolve_name` are refused as an identifier (`patch = ...`, `sample.patch`), `exec`, `eval` and
+  `resolve_name` are refused as a name or attribute that is read or assigned (`patch = ...`,
+  `sample.patch`; a `def`, `class` or parameter called `patch` is not a name node and is not
+  flagged), `exec`, `eval` and
   `compile` as a plain name (`re.compile(...)` stays allowed), and all nine names above as an
   exact string (`'patch'` as a dictionary key or a label). Code in `ownvitals.analysis` and
   `ownvitals.ecg` uses other words, for example `electrode` for a skin patch;
