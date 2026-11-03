@@ -1,4 +1,5 @@
-"""Account deletion revokes first, then cascades every owned row. Synthetic rows only."""
+"""Account deletion revokes first, then cascades every owned row; "delete imported data" removes
+the imported and derived rows and keeps the settings and the mail outbox. Synthetic rows only."""
 
 import re
 import urllib.request
@@ -12,6 +13,7 @@ from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture 
 from ctx import make_context
 from ownvitals.auth.purge import EXPLICIT_PURGE, delete_owner, finish_disconnect
 from ownvitals.connections.providers.withings import store_grant
+from ownvitals.connections.purge import IMPORTED, KEPT
 from ownvitals.egress import core
 from ownvitals.withings.disconnect import DisconnectRefused
 from test_withings_disconnect import _hits, _linked, _run, _scalar
@@ -32,6 +34,11 @@ _PARTITIONS = (
         "observations",
     ),
 )
+# Owned tables the import purge reaches without naming them: the connection row is removed by
+# ``delete_disconnected_row`` and job events cascade from their job.
+_PURGED_BESIDE = ("connections", "job_events")
+# The whole row of a kept table, to show the purge left it unchanged.
+_SNAPSHOT = "SELECT to_jsonb(t) FROM public.{table} t WHERE owner_id = :o ORDER BY 1::text"
 _OWNED = """
 SELECT c.relname,
        EXISTS (
@@ -72,6 +79,17 @@ def _rows(url: str, sql: str) -> list[tuple[object, ...]]:
     try:
         with engine.connect() as conn:
             return list(conn.execute(text(sql)).all())
+    finally:
+        engine.dispose()
+
+
+def _snapshot(url: str, table: str, owner_id: UUID) -> list[tuple[object, ...]]:
+    if _NAME.fullmatch(table) is None:
+        raise AssertionError(table)
+    engine = create_engine(url)
+    try:
+        with engine.connect() as conn:
+            return list(conn.execute(text(_SNAPSHOT.format(table=table)), {"o": owner_id}).all())
     finally:
         engine.dispose()
 
@@ -392,10 +410,34 @@ async def test_delete_imported_removes_only_that_owners_rows(
         "synthetic-refresh-token-ddd",
         expires_in=10800,
     )
+    # Every owned table is either removed by the option or deliberately kept: a new owned table
+    # (a derived one included) that is in neither list fails here.
+    purged = {str(table.name) for table in IMPORTED} | set(_PURGED_BESIDE)
+    kept = set(KEPT)
+    assert not purged & kept
+    names = {str(name) for name, _ in _rows(database_url, _OWNED)}
+    assert names == purged | kept
+    assert {"observations", "metric_daily", "findings", "scores"} <= purged
+    assert kept == {"user_profiles", "mail_outbox"}
     _partitions(database_url, True)
     try:
         _plant(database_url, linked.ctx.user_id, linked.connection_id, "c")
         _plant(database_url, other.user_id, other_grant.id, "d")
+        _run(
+            database_url,
+            "UPDATE user_profiles SET birth_year = 1970, sex = 'female', weight_unit = 'lb', "
+            "notify_weekly = true WHERE owner_id = :o",
+            o=linked.ctx.user_id,
+        )
+        before = {
+            (name, owner_id): _snapshot(database_url, name, owner_id)
+            for name in kept
+            for owner_id in (linked.ctx.user_id, other.user_id)
+        }
+        assert all(len(rows) == 1 for rows in before.values())
+        for name in names:
+            assert _count(database_url, name, linked.ctx.user_id) == 1, name
+            assert _count(database_url, name, other.user_id) == 1, name
         await finish_disconnect(
             env.factory,
             env.app.state.keyring,
@@ -405,9 +447,14 @@ async def test_delete_imported_removes_only_that_owners_rows(
             delete_imported=True,
             inner=linked.inner,
         )
-        for name in ("devices", "measures", "jobs", "job_events", "sleep_series"):
+        for name in purged:
             assert _count(database_url, name, linked.ctx.user_id) == 0, name
             assert _count(database_url, name, other.user_id) == 1, name
+        for name in kept:
+            assert _count(database_url, name, linked.ctx.user_id) == 1, name
+            assert _count(database_url, name, other.user_id) == 1, name
+        for (name, owner_id), rows in before.items():
+            assert _snapshot(database_url, name, owner_id) == rows, name
         assert (
             _scalar(
                 database_url,
