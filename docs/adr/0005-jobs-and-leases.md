@@ -157,6 +157,17 @@ queued ──claim──> running ──> completed | failed | cancelled
     It returns the count only. It needs no privilege beyond the queue role's (`jobs`, and
     `connections (id, owner_id, status)`).
 
+  - from #194, the mail outbox's family (ADR 0007 §3; amended 2026-11-03, #194):
+    `mail_outbox_claim(p_limit int, p_lease_seconds int)`, `mail_outbox_mark(p_id uuid,
+    p_outcome text)` and `owner_notice_queue(p_kind text)`, in
+    `docker/postgres/notify/50-outbox.sql`, owned by the `NOLOGIN` role `ownvitals_mail_outbox`
+    (`BYPASSRLS`, member of no role) with the queue functions' `search_path` and the comment
+    `ownvitals-outbox v1`; `ownvitals_app` may execute them. The role holds `USAGE` on `public`
+    and, on `mail_outbox` and `owner_notices`, `SELECT` and `UPDATE` of the send-state columns,
+    `SELECT` of `owner_id`, `kind` and `route`, `DELETE` (30-day retention of sent and failed
+    rows) and, on `owner_notices` only, `INSERT (kind, route)`; no account or health table.
+    Their digests are in `ownvitals.db.outbox_digests`.
+
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day
   `webhook_events` purge, scheduler enqueue, rate bucket, and the cancel of a replaced

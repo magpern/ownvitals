@@ -15,7 +15,11 @@ import re
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from ownvitals.db.outbox_digests import OUTBOX_DIGESTS
 from ownvitals.db.queue_check import (
+    OUTBOX_FUNCTION_NAMES,
+    OUTBOX_PINS,
+    OUTBOX_VERSION,
     QUEUE_FUNCTIONS,
     QUEUE_VERSION,
     RATE_FUNCTION_NAMES,
@@ -192,7 +196,12 @@ def check_queue(conn: Connection) -> list[str]:
     # aggregate or operator in any schema besides the queue functions and the Withings
     # functions, no trigger but the internal ones of foreign keys, no rule but the _RETURN rules
     # of views. Named as the startup check and the script name them.
-    admitted = [*QUEUE_FUNCTIONS, *WITHINGS_FUNCTION_NAMES, *RATE_FUNCTION_NAMES]
+    admitted = [
+        *QUEUE_FUNCTIONS,
+        *WITHINGS_FUNCTION_NAMES,
+        *RATE_FUNCTION_NAMES,
+        *OUTBOX_FUNCTION_NAMES,
+    ]
     hooks = (
         conn.execute(
             text(
@@ -317,6 +326,30 @@ def check_queue(conn: Connection) -> list[str]:
         need(list(f.proconfig or []) == config.split(";"), f"{prefix}: settings must be fixed")
         need(f.comment == RATE_VERSION, f"{prefix}: comment must be {RATE_VERSION!r}")
         need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
+        expected_acl = set(acl.split(","))
+        need(
+            set(f.acl or []) == expected_acl and len(f.acl or []) == len(expected_acl),
+            f"{prefix}: ACL must be {expected_acl}",
+        )
+    for name in OUTBOX_FUNCTION_NAMES:
+        found = [f for f in functions if f.proname == name]
+        if not found:
+            continue
+        args, owner, config, acl = OUTBOX_PINS[name]
+        if len(found) != 1:
+            problems.append(f"{name}: must exist exactly once, found {len(found)}")
+            continue
+        f = found[0]
+        prefix = f"public.{name}"
+        need(f.nspname == "public" and f.args == args, f"{prefix}: wrong schema or arguments")
+        need(f.prosecdef, f"{prefix}: must be SECURITY DEFINER")
+        need(f.prokind == "f" and f.lanname == "plpgsql", f"{prefix}: must be a plpgsql function")
+        need(f.owner_name == owner, f"{prefix}: must be owned by {owner}")
+        need(list(f.proconfig or []) == config.split(";"), f"{prefix}: settings must be fixed")
+        need(f.comment == OUTBOX_VERSION, f"{prefix}: comment must be {OUTBOX_VERSION!r}")
+        need(
+            f.md5 == OUTBOX_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one"
+        )
         expected_acl = set(acl.split(","))
         need(
             set(f.acl or []) == expected_acl and len(f.acl or []) == len(expected_acl),

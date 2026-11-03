@@ -1,7 +1,7 @@
 """passkeys: WebAuthn credentials, challenges and the pre-session (ADR 0011 sections 1, 2, 4)
 
 Revision ID: 0013_passkeys
-Revises: 0011_analysis_schema
+Revises: 0012_outbox
 Create Date: 2026-11-03
 
 Three new account system tables (ADR 0002 section 3, ADR 0011 section 2: sign-in finds a
@@ -26,7 +26,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "0013_passkeys"
-down_revision: str | Sequence[str] | None = "0011_analysis_schema"
+down_revision: str | Sequence[str] | None = "0012_outbox"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
