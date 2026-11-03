@@ -23,6 +23,7 @@ from jobtools import admin_fixture, queue_schema_fixture  # noqa: F401 - fixture
 from ownvitals.connections.purge import purge_imported
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
+from ownvitals.db.queue_locks import NORMALISATION
 from ownvitals.derived.daily import ALGO_VERSION
 from ownvitals.derived.daily_db import Outcome, daily_owner
 from ownvitals.derived.daily_job import (
@@ -368,6 +369,35 @@ async def test_the_write_holds_the_revision_row_so_a_purge_waits_for_it(env: Env
     await purge_task[0]
     assert outcome.status == "written"
     assert blocked == [True]  # the purge could not pass the row lock before the commit
+
+
+async def test_the_write_takes_the_owners_normalisation_lock(env: Env) -> None:
+    """ADR 0005 §9, namespace 6: the lock the normaliser's write takes, in the two-number form."""
+    ctx, _ = await seeded(env)
+    await env.normalise(ctx)
+    state = {"writing": False}
+    held: list[int] = []
+
+    async def mark() -> None:
+        state["writing"] = True
+
+    @asynccontextmanager
+    async def open_tx() -> AsyncIterator[AsyncSession]:
+        async with user_session(env.factory, ctx) as db:
+            yield db
+            if state["writing"]:
+                row = await db.execute(
+                    text(
+                        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                        "AND pid = pg_backend_pid() AND classid = :ns "
+                        "AND objid = pg_catalog.hashtext(CAST(:o AS text))::oid"
+                    ),
+                    {"ns": NORMALISATION, "o": ctx.user_id},
+                )
+                held.append(int(row.scalar_one()))
+
+    assert (await daily_owner(open_tx, ctx.user_id, between=mark)).status == "written"
+    assert held == [1]
 
 
 async def test_two_concurrent_passes_for_one_owner_do_not_collide(env: Env) -> None:

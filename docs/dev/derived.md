@@ -4,7 +4,8 @@ The tables the analysis writes (PLAN §5 and §7, roadmap Amendments 2 and 3, AD
 ADR 0002 §2). Migration `0011_analysis_schema` creates them; `ownvitals.derived.tables` holds the
 Core tables and the vocabularies the migration's check constraints accept. Writers come with the
 M4 wiring issues; this file starts with the schema (#181) and goes on with the writers:
-normalisation into `observations` (#185) and the daily values in `metric_daily` (#186).
+normalisation into `observations` (#185, and the sleep and activity streams of #229) and the daily
+values in `metric_daily` (#186).
 
 All five tables are **owned**: `owner_id` cascading from `users`, forced RLS with the
 `owner_isolation` policy, `UNIQUE (owner_id, id)` (or the partitioned key below), and every other
@@ -106,8 +107,14 @@ refuse; `user_profiles`, `observations` and `findings` are in the relaxation mat
 ## Normalisation: `observations` (#185)
 
 PLAN §7.1 step 1. Code: `derived/metric_keys.py` (the key table), `derived/normalize.py` (pure:
-`normalise()`, `fingerprint()`), `derived/normalize_db.py` (read, verify, write) and
+`normalise()`, `fingerprint()`), `derived/normalize_streams.py` (pure: the sleep and activity
+streams, #229), `derived/normalize_db.py` (the sources; read, verify, write) and
 `derived/normalize_job.py` (the `derive_normalize` kind and `enqueue_normalize`).
+
+"Pure" means no database, clock or randomness. `metric_keys.py` imports `derived.tables` for
+`METRIC_KEY_PATTERN`, so importing the pure modules loads SQLAlchemy's Core table definitions
+(no engine or session); accepted (#229), and moving the pattern to a module with no imports
+would make the purity literal.
 
 **Keys.** `metric_key(meastype, position)`: the keys of `analysis.quality.METRICS` for the types
 the analysis judges; `height`, the three temperatures, `vo2_max`, the two AFib enums and
@@ -134,11 +141,16 @@ with a value.
 `(group id, payload hash, deleted mark)` of the owner's reading groups, deleted ones marked
 (`fingerprint()`). Bumping `normalize/N` or `quality/N` changes every row.
 
-**A pass** (`normalise_owner`, one owner, all connections): (1) read the revision, then the
-groups and measures; if every stored row already carries this revision, fingerprint and algorithm
+**Sources.** A pass covers one *source*, one input stream with its own `data_revisions` counter
+(`normalize_db.SOURCES`): `measures` (above), `sleep_summary`, `activity_daily` and `workouts`
+(below). The job runs all four, one pass each (`normalise_all`).
+
+**A pass** (`normalise_owner`, one owner, one source, all connections): (1) read the revision,
+then the source rows (for measures, the groups and measures); if every stored row already carries this revision, fingerprint and algorithm
 version, stop (`current`); (2) compute, and create the missing months with `ensure_month`, one
-committed transaction per month; (3) in one transaction **lock the revision row `FOR SHARE`, check
-that it and the groups' fingerprint are the ones read, and only then write** by natural key
+committed transaction per month; (3) in one transaction **take the owner's normalisation lock, lock the
+revision row `FOR SHARE`, check that it and the source rows' fingerprint are the ones read, and
+only then write** by natural key
 (`observations_source_key`): insert what is missing, update what changed, delete what has no
 source any more (a soft-deleted group, a backdated instant), and move the provenance of the rest
 with one statement. Running twice gives identical rows with identical ids.
@@ -168,11 +180,75 @@ job runs as the owner under the fence (`job.fenced()`), so RLS applies (worker-c
   claimed ahead of reconciliations and backfills. Separating the lanes in the function is the fix.
 - Partitions are created only when a pass needs a month (see "Partitions"); the three months
   ahead scheduler step does not exist.
-- Every pass whose inputs moved rewrites the provenance of all the owner's rows (one statement).
-  If that becomes slow on long histories, provenance per metric is the change.
+- Every pass whose inputs moved rewrites the provenance of all the rows its source owns (one
+  statement). If that becomes slow on long histories, provenance per metric is the change.
+- `sleep_series` and `intraday` are not normalised: no rule (ADR 0010) or score (ADR 0012) reads
+  them, and their volume (minute samples, tens of thousands of rows a night) would make every
+  pass a long write holding the revision lock. They stay in their own tables; a later issue adds
+  them as sources (incrementally, by month) if an analysis needs them.
+- The stream fields' units are `unknown` (`e<unit>:unknown`): the findings document none. The
+  field names ADR 0012 reads are documented assumptions (the probe settles them); `rmssd` in a
+  sleep summary is assumed outright, because the public summary shape lists no HRV field.
+
+**Sleep and activity streams (#229).** `derived/normalize_streams.py`:
+
+| Source (`data_revisions` stream) | Table | Keys | `ts` | `source_ts` | `source_grpid` |
+|---|---|---|---|---|---|
+| `sleep_summary` | `sleep_summaries` | `sleep_<field>` of `raw.data` | the night's end (wake-up) | its start | the summary's Withings id |
+| `activity_daily` | `activity_daily` | `activity_<field>` of `raw.fields` | 12:00 local on its date in its zone | the stored `start_at` | none |
+| `workouts` | `workouts` | `workout_<field>` of `raw.data` | its start | its start | the workout id |
+
+The known fields are `SLEEP_FIELDS` (`withings.models.SleepSummaryData`'s numbers, plus `rmssd`),
+`ACTIVITY_FIELDS` (the ingest's, `ingest.codec.ACTIVITY_FIELDS`) and `WORKOUT_FIELDS`
+(`WorkoutData`'s); tests pin each table to its model. A summary's or a workout's other numeric
+fields are kept as well (`sleep_<name>`, `workout_<name>`); an activity day's stored `fields`
+hold the known ones only. `source_type` and `source_position` are NULL. A value is the stored
+decimal text read exactly (`value_raw x 10^unit`, `conversion` `e<unit>:unknown`); there are no
+quality flags (no `attrib`). A known field that is not a number, or an extra whose name cannot be
+a key, counts as `invalid`; the other skips are the measures' ones. Two connections reporting
+the same night or day keep one row (the first in canonical order). An activity day's `ts` is
+local noon so a day assignment within ±11 h of its zone keeps its date; a sleep summary's local
+day of `ts` is ADR 0012 §4's "night whose wake-up falls on *d*".
+
+What ADR 0012 reads (`SCORE_INPUTS`; ADR 0010's v1 rules read no stream field, its §8): night
+heart rate `sleep_hr_average`, AHI `sleep_apnea_hypopnea_index`, Readiness's duration
+`sleep_total_sleep_time` and HRV `sleep_rmssd`, daily steps `activity_steps`, and the active
+minutes `activity_moderate` and `activity_intense`.
+
+Provenance: `algo_version = normalize-streams/1`; `input_revision` is the source's own
+`data_revisions` counter; `input_fingerprint` is SHA-256 over the version, the stream name and the
+sorted `(row id, payload hash)` of the owner's rows of that table (`stream_fingerprint()`).
+
+**Ownership (#229).** The passes share `observations`, so each owns a disjoint part of it and
+every statement of its diff (state, months, existing, update, delete, provenance) is limited to
+that part: measures own the rows with a `source_type`; each stream owns the rows with none whose
+key starts with its prefix (`sleep_`, `activity_`, `workout_`; `starts_with`, since `_` is a LIKE
+wildcard). A computed row outside the pass's part stops the pass (`RuntimeError`) before
+anything is written. A row no pass produces (another writer's) is never read, changed, deleted
+or re-stamped by a pass. A future writer of `observations` takes a part disjoint from these.
+
+**Concurrent passes (#229).** A live and a backfill pass of one owner can run together (separate
+singleton keys, one lane). The write transaction first takes `pg_advisory_xact_lock(6,
+hashtext(owner))` (namespace 6, normalisation, ADR 0005 §9), then the revision row: the second
+pass waits, then diffs against what the first wrote and finds nothing to insert, so both end
+without error. Nothing else takes namespace 6, so the order (advisory, then the revision row)
+makes no cycle with ingest or the purge. The wait counts against the role's 5 s `lock_timeout`; a
+write longer than that (a first pass over a long history) fails the waiting pass's attempt, which
+is retried.
+
+**Enqueue.** A backfill or sync of a stream in `normalize_job.TRIGGERS` (`measures`,
+`sleep_summary`, `activity_daily`, `workouts`) queues a pass. The enqueue is best-effort: the
+ingest has committed, so a database error (the connection was disconnected while the job ran, a
+lost connection) is logged by its class name and the job completes; the next sync or the
+nightly reconciliation queues the pass again. Any other exception is raised.
 
 Tests: `tests/test_derived_normalize.py` (keys, exactness, flags, skips, order independence,
-fingerprint; no database) and `tests/test_derived_normalize_db.py` (rows and provenance,
+fingerprint; no database), `tests/test_derived_normalize_streams.py` (the stream key tables
+pinned to the models, ADR 0012's inputs, exactness, instants, skips, duplicates, order; no
+database), `tests/test_derived_normalize_streams_db.py` (each stream's rows and provenance, a
+second writer's rows surviving every pass, two concurrent passes, the owner's lock, the purge,
+counter, fingerprint and lock tests for each stream, the job over every source, the triggers, the
+best-effort enqueue) and `tests/test_derived_normalize_db.py` (rows and provenance,
 idempotence, delete and backdate, the purge, ingest and counter interleaved between read and write,
 the lock, partitions, the worker context through the runner, the enqueue, the sync hooks).
 
@@ -209,8 +285,9 @@ observation this pass reads (its own metric keys, with a source type: the rows d
 this pass when it has). Observations of another stream carry that stream's revision and may
 have no group id; they are never read, counted or compared. If every stored row
 carries this revision, fingerprint and version, `current`. (2) Compute (pure). (3) In one
-transaction: take an **owner-scoped advisory lock** (`pg_advisory_xact_lock` on
-`metric_daily:<owner>`), lock the revision row `FOR SHARE`, check that the revision and the
+transaction: take the owner's **normalisation lock** (`pg_advisory_xact_lock(6, hashtext(owner))`,
+namespace 6, ADR 0005 §9: the lock the normaliser's write takes, so the two never write together),
+lock the revision row `FOR SHARE`, check that the revision and the
 observations' fingerprint are the ones read (the fingerprint is **re-read inside the write
 transaction**, after the locks; it must stay there), and only then write; otherwise `stale`, nothing
 written. A purge of imported data removes the revision row and the observations, so a pass that
@@ -219,7 +296,7 @@ compares **by content**: only days whose stored values differ are updated, days 
 left are deleted, missing days inserted, so a soft delete or a backdated edit changes exactly the
 days it touched (`Outcome.affected` lists them), and the provenance of the others moves with one
 statement. All statements are scoped to `daily.KEYS`: a `metric_daily` row of any other key is
-never deleted or re-stamped. Two concurrent passes for one owner queue on the advisory lock; the
+never deleted or re-stamped. Two concurrent passes for one owner queue on that lock; the
 second reads the first's rows after the lock and finds them in place, so neither can hit the
 unique key (tested with both passes held between read and write).
 

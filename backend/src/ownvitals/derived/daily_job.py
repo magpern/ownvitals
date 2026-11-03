@@ -20,6 +20,7 @@ from typing import Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.derived.daily_db import daily_owner
@@ -77,16 +78,23 @@ def register_daily_kind(registry: KindRegistry) -> None:
 async def enqueue_daily(
     factory: async_sessionmaker[AsyncSession], connection_id: UUID, origin: Origin
 ) -> None:
-    """Queue a pass for the connection's owner, after the normaliser pass."""
+    """Queue a pass for the connection's owner, after the normaliser pass. Best-effort like
+    ``enqueue_normalize``: that pass has committed, so a database error is logged by its class
+    name only and the next normaliser pass queues this one again."""
     from ownvitals.jobs.queue import enqueue
 
-    await enqueue(
-        factory,
-        connection_id=connection_id,
-        kind=KIND,
-        origin="scheduler",
-        payload=json.dumps({"connection_id": str(connection_id), "origin": origin}),
-        singleton_key=singleton_key(origin),
-        max_attempts=3,
-        target_secret_id=None,
-    )
+    try:
+        await enqueue(
+            factory,
+            connection_id=connection_id,
+            kind=KIND,
+            origin="scheduler",
+            payload=json.dumps({"connection_id": str(connection_id), "origin": origin}),
+            singleton_key=singleton_key(origin),
+            max_attempts=3,
+            target_secret_id=None,
+        )
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "daily values not queued", extra={"origin": origin, "error_type": type(exc).__name__}
+        )

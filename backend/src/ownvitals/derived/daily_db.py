@@ -8,8 +8,9 @@ fenced transaction, a test a user session):
    normaliser has not caught up with the source (``behind``; it queues this pass when it has).
    If every stored daily row already carries this revision, fingerprint and algorithm version,
    nothing changed (``current``).
-2. **Write**, and in the same transaction first take an owner-scoped advisory lock (two passes
-   for one owner queue up; neither can hit a unique violation), then lock the revision row
+2. **Write**, and in the same transaction first take the owner's normalisation lock (namespace 6,
+   ADR 0005 §9, shared with the normaliser's write; two passes for one owner queue up and neither
+   can hit a unique violation), then lock the revision row
    ``FOR SHARE`` (an ingest bump or the purge of imported data waits for this transaction) and
    verify that the revision and the fingerprint of the observations are the ones read. Otherwise
    nothing is written (``stale``). Same pattern as ``normalize_db``, for the same reason (the
@@ -31,6 +32,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ownvitals.db.queue_locks import NORMALISATION
 from ownvitals.derived.daily import (
     ALGO_VERSION,
     KEYS,
@@ -49,7 +51,9 @@ _REVISION = text("SELECT revision FROM data_revisions WHERE owner_id = :o AND st
 _REVISION_LOCK = text(
     "SELECT revision FROM data_revisions WHERE owner_id = :o AND stream = :s FOR SHARE"
 )
-_LOCK = text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))")
+# The owner's normalisation lock (ADR 0005 §9, namespace 6): the same one the normaliser's write
+# takes, so a normaliser pass and a daily pass of one owner never write together.
+_LOCK = text("SELECT pg_catalog.pg_advisory_xact_lock(:ns, pg_catalog.hashtext(CAST(:o AS text)))")
 # Only the rows this pass reads: the measures-derived observations of its own metric keys.
 # Observations of another stream (sleep, activity) carry that stream's own revision and may have
 # no group id, so they must neither count as "behind" nor reach ``int(source_grpid)``.
@@ -223,7 +227,7 @@ async def _chunks(db: AsyncSession, statement: Any, rows: list[dict[str, Any]]) 
 async def _write(db: AsyncSession, owner: UUID, inputs: Inputs) -> Outcome:
     # Serialise the passes of one owner, then lock the revision row: an ingest bump or a purge
     # of imported data waits for this transaction. The existing rows are read after both.
-    await db.execute(_LOCK, {"k": f"metric_daily:{owner}"})
+    await db.execute(_LOCK, {"ns": NORMALISATION, "o": owner})
     if await _revision(db, owner, lock=True) != inputs.revision:
         return Outcome("stale")
     if fingerprint(await _read_observations(db, owner)) != inputs.fingerprint:
