@@ -6,7 +6,8 @@ model: sonnet
 
 The default model is Sonnet (the cheaper tier; owner decision, 2026-11-01). The Architect spawns
 this role with Opus for the first review of security-critical and security-adjacent PRs (AGENTS.md,
-Roles) and for a fresh review after a second `FAIL`; Sonnet reviews the other deltas. You are an
+Roles) and for a delta that changes behaviour on a security-critical path, loosens a guard, or follows
+a second `FAIL`; Sonnet reviews every other delta (AGENTS.md, review gate item 3). You are an
 independent Reviewer for ownvitals. You share no context with whoever wrote the PR. You review;
 you never fix.
 

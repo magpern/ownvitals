@@ -18,9 +18,9 @@ if they change. A change goes in as a roadmap amendment (see "Decisions and ADRs
 |---|---|---|---|
 | Owner | — | Product decisions; external approvals (Withings developer apps, Cloudflare, SWAG, deploys); the real-account probe; INTEGRATION_VERIFIED, PRODUCTION_READY and the legal gates | — |
 | Architect / Orchestrator | Opus (the main session) | Milestones → issues (one per PR, acceptance criteria, "Depends on #n"), scheduling, merge order, ADRs, amendments, `docs/status.md`, the integration review of every PR before merge | Normally write production code |
-| Developer | Sonnet; **Opus for security-critical issues** | One issue → one PR in its own branch and worktree: code, tests, CI fixes, **all** blocking findings | Change architecture or acceptance criteria without the Architect |
+| Developer | Sonnet; **Opus for security-critical issues** (security-adjacent stays Sonnet) | One issue → one PR in its own branch and worktree: code, tests, CI fixes, **all** blocking findings | Change architecture or acceptance criteria without the Architect |
 | Explorer | Haiku | Bounded work: searches, synthetic fixtures, `fake-withings` payloads from the public spec, docs research | Decide security, auth, isolation, crypto or health-claims questions |
-| Reviewer | A **fresh context per review**: Opus for security-critical PRs, Sonnet otherwise | The diff, acceptance criteria, tests, CI output, spec and ADR compliance → `PASS` or `FAIL` | Fix its own findings; review an ADR it wrote; share context with the Developer |
+| Reviewer | A **fresh context per review**: Opus for the first review of security-critical and security-adjacent PRs, Sonnet otherwise (deltas: review gate item 3) | The diff, acceptance criteria, tests, CI output, spec and ADR compliance → `PASS` or `FAIL` | Fix its own findings; review an ADR it wrote; share context with the Developer |
 
 Model *classes*, not versions: use the current generation of each tier. A substitution never
 widens a role's authority. Role definitions live in `.claude/agents/`; when a session cannot
@@ -32,13 +32,14 @@ token vault and rotation, OAuth state; the webhook receiver; RLS, roles and `SEC
 functions; jobs, leases and the rate limiter; auth (passwords, sessions, TOTP, step-up, passkeys,
 QR login); export and delete; the deploy mechanism; AI egress; encryption and key handling. The
 issue carries the `security-critical` label and says so in its "Owner:" line. When in doubt
-between security-critical and security-adjacent, it is security-critical.
+between security-critical and security-adjacent, it is security-critical; between
+security-adjacent and ordinary, it is security-adjacent.
 
 **Security-adjacent** (a Sonnet Developer and an Opus first Reviewer): code that handles owned
 data under the existing guards but adds no new trust boundary: derived-data writers that follow
 the purge-race pattern (`derived/*_db.py`), rule and score logic, findings and read APIs behind
-the existing read guards. The issue carries the `security-adjacent` label. Everything else is
-ordinary (Sonnet Developer, Sonnet Reviewer). Delta reviews follow item 3 of the review gate.
+the existing read guards. The issue carries the `security-adjacent` label. The Architect spawns
+every Opus review and sets the tier when it writes the issue. Everything else is ordinary (Sonnet Developer, Sonnet Reviewer). Delta reviews follow item 3 of the review gate.
 
 ## Unit of work: one issue, one PR
 
@@ -82,8 +83,8 @@ deterministic CI security checks (§10.3) and on the owner's human security revi
    `FAIL` is recorded the same way: `Agent review (<model>): FAIL <head SHA>`, blocking findings
    first, each with file and line.
 2. The Reviewer was a fresh context: Opus for security-critical and security-adjacent PRs
-   (first review), Sonnet for the rest (UI, docs, tooling, tests, Dependabot). When in doubt
-   between two tiers of the same kind, take the higher one.
+   (first review), Sonnet for the rest (UI, docs, tooling, tests, Dependabot). Tier doubts are
+   settled upward (see the definitions above).
 3. **A new head SHA needs a new review**:
    - *Merge-only update:* the only change since the reviewed head is a merge of `main` with no
      hand-resolved conflict, and CI is green on the new head. The Architect checks that
