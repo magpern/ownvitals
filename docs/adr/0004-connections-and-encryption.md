@@ -4,9 +4,11 @@ Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88 (
 Its three open questions were decided by the Architect on 2026-10-31 (§7 the code exchange,
 recorded as [roadmap Amendment 1](../roadmap.md); §7 reconnect and disconnect; §3 revocation
 after a KEK compromise), and so was the source of the webhook secrets (§4), raised in review.
-Post-port review (#16, 2026-11-03): no decision changed; the Withings OAuth state of §7 is kept
-hashed in the web process rather than in a table, which holds for one web process only (#165
-decides a table or an amendment; threat model T36).
+Post-port review (#16, 2026-11-03): the implementation departed from §7, which implied a shared
+stored state: the Withings OAuth state is kept hashed in the web process. Amended on 2026-11-03 by
+#16 (Architect decision): §7 now allows the in-process state while web runs as a single process,
+and requires a table before more than one web replica or the M8 VPS move (#165; threat model T36,
+accepted risk 22).
 
 ## Context
 
@@ -332,7 +334,12 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   refused without step-up).
 - **Withings connect (M1, PLAN §4.3):** `start` stores the OAuth `state` hashed, bound to the
   session, 10-minute TTL, single use; the callback takes it atomically before anything else, then
-  **exchanges the code within its 30-second validity in the request itself**.
+  **exchanges the code within its 30-second validity in the request itself**. The state is kept
+  in the web process (an in-memory store in `withings/oauth.py`), not in a table: hashed, bound
+  to the session id, 10-minute TTL, single use. This holds because web runs as a single process
+  in the household phase; a web restart mid-flow only makes the user start the connect again.
+  More than one web replica, or the M8 VPS move, requires the state in a shared table first
+  (#165 tracks the move) (amended 2026-11-03, #16, Architect decision).
 - **The code exchange is the web process's only Withings call** (roadmap Amendment 1, Architect
   decision 2026-10-31, resolving PLAN §2 "the worker owns every outbound call" against §4.3). The
   web process gets one narrow web-only egress entry, used solely for the `oauth2 requesttoken`
@@ -499,3 +506,11 @@ read"; Consequences: #21 builds the check.
 Made in place above and marked "amended 2026-10-31, #88": §4's rehash clause holds only for an
 honest caller, since web holds the pepper and could rehash an active entry to an HMAC it chose
 (accepted risk 21, which now says so).
+
+### 2026-11-03 (#16): the post-port review
+
+Architect decision, made in place above and marked "amended 2026-11-03, #16": §7's Withings OAuth
+state may stay in the web process (hashed, bound to the session id, 10-minute TTL, single use)
+while web runs as a single process; a restart mid-flow restarts the connect; more than one web
+replica or the M8 VPS move needs the shared table first (#165). Threat model T36 and accepted
+risk 22.
