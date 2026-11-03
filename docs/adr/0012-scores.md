@@ -70,6 +70,14 @@ Examples here and in the test specification are synthetic.
 | Readiness | **trend** | Components compared with the user's own recent nights only |
 | Health Improvement Score | **experimental** (default; owner question 2) | Its bands are population bands by age and sex from Withings' decompiled card: PLAN §7.2 puts "clinical thresholds … and interpretations" in the experimental tier |
 
+- **Body Path stretches "descriptive".** PLAN §7.2 defines the trend tier as a descriptive
+  comparison with the user's own history; a 30/60/90-day projection looks forward. It stays in
+  the trend tier because PLAN §7.1 step 8 asks for exactly this score with a prediction interval,
+  it uses only the user's own series, it covers body mass only (no clinical threshold, no
+  interpretation of what the value means), and its text says it is not a prediction (§3). This is
+  the less restrictive of the two possible tiers, chosen knowingly; the owner can move it to the
+  experimental tier, which would only hide it (a setting change, no data change).
+
 - **Purity.** The score functions live in `ownvitals.analysis.scores`, covered by
   `test_analysis_purity.py`: no database, clock or randomness; the wiring issue reads rows and
   writes `scores`.
@@ -84,7 +92,10 @@ Examples here and in the test specification are synthetic.
   (inclusive), `unit`, `low` and `high` (each either null or four boundaries
   `{perfect, good, average, bad}`), and `weight` (default 1). A loader validates it: boundaries
   monotone (`bad ≤ average ≤ good ≤ perfect` on the low side, the reverse on the high side, low
-  `perfect` ≤ high `perfect`), age ranges per (criterion, sex) not overlapping, every criterion
+  `perfect` ≤ high `perfect`), at most one row matching any (criterion, sex, age): the age
+  ranges of a criterion's rows must not overlap within one sex, and an `any` row must not overlap
+  in age with a `female` or `male` row of the same criterion, so no user ever matches two rows;
+  every criterion
   known to the code (below), and the file's SHA-256 equal to a constant in the code (a table
   changes only through a reviewed PR).
 - **Which table is used** is the setting `his_band_table` (a `table_id`), **default unset**. Unset,
@@ -120,7 +131,7 @@ enough to reflect "now"; each is a parameter with a version):
 | `afib_ecg_count` | heart | number of recordings in the 365 days ending *d* meeting E1's condition (ADR 0006 §11) | ≥ 3 recordings in the window; the `ecg` capability supported | `ecg_recordings` |
 | `high_bp_ratio` | heart | share of blood-pressure groups in 90 days with systolic ≥ 135 or diastolic ≥ 85 mmHg (findings §3, EU variant; `his_bp_variant` setting `eu`/`us`, US 130/80) | ≥ 6 groups with both values | types 10, 9 |
 | `daily_steps` | activity | median steps per day, 30 days | ≥ 14 days with an activity record | `activity_daily` |
-| `weekly_active_minutes` | activity | (moderate + intense minutes over the 28 days ending *d*) ÷ 4 | ≥ 20 days with an activity record | `activity_daily` |
+| `weekly_active_minutes` | activity | (moderate + intense minutes summed over the days with an activity record in the 28 days ending *d*) ÷ (number of those days) × 7: minutes per 7 days, scaled from the days present, so a missing day never counts as 0 minutes (PLAN §4.2) | ≥ 20 days with an activity record | `activity_daily` |
 | `sleep_ahi` | sleep | median apnea–hypopnea index, 30 nights | ≥ 7 nights reporting it | sleep summaries |
 
 - Inputs are the quality-gated usable readings (#37; `attrib=1` excluded, PLAN §7.1).
@@ -209,14 +220,21 @@ of PLAN §7.1's "sleep or watch data": every watch component we use comes from t
 - **Baseline** (our choice, after findings §3's "personal dynamic baselines"): the **28 nights
   before** *d* (PRECEDING), median *m* and scale *s* = max(1.4826 · MAD, *w*) per component, with
   the BASELINE requirement (≥ 10 nights spanning ≥ 21 days); below it the component is
-  `insufficient_data`. *w* (our choice, one display step): 0.25 h, 1 bpm, 2 ms.
+  `insufficient_data`, and a component whose own baseline fails is `insufficient_data` even if
+  last night has a value. *w* (our choice, one display step): 0.25 h, 1 bpm, 2 ms.
 - **Component score** = `clamp(50 + 50 · σ_c · (x − m) / (3 s), 0, 100)`, with direction
-  σ_c = +1 for duration and HRV, −1 for night heart rate (a lower night heart rate than usual is
-  the direction findings §3's recovery indicator rewards). 50 means "a typical night for you";
-  three scales away reaches 0 or 100. Our choice: symmetric and bounded, so no single night
-  dominates.
+  σ_c = +1 for duration and HRV, −1 for night heart rate. **The directions are our choice**:
+  findings §3 lists the recovery indicator's inputs (sleep duration, night HR, HRV), not how each
+  moves it; longer sleep, a lower night heart rate and a higher HRV than usual are the common
+  reading. 50 means "a typical night for you"; three scales away reaches 0 or 100. Our choice:
+  symmetric and bounded, so no single night dominates. Duration has no upper turning point: an
+  unusually long night (after illness, say) scores up to 100 on it; the text shows the hours, so
+  the reader sees why.
 - **Readiness** = the mean of the computed components, equal weights, as an integer; duration and
-  night heart rate must both be computed, HRV is added when present. Otherwise
+  night heart rate must both be computed. HRV is added only when it is computed: last night has
+  a value **and** its own 28-night baseline passes. Otherwise Readiness is the mean of the other
+  two, and `components.hrv` gives the reason (`not_reported` when last night has no value,
+  `baseline_insufficient` when the baseline fails). Duration or night heart rate not computed:
   `insufficient_data`.
 - Text: "Compared with your last 28 nights: sleep 7 h 10 (usual 7 h 25), night heart rate 54 (usual
   56), HRV 48 ms (usual 45)". No "recovered" or "strained" label. The vitals malus of findings §3

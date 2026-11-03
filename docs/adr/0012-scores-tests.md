@@ -51,7 +51,8 @@ every threshold is tested at, just below and just above its boundary.
 2. The synthetic table loads in the test registry. Each of these variants fails validation and
    gives `not_set` with reason `invalid_band_table`: low boundaries not monotone; high not
    monotone; low `perfect` above high `perfect`; two `female` `fat_ratio` rows whose ages overlap
-   (18–40 and 40–120); an unknown criterion; a file whose SHA-256 is not registered.
+   (18–40 and 40–120); an added `any` `fat_ratio` row for ages 18–30, which overlaps the `female`
+   18–39 row (a female aged 25 would match both); an unknown criterion; a file whose SHA-256 is not registered.
 
 **Criterion scores** (synthetic table, `bmi` row)
 
@@ -85,8 +86,12 @@ every threshold is tested at, just below and just above its boundary.
     diastolic 84 and systolic 130 (does not count): ratio 2/6; with the `us` variant (130/80) the
     group at 130/84 counts too: 3/6. 5 groups → `insufficient_data`. A group with only one of the
     two values is not counted toward the 6.
-14. `weekly_active_minutes`: 28 days, moderate + intense = 60 min each day → 420; 19 days with a
-    record → `insufficient_data`; 20 → computed (the sum over the days present ÷ 4).
+14. `weekly_active_minutes` (per 7 days, scaled from the days present): 28 days at moderate +
+    intense = 60 min each → 1680 ÷ 28 × 7 = **420**; 20 days present at 60 min each and 8 days
+    without a record → 1200 ÷ 20 × 7 = **420** (not 300: missing days never count as 0); 20 days
+    present, 10 at 30 min and 10 at 90 min → 1200 ÷ 20 × 7 = 420; a day with a record of 0
+    minutes counts as present (21 days, 20 at 60 and one at 0 → 1200 ÷ 21 × 7 = 400); 19 days
+    with a record → `insufficient_data`.
 15. `attrib=1` readings are excluded from every criterion (a day whose only weight is `attrib=1`
     has no daily value).
 16. A missing sleep-summary field (no AHI on any night) → `sleep_ahi` `not_available`, never 0.
@@ -116,7 +121,7 @@ every threshold is tested at, just below and just above its boundary.
    *L* = 78.22, σ = 0.3 (the floor *w*/1.5 = 0.45/1.5); h 30 → centre 77.62, interval 77.62 ±
    1.2816 · 0.3 = [77.2355, 78.0045] (tolerance 1e-4); h 60 → 77.02; h 90 → 76.42. `value` is the
    30-day centre.
-2. Constant 80.0 kg every day: *b* = 0, centre 80.0 at every horizon, interval 80.0 ± 0.38447.
+2. Constant 80.0 kg every day: *b* = 0, centre 80.0 at every horizon, interval 80.0 ± 0.38448.
 3. The same series with fat mass: `body_path:fat_mass` uses *w* 0.1 kg (σ floor 0.0667).
 4. Horizons are exactly 30, 60 and 90; nothing beyond 90 is produced.
 
@@ -163,11 +168,15 @@ alternating 40 and 50 ms (median 45, raw MAD 5, scale 7.413).
 7. 9 nights in the 28 before *d* → `insufficient_data`; 10 nights spanning 20 days →
    `insufficient_data` (span); 10 nights spanning 21 days → computed.
 8. Duration computed, night heart rate missing in the summary → `insufficient_data`
-   (`hr_missing`); HRV missing → computed from two components, `components.hrv` absent with
+   (`hr_missing`); HRV missing last night → computed from two components, `components.hrv`
    reason `not_reported`.
-9. The baseline is PRECEDING: changing last night's values doesn't move *m* or *s*; a night 29
-   days before *d* doesn't either.
-10. The wake-up day assigns the night: a summary ending 2026-06-15 06:40 local belongs to
+9. Last night has HRV 60 ms but only 9 of the 28 preceding nights report HRV (duration and night
+   heart rate on all 28): Readiness = mean of duration and night heart rate (case 2's values →
+   **67**), `components.hrv` reason `baseline_insufficient`; with 10 HRV nights spanning 21 days
+   the HRV component is computed and averaged in.
+10. The baseline is PRECEDING: changing last night's values doesn't move *m* or *s*; a night 29
+    days before *d* doesn't either.
+11. The wake-up day assigns the night: a summary ending 2026-06-15 06:40 local belongs to
     2026-06-15 under both day-assignment modes (a fixed zone and per-reading `source_tz`).
 
 ## Storage (wiring issue, §5)
