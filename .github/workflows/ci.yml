@@ -412,7 +412,7 @@ jobs:
         if: failure()
         run: |
           docker compose -f compose.yaml -f compose.e2e.yaml ps -a || true
-          docker compose -f compose.yaml -f compose.e2e.yaml logs --tail 60 --no-color 2>&1 \
+          docker compose -f compose.yaml -f compose.e2e.yaml logs --tail 25 --no-color 2>&1 \
             | sed -E 's/(token|secret|password)=[^ ]*/\1=<redacted>/Ig' || true
 
       - name: Stop the stack
