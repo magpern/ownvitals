@@ -1,18 +1,26 @@
 """The pre-session (ADR 0011 section 4).
 
 A browser without a session gets one pre-session cookie, ``__Host-ownvitals_pre``, when it
-starts a passkey sign-in (and, with the QR issue, a QR login). It grants nothing: it only binds a
-challenge (or a QR row) to the browser that asked for it. The cookie holds 32 random bytes; the
-database holds their SHA-256 and an expiry 5 minutes later. Every start issues a new one and
-deletes the old one, which takes what it bound with it (``ON DELETE CASCADE``). It is read only
-from its cookie, never from a header, a query or a body, and never logged.
+starts a passkey sign-in or a QR login (section 5). It grants nothing: it only binds a challenge
+or a QR row to the browser that asked for it. The cookie holds 32 random bytes; the database
+holds their SHA-256 and an expiry 5 minutes later. It is read only from its cookie, never from a
+header, a query or a body, and never logged.
+
+Every start issues a new token. When the browser still holds a live pre-session, the new token
+replaces the old one **in the same row** (the old token is dead at once, the 5 minutes start
+again), so what one kind of start bound survives a start of the other kind: a passkey sign-in
+started in one tab does not cancel a QR login in another (the #165 item for ADR 0011), and the
+reverse. Each kind replaces only its own: a new ``signin`` challenge replaces the old one
+(``passkeys.new_challenge``) and a new QR start expires the previous QR row (``qrlogin.start``).
+An expired or unknown pre-session is deleted, with what it bound (``ON DELETE CASCADE``; a QR
+row is only unbound, ``SET NULL``), and a new row is made.
 """
 
 from datetime import timedelta
 from uuid import UUID
 
 from fastapi import Request
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth.cookies import PRE_COOKIE
@@ -32,12 +40,30 @@ def request_pre_token(request: Request) -> str | None:
 
 
 async def issue(db: AsyncSession, replacing: str | None) -> tuple[UUID, str]:
-    """A new pre-session; the browser's old one (if any) is deleted with what it bound."""
+    """A new pre-session token: in the browser's live pre-session row when it has one (what it
+    bound stays bound), else in a new row (an expired old one is deleted with what it bound)."""
+    token = new_token()
     if replacing:
+        kept = (
+            await db.execute(
+                update(pre_sessions)
+                .where(
+                    pre_sessions.c.token_hash == token_hash(replacing),
+                    pre_sessions.c.expires_at > func.now(),
+                )
+                .values(
+                    token_hash=token_hash(token),
+                    created_at=func.now(),
+                    expires_at=func.now() + LIFETIME,
+                )
+                .returning(pre_sessions.c.id)
+            )
+        ).scalar_one_or_none()
+        if kept is not None:
+            return kept, token
         await db.execute(
             delete(pre_sessions).where(pre_sessions.c.token_hash == token_hash(replacing))
         )
-    token = new_token()
     row_id = (
         await db.execute(
             insert(pre_sessions)

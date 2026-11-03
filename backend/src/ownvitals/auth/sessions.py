@@ -53,12 +53,18 @@ class SessionInfo:
     now: datetime
     totp_enabled: bool = False  # the account has a confirmed TOTP
     stepup_window: timedelta = STEPUP_WINDOW
+    # ADR 0011 section 5: ``qr_approval`` for a session a phone approved (carried over every
+    # rotation), and whether ``mfa_at`` is still the code entered on that phone.
+    origin: Literal["signin", "qr_approval"] = "signin"
+    mfa_by_approval: bool = False
 
     @property
     def full(self) -> bool:
         """The session passed its second factor (ownvitals ADR 0003 section 2): the account has
         a confirmed TOTP and a TOTP or recovery code was verified in this session (or its first
-        enrolment was confirmed in it). Only a full session yields a ``UserContext``."""
+        enrolment was confirmed in it), or on its behalf for the one QR approval that created
+        it (ADR 0011 section 5, amending ADR 0003 section 2). Only a full session yields a
+        ``UserContext``."""
         return self.totp_enabled and self.mfa_at is not None
 
     @property
@@ -85,10 +91,22 @@ class SessionInfo:
 
     @property
     def role(self) -> Literal["user", "admin"]:
-        """``admin`` only for an admin whose session passed TOTP in the last 12 hours."""
-        if self.stored_role == "admin" and _within(self.mfa_at, self.now, ADMIN_MFA_WINDOW):
+        """``admin`` only for an admin whose session passed TOTP in the last 12 hours, in this
+        session itself: a code entered on the approving phone for a QR login does not count
+        (ADR 0011 section 5, ADR 0003 section 7 read literally)."""
+        if (
+            self.stored_role == "admin"
+            and not self.mfa_by_approval
+            and _within(self.mfa_at, self.now, ADMIN_MFA_WINDOW)
+        ):
             return "admin"
         return "user"
+
+    @property
+    def may_approve_qr(self) -> bool:
+        """A full session that was not itself born from a QR approval (no chaining from a
+        hijacked desktop, ADR 0011 section 5)."""
+        return self.full and self.origin == "signin"
 
     @property
     def admin_pending_mfa(self) -> bool:
@@ -98,8 +116,8 @@ class SessionInfo:
 
     @property
     def recent_mfa(self) -> bool:
-        """TOTP passed within the 12-hour window."""
-        return _within(self.mfa_at, self.now, ADMIN_MFA_WINDOW)
+        """TOTP passed within the 12-hour window (in this session: see ``role``)."""
+        return not self.mfa_by_approval and _within(self.mfa_at, self.now, ADMIN_MFA_WINDOW)
 
     @property
     def recent_auth(self) -> bool:
@@ -166,6 +184,8 @@ async def resolve_session(
                     sessions.c.reauth_at,
                     sessions.c.mfa_at,
                     sessions.c.stepup_at,
+                    sessions.c.origin,
+                    sessions.c.mfa_by_approval,
                     users.c.email,
                     users.c.role,
                     users.c.disabled_at,
@@ -198,6 +218,8 @@ async def resolve_session(
             now=row.now,
             totp_enabled=row.totp_enabled,
             stepup_window=timedelta(minutes=settings.stepup_window_minutes),
+            origin=row.origin,
+            mfa_by_approval=row.mfa_by_approval,
         )
         idle = timedelta(hours=settings.session_idle_hours)
         if (
@@ -291,6 +313,55 @@ def _remaining():
     return func.extract("epoch", sessions.c.expires_at - func.now()).label("remaining")
 
 
+async def start_approved_session(
+    db: AsyncSession,
+    settings: Settings,
+    user_id: UUID,
+    *,
+    approved_at: datetime,
+    factor: Literal["totp", "recovery_code"],
+    approved_by: UUID,
+    user_agent: str | None,
+    ip: str | None,
+    replacing_token: str | None = None,
+) -> IssuedSession:
+    """The desktop's session after a QR approval (ADR 0011 section 5): a new token in a new row,
+    the browser's old session (if any) deleted and nothing carried over from it.
+
+    It is full: ``mfa_at`` is the approval time, because a TOTP or recovery code was entered on
+    the phone for this approval (amending ADR 0003 section 2); ``mfa_by_approval`` keeps that
+    code from counting for the admin role. ``reauth_at`` and ``stepup_at`` are empty, so every
+    sensitive or step-up action on the desktop needs its own proofs. ``origin`` is
+    ``qr_approval`` for the life of the session: it can never approve another QR login.
+    """
+    if replacing_token:
+        await db.execute(
+            delete(sessions).where(sessions.c.token_hash == token_hash(replacing_token))
+        )
+    token = new_token()
+    row = (
+        await db.execute(
+            insert(sessions)
+            .values(
+                user_id=user_id,
+                token_hash=token_hash(token),
+                expires_at=func.now() + timedelta(days=settings.session_absolute_days),
+                reauth_at=None,
+                mfa_at=approved_at,
+                stepup_at=None,
+                user_agent=_truncate(user_agent),
+                ip=ip,
+                origin="qr_approval",
+                mfa_by_approval=True,
+                approved_factor=factor,
+                approved_by_session_id=approved_by,
+            )
+            .returning(sessions.c.id, sessions.c.expires_at, _remaining())
+        )
+    ).one()
+    return IssuedSession(row.id, token, row.expires_at, max(int(row.remaining), 0))
+
+
 async def rotate_session(
     db: AsyncSession,
     info: SessionInfo,
@@ -319,6 +390,10 @@ async def rotate_session(
                 sessions.c.stepup_at,
                 sessions.c.user_agent,
                 sessions.c.ip,
+                sessions.c.origin,
+                sessions.c.mfa_by_approval,
+                sessions.c.approved_factor,
+                sessions.c.approved_by_session_id,
             )
         )
     ).first()
@@ -338,6 +413,11 @@ async def rotate_session(
                 stepup_at=func.now() if stepup else old.stepup_at,
                 user_agent=_truncate(user_agent) or old.user_agent,
                 ip=ip or old.ip,
+                # A QR-born session stays one; a code verified in it (``mfa``) is its own.
+                origin=old.origin,
+                mfa_by_approval=old.mfa_by_approval and not (mfa or drop_mfa),
+                approved_factor=old.approved_factor,
+                approved_by_session_id=old.approved_by_session_id,
             )
             .returning(sessions.c.id, sessions.c.expires_at, _remaining())
         )

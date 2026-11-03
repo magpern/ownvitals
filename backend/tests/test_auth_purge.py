@@ -65,6 +65,19 @@ async def seed(env: Env) -> None:
         "INSERT INTO webauthn_challenges (challenge_hash, purpose, presession_id, expires_at) "
         "SELECT sha256('c2'), 'signin', id, now() + interval '5 minutes' FROM pre_sessions "
         "WHERE token_hash = sha256('p2')",
+        # ADR 0011 section 5: a QR row goes an hour after its last deadline; a live one past its
+        # deadline is first expired; an ended one within the hour stays.
+        "INSERT INTO qr_logins (nonce_hash, presession_id, state, scan_deadline, "
+        "desktop_browser, desktop_os) SELECT sha256('q1'), id, 'expired', "
+        "now() - interval '61 minutes', 'other', 'other' FROM pre_sessions "
+        "WHERE token_hash = sha256('p2')",
+        "INSERT INTO qr_logins (nonce_hash, presession_id, scan_deadline, desktop_browser, "
+        "desktop_os) SELECT sha256('q2'), id, now() - interval '1 second', 'other', 'other' "
+        "FROM pre_sessions WHERE token_hash = sha256('p2')",
+        "INSERT INTO qr_logins (nonce_hash, presession_id, state, scan_deadline, "
+        "desktop_browser, desktop_os) SELECT sha256('q3'), id, 'denied', "
+        "now() - interval '59 minutes', 'other', 'other' FROM pre_sessions "
+        "WHERE token_hash = sha256('p2')",
     ]
     for statement in sql:
         await env.run(statement)
@@ -94,6 +107,8 @@ async def test_purge_deletes_what_is_expired_or_used_and_keeps_the_rest(env: Env
         "known_devices": 1,
         "auth_events": 1,
         "sessions_ip_cleared": 1,
+        "qr_logins": 1,
+        "qr_logins_expired": 1,
     }
     assert await env.scalar("SELECT count(*) FROM sessions") == 1
     assert await env.scalar("SELECT ip FROM sessions") is None  # cleared after 30 days
@@ -107,6 +122,8 @@ async def test_purge_deletes_what_is_expired_or_used_and_keeps_the_rest(env: Env
     assert await env.scalar("SELECT count(*) FROM users") == 1  # users are never purged
     assert await env.scalar("SELECT count(*) FROM pre_sessions") == 1
     assert await env.scalar("SELECT challenge_hash = sha256('c2') FROM webauthn_challenges")
+    states = await env.scalar("SELECT array_agg(state ORDER BY nonce_hash) FROM qr_logins")
+    assert sorted(states) == ["denied", "expired"]  # type: ignore[arg-type]
 
 
 async def test_purge_twice_is_a_no_op(env: Env) -> None:

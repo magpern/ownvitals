@@ -144,6 +144,7 @@ TABLE_NAMES = (
     "pre_sessions",
     "webauthn_credentials",
     "webauthn_challenges",
+    "qr_logins",
 )
 SUBMODULES = frozenset(
     {
@@ -181,6 +182,11 @@ SUBMODULES = frozenset(
         "oauth_store",
         "passwords",
         "presession",
+        "qrlogin",
+        "qrlogin_routes",
+        "qrlogin_stream",
+        "useragent",
+        "geo",
         "purge",
         "ratelimit",
         "reset_routes",

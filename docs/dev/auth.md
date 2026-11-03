@@ -97,7 +97,9 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 - **Session protection.** Idle 72 hours, absolute 30 days (settings). Rotation on sign-in, the
   second factor, re-authentication, step-up and TOTP removal; a role change, a reset and
   `admin mfa-reset` revoke every session. A sign-in never carries a second factor over from the
-  browser's old session.
+  browser's old session. A QR approve-login (ADR 0011 section 5) is no exception: its session is
+  full because a code was entered on the approving phone **for that sign-in**, not carried over
+  from an earlier session of the desktop browser, and that code never counts for the admin role.
 - **Step-up.** `require_stepup` (a TOTP or recovery code within `stepup_window_minutes`), and
   `require_sensitive` (recent authentication within 10 minutes, then the step-up) for the
   actions that need both; `require_admin_stepup` is `require_admin` with a 5-minute step-up for
@@ -111,7 +113,7 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 | First enrolment | the sign-in itself (no factor to step up with) |
 
 - **Audit.** `auth_events` kinds: `mfa_verified`, `step_up`, `reauth_totp`, `mfa_failed` (with
-  `detail.purpose`: `verify`, `stepup`, `reauth`, `enroll`), `totp_enrolled`, `totp_replaced`,
+  `detail.purpose`: `verify`, `stepup`, `reauth`, `enroll`, `qr_approve`), `totp_enrolled`, `totp_replaced`,
   `totp_removed`, `logout_everywhere` (with the number of sessions). Code attempts share the MFA
   rate-limit buckets.
 - **Removing the TOTP** (step-up) revokes every other session and rotates this one without its
@@ -130,6 +132,13 @@ authentication, never as a step-up. `admin mfa-reset` also removes every passkey
 Google identity and clears the password (ADR 0011 §3 amendment, amending ADR 0003 §2): after a
 reset, the only way in is the password set through the mailed link. `keys wipe` removes passkeys
 and Google identities too and keeps the password.
+
+## QR approve-login
+
+QR approve-login (ADR 0011 section 5, #179) is in [auth-qrlogin.md](auth-qrlogin.md): a signed-in
+phone scans a desktop's QR and approves with a TOTP or recovery code entered for that approval;
+the desktop gets a new, full session that can never approve another QR login. `admin mfa-reset`
+and `keys wipe` also expire every live QR login the account scanned or approved.
 
 ## Mail locally
 

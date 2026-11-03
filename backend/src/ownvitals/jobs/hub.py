@@ -20,6 +20,9 @@ none between its short reads.
 reconnects to the next process with its last id. Without it an open stream (up to 10 minutes)
 would hold uvicorn's graceful shutdown, and the lifespan's ``stop()`` and engine disposal would
 never run.
+
+The QR approve-login streams (ADR 0011 section 5, ``ownvitals.auth.qrlogin_stream``) use their
+own hub on the ``qr_logins`` channel: the same rules, one more pooled connection per process.
 """
 
 import asyncio
@@ -55,8 +58,11 @@ class Subscription:
 
 
 class EventHub:
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: AsyncEngine, channel: str = CHANNEL) -> None:
+        if not channel.isidentifier() or not channel.islower():
+            raise ValueError("a channel is a lower-case identifier")  # it is put into LISTEN
         self._engine = engine
+        self._channel = channel
         self._subscriptions: dict[UUID, set[Subscription]] = {}
         self._task: asyncio.Task[None] | None = None
         self.listening = False
@@ -102,7 +108,7 @@ class EventHub:
             driver: Any = raw.driver_connection  # psycopg.AsyncConnection
             try:
                 await driver.set_autocommit(True)
-                await driver.execute(f"LISTEN {CHANNEL}")
+                await driver.execute(f"LISTEN {self._channel}")
                 self._set_listening(True)
                 self._delay = RECONNECT_MIN_SECONDS  # a good connection resets the backoff
                 while True:
@@ -122,7 +128,8 @@ class EventHub:
                 raise
             except Exception as exc:  # the database is down: streams poll meanwhile
                 logger.info(
-                    "job event listener unavailable", extra={"error_type": type(exc).__name__}
+                    "event listener unavailable",
+                    extra={"channel": self._channel, "error_type": type(exc).__name__},
                 )
             await asyncio.sleep(self._delay)
             self._delay = min(self._delay * 2, RECONNECT_MAX_SECONDS)
