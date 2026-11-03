@@ -8,6 +8,11 @@
 #   the image's copy. The browser's visit to accounts.google.com is intercepted by Playwright.
 # - Google sign-in is switched on for web with a made-up client id and the generated secret.
 # - fake-oidc only starts with OWNVITALS_ENVIRONMENT=test; web stays `dev`.
+# - fake-withings answers as wbsapi.withings.net and account.withings.com (network aliases) with a
+#   certificate from the same throwaway CA, which web and the worker both trust through the
+#   mounted bundle. It runs the protocol code of backend/tests (mounted read-only, so it cannot
+#   drift from the in-process fake) and publishes NO port: its control endpoints (/__e2e/, plain
+#   HTTP on 9101) are reachable from inside the compose network only.
 
 services:
   web:
@@ -26,6 +31,11 @@ services:
   worker:
     secrets:
       - connection_kek
+    volumes:
+      - ./e2e/.certs/cacert.pem:/app/.venv/lib/python3.12/site-packages/certifi/cacert.pem:ro
+    depends_on:
+      fake-withings:
+        condition: service_healthy
 
   fake-oidc:
     build: ./e2e/fake-oidc
@@ -56,6 +66,39 @@ services:
         - node
         - -e
         - "fetch('http://127.0.0.1:9100/__test/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  fake-withings:
+    build: ./e2e/fake-withings
+    image: ${COMPOSE_PROJECT_NAME:-ownvitals}-fake-withings:local
+    restart: "no"
+    environment:
+      OWNVITALS_ENVIRONMENT: test
+      FAKE_WITHINGS_CLIENT_ID: e2e-withings-client
+      FAKE_WITHINGS_REDIRECT_URI: http://127.0.0.1:${WEB_PORT:-8000}/api/oauth/withings/callback
+      # The callback URL a worker subscribes is built from the public base URL, which this
+      # container cannot reach: the HEAD check and webhook deliveries go to web instead.
+      FAKE_WITHINGS_CALLBACK_BASE: http://web:8000
+    volumes:
+      - ./backend/tests:/protocol:ro
+      - ./e2e/.certs/withings.key:/certs/withings.key:ro
+      - ./e2e/.certs/withings.pem:/certs/withings.pem:ro
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    networks:
+      default:
+        aliases:
+          - wbsapi.withings.net
+          - account.withings.com
+    # No `ports:` on purpose: nothing of this service is reachable from the host.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9101/__e2e/ready', timeout=3)"
       interval: 2s
       timeout: 5s
       retries: 20

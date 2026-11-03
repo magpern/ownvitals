@@ -33,6 +33,10 @@ Requests: the API takes ``POST`` with a form body only, and no secret in the que
 application to 120 requests a minute (a token bucket on the fake clock, status 601; pass
 ``rate_limit=None`` to ``FakeWithings`` to switch it off).
 
+A real-time timeout (``asyncio.wait_for``) cancels the receiver's handler, which a real server
+would not: Withings stops waiting, the receiver carries on. A test that needs the receiver to
+finish a late request must use the fake clock (``Receiver.clock_seconds``) instead.
+
 Webhook senders: only a 2xx answer counts, within ``WEBHOOK_RESPONSE_TIMEOUT`` seconds (real time,
 or the fake clock when the receiver advances it); redirects are not followed.
 """
@@ -48,6 +52,7 @@ import httpx
 
 from withingscore import FakeWithings
 from withingsnotify import HeadCheck
+from withingsrules import RATE_LIMIT_PER_MINUTE
 from withingswire import (
     API_HOST,
     WEBHOOK_ATTEMPTS_PER_CYCLE,
@@ -117,9 +122,12 @@ class FakeWithingsTransport(httpx.AsyncBaseTransport):
         )
 
 
-def make_fake(*, seed: int = 0, **options: Any) -> tuple[FakeWithings, App, FakeUser]:
-    """A fake with one app and one synthetic user (``options`` go to ``generate_dataset``)."""
-    fake = FakeWithings(seed=seed)
+def make_fake(
+    *, seed: int = 0, rate_limit: int | None = RATE_LIMIT_PER_MINUTE, **options: Any
+) -> tuple[FakeWithings, App, FakeUser]:
+    """A fake with one app and one synthetic user (``options`` go to ``generate_dataset``;
+    ``rate_limit`` to ``FakeWithings``, ``None`` switches the limit off)."""
+    fake = FakeWithings(seed=seed, rate_limit=rate_limit)
     return fake, fake.add_app(), fake.add_user(**options)
 
 

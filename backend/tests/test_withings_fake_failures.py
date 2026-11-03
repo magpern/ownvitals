@@ -203,7 +203,8 @@ def test_without_strict_hosts_the_fake_routes_by_path_alone() -> None:
     user = fake.add_user(days=3, ecg_count=0)
     token = fake.tokens_for(app.client_id, user.userid)["access_token"]
     request = Request(
-        "POST", "http://fake-withings:8080/v2/user", {"authorization": f"Bearer {token}"},
+        "POST", "http://fake-withings:8080/v2/user",
+        {"authorization": f"Bearer {token}", "content-type": "application/x-www-form-urlencoded"},
         b"action=getgoals",
     )  # fmt: skip
     reply = fake.handle(request)

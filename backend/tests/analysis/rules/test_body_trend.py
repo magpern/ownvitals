@@ -17,10 +17,9 @@ from ownvitals.analysis.rules.core import (
     NoFinding,
     Provenance,
     Tier,
-    relative_change,
-    trend_of,
 )
 from ownvitals.analysis.rules.heart import c2
+from ownvitals.analysis.rules.trendrule import relative_change, trend_of
 
 
 def ramp(change: float, days: int, level: float, sd: float, seed: int = 1) -> list:

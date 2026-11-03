@@ -1,4 +1,4 @@
-"""Month partitions for ``sleep_series`` and ``intraday``.
+"""Month partitions for ``sleep_series``, ``intraday`` and ``observations`` (#181).
 
 Callers open one short transaction per month and commit it before the insert. The function
 takes an advisory lock on the parent, so it must not run inside the insert transaction.
@@ -11,7 +11,7 @@ from datetime import date
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-PARTITIONED = frozenset({"sleep_series", "intraday"})
+PARTITIONED = frozenset({"sleep_series", "intraday", "observations"})
 _ENSURE = text("SELECT ensure_month_partitions(:table, :month, :month)")
 
 
