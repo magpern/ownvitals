@@ -58,7 +58,7 @@ READ_ONLY: Final = "25006"
 # Labelled filler, 32 bytes as the hash columns require. Not a digest of anything.
 SYNTHETIC_HASH: Final = b"\x5a" * 32
 TABLE_NAME: Final = re.compile(r"[a-z][a-z0-9_]{0,62}")
-PARTITIONED: Final = ("sleep_series", "intraday")
+PARTITIONED: Final = ("sleep_series", "intraday", "observations")
 CONTEXTS: Final = ("web", "worker", "scheduler", "webhook", "maintenance", "admin")
 LEASE_SECONDS: Final = 60
 
@@ -113,6 +113,26 @@ ROWS: Final[Mapping[str, str]] = {
     "RETURNING id",
     "intraday": "INSERT INTO public.intraday (owner_id, ts, source_tz, connection_id, metric, "
     "value_raw, unit) VALUES (:owner, :ts, 'Etc/UTC', :connection, :tag, 0, 0) RETURNING id",
+    # The derived tables (#181).
+    "observations": "INSERT INTO public.observations (owner_id, metric_key, ts, source_ts, "
+    "source_tz, value, source_value_raw, source_unit, conversion, algo_version, input_revision, "
+    "input_fingerprint) VALUES (:owner, :tag, :ts, :ts, 'Etc/UTC', 0, 0, 0, 'synthetic', "
+    "'synthetic/1', 0, :hash) RETURNING id",
+    "metric_daily": "INSERT INTO public.metric_daily (owner_id, metric_key, day, method, value, "
+    "mean, min, max, mad, n, source_groups, algo_version, input_revision, input_fingerprint) "
+    "VALUES (:owner, :tag, :day, 'median', 0, 0, 0, 0, 0, 1, ARRAY[:n]::bigint[], "
+    "'synthetic/1', 0, :hash) RETURNING id",
+    "findings": "INSERT INTO public.findings (owner_id, rule_id, rule_version, tier, severity, "
+    "confidence, origin, subject, window_start, window_end, input_revision, input_fingerprint) "
+    "VALUES (:owner, 'C1', '1', 'trend', 'attention', 'low', 'live', :tag, :day, :day, 0, "
+    ":hash) RETURNING id",
+    "scores": "INSERT INTO public.scores (owner_id, kind, day, value, algo_version, "
+    "input_revision, input_fingerprint) VALUES (:owner, :tag, :day, 0, 'synthetic/1', 0, :hash) "
+    "RETURNING id",
+    # One profile per owner: a second insert for an owner who has one updates it instead, so
+    # the own-insert control still writes one row. Another owner's is refused by the policy.
+    "user_profiles": "INSERT INTO public.user_profiles (owner_id) VALUES (:owner) "
+    "ON CONFLICT (owner_id) DO UPDATE SET updated_at = now() RETURNING id",
 }
 _PARAM = re.compile(r"(?<![:\w]):([a-z_]+)")
 _WITHINGS_CONNECTION = text(

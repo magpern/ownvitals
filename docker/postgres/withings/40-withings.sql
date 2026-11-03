@@ -126,7 +126,7 @@ DECLARE
   v_created integer := 0;
   v_ceiling timestamptz := pg_catalog.now() + interval '3 months';
 BEGIN
-  IF p_table NOT IN ('sleep_series', 'intraday') THEN
+  IF p_table NOT IN ('sleep_series', 'intraday', 'observations') THEN
     RAISE EXCEPTION 'table_not_allowed' USING ERRCODE = '22023';
   END IF;
   IF p_from IS NULL OR p_to IS NULL
