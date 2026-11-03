@@ -222,7 +222,7 @@ greps the logs and `ai_audit`.
   `UserContext` user, as RLS reads it; minimal returns). **They are never created by a
   migration.** Like the queue functions (`docs/dev/jobs.md`, "db-functions"), they live in a new
   idempotent script, `docker/postgres/ai/50-ai.sql` (the role `ownvitals_ai` and the five functions
-  of this section, `ai_purge_expired()` of §5 included), which compose's `db-functions` one-shot
+  of this section, with `ai_purge_expired()` for §5's 90-day retention), which compose's `db-functions` one-shot
   runs **as the superuser** after `20-queue.sql`, `30-maint.sql`, `40-withings.sql` and
   `rate.sql`, in the same transaction (`db-functions.sh` and the `Dockerfile`'s `/app/db-functions`
   copy list gain the file). Each function's `md5(pg_get_functiondef)` is pinned in
@@ -316,8 +316,8 @@ Two layers, both on **synthetic accounts only**:
     control): its resolver set is `api.anthropic.com` plus the database URLs' hosts, with no
     Withings, Google or SMTP host. `model_async_client()` builds in a worker with AI on **or** in
     the eval role; every other client builder (Withings, Google, the code exchange, mail) raises
-    `OutboundBlocked` there. The module's `main` first runs the checks below, then installs the hook
-    and the allowlist, both before any connection. The egress guard admits it by name in two lists
+    `OutboundBlocked` there. The module's `main` installs the hook first, before any connection, then
+    runs the checks below (which reach only its database), and only then installs the allowlist. The egress guard admits it by name in two lists
     of `tests/egress_scan.py`: `HOOK_INSTALLERS` (today the worker entry point, the CLI and web)
     gains `ownvitals.ai.eval`, and a new `EVAL_ROLE_MODULES` (`ownvitals.ai.eval` only) is the
     only place `install_eval_allowlist` may be called; `WORKER_ROLE_MODULES` does not change.
