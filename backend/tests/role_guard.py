@@ -55,7 +55,8 @@ QUEUE_RELATIONS = {
     "jobs:r": {"SELECT", "INSERT", "UPDATE"},
     "job_events:r": {"SELECT", "INSERT"},
 }
-# ``regprocedure`` without a schema. #153 added the three beyond claim, reap and stats.
+# ``regprocedure`` without a schema. #153 added the three beyond claim, reap and stats; #164
+# added the scheduler's.
 QUEUE_EXECUTE = {
     "queue_claim(text,integer,text[])",
     "queue_reap(integer)",
@@ -63,6 +64,7 @@ QUEUE_EXECUTE = {
     "queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)",
     "queue_cancel_for_secret(text,uuid)",
     "queue_replay(uuid)",
+    "queue_schedule(text,integer)",
 }
 # 40-withings.sql: two NOLOGIN roles, table grants, and the owner of each function.
 SECRETS = "ownvitals_webhook_secrets"

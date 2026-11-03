@@ -83,7 +83,7 @@ BEGIN
                        WHERE p.oid = r.objid AND n.nspname = 'public'
                          AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
                                            'queue_enqueue', 'queue_cancel_for_secret',
-                                           'queue_replay')) THEN
+                                           'queue_replay', 'queue_schedule')) THEN
       RAISE EXCEPTION 'ownvitals_queue owns % (catalog %, object %); it may own only the queue '
         'functions: drop or reassign it by hand', coalesce(r.what, '?'), r.catalog, r.objid;
     END IF;
@@ -188,11 +188,13 @@ BEGIN
              FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'public'
               AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
-                                'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay')
+                                'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay',
+                                'queue_schedule')
               AND p.oid::regprocedure::text NOT IN (
                 'queue_claim(text,integer,text[])', 'queue_reap(integer)', 'queue_stats()',
                 'queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)',
-                'queue_cancel_for_secret(text,uuid)', 'queue_replay(uuid)') LOOP
+                'queue_cancel_for_secret(text,uuid)', 'queue_replay(uuid)',
+                'queue_schedule(text,integer)') LOOP
     EXECUTE format('DROP ROUTINE public.%s', r.signature);
   END LOOP;
 END $$;
@@ -214,7 +216,7 @@ BEGIN
            || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS what
       FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE NOT (n.nspname = 'public' AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
-            'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay',
+            'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay', 'queue_schedule',
             'ensure_month_partitions', 'webhook_secrets_apply', 'webhook_event_insert',
             'webhook_events_purge_owner',
             'withings_rate_claim', 'withings_rate_release', 'withings_rate_pause'))
@@ -591,6 +593,46 @@ BEGIN
   RETURN NEXT;
 END $$;
 
+-- The scheduler (PLAN section 4.4, ADR 0002 section 4, ADR 0005 section 8): one job of p_kind
+-- for every connected connection that has none queued or running and none created in the last
+-- p_interval_seconds. Only the poll and the reconciliation are scheduled. Each job is created by
+-- queue_enqueue (origin scheduler) and gets its context only when claimed. At most 500 per call;
+-- the rest stay due for the next call. Returns the count, never an owner or a connection id.
+CREATE OR REPLACE FUNCTION public.queue_schedule(p_kind text, p_interval_seconds integer)
+  RETURNS integer
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  r record;
+  v_done integer := 0;
+BEGIN
+  IF p_kind IS NULL OR p_kind NOT IN ('withings_poll', 'withings_reconcile') THEN
+    RAISE EXCEPTION 'invalid schedule' USING ERRCODE = '22023';
+  END IF;
+  IF p_interval_seconds IS NULL OR p_interval_seconds < 3600
+     OR p_interval_seconds > 604800 THEN
+    RAISE EXCEPTION 'invalid interval' USING ERRCODE = '22023';
+  END IF;
+  FOR r IN SELECT c.id, c.owner_id FROM public.connections c
+            WHERE c.status = 'connected' ORDER BY c.id LOOP
+    -- The same lock as queue_enqueue's, taken first so the check and the insert are one step.
+    PERFORM pg_catalog.pg_advisory_xact_lock(1, pg_catalog.hashtext(r.owner_id::text));
+    IF EXISTS (SELECT FROM public.jobs j
+                WHERE j.owner_id = r.owner_id AND j.kind = p_kind
+                  AND j.input ->> 'connection_id' = r.id::text
+                  AND (j.state IN ('queued', 'running')
+                       OR j.created_at > now() - make_interval(secs => p_interval_seconds))) THEN
+      CONTINUE;
+    END IF;
+    PERFORM public.queue_enqueue(
+      r.id, p_kind, 'scheduler', pg_catalog.jsonb_build_object('connection_id', r.id),
+      NULL, 3, NULL);
+    v_done := v_done + 1;
+    EXIT WHEN v_done >= 500;
+  END LOOP;
+  RETURN v_done;
+END $$;
+
 -- Owner, ACL and version of each function. Every grantee but the owner is revoked first, so the
 -- ACL ends exactly {ownvitals_queue=X/ownvitals_queue, ownvitals_app=X/ownvitals_queue}.
 DO $$
@@ -602,7 +644,8 @@ BEGIN
       'public.queue_claim(text,integer,text[])', 'public.queue_reap(integer)',
       'public.queue_stats()',
       'public.queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)',
-      'public.queue_cancel_for_secret(text,uuid)', 'public.queue_replay(uuid)'] LOOP
+      'public.queue_cancel_for_secret(text,uuid)', 'public.queue_replay(uuid)',
+      'public.queue_schedule(text,integer)'] LOOP
     EXECUTE format('ALTER FUNCTION %s OWNER TO ownvitals_queue', f);
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', f);
     FOR g IN SELECT DISTINCT
