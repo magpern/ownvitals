@@ -488,3 +488,30 @@ need recent auth and step-up, approve needs a code entered for that approval (am
 reading of "via SSE"; the deadlines (60 s scan, 120 s approve, 30 s complete); first scan wins; no
 chaining from a QR-born session; the admin role not carried by a QR approval; the approval screen's
 wording and the network flag; the limits of §7.
+
+## Amendment (2026-11-03): deviations of the QR login implementation (#179, merged as #232)
+
+Recorded by the Architect from the implementation notes in
+[docs/dev/auth-qrlogin.md](../dev/auth-qrlogin.md), which hold the detail. The decisions above
+stand except where this section says otherwise; status stays Proposed.
+
+- **Section 4, the pre-session.** A start does not always issue a pre-session that replaces the
+  old one and expires what it bound. While the old pre-session is live, a start gives a new token
+  in the same row (rotated in place) and each kind replaces only its own binding: a new passkey
+  sign-in challenge replaces the old one, a new QR start expires the previous QR row. The old
+  token is dead at once. Reason: tabs share the cookie jar, so a passkey start in another tab must
+  not cancel a QR login (the #165 item for this ADR). An expired or unknown pre-session is still
+  deleted with what it bound.
+- **Section 5, the binding.** `qr_logins.presession_id`, a foreign key to `pre_sessions` with
+  `ON DELETE SET NULL`, replaces `presession_hash`. It is the same binding (the cookie resolves
+  to the row) and it survives the in-place rotation, which a stored hash would not.
+- **Section 5, "Account state".** `approver_session_id` is `ON DELETE SET NULL`, so a rotation of
+  the approving session (a step-up on the phone during the window), not only a revocation, also
+  ends the flow: `complete` needs the approving session still to exist. This is stricter than the
+  ADR; the phone scans a new code.
+- **Section 9, audit kinds.** Two kinds are added to the list: `qr_login_started` (no user; the
+  desktop's IP and the row id) and `qr_login_refused` (`detail.action`: `scan`, `approve`, `deny`
+  or `complete`). The issue asks for an event on start and section 8 asks for a row on every
+  refusal. Neither holds a nonce, a code, a cookie or a token.
+- **Test names.** The proofs named `test_qr_login*.py` and `test_geo_source.py` are
+  `test_auth_qrlogin*.py` (the auth suites' naming).
