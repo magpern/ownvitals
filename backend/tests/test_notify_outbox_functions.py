@@ -262,9 +262,12 @@ def test_the_claim_takes_back_an_expired_lease_and_fails_it_after_five(outbox: C
 
 def test_two_senders_never_claim_the_same_row(outbox: Connection) -> None:
     rows = {_owned(outbox, _user(outbox)) for _ in range(4)}
-    with engine_for(admin_url()) as engine, engine.connect() as first:
+    with engine_for(admin_url()) as engine, engine.connect() as first, engine.connect() as second:
         mine = {r[0] for r in _claim(first, limit=2)}  # its transaction stays open: rows locked
-        theirs = {r[0] for r in _claim(outbox, limit=10)}
+        # Without SKIP LOCKED the second claim would wait on those rows: fail fast instead.
+        second.execute(text("SET lock_timeout = '5s'"))
+        theirs = {r[0] for r in _claim(second, limit=10)}
+        second.commit()
         first.commit()
     assert len(mine) == 2
     assert mine | theirs == rows

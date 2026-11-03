@@ -12,7 +12,7 @@ row, and web sends it. Owner notices (mail to the admins) go the same way.
 
 Besides those, only the send state: `state` (`pending`, `claimed`, `sent`, `failed`), `attempts`,
 `hold_until`, `created_at`, `updated_at`, `sent_at`. Never an address, a subject, free text, a
-value or finding text: the check constraints of migration `0011_outbox` admit exactly the lists in
+value or finding text: the check constraints of migration `0012_outbox` admit exactly the lists in
 `ownvitals.notify.outbox`, and `tests/test_notify_outbox.py` holds the two together. At most one
 pending (or claimed) row per owner and kind, and per owner-notice kind: a second write is
 coalesced.

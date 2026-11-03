@@ -29,6 +29,7 @@ from withingswire import (
     Request,
 )
 
+FORM = {"content-type": "application/x-www-form-urlencoded"}
 HOOK = "https://app.example.test/api/webhooks/withings/synthetic-secret"
 HOOK_PATH = "/api/webhooks/withings/synthetic-secret"
 OTHER = "https://app.example.test/api/webhooks/withings/second-secret"
@@ -230,7 +231,7 @@ def test_a_synchronous_caller_resolves_the_head_check_itself() -> None:
     token = fake.tokens_for(app.client_id, user.userid)["access_token"]
     form = urlencode({"action": "subscribe", "callbackurl": HOOK, "appli": 1}).encode()
     request = Request(
-        "POST", f"https://{API_HOST}/notify", {"authorization": f"Bearer {token}"}, form
+        "POST", f"https://{API_HOST}/notify", {**FORM, "authorization": f"Bearer {token}"}, form
     )
     assert fake.handle(request, head_status=404).json()["status"] == STATUS_BAD_CALLBACK
     assert fake.subscriptions == []
@@ -243,7 +244,7 @@ def test_a_synchronous_caller_resolves_the_head_check_itself() -> None:
     other = Request(
         "POST",
         f"https://{API_HOST}/notify",
-        {"authorization": f"Bearer {token}"},
+        {**FORM, "authorization": f"Bearer {token}"},
         urlencode({"action": "subscribe", "callbackurl": OTHER, "appli": 4}).encode(),
     )
     assert fake.handle(other).json()["status"] == STATUS_BAD_CALLBACK

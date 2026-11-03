@@ -2,7 +2,9 @@
 
 Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88 (see "Amendments").
 Its two open questions were decided by the Architect on 2026-10-31 (§2 partitions, whose keys
-[roadmap Amendment 2](../roadmap.md) sets; §3 `webhook_events` retention).
+[roadmap Amendment 2](../roadmap.md) sets; §3 `webhook_events` retention). Post-port review (#16,
+2026-11-03): no decision changed; guard 7 is enforced per route, without an enumeration (threat
+model gap G5).
 
 ## Context
 

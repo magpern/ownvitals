@@ -158,7 +158,7 @@ SELECT 'REVOKE ALL ON TABLE public.withings_rate_slots FROM ownvitals_app'
  WHERE to_regclass('public.withings_rate_slots') IS NOT NULL \gexec
 SELECT 'REVOKE ALL ON TABLE public.withings_rate_demand FROM ownvitals_app'
  WHERE to_regclass('public.withings_rate_demand') IS NOT NULL \gexec
--- The outbox's system table (#194, migration 0011, ADR 0007 section 3): no privilege for the
+-- The outbox's system table (#194, migration 0012, ADR 0007 section 3): no privilege for the
 -- app role; it is reached only through the outbox's definer functions.
 SELECT 'REVOKE ALL ON TABLE public.owner_notices FROM ownvitals_app'
  WHERE to_regclass('public.owner_notices') IS NOT NULL \gexec

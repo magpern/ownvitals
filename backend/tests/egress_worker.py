@@ -13,6 +13,7 @@ WORKER_PACKAGES = (
     "ownvitals.withings",
     "ownvitals.ingest",
     "ownvitals.analysis",
+    "ownvitals.derived",
     "ownvitals.ecg",
     "ownvitals.scores",
     "ownvitals.findings",

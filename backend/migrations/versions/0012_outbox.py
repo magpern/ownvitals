@@ -1,7 +1,7 @@
 """mail outbox and owner notices (ADR 0007 section 1; #194)
 
-Revision ID: 0011_outbox
-Revises: 0010_withings_rate
+Revision ID: 0012_outbox
+Revises: 0011_analysis_schema
 Create Date: 2026-11-03
 
 Two tables under the same rule (ADR 0007 section 1): a row holds a fixed ``kind``, its recipient
@@ -27,8 +27,8 @@ from alembic import op
 
 from ownvitals.db.rls import enable_owner_rls
 
-revision: str = "0011_outbox"
-down_revision: str | Sequence[str] | None = "0010_withings_rate"
+revision: str = "0012_outbox"
+down_revision: str | Sequence[str] | None = "0011_analysis_schema"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

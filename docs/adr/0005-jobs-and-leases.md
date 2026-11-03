@@ -1,6 +1,8 @@
 # ADR 0005: Jobs, leases, fencing and the worker
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88 (see "Amendments")
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88 (see "Amendments").
+Post-port review (#16, 2026-11-03): no decision changed; the queue hardening findings of the M1
+PRs are in #165.
 
 ## Context
 

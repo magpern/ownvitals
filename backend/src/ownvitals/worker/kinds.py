@@ -3,10 +3,13 @@ section 8, ADR 0008).
 
 ``worker_registry()`` builds the registry the worker process claims from: the five sync kinds of
 ``ownvitals.withings.sync`` (``withings_connect``, ``withings_backfill``, ``withings_sync``,
-``ecg_fetch``, ``withings_poll``), the nightly ``withings_reconcile`` and
-``token_refresh_recover``. Only ``python -m ownvitals.worker`` builds it. The API's registry
-(``ownvitals.jobs.KINDS``) stays empty, so ``POST /api/jobs`` still refuses every kind and the
-web process never imports a handler.
+``ecg_fetch``, ``withings_poll``), the nightly ``withings_reconcile``,
+``token_refresh_recover`` and ``withings_disconnect`` (the revoke a disconnect or an account
+deletion enqueues, ``ownvitals.auth.purge``, #163). Only ``python -m ownvitals.worker`` builds
+it. The API's registry (``ownvitals.jobs.KINDS``) stays empty, so ``POST /api/jobs`` still
+refuses every kind and the web process registers no handler (web imports
+``ownvitals.auth.purge`` for the routes, which defines the disconnect handler but registers it
+nowhere).
 
 ``WORKER_TARGETS`` is the target re-check the runner asks before a job that names a webhook
 secret (``ownvitals.withings.webhooks.WebhookTargets``: the entry must exist, be open and not be
@@ -27,6 +30,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from ownvitals.auth.purge import register_disconnect_kind
 from ownvitals.crypto.keks import KeyRing, KeyRingError, KeyUnavailable
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
@@ -155,4 +159,5 @@ def worker_registry() -> KindRegistry:
     register_sync_kinds(registry)
     registry.register(JobKind("withings_reconcile", ConnectInput, run_reconcile))
     registry.register(JobKind("token_refresh_recover", ConnectInput, run_token_recover))
+    register_disconnect_kind(registry)
     return registry

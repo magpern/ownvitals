@@ -32,7 +32,7 @@ if curl -fsS "$base/api/does-not-exist" > /dev/null 2>&1; then fail "an unknown 
 service_problems() {
   local states service line state health
   states="$("${compose[@]}" ps -a --format json | jq -s -r '(if .[0]|type=="array" then .[0] else . end)[] | [.Service, .State, (.Health // ""), (.ExitCode|tostring)] | @tsv')"
-  for service in db web worker mailpit fake-oidc; do
+  for service in db web worker mailpit fake-oidc fake-withings; do
     line="$(awk -F'\t' -v s="$service" '$1 == s' <<< "$states")"
     state="$(cut -f2 <<< "$line")"
     health="$(cut -f3 <<< "$line")"

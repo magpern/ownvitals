@@ -4,7 +4,7 @@ web's sender claims and marks rows.
 A row holds a fixed ``kind``, its recipient (an owned row's ``owner_id``, or no one for an owner
 notice, which goes to the admins) and a route key from ``ROUTE_PATHS``: never an address, a
 subject, free text, a value or finding text. The database checks every kind and route (migration
-``0011_outbox``), and these lists are the same (``tests/test_notify_outbox.py``).
+``0012_outbox``), and these lists are the same (``tests/test_notify_outbox.py``).
 
 - **Mail to a user** (``queue_user_mail``): an owned ``mail_outbox`` row, written in its owner's
   session (inside a job, a fenced write, ADR 0005 section 4), so the policy's ``WITH CHECK``
@@ -52,7 +52,7 @@ ROUTE_PATHS: Final[Mapping[str, str]] = MappingProxyType(
     {"overview": "/", "findings": "/findings", "connections": "/connections", "admin": "/admin"}
 )
 OUTCOMES: Final[tuple[str, ...]] = get_args(Outcome)
-# The two tables (migration 0011): the owned one and the system one.
+# The two tables (migration 0012): the owned one and the system one.
 OUTBOX_TABLES: Final = ("mail_outbox", "owner_notices")
 # The claim's bounds, as the function checks them.
 MAX_BATCH: Final = 100
