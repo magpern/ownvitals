@@ -4,6 +4,72 @@
 notifications, the JSON/CSV export, the doctor PDF, the AI context) reads through them, never
 the tables.
 
+## Read API: status, metrics, days, readings, nerve summary (#189)
+
+PLAN §7.1 and §8, the design's data states and information architecture, ADR 0010 §2 and §8.
+Every route needs a full session and is read as the signed-in user under forced RLS (one
+`user_session`, every statement also filters `owner_id`); every answer is `no-store`.
+
+| Route | What |
+|---|---|
+| `GET /api/status` | The freshness line: `last_reading_at`, `last_sync_at`, `connection` (`not_connected`, `connected`, `needs_reconnect`, `withings_plus_needed`), one entry per stream (`state`, `capability`, `progress_percent`, `last_ok_at`), `importing`, `incomplete`, `broken_connections` |
+| `GET /api/metrics` | Every metric of `analysis.quality.METRICS` with `state`, `progress` (insufficient data), `latest`, `typical_range` (display band, k 1.5, 90 days) and a 30-day `sparkline` (`null` on a day without a value) |
+| `GET /api/metrics/{key}?range=30d\|90d\|6mo\|1y\|all` | The daily `series` (every day of the window; a gap is `value: null, n: 0`), `unconfirmed` days, `band`, Theil-Sen `trend`, `change_points`, `data_quality`, `method` (text, parameters, algorithm versions) and `provenance` (`recompute_pending`) |
+| `GET /api/days/{key}/{day}` | The day's daily value, its readings (id, time in the reading's zone, value, flags, `used`) and the other metrics recorded that day |
+| `GET /api/readings/{id}` | The drawer: `value_raw x 10^unit_exponent`, `attrib`, device model/type/firmware, source zone, the four quality gates, `used_in_daily`, provenance (`algo_version`, `input_revision`, `input_fingerprint` hex) |
+| `GET /api/nerve/summary?months=12` | The nerve metrics' state (N1's minimum-data progress) and, per month (newest first), days with data, median, lowest and highest value of each, and the N2/N3 findings whose window ended that month |
+
+| Path | What |
+|---|---|
+| `views/reads.py` | `reading()`: the one session of the routes above (`Reader`: `status_facts`, `daily`, `day_readings`, `reading`, ...). The exact module is allowlisted in `tests/session_scan.py` next to `findings_read`; the connection row comes through `connections.repository` (only that package holds SQL on the table) |
+| `views/states.py` | Pure: the data states and their precedence, import percentage, progress toward a requirement |
+| `views/assemble.py` | Pure: the tile, the detail, band, trend and change points, called as the finding rules call them |
+| `views/catalog.py` | Pure: areas, the stream of each metric, ranges, the stale threshold |
+| `views/schemas.py`, `*_routes.py`, `deps.py` | Response models, routes, the clock dependency (`view_now`, overridden in tests) |
+
+**Data states** (`states.py`, one wording everywhere): the stream's first, in this order: no live
+connection (`not_connected`), `needs_reconnect`, the Withings+ block (`withings_plus_needed`: the
+connection's or a cursor's `blocked_by_provider_plan`), the capability the sync learned
+(`not_authorized` is `not_shared`, `unsupported` is `not_supported`, `not_available`), the import
+(`importing n %` while a `withings_backfill` job is queued or running, otherwise `incomplete`),
+then freshness (`stale` when the last successful sync is more than 48 hours old). A metric adds
+`insufficient_data` below the baseline policy (with `progress`: days with data and span against the
+requirement) and `stale` while a daily value's `input_revision` is behind the stream's counter
+(the value shown is the last good one). A blocked stream never reads as "no data": its state says
+what it is, and no count, band or progress is given for it. The ECG intervals (135 to 138) take
+their capability from the `ecg` stream, the rest from `measures`.
+
+**Gaps and zeros.** A day without a value is `null` with `n: 0` in the series and the sparkline,
+never `0`. A band, trend or change points exist only for a series that passes the minimum-data
+policy of its window (the metric's policy: trend 8 days spanning 60 % of the window, baseline 10
+days over 21, nerve 4/10 over 28); otherwise `insufficient_data` with its progress. Change points
+and trend use the chart's window, so a 6-month window needs more span than a 90-day one.
+
+**Experimental.** No metric value here is experimental. The only experimental values are findings,
+and they come through `findings_read` (the nerve summary), so they are returned only when the
+owner-only switch is effective for the caller.
+
+**No Withings ids.** No response has a group id, hashed device id, Withings user id, connection
+id or token; `tests/test_views_days.py` greps every route's answer and the log for planted ones.
+A reading id is the `observations` row's own uuid; another user's id, day or metric answers 404,
+as does a key outside the catalog and an observation of another stream (sleep, activity).
+
+**Assumptions (unverified against Withings).**
+
+- `withings_plus_needed` has no known provider signal (PLAN §4.2, `capabilities.provider_plan_blocked`
+  is false for every status): the state is shown when the connection's `last_error` or a cursor's
+  `last_error_category` is `blocked_by_provider_plan`, which nothing writes yet. A test plants it.
+- A stream is `stale` after 48 hours without a successful sync (the daily poll is the safety net
+  behind the webhooks); that threshold is ours.
+- Importing versus incomplete is a queued or running `withings_backfill` job for the stream; a
+  stalled import without a job reads `incomplete`.
+- Day assignment is the reading's own zone (derived.md); a profile `fixed_tz` is not applied yet.
+
+Tests: `tests/test_views_states.py` (pure), `test_views_status_metrics.py` (every state, from
+synthetic groups through the real ingest, normalisation and daily passes), `test_views_metric_detail.py`,
+`test_views_days.py` (RLS 404s, drawer, redaction), `test_views_nerve.py` (the experimental switch).
+Planting helpers: `tests/viewtools.py`. They need the test database of [backend.md](backend.md).
+
 ## Findings: the one read function (#190)
 
 ADR 0006 §§9 and 11, ADR 0010, PLAN §7.2 and D9.
