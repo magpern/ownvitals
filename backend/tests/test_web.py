@@ -260,9 +260,13 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
     from ownvitals.connections.routes import router as connections
     from ownvitals.flags.routes import router as flags
     from ownvitals.jobs.routes import router as jobs
+    from ownvitals.views.days_routes import router as days
     from ownvitals.views.findings_routes import router as findings
+    from ownvitals.views.metrics_routes import router as metrics
+    from ownvitals.views.nerve_routes import router as nerve
+    from ownvitals.views.status_routes import router as status
 
-    routers = (connections, flags, jobs, admin, findings)
+    routers = (connections, flags, jobs, admin, findings, status, metrics, days, nerve)
     assert all(isinstance(router, APIRouter) for router in routers)
     assert {id(router) for router in routers} == {id(router) for router in FEATURE_ROUTERS}
     # #10: accounts and sign-in are installed by ``ownvitals.auth.setup.install`` (their routers,

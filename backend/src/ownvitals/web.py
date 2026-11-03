@@ -31,7 +31,11 @@ from ownvitals.flags.routes import router as flags_router
 from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
 from ownvitals.notify import sender as outbox_sender
+from ownvitals.views.days_routes import router as days_router
 from ownvitals.views.findings_routes import router as findings_router
+from ownvitals.views.metrics_routes import router as metrics_router
+from ownvitals.views.nerve_routes import router as nerve_router
+from ownvitals.views.status_routes import router as status_router
 from ownvitals.withings.webhooks import WebhookMiddleware, load_cache
 
 logger = logging.getLogger(__name__)
@@ -60,6 +64,10 @@ FEATURE_ROUTERS = (
     jobs_router,
     admin_router,
     findings_router,
+    status_router,
+    metrics_router,
+    days_router,
+    nerve_router,
 )
 
 
