@@ -19,8 +19,8 @@ from ownvitals.analysis.rules.core import (
     confidence_run,
     confidence_trend,
     lowest,
-    trend_of,
 )
+from ownvitals.analysis.rules.trendrule import trend_of
 
 LOW, MEDIUM, HIGH = Confidence.LOW, Confidence.MEDIUM, Confidence.HIGH
 

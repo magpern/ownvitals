@@ -16,10 +16,10 @@ from ownvitals.analysis.rules.core import (
     NoFinding,
     Provenance,
     Tier,
-    trend_of,
 )
 from ownvitals.analysis.rules.episodes import Transition, TrendState, advance_persistent
 from ownvitals.analysis.rules.nerve import n3, n5
+from ownvitals.analysis.rules.trendrule import trend_of
 
 KEY = "nerve_response_score"
 

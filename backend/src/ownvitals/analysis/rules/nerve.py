@@ -53,8 +53,8 @@ from ownvitals.analysis.rules.core import (
     lowest,
     make_finding,
     require_value,
-    trend_of,
 )
+from ownvitals.analysis.rules.trendrule import trend_of
 
 NERVE_KEYS = ("nerve_health_score", "nerve_response_score", "esc")
 GUIDED_ATTRIB = 15  # Withings' attrib for a guided measurement

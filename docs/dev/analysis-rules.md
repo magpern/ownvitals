@@ -13,7 +13,8 @@ uvx uv@0.13.6 run pytest -q tests/analysis/rules tests/test_analysis_purity.py
 
 | Module | What |
 |---|---|
-| `core.py` | the two bands, confidence, severity, result types, the shared `trend_rule` |
+| `core.py` | the two bands, confidence, severity, result types, the registry |
+| `trendrule.py` | `trend_of`, `relative_change` and the shared `trend_rule` |
 | `episodes.py` | `origin`, `advance_simple`, `advance_persistent`, `reconcile` |
 | `body.py` | B1, B2, B3, B4, B5, B6 |
 | `heart.py` | C1, C1x, C2 |
