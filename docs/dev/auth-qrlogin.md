@@ -91,6 +91,23 @@ pre-session's is the same 404 `qr_unavailable`. A wrong code is 400 `invalid_cod
 - **Admin bootstrap.** A QR `complete` does not run the `ADMIN_EMAILS` grant (it would revoke
   the approving phone's session); a password, Google or passkey sign-in does.
 
+- **A code spent on a lost race stays spent.** If a concurrent approval or a deny takes the row
+  between approve's code check and its update, the TOTP step or recovery code that passed stays
+  used (`qrlogin.approve`'s docstring). A recovery code lost that way must be replaced from the
+  Security page like any used one.
+- **Switching `qr_login_enabled` off** hides start and refuses scans; `approve`, `deny`, the
+  stream and `complete` of rows already in flight still finish (at most 3.5 minutes).
+
+## Where this differs from ADR 0011 (for the Architect's amendment)
+
+| ADR 0011 | Here | Why |
+|---|---|---|
+| §4: every start issues a new pre-session, "replacing the old one and expiring what it bound" | while the old pre-session is live, a start gives a new token **in the same row**; each kind replaces only its own binding (a new `signin` challenge, a new QR row); the old token is dead at once; an expired or unknown pre-session is still deleted with what it bound | the #165 item (c): tabs share the cookie jar, so a passkey start in one tab cancelled a QR login in another |
+| §5: `qr_logins.presession_hash` | `qr_logins.presession_id` (FK to `pre_sessions`, `ON DELETE SET NULL`) | the same binding (the cookie resolves to the row), and it survives the in-place rotation above, which a stored hash would not |
+| §5 "Account state": a session **revoked** between approve and complete makes complete fail | `approver_session_id` is `ON DELETE SET NULL`, so a **rotation** of the approving session (a step-up on the phone during the window) ends the flow too | stricter; the phone scans a new code |
+| §9: the list of `auth_events` kinds | adds `qr_login_started` (no user; the desktop's IP and the row id) and `qr_login_refused` (`detail.action`) | the issue asks for an event on start; §8 asks for a row on every refusal. Neither holds a secret |
+| §5 to §7 "Proved by": `test_qr_login*.py`, `test_geo_source.py` | `test_auth_qrlogin*.py` (table under "Tests") | the auth suites' naming |
+
 ## Settings
 
 | Setting | Default | |
