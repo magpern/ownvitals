@@ -382,7 +382,7 @@ def finding_band(
 
 
 def lowest(*levels: Confidence) -> Confidence:
-    return min(levels, key=_RANK.__getitem__)
+    return min(levels, key=lambda level: _RANK[level])
 
 
 def confidence_data(*verdicts: Sufficient) -> Confidence:

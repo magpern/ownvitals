@@ -11,7 +11,7 @@
 Storage (the ``findings`` columns, the active-episode uniqueness) is the wiring issue's.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 
@@ -89,10 +89,15 @@ def _opened(finding: Finding, today: date, *, start: date, reference: date) -> E
 
 
 def _extended(episode: Episode, finding: Finding) -> Episode:
-    return replace(
-        episode,
+    return Episode(
+        rule_id=episode.rule_id,
+        subject=episode.subject,
+        reference_day=episode.reference_day,
+        window_start=episode.window_start,
         window_end=max(episode.window_end, finding.window_end),
+        first_seen=episode.first_seen,
         last_seen=finding.day,
+        origin=episode.origin,
         latest=finding,
     )
 
@@ -171,5 +176,15 @@ def reconcile(previous: Episode | None, recomputed: Episode) -> Episode:
         and previous.subject == recomputed.subject
         and previous.reference_day == recomputed.reference_day
     ):
-        return replace(recomputed, first_seen=previous.first_seen, origin=previous.origin)
+        return Episode(
+            rule_id=recomputed.rule_id,
+            subject=recomputed.subject,
+            reference_day=recomputed.reference_day,
+            window_start=recomputed.window_start,
+            window_end=recomputed.window_end,
+            first_seen=previous.first_seen,
+            last_seen=recomputed.last_seen,
+            origin=previous.origin,
+            latest=recomputed.latest,
+        )
     return recomputed
