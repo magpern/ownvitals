@@ -4,7 +4,7 @@
 
 - No `Agent review (<model>): PASS <sha>` comment for the PR's **current head commit** → **do
   not merge.** Run the review: spawn a fresh agent (the `reviewer` role in `.claude/agents/`;
-  Opus for security-critical PRs, Sonnet for the rest), never this session. Running the review is
+  Opus for the first review of security-critical and security-adjacent PRs, Sonnet for the rest and for most deltas, see AGENTS.md), never this session. Running the review is
   the default; don't ask whether to skip it.
 - Your own check, a review skill in this session, green CI and passing tests are not a `PASS`.
   "I reviewed it" in chat is not one either: the owner can merge the PR themselves on GitHub.
