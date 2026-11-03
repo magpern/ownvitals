@@ -33,9 +33,9 @@ from ownvitals.analysis.rules.core import (
     make_finding,
     provenance_of,
     require_value,
-    trend_rule,
     value_on,
 )
+from ownvitals.analysis.rules.trendrule import trend_rule
 
 B1_GAIN_KG = Decimal("2.0")  # "more than 2 kg in 3 days" (ESC 2021, Table 12)
 B1_DAYS = 3
