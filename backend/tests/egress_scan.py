@@ -99,11 +99,10 @@ _NO_ALLOWLIST_ARGUMENT = frozenset(
     )
 )
 INSTALL_WORKER = f"{EGRESS}.install_worker_allowlist"
-# The modules that may make their process the worker. Neither exists yet: the names are the ones
-# their issues give.
+# The modules that may make their process the worker.
 WORKER_ROLE_MODULES: dict[str, str] = {
-    "ownvitals.worker.__main__": "the worker process's entry point (#9, not written yet)",
-    "ownvitals.withings.probe": "the probe CLI, a worker-side one-off (#29, not written yet)",
+    "ownvitals.worker.__main__": "the worker process's entry point (#9)",
+    "ownvitals.withings.probe": "the probe CLI, a worker-side one-off (#29, never the model host)",
 }
 # The runtime egress hook (ADR 0009): installed only by the process entry points (web's: #77), and
 # the SMTP session's connection scope opened only by the mail module.
