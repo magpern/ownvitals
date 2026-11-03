@@ -108,6 +108,11 @@ an episode of a trend-test rule takes the run's first day.
   `(grpid, position)`, the first in canonical order wins.
 - **B1**: the gain is `Decimal` exact; the ECW check is against the finding band at the start day.
 
+## Not in this module
+
+ADR 0010 test-spec "Episodes and origin" case 6 (`today` follows the `source_tz` of the user's
+latest reading, or the fixed zone) belongs to the wiring issue #187: here `today` is an argument.
+
 ## Tests
 
 `backend/tests/analysis/rules/`: bands and origin (`test_core_bands.py`), episodes and persistence

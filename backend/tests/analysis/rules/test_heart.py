@@ -159,3 +159,18 @@ def test_run_ending_at_is_the_maximal_consecutive_run() -> None:
     assert [v.day for v in run_ending_at(data, DAY)] == [
         DAY - timedelta(days=3 - i) for i in range(4)
     ]
+
+
+def test_c1_at_the_baseline_edge_is_insufficient_below_it_and_decided_at_it() -> None:
+    run = run_of(DAY - timedelta(days=2), [72, 72, 72])
+    # 10 days with data spanning 27 days before the run: the BASELINE policy is met
+    ok = [dv(DAY - timedelta(days=3 + 3 * i), 61) for i in range(10)]
+    assert isinstance(c1([*ok, *run], DAY), Finding)
+    calm = [dv(DAY - timedelta(days=3 + 3 * i), 61) for i in range(10)]
+    assert isinstance(c1([*calm, *run_of(DAY - timedelta(days=2), [62, 62, 62])], DAY), NoFinding)
+    # one day fewer, and the same run is insufficient data, not "no finding"
+    short = ok[:-1]
+    assert isinstance(c1([*short, *run], DAY), Insufficient)
+    assert isinstance(
+        c1([*short, *run_of(DAY - timedelta(days=2), [62, 62, 62])], DAY), Insufficient
+    )
