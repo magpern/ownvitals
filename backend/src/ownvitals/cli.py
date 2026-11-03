@@ -19,6 +19,10 @@ row (``job.replay``). It prints the new job id. The dead-lettered row is not cha
 ``ecg validate --user <uuid>`` (#47) prints ADR 0006's owner checks as counts, yes/no and whole
 percents. It reads that one account through a user session; the ECG library itself stays pure.
 
+``probe --connection <uuid> [--json]`` (#29) is the owner's shape-only check of a real Withings
+account (PLAN-operations section 10.4, ``docs/runbooks/m2-probe.md``): counts, codes and field
+names, never a value or a timestamp. It makes its process the worker (the worker allowlist).
+
 ``invite create``, ``admin grant``, ``admin revoke`` and ``admin mfa-reset`` (#10, ADR 0003
 section 1 "Admins") run as the app role through ``ownvitals.auth.operator``; they never touch the
 tables themselves. ``invite create`` prints the code once on stdout (it is not stored); every
@@ -64,6 +68,8 @@ from ownvitals.keys_cli import add_keys_subcommands
 from ownvitals.keys_cli import run as run_keys
 from ownvitals.mail import MailError
 from ownvitals.withings.apps import add_withings_subcommands, run_withings_apps
+from ownvitals.withings.probe import add_probe_subcommand
+from ownvitals.withings.probe import run as run_probe
 
 _DURATION = re.compile(r"(\d+)([dhm])")
 _UNITS = {"d": "days", "h": "hours", "m": "minutes"}
@@ -108,6 +114,7 @@ def add_subcommands(parser: argparse.ArgumentParser) -> None:
     add_keys_subcommands(sub)
     add_withings_subcommands(sub)
     add_ecg_subcommands(sub)
+    add_probe_subcommand(sub)
 
 
 async def run_replay(args: argparse.Namespace, settings: Settings, out: TextIO, err: TextIO) -> int:
@@ -221,6 +228,7 @@ COMMANDS: dict[str, Command] = {
     "keys": run_keys,
     "withings-apps": run_withings_apps,
     "ecg": run_ecg,
+    "probe": run_probe,
 }
 
 

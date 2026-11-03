@@ -13,11 +13,15 @@ reaches owned rows, on the test-only owned table ``t_parent`` (``dbtools``) as t
   will be; each operation is a synthetic job row whose context is issued from the row alone, as
   the job issuer of ``ownvitals.jobs`` does (ADR 0005 section 4).
 
-#15 adds the scheduler, webhook and admin contexts on the same interface (``add``, ``names``,
-``find``, ``delete``). ``Rows`` is the test-only repository both contexts use: like every real
-repository it filters on ``owner_id`` itself, and RLS is the second wall. ``filtered=False``
-removes the first wall and ``bypass_url`` (a superuser's engine) the second, so the tests can
-show each wall holds alone and that the check fails when both are gone.
+The scheduler, webhook, maintenance and admin contexts reach owned rows in other ways
+(definer functions, a job issued at claim, ``ownvitals_maint``), so #15 covers every context,
+these two included, on every owned table in ``contexttools.py`` and
+``test_isolation_contexts_*.py`` instead of on this interface.
+
+``Rows`` is the test-only repository both contexts use: like every real repository it filters
+on ``owner_id`` itself, and RLS is the second wall. ``filtered=False`` removes the first wall
+and ``bypass_url`` (a superuser's engine) the second, so the tests can show each wall holds
+alone and that the check fails when both are gone.
 """
 
 import uuid
@@ -337,5 +341,6 @@ async def worker_job(
         await engine.dispose()
 
 
-# Every execution context this harness covers; #15 adds scheduler, webhook and admin.
+# The contexts this harness covers on ``t_parent``; every context on every owned table is
+# ``contexttools.py`` (#15).
 EXECUTION_CONTEXTS = {"web request": web_request, "worker job": worker_job}

@@ -127,9 +127,23 @@ def test_invalid_kinds_are_refused(name: str, model: type[BaseModel], message: s
         JobKind(name, model, _run)
 
 
-def test_the_worker_and_the_api_ship_no_kind_yet() -> None:
-    """#9 registers no kind: M1 adds the Withings kinds, each reviewed in its own PR."""
+def test_the_api_ships_no_kind_and_the_worker_ships_the_withings_kinds() -> None:
+    """``KINDS`` is the API's registry and the default of ``Worker``: empty, so ``POST
+    /api/jobs`` refuses every kind. The worker process claims from ``worker_registry()`` (#164):
+    PLAN section 4.4's Withings kinds, each reviewed in its own PR."""
+    from ownvitals.worker.kinds import worker_registry
+
     assert KINDS.names() == []
+    assert worker_registry().names() == [
+        "ecg_fetch",
+        "token_refresh_recover",
+        "withings_backfill",
+        "withings_connect",
+        "withings_poll",
+        "withings_reconcile",
+        "withings_sync",
+    ]
+    assert KINDS.names() == []  # building the worker's registry leaves the API's alone
 
 
 def test_the_advisory_lock_registry_matches_adr_0005_section_9() -> None:

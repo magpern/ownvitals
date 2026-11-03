@@ -32,6 +32,7 @@ _ENQUEUE = text(
 )
 _CANCEL_SECRET = text("SELECT public.queue_cancel_for_secret(:kind, :secret_id)")
 _REPLAY = text("SELECT job_id, owner_id FROM public.queue_replay(:job_id)")
+_SCHEDULE = text("SELECT public.queue_schedule(:kind, :interval)")
 
 
 class ReplayRefused(Exception):
@@ -114,6 +115,15 @@ async def cancel_for_secret(factory: Factory, kind: str, secret_id: UUID) -> int
     async with system_session(factory) as db:
         count = await db.execute(_CANCEL_SECRET, {"kind": kind, "secret_id": secret_id})
         return count.scalar_one()
+
+
+async def schedule(factory: Factory, kind: str, interval_seconds: int) -> int:
+    """``queue_schedule``: one ``kind`` job (poll or reconcile) for every connected connection
+    that has had none for ``interval_seconds``. Returns the count only."""
+    async with system_session(factory) as db:
+        return (
+            await db.execute(_SCHEDULE, {"kind": kind, "interval": interval_seconds})
+        ).scalar_one()
 
 
 async def replay(factory: Factory, job_id: UUID) -> Replayed:
