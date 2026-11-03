@@ -92,9 +92,30 @@ async def test_filters_and_their_validation(env: Env) -> None:
     assert _ids(await alice.get("/api/findings?tab=history")) == {str(history)}
     assert _ids(await alice.get("/api/findings?tab=history&area=heart")) == set()
     assert _ids(await alice.get("/api/findings?tier=trend&area=heart")) == {str(live)}
-    for bad in ("tab=all", "tier=clinical", "area=lungs", "tier=trend%27"):
+    for bad in ("tab=all", "tier=clinical", "area=lungs", "tier=trend%27", "limit=0", "limit=201"):
         assert (await alice.get(f"/api/findings?{bad}")).status_code == 422
     assert (await alice.get("/api/findings/not-a-uuid")).status_code == 422
+
+
+async def test_the_list_pages(env: Env) -> None:
+    alice, alice_id = await _user(env, "alice@example.com")
+    for n in range(3):
+        finding = plant_finding(alice_id, "C1", metric_keys=("heart_rate",))
+        run(
+            "UPDATE findings SET last_seen = first_seen + make_interval(days => :n) WHERE id = :i",
+            n=n,
+            i=finding,
+        )
+    first = (await alice.get("/api/findings?limit=2")).json()
+    assert (len(first["findings"]), first["next_offset"]) == (2, 2)
+    last = (await alice.get("/api/findings?limit=2&offset=2")).json()
+    assert (len(last["findings"]), last["next_offset"]) == (1, None)
+    assert len(_ids_of(first) | _ids_of(last)) == 3
+    assert (await alice.get("/api/findings")).json()["next_offset"] is None
+
+
+def _ids_of(body: dict[str, object]) -> set[str]:
+    return {item["id"] for item in body["findings"]}  # type: ignore[index, union-attr]
 
 
 async def test_experimental_and_hidden_findings_answer_404(env: Env) -> None:
@@ -132,6 +153,10 @@ async def test_the_switch_shows_experimental_findings_marks_and_estimates(
     detail = (await alice.get(f"/api/findings/{e4}")).json()
     (estimate,) = detail["estimates"]
     assert estimate["recording_id"] == str(recording)
+    assert (estimate["source"], estimate["label_key"]) == (
+        "ownvitals_estimate",
+        "ecg.estimate.label",
+    )
     assert (estimate["gate"], estimate["hr_bpm"]) == ("pass", 61.5)
     run("UPDATE ecg_recordings SET estimated = NULL WHERE id = :i", i=recording)
     detail = (await alice.get(f"/api/findings/{e4}")).json()

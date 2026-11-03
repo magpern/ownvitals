@@ -3,14 +3,16 @@
 
 Both routes read only through ``views.findings_read`` (the one read function) as the
 ``dashboard`` consumer: a hidden finding is not listed and its id answers 404, like a missing
-one, another user's, or an experimental one without the owner-only switch. The response carries
-text keys for "why you're seeing this" and "what it isn't" (``finding.<rule>.why`` and
+one, another user's, or an experimental one without the owner-only switch. The list pages with
+``limit`` (default 50, at most 200) and ``offset``; ``next_offset`` is null on the last page,
+and a page can hold fewer than ``limit`` findings when some are hidden. The response carries text
+keys for "why you're seeing this" and "what it isn't" (``finding.<rule>.why`` and
 ``finding.<rule>.isnt``); the page holds the words. Responses are ``no-store`` (the auth
 middleware sets it on every ``/api`` answer).
 """
 
 from datetime import date, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -19,6 +21,8 @@ from pydantic import BaseModel
 from ownvitals.auth.deps import require_user
 from ownvitals.context import UserContext
 from ownvitals.views.findings_read import (
+    PAGE_DEFAULT,
+    PAGE_MAX,
     FindingsQuery,
     FindingView,
     Tab,
@@ -26,7 +30,7 @@ from ownvitals.views.findings_read import (
     read_findings,
 )
 
-router = APIRouter(prefix="/api/findings", tags=["findings"])
+router = APIRouter(prefix="/api/findings")
 
 
 class GateOut(BaseModel):
@@ -97,6 +101,7 @@ class FindingOut(BaseModel):
 
 class FindingsOut(BaseModel):
     findings: list[FindingOut]
+    next_offset: int | None  # pass as ``offset`` for the next page; null on the last page
 
 
 class ReadingOut(BaseModel):
@@ -109,8 +114,11 @@ class ReadingOut(BaseModel):
 
 class EstimateOut(BaseModel):
     """Our estimate of one linked recording: experimental, only behind the switch (section 9).
-    Labelled "Estimated by ownvitals from the raw signal; not a Withings measurement"."""
+    The page shows it in its own panel under ``label_key`` ("Estimated by ownvitals from the raw
+    signal; not a Withings measurement"), never in a Withings slot."""
 
+    source: Literal["ownvitals_estimate"] = "ownvitals_estimate"
+    label_key: Literal["ecg.estimate.label"] = "ecg.estimate.label"
     recording_id: UUID
     grpid: int
     gate: str | None
@@ -137,15 +145,20 @@ async def list_findings(
     tab: Tab = "live",
     tier: Tier = None,
     area: Area = None,
+    limit: Annotated[int, Query(ge=1, le=PAGE_MAX)] = PAGE_DEFAULT,
+    offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
 ) -> FindingsOut:
     result = await read_findings(
         request.app.state.session_factory,
         ctx,
         request.app.state.settings,
         consumer="dashboard",
-        query=FindingsQuery(tab=tab, tier=tier, area=area),
+        query=FindingsQuery(tab=tab, tier=tier, area=area, limit=limit, offset=offset),
     )
-    return FindingsOut(findings=[FindingOut.of(view) for view in result.findings])
+    return FindingsOut(
+        findings=[FindingOut.of(view) for view in result.findings],
+        next_offset=result.next_offset,
+    )
 
 
 @router.get("/{finding_id}", response_model=FindingDetailOut)

@@ -86,6 +86,9 @@ EXPERIMENTAL_RULES: Final = frozenset(
     {rule for rule, spec in SPECS.items() if spec.tier is Tier.EXPERIMENTAL} | {"E4", "E5"}
 )
 READINGS_LIMIT: Final = 500
+# The API's page size (``GET /api/findings``): default and maximum. Other consumers read all.
+PAGE_DEFAULT: Final = 50
+PAGE_MAX: Final = 200
 
 _COLUMNS = (
     "id, rule_id, rule_version, tier, severity, confidence, data_quality, origin, metric_keys, "
@@ -98,8 +101,11 @@ _FINDINGS = text(
     "AND (CAST(:origin AS text) IS NULL OR origin = CAST(:origin AS text)) "
     "AND (CAST(:tier AS text) IS NULL OR tier = CAST(:tier AS text)) "
     "AND (CAST(:finding AS uuid) IS NULL OR id = CAST(:finding AS uuid)) "
-    "AND (CAST(:experimental AS boolean) OR tier <> 'experimental') "
-    "ORDER BY last_seen DESC, id"
+    "AND (CAST(:experimental AS boolean) OR (tier <> 'experimental' "
+    "AND rule_id <> ALL(CAST(:experimental_rules AS text[])))) "
+    "AND (CAST(:letters AS text[]) IS NULL OR left(rule_id, 1) = ANY(CAST(:letters AS text[]))) "
+    "ORDER BY last_seen DESC, id "
+    "LIMIT CAST(:limit AS integer) OFFSET CAST(:offset AS integer)"
 )
 _GROUPS = text(
     "SELECT g.grpid, g.connection_id, g.measured_at, g.hash_deviceid, g.model_id, g.raw, "
@@ -136,11 +142,15 @@ SessionFactory = async_sessionmaker[AsyncSession]
 
 @dataclass(frozen=True)
 class FindingsQuery:
-    """The list filters: ``tab`` (``live``/``history``), ``tier`` and ``area``; ``None`` is all."""
+    """The list filters: ``tab`` (``live``/``history``), ``tier`` and ``area``; ``None`` is all.
+    ``limit`` (``None``: every row) and ``offset`` page over the stored rows, newest
+    ``last_seen`` first; a page can hold fewer than ``limit`` findings when some are hidden."""
 
     tab: Tab | None = None
     tier: str | None = None
     area: str | None = None
+    limit: int | None = None
+    offset: int = 0
 
     def __post_init__(self) -> None:
         if self.tab is not None and self.tab not in TABS:
@@ -149,6 +159,10 @@ class FindingsQuery:
             raise ValueError("unknown tier")
         if self.area is not None and self.area not in AREAS:
             raise ValueError("unknown area")
+        if self.limit is not None and not 1 <= self.limit <= PAGE_MAX:
+            raise ValueError("limit out of range")
+        if self.offset < 0:
+            raise ValueError("offset out of range")
 
 
 @dataclass(frozen=True)
@@ -204,6 +218,7 @@ class FindingView:
 class FindingsRead:
     findings: tuple[FindingView, ...]
     experimental: bool  # whether the switch was on for this read
+    next_offset: int | None = None  # the next page's offset; None on the last page
 
     def __repr__(self) -> str:
         return f"FindingsRead({len(self.findings)} findings)"
@@ -361,7 +376,7 @@ async def _load(
     consumer: Consumer,
     query: FindingsQuery,
     finding: UUID | None,
-) -> tuple[list[FindingView], dict[UUID, dict[int, tuple[RecordingKey, ...]]]]:
+) -> tuple[list[FindingView], dict[UUID, dict[int, tuple[RecordingKey, ...]]], int | None]:
     if consumer not in CONSUMERS:
         raise ValueError("unknown consumer")
     params = {
@@ -370,8 +385,19 @@ async def _load(
         "tier": query.tier,
         "finding": finding,
         "experimental": switch,
+        "experimental_rules": sorted(EXPERIMENTAL_RULES),
+        "letters": None
+        if query.area is None
+        else sorted(k for k, v in _AREA_BY_LETTER.items() if v == query.area),
+        # One row more than the page, to know whether another page follows.
+        "limit": None if query.limit is None else query.limit + 1,
+        "offset": query.offset,
     }
-    rows = (await db.execute(_FINDINGS, params)).mappings().all()
+    rows = list((await db.execute(_FINDINGS, params)).mappings().all())
+    next_offset = None
+    if query.limit is not None and len(rows) > query.limit:
+        rows = rows[: query.limit]
+        next_offset = query.offset + query.limit
     kept = [
         row
         for row in rows
@@ -390,7 +416,7 @@ async def _load(
             continue
         views.append(_view(row, overlay, switch))
         linked_by_finding[row["id"]] = linked
-    return views, linked_by_finding
+    return views, linked_by_finding, next_offset
 
 
 async def read_findings(
@@ -405,8 +431,8 @@ async def read_findings(
     query = query if query is not None else FindingsQuery()
     async with user_session(factory, ctx) as db:
         switch = await _switch(db, settings)
-        views, _ = await _load(db, ctx.user_id, switch, consumer, query, None)
-    return FindingsRead(findings=tuple(views), experimental=switch)
+        views, _, next_offset = await _load(db, ctx.user_id, switch, consumer, query, None)
+    return FindingsRead(findings=tuple(views), experimental=switch, next_offset=next_offset)
 
 
 def _readings(rows: Iterable[Mapping[Any, Any]]) -> tuple[Reading, ...]:
@@ -435,7 +461,9 @@ async def read_finding(
     user's, missing, experimental without the switch, or hidden for this consumer."""
     async with user_session(factory, ctx) as db:
         switch = await _switch(db, settings)
-        views, linked = await _load(db, ctx.user_id, switch, consumer, FindingsQuery(), finding_id)
+        views, linked, _ = await _load(
+            db, ctx.user_id, switch, consumer, FindingsQuery(), finding_id
+        )
         if not views:
             return None
         view = views[0]
@@ -500,6 +528,8 @@ __all__ = [
     "AREAS",
     "CONSUMERS",
     "EXPERIMENTAL_RULES",
+    "PAGE_DEFAULT",
+    "PAGE_MAX",
     "TABS",
     "Consumer",
     "FindingDetail",

@@ -287,6 +287,70 @@ async def test_a_device_finding_is_never_hidden_and_its_gate_needs_the_switch(
         assert view.gate is None
 
 
+@pytest.mark.parametrize("rule", ["E1", "E2", "E3"])
+async def test_a_device_finding_never_carries_the_not_evaluated_mark(
+    plain: Env, owner_env: Env, rule: str
+) -> None:
+    """No gate result at all (no linked recording): E1 to E3 are shown with no mark, with or
+    without the switch; with it the gate says why (section 11)."""
+    ctx, _ = user()
+    finding = plant_finding(ctx.user_id, rule, [404], metric_keys=())
+    for env in (plain, owner_env):
+        for consumer in CONSUMERS:
+            (view,) = await views(env, ctx, consumer)
+            assert (view.id, view.hidden, view.not_evaluated) == (finding, False, False)
+    (view,) = await views(owner_env, ctx)
+    assert view.gate is not None
+    assert view.gate.outcome == "not_evaluated"
+
+
+async def test_pages_follow_last_seen_and_end(plain: Env) -> None:
+    ctx, _ = user()
+    planted = [plant_finding(ctx.user_id, "C1") for _ in range(5)]
+    for n, finding in enumerate(planted):
+        run(
+            "UPDATE findings SET first_seen = :t, last_seen = :t WHERE id = :i",
+            t=BASE - timedelta(days=n),
+            i=finding,
+        )
+    seen: list[UUID] = []
+    offset: int | None = 0
+    while offset is not None:
+        page = await read_findings(
+            plain.factory,
+            ctx,
+            plain.settings,
+            consumer="dashboard",
+            query=FindingsQuery(limit=2, offset=offset),
+        )
+        assert len(page.findings) <= 2
+        seen += [view.id for view in page.findings]
+        offset = page.next_offset
+    assert seen == planted  # newest first, each once, and the last page ends it
+    out_of_range: list[dict[str, Any]] = [{"limit": 0}, {"limit": 201}, {"offset": -1}]
+    for bad in out_of_range:
+        with pytest.raises(ValueError, match="out of range"):
+            FindingsQuery(**bad)
+
+
+async def test_a_page_never_holds_an_experimental_or_other_area_row(plain: Env) -> None:
+    """The experimental and area filters run in SQL, before the page is cut."""
+    ctx, _ = user()
+    c1 = plant_finding(ctx.user_id, "C1")
+    for _ in range(3):
+        plant_finding(ctx.user_id, "E4", tier="trend")  # an experimental rule's row
+        plant_finding(ctx.user_id, "N3", metric_keys=("sudomotor_feet",))
+    run("UPDATE findings SET last_seen = first_seen + interval '1 day' WHERE id <> :i", i=c1)
+    page = await read_findings(
+        plain.factory,
+        ctx,
+        plain.settings,
+        consumer="dashboard",
+        query=FindingsQuery(area="heart", limit=1),
+    )
+    assert ([v.id for v in page.findings], page.next_offset) == ([c1], None)
+
+
 async def test_with_the_switch_an_e1_shows_its_gate_outcome(owner_env: Env) -> None:
     ctx, connection = user()
     plant_group(ctx.user_id, connection, 11, minutes=0, types=(130,))
@@ -486,6 +550,9 @@ async def test_rls_alone_hides_another_owners_rows(owner_env: Env, statement: st
         "tier": None,
         "finding": None,
         "experimental": True,
+        "experimental_rules": [],
+        "letters": None,
+        "offset": 0,
         "groups": [91],
         "ids": [recording],
         "keys": ["qtc_interval"],
