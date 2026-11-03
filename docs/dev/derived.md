@@ -3,7 +3,8 @@
 The tables the analysis writes (PLAN §5 and §7, roadmap Amendments 2 and 3, ADR 0010 §4,
 ADR 0002 §2). Migration `0011_analysis_schema` creates them; `ownvitals.derived.tables` holds the
 Core tables and the vocabularies the migration's check constraints accept. Writers come with the
-M4 wiring issues; this is the schema only (#181).
+M4 wiring issues; this file starts with the schema (#181) and ends with the first writer,
+normalisation into `observations` (#185).
 
 All five tables are **owned**: `owner_id` cascading from `users`, forced RLS with the
 `owner_isolation` policy, `UNIQUE (owner_id, id)` (or the partitioned key below), and every other
@@ -101,3 +102,76 @@ six-context probe of [isolation.md](isolation.md) covers it. An owner has one pr
 (`CLEAR_BEFORE_OWN_INSERT`), so the foreign insert stays a plain insert that only the policy can
 refuse; `user_profiles`, `observations` and `findings` are in the relaxation matrix
 (`MATRIX_TABLES`). They need the test database of [backend.md](backend.md).
+
+## Normalisation: `observations` (#185)
+
+PLAN §7.1 step 1. Code: `derived/metric_keys.py` (the key table), `derived/normalize.py` (pure:
+`normalise()`, `fingerprint()`), `derived/normalize_db.py` (read, verify, write) and
+`derived/normalize_job.py` (the `derive_normalize` kind and `enqueue_normalize`).
+
+**Keys.** `metric_key(meastype, position)`: the keys of `analysis.quality.METRICS` for the types
+the analysis judges; `height`, the three temperatures, `vo2_max`, the two AFib enums and
+`basal_metabolic_rate` besides; `segmental_fat_free_mass`, `segmental_fat_mass` and
+`segmental_muscle_mass` for 173 to 175 with `:<position>` (`left_arm`, `right_arm`, `right_foot`,
+`left_foot`, `left_body`, `right_body`, `left_leg`, `right_leg`, `torso`; other positions
+`position_<n>`, none `unpositioned`); **every other type is kept** as `meastype_<n>`. A test pins
+the table against the fake's meastypes.
+
+**Row.** `value = value_raw x 10^unit` exactly (`Decimal`); `source_value_raw`, `source_unit` and
+`conversion` (`e<unit>:<physical unit>`, for example `e-3:kg`; the unit is `unknown` where the
+findings document none, and no value is converted to another unit) are kept. `ts` and `source_ts`
+are the group's instant and `source_tz` its zone. `source_grpid`, `source_type`, `source_position`
+are the source reference. Only groups with `category` 1 or none are readings (2 is the user's
+objective); a soft-deleted group yields no rows. The quality flags are #37's `assess()` for a
+metric with a row in its table, `unconfirmed` (`attrib = 1`) for any other. Nothing is dropped
+for a flag. Rows the table cannot hold (a value beyond ±10^12, a unit outside ±30, an unknown
+zone, an instant outside the 2009 to `now + 3 months` partition range) and a second copy of the
+same `(metric, group, type, position)` are counted (`Skipped`), never written and never logged
+with a value.
+
+**Provenance.** `algo_version = normalize/1`; `input_revision` is the owner's `measures`
+`data_revisions` counter; `input_fingerprint` is SHA-256 over the algorithm versions and the sorted
+`(group id, payload hash, deleted mark)` of the owner's reading groups, deleted ones marked
+(`fingerprint()`). Bumping `normalize/N` or `quality/N` changes every row.
+
+**A pass** (`normalise_owner`, one owner, all connections): (1) read the revision, then the
+groups and measures; if every stored row already carries this revision, fingerprint and algorithm
+version, stop (`current`); (2) compute, and create the missing months with `ensure_month`, one
+committed transaction per month; (3) in one transaction **lock the revision row `FOR SHARE`, check
+that it and the groups' fingerprint are the ones read, and only then write** by natural key
+(`observations_source_key`): insert what is missing, update what changed, delete what has no
+source any more (a soft-deleted group, a backdated instant), and move the provenance of the rest
+with one statement. Running twice gives identical rows with identical ids.
+
+**Stale inputs write nothing.** The check and the write share one transaction, and the lock makes
+an ingest bump or the purge of imported data wait for it, so a pass cannot write rows computed
+from data a purge removed between its read and its write (issue #187's comment, from the review of
+#225). A moved revision or fingerprint gives `stale`; a missing revision row (nothing imported, or
+purged) gives `nothing`. Whatever moved the inputs also queues a new pass, so `stale` needs no
+retry. The write holds the lock until it commits, so an ingest of the same owner can wait for it
+(the role's 5 s `lock_timeout` applies); a first pass over a long history is the slowest case.
+Later writers (#186, #187) follow the same rule.
+
+**The job.** `derive_normalize`, input `{connection_id, origin: live|backfill}` (the connection
+only finds the owner for `queue_enqueue`; the pass covers the whole owner), registered in the
+worker's registry only. It is queued, through `queue_enqueue`, after the measures backfill
+(`backfill`), the measures incremental sync and the nightly reconciliation (`live`). The two
+origins have separate singleton keys (`normalize_live`, `normalize_backfill`), so one never
+collapses into or delays the other; repeats of one origin collapse as `withings_sync` does. The
+job runs as the owner under the fence (`job.fenced()`), so RLS applies (worker-context test).
+
+**Known gaps.**
+
+- The claim lane of `derive_normalize` is the scheduler's (3) for both origins: `queue_enqueue`
+  maps only `withings_backfill` to the backfill lane (5), and changing it is a change to
+  `docker/postgres/queue/20-queue.sql` and the pinned digests. Until then a backfill pass is
+  claimed ahead of reconciliations and backfills. Separating the lanes in the function is the fix.
+- Partitions are created only when a pass needs a month (see "Partitions"); the three months
+  ahead scheduler step does not exist.
+- Every pass whose inputs moved rewrites the provenance of all the owner's rows (one statement).
+  If that becomes slow on long histories, provenance per metric is the change.
+
+Tests: `tests/test_derived_normalize.py` (keys, exactness, flags, skips, order independence,
+fingerprint; no database) and `tests/test_derived_normalize_db.py` (rows and provenance,
+idempotence, delete and backdate, the purge, ingest and counter interleaved between read and write,
+the lock, partitions, the worker context through the runner, the enqueue, the sync hooks).

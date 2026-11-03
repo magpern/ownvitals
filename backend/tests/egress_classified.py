@@ -362,6 +362,9 @@ CODE_STRINGS: frozenset[tuple[str, str]] = frozenset(
         ("ownvitals.auth.keys", "Keys(...)"),  # Keys.__repr__: never evaluated
         ("ownvitals.auth.tables", "gen_random_uuid()"),  # a SQL server default, sent to Postgres
         ("ownvitals.auth.tables", "now()"),  # a SQL server default, sent to Postgres
+        # The ECG record's key for its module versions (``ecg/pipeline.py`` writes it), read
+        # with ``Mapping.get`` by the overlay's gate check (#190): a JSON key, never evaluated.
+        ("ownvitals.ecg.overlay", "modules"),
     }
 )
 # Docstring or comment lines refused by the prose rules and reviewed as harmless: exact stripped
