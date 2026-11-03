@@ -180,3 +180,18 @@ def passkey_suspended_notice(to: str, name: str) -> MailMessage:
         "It can't be used any more. Remove it on the Security page and add it again. If you "
         "didn't just try to sign in with it, change your password.\n",
     )
+
+
+def qr_login_approved_notice(
+    settings: Settings, to: str, browser: str, system: str, place: str
+) -> MailMessage:
+    """ADR 0011 section 7: every completed QR approval is mailed. The new device as its browser
+    reported it, never a code, nonce, token or health data (T59)."""
+    return MailMessage(
+        to,
+        "A new sign-in to ownvitals was approved from your phone",
+        "A new sign-in to your ownvitals account was approved from your phone:\n"
+        f"{browser} on {system} ({place}), as reported by that browser.\n\n"
+        "If this wasn't you, sign that device out and change your password: "
+        f"{settings.public_base_url}/settings/security\n",
+    )

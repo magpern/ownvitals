@@ -18,6 +18,7 @@ from ownvitals.auth.devices import forget_devices
 from ownvitals.auth.events import record_event
 from ownvitals.auth.mails import ResetRemoved
 from ownvitals.auth.passkeys import lock_user, remove_all_passkeys
+from ownvitals.auth.qrlogin import expire_for_account
 from ownvitals.auth.sessions import revoke_user_sessions
 from ownvitals.auth.tables import identities, invites, mfa_recovery_codes, mfa_totp, users
 from ownvitals.config import Settings
@@ -160,7 +161,9 @@ async def grant_admin_if_listed(db: AsyncSession, settings: Settings, user_id: U
 async def remove_sign_in_methods(db: AsyncSession, user_id: UUID) -> ResetRemoved:
     """Every passkey and every linked Google identity of the account (ADR 0011 section 3):
     neither may survive a reset of the second factor and win the first enrolment of ADR 0003
-    section 2. The caller holds the account row (``passkeys.lock_user``)."""
+    section 2. Every live QR approve-login it scanned or approved is expired too (ADR 0011
+    section 3). The caller holds the account row (``passkeys.lock_user``)."""
+    await expire_for_account(db, user_id)
     passkeys = await remove_all_passkeys(db, user_id)
     unlinked = await db.execute(
         delete(identities).where(identities.c.user_id == user_id).returning(identities.c.id)

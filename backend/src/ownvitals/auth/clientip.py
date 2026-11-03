@@ -71,6 +71,27 @@ def client_ip(
     return str(peer_address)
 
 
+def from_cloudflare_proxy(
+    peer: str | None, trusted_proxies: Sequence[Network], cf_proxies: Sequence[Network]
+) -> bool:
+    """Whether the request's peer is a proxy whose Cloudflare headers count: in both
+    ``trusted_proxies`` and ``cf_proxies``, the rule of ``CF-Connecting-IP`` above. The visitor
+    location headers of ADR 0011 section 6 follow it too."""
+    address = parse_address(peer)
+    return (
+        address is not None and _trusted(address, trusted_proxies) and _trusted(address, cf_proxies)
+    )
+
+
+def same_network(first: str | None, second: str | None) -> bool:
+    """Two addresses on one network for the QR approval screen (ADR 0011 section 7): equal
+    IPv4 addresses (one NAT), or IPv6 addresses in the same /64. Unknown is never the same."""
+    a, b = parse_address(first), parse_address(second)
+    if a is None or b is None or a.version != b.version:
+        return False
+    return bucket_ip(str(a)) == bucket_ip(str(b))
+
+
 def bucket_ip(ip: str) -> str:
     """The rate-limit key of an address: IPv6 by its /64 prefix, IPv4 as it is."""
     address = parse_address(ip)
