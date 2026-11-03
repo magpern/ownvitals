@@ -6,7 +6,7 @@ real app with its admin area on maint, an admin signed in through ``ownvitals.au
 ``admin_gate``, and two test-only admin routes that run ``contexttools.admin_probe`` in an audited
 ``admin_session``: a read (``job.list``) and a write (``setting.clear``, after step-up) aimed at
 both users' rows. Neither reads an owner or a health column, and neither writes an owned row.
-``test_the_admin_probe_catches_a_write_grant`` shows a write grant to maint fails the probe.
+``test_the_admin_probe_catches_every_grant`` shows each extra grant to maint fails the probe.
 """
 
 from typing import Any
@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from admintools import (  # noqa: F401 - fixtures
+    MAINT_SCRIPT,
     AdminEnv,
     admin_schema_fixture,
     aenv_fixture,
@@ -31,6 +32,7 @@ from contexttools import (
     snapshot,
     superuser,
 )
+from jobtools import admin_url, run_script
 from ownvitals.admin.db import admin_session
 from ownvitals.admin.routes import AdminActor, admin_router, require_db
 
@@ -84,26 +86,38 @@ async def test_an_admin_route_reads_no_owner_or_health_column_and_writes_no_owne
     assert ("setting.clear", "ok") in audited
 
 
-@pytest.mark.parametrize(
-    ("table", "grant", "revoke"),
-    [
-        (
-            "connections",
-            "GRANT UPDATE (status) ON public.connections TO ownvitals_maint",
-            "REVOKE UPDATE (status) ON public.connections FROM ownvitals_maint",
-        ),
-        (
-            "devices",
-            "GRANT DELETE ON public.devices TO ownvitals_maint",
-            "REVOKE DELETE ON public.devices FROM ownvitals_maint",
-        ),
-    ],
+# The grant matrix: maint bypasses row security, so a grant is the only wall. Every privilege
+# kind on representative owned tables (the metadata tables maint partly reads, a health table, a
+# partitioned one), table-wide and on the owner column alone. Each must fail the probe.
+GRANT_TABLES = ("connections", "jobs", "devices", "sleep_series")
+GRANTS = (
+    "SELECT (owner_id)",
+    "SELECT",
+    "INSERT (owner_id)",
+    "INSERT",
+    "UPDATE (owner_id)",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
 )
-async def test_the_admin_probe_catches_a_write_grant(
-    aenv: AdminEnv, database_url: str, table: str, grant: str, revoke: str
+GRANT_MATRIX = [
+    pytest.param(table, grant, id=f"{table}-{grant.lower().replace(' ', '')}")
+    for table in GRANT_TABLES
+    for grant in GRANTS
+]
+
+
+def restore_maint() -> None:
+    """``30-maint.sql`` revokes everything maint holds and grants its allowlist again (it keeps
+    the password)."""
+    run_script(admin_url(), MAINT_SCRIPT.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(("table", "grant"), GRANT_MATRIX)
+async def test_the_admin_probe_catches_every_grant(
+    aenv: AdminEnv, database_url: str, table: str, grant: str
 ) -> None:
-    """maint bypasses row security, so a write grant is the hole: the probe's writes that read
-    no column find it, though maint may not read the owner."""
+    """One extra privilege for maint on one owned table: the admin probe fails on that table."""
     app = aenv.env.app
     app.include_router(router)
     tables = owned_tables(database_url)
@@ -114,12 +128,11 @@ async def test_the_admin_probe_catches_a_write_grant(
     body = {"owners": [a.as_json(), b.as_json()]}
     before = snapshot(database_url, (a, b))
     with superuser(database_url) as conn:
-        conn.execute(text(grant))
+        conn.execute(text(f"GRANT {grant} ON public.{table} TO ownvitals_maint"))
     try:
         written = await admin.request("PUT", "/api/admin" + PATH, json=body)
     finally:
-        with superuser(database_url) as conn:
-            conn.execute(text(revoke))
+        restore_maint()
     assert written.status_code == 200, written.text
     with pytest.raises(AssertionError, match=table):
         assert_admin_isolated(written.json(), tables, write=True)

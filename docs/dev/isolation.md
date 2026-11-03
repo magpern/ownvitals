@@ -423,10 +423,24 @@ runs the same probe the way that context reaches owned rows: `test_isolation_con
 (a route behind `require_user`), `_worker.py` (a user's job through `runner.execute` and the job
 issuer), `_scheduler.py` (`queue_enqueue`, then the claimed job), `_webhook.py` (the receiver and
 `webhook_event_insert`, then the claimed job), `_maintenance.py` (the reaper and
-`webhook_events_purge_owner`) and `_admin.py` (admin routes on `ownvitals_maint`). The probe reads,
-then writes at the other user's rows, both with a `WHERE` on the owner and without reading any
-column (so a write-only hole shows), and inserts a row for the other user with no `RETURNING`
-(a returned row must also pass the read policy, which would hide an insert-only hole); every write
-runs in a rolled-back savepoint.
+`webhook_events_purge_owner`) and `_admin.py` (admin routes on `ownvitals_maint`).
+
+The probe tries every write in its **minimal shape**: no `WHERE` and no `RETURNING`, because
+either makes Postgres apply the read policy too and would hide a hole in a write policy. Per
+owned table: what a plain `SELECT` returns; an insert for the other user (refused) and for itself
+(the positive control); `UPDATE t SET owner_id = :other` (refused, or 0 rows); `UPDATE t SET
+owner_id = :me` and `DELETE FROM t` (exactly the rows it sees, 0 under a restrictive policy,
+refused without the privilege); and `TRUNCATE` (refused). The admin probe does the same for
+maint, plus `UPDATE t SET col = DEFAULT` and `INSERT INTO t (col) VALUES (DEFAULT)` for every
+column. Every write runs in a rolled-back savepoint.
+
+The guard module runs a **mutation matrix**: on representative tables (ordinary, a child, a
+partitioned parent, `connections`, append-only `job_events`) an extra permissive policy for each
+command and each relaxation (`USING (true)`, `WITH CHECK (true)`, `USING (own) WITH CHECK (true)`,
+allow-all) must make the probe fail, except an `UPDATE` or `DELETE` policy on `job_events`, which
+its restrictive policies still close. The admin module runs the **grant matrix**: each privilege
+kind for maint on representative tables, table-wide and on `owner_id`, must make the admin probe
+fail. A new probe shape or relaxation joins these matrices.
+
 `test_isolation_contexts_guard.py` fails while `ROWS` and the catalog's owned tables differ, so a
 **new owned table needs its row in `ROWS`** in the same PR.

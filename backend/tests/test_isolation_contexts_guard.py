@@ -144,61 +144,98 @@ def test_every_context_has_a_module_that_probes_the_catalog() -> None:
         assert "probe" in source, module.name
 
 
-@pytest.mark.parametrize(
-    ("table", "mutation", "undo"),
-    [
-        (
-            "devices",
-            "ALTER TABLE public.devices DISABLE ROW LEVEL SECURITY",
-            "ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY",
-        ),
-        # Write-only holes: the read policy still holds, so only the probe's writes that read
-        # no column (blind_update, blind_delete) can see them.
-        (
-            "workouts",
-            "CREATE POLICY ctx_mutation ON public.workouts AS PERMISSIVE FOR UPDATE TO PUBLIC "
-            "USING (true) WITH CHECK (true)",
-            "DROP POLICY IF EXISTS ctx_mutation ON public.workouts",
-        ),
-        (
-            "data_revisions",
-            "CREATE POLICY ctx_mutation ON public.data_revisions AS PERMISSIVE FOR DELETE "
-            "TO PUBLIC USING (true)",
-            "DROP POLICY IF EXISTS ctx_mutation ON public.data_revisions",
-        ),
-        # Insert-only hole: the probe's inserts return nothing, so the read policy can't mask it.
-        (
-            "ecg_recordings",
-            "CREATE POLICY ctx_mutation ON public.ecg_recordings AS PERMISSIVE FOR INSERT "
-            "TO PUBLIC WITH CHECK (true)",
-            "DROP POLICY IF EXISTS ctx_mutation ON public.ecg_recordings",
-        ),
-    ],
-)
-async def test_the_probe_catches_a_hole_in_one_tables_row_security(
-    database_url: str,
-    owner_database_url: str,
-    factory: Factory,
-    table: str,
-    mutation: str,
-    undo: str,
-) -> None:
-    """With one table's row security broken (off, or an extra allow-all write or insert
-    policy), the same probe in a user's session fails on that table."""
+# The mutation matrix. Representative owned tables: an ordinary health table, a child whose
+# foreign key points at another owned table, a partitioned parent, the parent every health row
+# points at, and the append-only events table (restrictive no-update and no-delete policies).
+MATRIX_TABLES = ("workouts", "measures", "sleep_series", "connections", "job_events")
+OWN = "owner_id = NULLIF(current_setting('app.user_id', true), '')::uuid"
+# command -> relaxations: every valid shape of an extra permissive policy wider than the owner
+# (USING true, WITH CHECK true, USING own WITH CHECK true, allow-all). SELECT and DELETE take
+# no WITH CHECK, INSERT no USING.
+RELAXATIONS: dict[str, tuple[tuple[str, str], ...]] = {
+    "SELECT": (("using-true", "USING (true)"),),
+    "INSERT": (("check-true", "WITH CHECK (true)"),),
+    "UPDATE": (
+        ("using-true", "USING (true)"),
+        ("check-true", "WITH CHECK (true)"),
+        ("using-own-check-true", f"USING ({OWN}) WITH CHECK (true)"),
+        ("allow-all", "USING (true) WITH CHECK (true)"),
+    ),
+    "DELETE": (("using-true", "USING (true)"),),
+    "ALL": (
+        ("using-true", "USING (true)"),
+        ("check-true", "WITH CHECK (true)"),
+        ("using-own-check-true", f"USING ({OWN}) WITH CHECK (true)"),
+        ("allow-all", "USING (true) WITH CHECK (true)"),
+    ),
+}
+# A restrictive policy still closes these: job_events is append-only, so an extra UPDATE or
+# DELETE policy opens nothing there and the probe must still pass.
+NOT_A_HOLE = {("job_events", "UPDATE"), ("job_events", "DELETE")}
+MATRIX = [
+    pytest.param(table, command, clause, id=f"{table}-{command.lower()}-{label}")
+    for table in MATRIX_TABLES
+    for command, shapes in RELAXATIONS.items()
+    for label, clause in shapes
+]
+
+
+async def test_the_probe_passes_before_any_mutation(database_url: str, factory: Factory) -> None:
     a, b = plant(database_url, new_user()), plant(database_url, new_user())
     tables = owned_tables(database_url)
     async with user_session(factory, make_context(a.user)) as db:
         assert_isolated(await probe(db, a, b, tables), a, tables)
+
+
+@pytest.mark.parametrize(("table", "command", "clause"), MATRIX)
+async def test_the_probe_catches_every_relaxed_policy(
+    database_url: str,
+    owner_database_url: str,
+    factory: Factory,
+    table: str,
+    command: str,
+    clause: str,
+) -> None:
+    """An extra permissive policy wider than the owner, for one command on one table: the probe
+    in a user's session fails on that table (or, where a restrictive policy still closes the
+    command, still passes)."""
+    a, b = plant(database_url, new_user()), plant(database_url, new_user())
+    tables = owned_tables(database_url)
     with owner_connection(owner_database_url) as connection:
-        connection.execute(text(mutation))
+        connection.execute(
+            text(
+                f"CREATE POLICY ctx_mutation ON public.{table} AS PERMISSIVE FOR {command} "
+                f"TO PUBLIC {clause}"
+            )
+        )
     try:
         async with user_session(factory, make_context(a.user)) as db:
             report = await probe(db, a, b, tables)
-        with pytest.raises(AssertionError, match=table):
-            assert_isolated(report, a, tables)
     finally:
         with owner_connection(owner_database_url) as connection:
-            connection.execute(text(undo))
+            connection.execute(text(f"DROP POLICY IF EXISTS ctx_mutation ON public.{table}"))
+    if (table, command) in NOT_A_HOLE:
+        assert_isolated(report, a, tables)
+        return
+    with pytest.raises(AssertionError, match=table):
+        assert_isolated(report, a, tables)
+
+
+async def test_the_probe_catches_a_table_without_row_security(
+    database_url: str, owner_database_url: str, factory: Factory
+) -> None:
+    a, b = plant(database_url, new_user()), plant(database_url, new_user())
+    tables = owned_tables(database_url)
+    with owner_connection(owner_database_url) as connection:
+        connection.execute(text("ALTER TABLE public.devices DISABLE ROW LEVEL SECURITY"))
+    try:
+        async with user_session(factory, make_context(a.user)) as db:
+            report = await probe(db, a, b, tables)
+    finally:
+        with owner_connection(owner_database_url) as connection:
+            connection.execute(text("ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY"))
+    with pytest.raises(AssertionError, match="devices"):
+        assert_isolated(report, a, tables)
 
 
 async def test_the_probe_catches_a_session_that_bypasses_row_security(

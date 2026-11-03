@@ -303,18 +303,46 @@ async def attempt(db: AsyncSession, statement: str, params: Mapping[str, Any]) -
         return str(getattr(exc.orig, "sqlstate", None) or "unknown")
 
 
+_RESTRICTED = text(
+    "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_policy p WHERE p.polrelid = to_regclass(:t) "
+    "AND NOT p.polpermissive AND p.polcmd IN (:cmd, '*'))"
+)
+_PRIVILEGE = text("SELECT has_table_privilege(:t, :privilege)")
+
+
+async def _expected_own(db: AsyncSession, name: str, privilege: str, cmd: str) -> Outcome | None:
+    """What a write of the context's own rows must do: ``REFUSED`` without the privilege, ``0``
+    under a restrictive policy for the command (``job_events`` is append-only), else ``None``
+    (it touches exactly the rows the context sees)."""
+    params = {"t": f"public.{name}"}
+    if not (await db.execute(_PRIVILEGE, {**params, "privilege": privilege})).scalar_one():
+        return REFUSED
+    if (await db.execute(_RESTRICTED, {**params, "cmd": cmd})).scalar_one():
+        return 0
+    return None
+
+
 async def probe(
     db: AsyncSession, me: Owner, other: Owner, tables: Iterable[str]
 ) -> dict[str, dict[str, Any]]:
-    """For each owned table, in the context's own transaction ``db``: the owners it sees, how
-    many rows it sees, and what each write aimed at ``other`` (and the control write of ``me``)
-    did.
+    """For each owned table, in the context's own transaction ``db``: what it reads, and what
+    each write does when tried in its **minimal shape**.
 
-    ``foreign_update`` and ``foreign_delete`` name the other owner in their ``WHERE``, which
-    makes the read policy apply too. ``blind_update`` and ``blind_delete`` read no column (no
-    ``WHERE``, a constant ``SET``), so only the write policies decide which rows they touch: an
-    extra permissive ``FOR UPDATE`` or ``FOR DELETE`` policy shows up there as more rows than
-    the context can see."""
+    No write has a ``WHERE`` or a ``RETURNING``: either would make the read policy apply as
+    well (Postgres checks it for rows a statement reads or returns) and so hide a hole in a
+    write policy. Each command is tried once against the other user and, as the positive
+    control, once against the context's own rows:
+
+    - ``seen`` / ``visible``: the owners and the number of rows a plain ``SELECT`` returns;
+    - ``foreign_insert``: a row for the other user; ``own_insert``: one for the context's user;
+    - ``move``: ``UPDATE t SET owner_id = :other``, every row it may update handed to the
+      other user (an ``UPDATE`` policy whose ``WITH CHECK`` is wider than the owner shows);
+    - ``blind_update``: ``UPDATE t SET owner_id = :me``, changes nothing it may update, so it
+      must touch exactly the rows the context sees (wider ``USING`` shows as more rows);
+    - ``blind_delete``: ``DELETE FROM t``, likewise;
+    - ``truncate``: ``TRUNCATE t``, which ignores row security, must be refused.
+
+    Every write runs in a savepoint that is rolled back."""
     report: dict[str, dict[str, Any]] = {}
     for table in sorted(tables):
         if table not in ROWS:
@@ -324,76 +352,55 @@ async def probe(
         seen = await db.execute(
             text(f"SELECT DISTINCT CAST(owner_id AS text) FROM public.{name} ORDER BY 1")  # noqa: S608
         )
-        privilege = await db.execute(
-            text("SELECT has_table_privilege(:t, 'INSERT')"), {"t": f"public.{name}"}
-        )
         visible = await db.execute(text(f"SELECT count(*) FROM public.{name}"))  # noqa: S608
+        update = f"UPDATE public.{name} SET owner_id = :owner"  # noqa: S608
         report[table] = {
             "seen": [str(v) for v in seen.scalars()],
             "visible": int(visible.scalar_one()),
-            "insert_privilege": bool(privilege.scalar_one()),
-            "foreign_update": await attempt(
-                db,
-                f"UPDATE public.{name} SET owner_id = owner_id WHERE owner_id = :other",  # noqa: S608
-                {"other": other.user},
-            ),
-            "foreign_delete": await attempt(
-                db,
-                f"DELETE FROM public.{name} WHERE owner_id = :other",  # noqa: S608
-                {"other": other.user},
-            ),
+            "expect_insert": await _expected_own(db, name, "INSERT", "a"),
+            "expect_update": await _expected_own(db, name, "UPDATE", "w"),
+            "expect_delete": await _expected_own(db, name, "DELETE", "d"),
             "foreign_insert": await attempt(db, insert, bind(insert, other.params(3))),
-            "own_move": await attempt(
-                db,
-                f"UPDATE public.{name} SET owner_id = :other WHERE owner_id = :me",  # noqa: S608
-                {"other": other.user, "me": me.user},
-            ),
-            "blind_update": await attempt(
-                db,
-                f"UPDATE public.{name} SET owner_id = :me",  # noqa: S608
-                {"me": me.user},
-            ),
+            "move": await attempt(db, update, {"owner": other.user}),
+            "blind_update": await attempt(db, update, {"owner": me.user}),
             "blind_delete": await attempt(db, f"DELETE FROM public.{name}", {}),  # noqa: S608
+            "truncate": await attempt(db, f"TRUNCATE public.{name}", {}),
             "own_insert": await attempt(db, insert, bind(insert, me.params(2))),
         }
     return report
 
 
-def _within(outcome: Outcome, visible: int) -> bool:
-    """A write that read no column was refused or touched at most the rows the context sees."""
-    return outcome == REFUSED or (isinstance(outcome, int) and 0 <= outcome <= visible)
-
-
 def assert_isolated(
     report: Mapping[str, Mapping[str, Any]], me: Owner, tables: Iterable[str]
 ) -> None:
-    """A context of ``me``: it sees only its own rows and every write at the other user's rows
-    is refused or touches nothing, while its own insert goes through wherever the app may
-    insert."""
+    """A context of ``me``: it reads only its own rows; nothing it writes reaches the other
+    user (the insert and the move are refused) and its blind writes touch exactly its own
+    rows; its own insert goes through wherever the app may insert."""
     assert set(report) == set(tables), "the probe did not cover every owned table"
     for table, row in report.items():
-        assert row["seen"] == [str(me.user)], (table, "read")
-        assert row["foreign_update"] in (0, REFUSED), (table, "update", row["foreign_update"])
-        assert row["foreign_delete"] in (0, REFUSED), (table, "delete", row["foreign_delete"])
+        visible = row["visible"]
+        assert row["seen"] == [str(me.user)], (table, "read", row["seen"])
         assert row["foreign_insert"] == REFUSED, (table, "insert", row["foreign_insert"])
-        assert row["own_move"] in (0, REFUSED), (table, "move", row["own_move"])
-        for key in ("blind_update", "blind_delete"):
-            assert _within(row[key], row["visible"]), (table, key, row[key], row["visible"])
-        expected = 1 if row["insert_privilege"] else REFUSED
-        assert row["own_insert"] == expected, (table, "own insert", row["own_insert"])
+        assert row["move"] in (0, REFUSED), (table, "move", row["move"])
+        for key, expect in (("blind_update", "expect_update"), ("blind_delete", "expect_delete")):
+            wanted = visible if row[expect] is None else row[expect]
+            assert row[key] == wanted, (table, key, row[key], wanted)
+        assert row["truncate"] == REFUSED, (table, "truncate", row["truncate"])
+        wanted = 1 if row["expect_insert"] is None else row["expect_insert"]
+        assert row["own_insert"] == wanted, (table, "own insert", row["own_insert"])
 
 
 def assert_no_context(report: Mapping[str, Mapping[str, Any]], tables: Iterable[str]) -> None:
-    """A session without a user (the webhook receiver's, the scheduler's): no owned row is
-    visible and no owned row can be written, for anyone."""
+    """A session without a user (the webhook receiver's, the scheduler's, maintenance): no owned
+    row is visible and no owned row can be written, for anyone."""
     assert set(report) == set(tables), "the probe did not cover every owned table"
     for table, row in report.items():
         assert row["seen"] == [], (table, "read")
         assert row["visible"] == 0, (table, "count")
-        for key in ("foreign_update", "foreign_delete", "own_move", "blind_update", "blind_delete"):
+        for key in ("move", "blind_update", "blind_delete"):
             assert row[key] in (0, REFUSED), (table, key, row[key])
-        assert row["foreign_insert"] == REFUSED, (table, "insert", row["foreign_insert"])
-        assert row["own_insert"] == REFUSED, (table, "own insert", row["own_insert"])
+        for key in ("foreign_insert", "own_insert", "truncate"):
+            assert row[key] == REFUSED, (table, key, row[key])
 
 
 # --- jobs (worker, scheduler and webhook contexts) -----------------------------------------------
@@ -487,11 +494,12 @@ async def admin_probe(
 ) -> dict[str, dict[str, Any]]:
     """For each owned table, in an admin transaction as ``ownvitals_maint`` (``BYPASSRLS``, so
     only its grants and the read-only default stand between it and every user's rows): the
-    columns it may read, a read of the owner and of every column, an update, a delete and an
-    insert aimed at each user's rows, and the writes that read no column, so only a write grant
-    could let them through: an unconditional ``DELETE``, and for every column an ``UPDATE`` that
-    sets it to ``DEFAULT`` and an ``INSERT`` of it alone (one per column, so a column-level grant
-    on any of them shows)."""
+    columns it may read, a read of the owner and of every column, and every write in its
+    minimal shape (no ``WHERE``, no ``RETURNING``, so no read grant is needed and only a write
+    grant decides): an insert of each user's row, an unconditional ``DELETE`` and
+    ``TRUNCATE``, and for every column an ``UPDATE`` that sets it to ``DEFAULT`` and an
+    ``INSERT`` of it alone, so a column-level grant on any of them shows. Every write runs in a
+    savepoint that is rolled back."""
     report: dict[str, dict[str, Any]] = {}
     for table in sorted(tables):
         if table not in ROWS:
@@ -502,37 +510,22 @@ async def admin_probe(
         columns = [
             checked(str(c)) for c in (await db.execute(_COLUMNS, {"t": f"public.{name}"})).scalars()
         ]
-        row: dict[str, Any] = {
+        writes: list[tuple[str, Outcome]] = []
+        for n, owner in enumerate(owners, start=4):
+            writes.append(("insert", await attempt(db, insert, bind(insert, owner.params(n)))))
+        writes.append(("delete", await attempt(db, f"DELETE FROM public.{name}", {})))  # noqa: S608
+        writes.append(("truncate", await attempt(db, f"TRUNCATE public.{name}", {})))
+        for column in columns:
+            update = f'UPDATE public.{name} SET "{column}" = DEFAULT'  # noqa: S608
+            insert_one = f'INSERT INTO public.{name} ("{column}") VALUES (DEFAULT)'  # noqa: S608
+            writes.append((f"update {column}", await attempt(db, update, {})))
+            writes.append((f"insert {column}", await attempt(db, insert_one, {})))
+        report[table] = {
             "readable": [str(v) for v in readable.scalars()],
             "read_owner": await attempt(db, f"SELECT owner_id FROM public.{name}", {}),  # noqa: S608
             "read_all": await attempt(db, f"SELECT * FROM public.{name}", {}),  # noqa: S608
-            "writes": [],
+            "writes": writes,
         }
-        for n, owner in enumerate(owners, start=4):
-            row["writes"] += [
-                await attempt(
-                    db,
-                    f"UPDATE public.{name} SET owner_id = owner_id WHERE owner_id = :o",  # noqa: S608
-                    {"o": owner.user},
-                ),
-                await attempt(
-                    db,
-                    f"DELETE FROM public.{name} WHERE owner_id = :o",  # noqa: S608
-                    {"o": owner.user},
-                ),
-                await attempt(db, insert, bind(insert, owner.params(n))),
-            ]
-        row["writes"].append(await attempt(db, f"DELETE FROM public.{name}", {}))  # noqa: S608
-        for column in columns:
-            row["writes"] += [
-                await attempt(db, f'UPDATE public.{name} SET "{column}" = DEFAULT', {}),  # noqa: S608
-                await attempt(
-                    db,
-                    f'INSERT INTO public.{name} ("{column}") VALUES (DEFAULT)',  # noqa: S608
-                    {},
-                ),
-            ]
-        report[table] = row
     return report
 
 
@@ -550,5 +543,5 @@ def assert_admin_isolated(
         assert row["read_owner"] == REFUSED, (table, row["read_owner"])
         assert row["read_all"] == REFUSED, (table, row["read_all"])
         assert row["writes"], table
-        for outcome in row["writes"]:
-            assert outcome in write_refusals, (table, row["writes"])
+        for label, outcome in row["writes"]:
+            assert outcome in write_refusals, (table, label, outcome)
