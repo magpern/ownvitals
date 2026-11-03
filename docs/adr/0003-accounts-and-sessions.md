@@ -2,7 +2,9 @@
 
 Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 and #72 (see "Amendments"). Its
 two open questions were decided by the Architect on 2026-10-31 (§3 session lifetimes, §4
-step-up readings).
+step-up readings). Post-port review (#16, 2026-11-03): no decision changed; `fake-oidc` runs from
+the e2e overlay `compose.e2e.yaml` rather than a compose profile, still only with
+`OWNVITALS_ENVIRONMENT=test` (threat model T13, gap G2).
 
 ## Context
 

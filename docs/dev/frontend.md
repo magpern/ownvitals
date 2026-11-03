@@ -40,7 +40,7 @@ src/pages/      sign in, sign up, mail-link and reset pages, the two second-fact
 src/components/ forms and the plain page frame, the QR code, the Google button;
                 ui/ (the design primitives), shell/ (the app frame: rail, phone tabs, account menu)
 src/theme/      the System, Light or Dark choice: theme.ts, and the useThemePreference hook
-src/styles/     tokens.css (the only place with colours), fonts.css, app.css, primitives.css, shell.css
+src/styles/     tokens.css (the only place with colours), fonts.css, app.css, primitives.css, shell.css, charts.css
 src/test/       fake API (fakeApi.ts), render helper, the network guard (networkGuard.ts, installed by
                 setup.ts; setup.test.ts runs that file on scratch tests), and the scanners behind
                 sources.test.ts, build.test.ts and licences.test.ts
@@ -175,6 +175,28 @@ from the address, not the session, so a page does not move when the session arri
 - `index.html` asks for `viewport-fit=cover`, so the page reaches under a notch, the status bar and
   the home indicator; both frames pad themselves by `env(safe-area-inset-*)` on every side
   (`src/viewport.test.ts`). It is not checked on a real notched device.
+
+### Charts and the data layer
+
+Shared by every M6 screen: `src/components/charts/`, `src/styles/charts.css`, `src/api/useResource.ts`.
+They follow `Main` ("The signature chart", "Who said it") and the sparkline and range bar of
+`Dashboard` and `Onboarding`. uPlot 1.6.32 (MIT, no dependencies; exact version) is the only chart
+dependency.
+
+| Piece | Is | Notes |
+|---|---|---|
+| `buildChartData(points, { changePoints, gapDays })` (`seriesData.ts`) | Turns days into uPlot's arrays: x, smoothed, daily value, unconfirmed, typical-range low/high, gaps, latest, y bounds | A missing value is `null`, never 0. A run of `gapDays` (default 7) or more missing days is a labelled gap: one marker day inside it with every series `null`, so the line breaks. Shorter holes are skipped. An unconfirmed reading never closes a gap and never joins the line. The y bounds hold the data with 8 % of room and are never forced to 0 |
+| `TimeSeriesChart` | The signature chart: `data`, `label` (read out by a screen reader), `unit`, `format`, `height` | uPlot draws scales, axes and the smoothed line (`spanGaps: false`); `painters.ts` draws the band, the hatched and labelled gaps ("no data", "9 days"), daily dots, hollow unconfirmed dots, change points and the latest value (orange outside the typical range, never red) on the same canvas. Colours are read from the `--ov-*` tokens when it draws (`tokens.ts`) and again when the theme changes; there is no colour in the TypeScript and no inline style. uPlot's own legend, cursor and selection are off (hidden in `charts.css`); a screen adds its own readout |
+| `Sparkline` | Tile sparkline in SVG: band, line, latest dot, points outside the range | Breaks at `null`. `attention` makes the dot orange. Decoration unless given a `label` |
+| `RangeBar` | The phone's replacement for a chart: where today sits in the typical range | "Within / Above / Below your typical range 78.3–79.5"; orange outside |
+| `ChartLegend` | The seven legend entries of `Main`, in its words | `items` leaves out what a series lacks |
+| `ValueCard` (`ui/Value.tsx`) | The three value styles: `reported` (device mark), `calculated` (band mark), `estimated` (experimental mark, "est.", italic, dotted, dashed box) | The source line is always shown |
+| `ResourceView` (`ui/DataState.tsx`) | Loading line, error with "Try again", then the data | The data states themselves are `DataState` |
+| `useResource(path, decode, options)` | One typed GET: `status`, `data`, `error` (`kind`, plain-language `message`), `reload` | `decode` checks the JSON. Data of another path is never shown. The last good data stays during a reload. 403 `step_up_required` / `reauth_required` go through `options.protect` (`useProtected()`) when given, else are reported as kind `step-up` / `reauth`. A 401 that survives the client's retry calls `options.onUnauthenticated` (the session's `refresh`) so the guards redirect |
+
+Phone: show `RangeBar`, not `TimeSeriesChart`. Tests give uPlot a fake (jsdom has no canvas) and look
+at the data it is given; `painters.test.ts` runs the painters against a recording context. Synthetic
+series: `components/charts/synthetic.ts`.
 
 ## Rules the tests enforce
 
