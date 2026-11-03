@@ -16,6 +16,11 @@ fenced transaction, a test a user session):
    nothing is written (``stale``). Same pattern as ``normalize_db``, for the same reason (the
    purge race of the review of #225).
 
+The day setting (``user_profiles.day_assignment`` and ``day_tz``; ADR 0010 §1) is read in both
+transactions and is part of the fingerprint: under ``fixed_tz`` every reading gets the user's zone,
+and a change of the setting makes every stored row stale, so the next pass moves exactly the days
+it changes. The profile is re-read inside the write transaction with the observations.
+
 The diff is applied by natural key ``(metric_key, day)``, **only to rows of the metric keys this
 pass owns**: missing days inserted, changed days updated, days with no reading any more deleted,
 and the provenance of the unchanged days moved with one statement. Rows of any other
@@ -62,6 +67,8 @@ _OBSERVATIONS = text(
     "quality_flags FROM observations WHERE owner_id = :o "
     "AND metric_key = ANY(CAST(:keys AS text[])) AND source_type IS NOT NULL"
 )
+# The user's day assignment (ADR 0010 §1). No profile row is the default, each reading's zone.
+_PROFILE = text("SELECT day_assignment, day_tz FROM user_profiles WHERE owner_id = :o")
 _BEHIND = text(
     "SELECT count(*) FROM observations WHERE owner_id = :o "
     "AND metric_key = ANY(CAST(:keys AS text[])) AND source_type IS NOT NULL "
@@ -121,6 +128,7 @@ class Inputs:
     fingerprint: bytes
     rows: tuple[DailyRow, ...]
     skipped: int
+    day_tz: str | None = None
 
 
 def _observations(rows: Any) -> list[ObservationRow]:
@@ -146,8 +154,18 @@ async def _revision(db: AsyncSession, owner: UUID, *, lock: bool) -> int:
     return 0 if row is None else int(row.revision)
 
 
-async def _read_observations(db: AsyncSession, owner: UUID) -> list[ObservationRow]:
+async def read_observations(db: AsyncSession, owner: UUID) -> list[ObservationRow]:
+    """The observations this pass reads: the measures-derived rows of ``daily.KEYS``."""
     return _observations((await db.execute(_OBSERVATIONS, {"o": owner, "keys": list(KEYS)})).all())
+
+
+async def read_day_tz(db: AsyncSession, owner: UUID) -> str | None:
+    """The user's fixed zone when the profile says ``fixed_tz``, else ``None`` (each reading's
+    own zone; also when there is no profile row)."""
+    row = (await db.execute(_PROFILE, {"o": owner})).first()
+    if row is None or row.day_assignment != "fixed_tz":
+        return None
+    return str(row.day_tz)
 
 
 async def _read(db: AsyncSession, owner: UUID) -> Inputs | Outcome:
@@ -158,9 +176,10 @@ async def _read(db: AsyncSession, owner: UUID) -> Inputs | Outcome:
         await db.execute(_BEHIND, {"o": owner, "r": revision, "keys": list(KEYS)})
     ).scalar_one() > 0:
         return Outcome("behind")
-    observations = await _read_observations(db, owner)
-    digest = fingerprint(observations)
-    computed = compute(observations)
+    day_tz = await read_day_tz(db, owner)
+    observations = await read_observations(db, owner)
+    digest = fingerprint(observations, day_tz=day_tz)
+    computed = compute(observations, day_tz=day_tz)
     state = (
         await db.execute(
             _STATE, {"o": owner, "keys": list(KEYS), "a": ALGO_VERSION, "r": revision, "f": digest}
@@ -168,7 +187,7 @@ async def _read(db: AsyncSession, owner: UUID) -> Inputs | Outcome:
     ).one()
     if state.current == state.total and state.total == len(computed.rows):
         return Outcome("current", skipped=computed.skipped)
-    return Inputs(revision, digest, computed.rows, computed.skipped)
+    return Inputs(revision, digest, computed.rows, computed.skipped, day_tz)
 
 
 def _params(owner: UUID, row: DailyRow, revision: int, digest: bytes) -> dict[str, Any]:
@@ -230,7 +249,8 @@ async def _write(db: AsyncSession, owner: UUID, inputs: Inputs) -> Outcome:
     await db.execute(_LOCK, {"ns": NORMALISATION, "o": owner})
     if await _revision(db, owner, lock=True) != inputs.revision:
         return Outcome("stale")
-    if fingerprint(await _read_observations(db, owner)) != inputs.fingerprint:
+    day_tz = await read_day_tz(db, owner)
+    if fingerprint(await read_observations(db, owner), day_tz=day_tz) != inputs.fingerprint:
         return Outcome("stale")
     keys = {"o": owner, "keys": list(KEYS)}
     existing = {(r.metric_key, r.day): r for r in (await db.execute(_EXISTING, keys)).all()}

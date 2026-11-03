@@ -258,6 +258,53 @@ async def test_a_backdated_edit_marks_the_old_and_the_new_day(env: Env) -> None:
     assert (day.n, day.method, day.source_groups) == (2, "morning", [3])
 
 
+def set_day_zone(env: Env, ctx: UserContext, zone: str | None) -> None:
+    env.jenv.sql(
+        "INSERT INTO user_profiles (owner_id, day_assignment, day_tz) VALUES (:o, :a, :z) "
+        "ON CONFLICT (owner_id) DO UPDATE SET day_assignment = EXCLUDED.day_assignment, "
+        "day_tz = EXCLUDED.day_tz",
+        o=ctx.user_id,
+        a="reading_tz" if zone is None else "fixed_tz",
+        z=zone,
+    )
+
+
+async def test_a_user_who_changes_the_fixed_zone_gets_the_days_it_moves(env: Env) -> None:
+    """ADR 0010 §1 (issue #187): the daily pass applies the profile's fixed zone, and the setting
+    is an input, so changing it recomputes exactly the days it moves."""
+    ctx, connection = env.owner()
+    late = OCT_20 + 15 * 3600 + 30 * 60  # 2026-10-20 22:00 UTC: the 21st in Stockholm
+    await env.ingest(ctx, connection, weight(1, OCT_20, 80_050), weight(2, late, 81_000))
+    assert (await env.both(ctx)).inserted == 2
+    assert [key(r) for r in await env.days(ctx)] == [
+        ("weight", date(2026, 10, 20)),
+        ("weight", date(2026, 10, 21)),
+    ]
+    set_day_zone(env, ctx, "America/New_York")  # 18:00 on the 20th there
+    outcome = await env.daily(ctx)
+    assert outcome.status == "written"  # the setting moved the fingerprint
+    assert outcome.affected == (("weight", date(2026, 10, 20)), ("weight", date(2026, 10, 21)))
+    rows = await env.days(ctx)
+    assert [(key(r), r.n, r.source_groups) for r in rows] == [
+        (("weight", date(2026, 10, 20)), 2, [1, 2]),
+    ]
+    assert (await env.daily(ctx)).status == "current"
+    set_day_zone(env, ctx, None)  # back to each reading's own zone
+    assert (await env.daily(ctx)).inserted == 1
+    assert len(await env.days(ctx)) == 2
+
+
+async def test_a_day_setting_change_between_the_read_and_the_write_is_stale(env: Env) -> None:
+    ctx, _ = await seeded(env)
+    await env.normalise(ctx)
+
+    async def change_zone() -> None:
+        set_day_zone(env, ctx, "Asia/Tokyo")
+
+    assert (await env.daily(ctx, between=change_zone)).status == "stale"
+    assert await env.days(ctx) == []
+
+
 async def test_a_purge_between_the_read_and_the_write_writes_nothing(env: Env) -> None:
     ctx, _ = await seeded(env)
     await env.normalise(ctx)

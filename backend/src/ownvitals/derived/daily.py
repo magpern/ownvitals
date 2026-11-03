@@ -15,8 +15,15 @@ What ``daily_values()`` does not return is added here, from the same readings:
 * ``mean``: the arithmetic mean of the day's readings, computed in a 60-digit context that rounds
   half-even (a mean such as 1/3 has no finite decimal form) and clamped into ``[min, max]``.
 
-The result depends only on the observations' content, never on the order they arrive in.
-``fingerprint`` is the provenance hash of exactly the observation rows read (PLAN §5).
+**Day assignment** (ADR 0010 §1): by default a reading's day and its morning window are those
+of its own ``source_tz``. When the user chose one fixed zone (``user_profiles.day_assignment =
+'fixed_tz'``), ``day_tz`` names it and every reading is given that zone, for the day and for the
+morning window alike. The setting is part of the inputs: ``fingerprint`` covers it, so changing it
+makes every stored row stale and the next pass recomputes the days it moves.
+
+The result depends only on the observations' content and the day setting, never on the order
+the observations arrive in. ``fingerprint`` is the provenance hash of exactly the observation rows
+read and the day setting (PLAN §5).
 """
 
 import hashlib
@@ -112,12 +119,12 @@ def _row(metric_key: str, value: DailyValue, readings: list[Reading]) -> DailyRo
     )
 
 
-def _reading(row: ObservationRow) -> Reading | None:
+def _reading(row: ObservationRow, day_tz: str | None) -> Reading | None:
     try:
         return Reading(
             grpid=row.source_grpid,
             measured_at=row.ts,
-            source_tz=row.source_tz,
+            source_tz=row.source_tz if day_tz is None else day_tz,
             attrib=0,  # an unconfirmed reading is excluded by its flag before this point
             value=row.value,
         )
@@ -125,8 +132,9 @@ def _reading(row: ObservationRow) -> Reading | None:
         return None
 
 
-def compute(observations: Iterable[ObservationRow]) -> Computed:
-    """Every daily value of ``observations``, ascending by (metric, day).
+def compute(observations: Iterable[ObservationRow], *, day_tz: str | None = None) -> Computed:
+    """Every daily value of ``observations``, ascending by (metric, day). ``day_tz`` is the
+    user's fixed zone, or ``None`` for each reading's own zone (see the module docstring).
 
     ``skipped`` counts observations that cannot be a reading (a value or zone ``Reading``
     refuses) and a second observation of a group already read for the same metric (only the
@@ -137,7 +145,7 @@ def compute(observations: Iterable[ObservationRow]) -> Computed:
     for obs in sorted(observations, key=_order):
         if obs.metric_key not in METRICS or _EXCLUDING & set(obs.quality_flags):
             continue
-        reading = _reading(obs)
+        reading = _reading(obs, day_tz)
         if reading is None:
             skipped += 1
             continue
@@ -174,14 +182,20 @@ def _order(obs: ObservationRow) -> tuple[object, ...]:
     )
 
 
-def fingerprint(observations: Iterable[ObservationRow]) -> bytes:
-    """SHA-256 over the algorithm versions and every observation read, sorted (PLAN §5).
+def day_setting(day_tz: str | None) -> str:
+    """The day setting as the fingerprint spells it: ``reading_tz`` or ``fixed_tz:<zone>``."""
+    return "reading_tz" if day_tz is None else f"fixed_tz:{day_tz}"
 
-    Any change to a row's value, instant, zone, flags or source reference, and any row added or
-    removed, changes it; the order the rows arrive in does not.
+
+def fingerprint(observations: Iterable[ObservationRow], *, day_tz: str | None = None) -> bytes:
+    """SHA-256 over the algorithm versions, the day setting and every observation read, sorted
+    (PLAN §5).
+
+    Any change to a row's value, instant, zone, flags or source reference, any row added or
+    removed, and any change of the day setting changes it; the order the rows arrive in does not.
     """
     digest = hashlib.sha256()
-    digest.update(f"{ALGO_VERSION}|{NORMALIZE_VERSION}\n".encode())
+    digest.update(f"{ALGO_VERSION}|{NORMALIZE_VERSION}|{day_setting(day_tz)}\n".encode())
     lines = sorted(
         "|".join(
             (
@@ -211,5 +225,6 @@ __all__ = [
     "DailyRow",
     "ObservationRow",
     "compute",
+    "day_setting",
     "fingerprint",
 ]

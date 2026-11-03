@@ -4,8 +4,8 @@ The tables the analysis writes (PLAN §5 and §7, roadmap Amendments 2 and 3, AD
 ADR 0002 §2). Migration `0011_analysis_schema` creates them; `ownvitals.derived.tables` holds the
 Core tables and the vocabularies the migration's check constraints accept. Writers come with the
 M4 wiring issues; this file starts with the schema (#181) and goes on with the writers:
-normalisation into `observations` (#185, and the sleep and activity streams of #229) and the daily
-values in `metric_daily` (#186).
+normalisation into `observations` (#185, and the sleep and activity streams of #229), the daily
+values in `metric_daily` (#186) and the rule evaluation into `findings` (#187).
 
 All five tables are **owned**: `owner_id` cascading from `users`, forced RLS with the
 `owner_isolation` policy, `UNIQUE (owner_id, id)` (or the partitioned key below), and every other
@@ -55,8 +55,10 @@ be NULL by design (unset, or a score that is not `computed`).
 
 Constraints worth knowing before writing a row:
 
-- `tier = 'system'` exactly when `rule_id = 'Q1'` (Amendment 3); device and system findings are
-  `confidence = 'high'` (ADR 0010 §5).
+- `rule_id` is a capital, one or two digits, then optionally `x` or `:<part>` (migration 0016,
+  #187: the ids of `analysis.rules.core.SPECS`, `C1x`, `N2:guided`, `Q1:no_weigh_in` ...);
+  `tier = 'system'` exactly when the id is `Q1` or `Q1:<part>` (Amendment 3); device and system
+  findings are `confidence = 'high'` (ADR 0010 §5).
 - A `backfill` finding has `notify_state = 'none'` (PLAN §7.1 step 7); `sent` exactly when
   `notified_at` is set.
 - An evaluation that fires while an episode is active **updates** that row; inserting a second
@@ -304,17 +306,27 @@ Inputs are the observations' content: a purge followed by the same data normalis
 same input and a pass that read before it may write (the rows are right). Without the
 normalisation in between the observations are gone and the pass is `stale`.
 
+**Day assignment (#187).** The profile's day setting (`user_profiles.day_assignment`, `day_tz`;
+ADR 0010 §1) is applied here: under `fixed_tz` every reading is given the fixed zone, for its day
+and for the morning window. No profile row is the default, each reading's own zone. The setting is
+part of the fingerprint (`daily.day_setting`), so changing it makes every row stale and the next
+pass moves exactly the days it changes; it is re-read inside the write transaction with the
+observations (a change between read and write is `stale`). Nothing writes the setting yet: the
+Settings writer (M6) must queue a daily pass when it changes it, or the change waits for the next
+sync or the nightly reconciliation.
+
 **The job.** `derive_daily`, input `{connection_id, origin: live|backfill}`, registered in the
 worker's registry only. `derive_normalize` queues it after a pass that ended `written` or
 `current`, with its own origin (a `stale` pass queues nothing: whatever moved its inputs queued a
-newer one; nothing imported queues nothing). Separate singleton keys (`daily_live`,
+newer one; nothing imported queues nothing). It queues the rule evaluation (`derive_evaluate`) the
+same way. Separate singleton keys (`daily_live`,
 `daily_backfill`); repeats of one origin collapse. It runs as the owner under the fence, so RLS
 applies (worker-context test).
 
 **Known gaps.**
 
-- The evaluation job (#187) does not exist yet, so this pass chains to nothing. #187 is queued
-  from `run_daily` when it lands.
+- A pass after an import that has not been normalised at all (no observation yet) is `current`
+  with nothing to do, not `behind`: an empty table carries no revision to compare.
 - The claim lane is the scheduler's (3) for both origins, as for `derive_normalize` (see "Known
   gaps" above).
 - A change to one metric moves the shared fingerprint, so one provenance statement re-stamps all
@@ -326,3 +338,114 @@ the mean, exclusions, order independence, the property test, the fingerprint; no
 affected days after a soft delete and a backdated edit, the purge, ingest, counter and
 observation interleavings, the lock, concurrent passes, other metric keys untouched, the worker
 context through the runner, the enqueue and the chain from the normaliser).
+
+## Rule evaluation: `findings` (#187)
+
+PLAN §7.1 steps 6 and 7, ADR 0010 §1 and §4. Code: `derived/evaluate.py` (pure: `evaluate()`,
+`fingerprint()`), `derived/findings_store.py` (read, verify, write), `derived/evaluate_job.py`
+(the `derive_evaluate` kind and `enqueue_evaluate`) and `derived/check_cli.py` (`ownvitals
+analysis check`). The rules themselves are `analysis.rules` ([analysis-rules.md](analysis-rules.md)).
+
+**Rules.** Every rule of `SPECS`: B1 to B6, C1, C1x, C2, N2 (`N2:guided`, `N2:routine`), N3, N5
+and Q1's four parts. E1 to E6 are ADR 0006's writer (M5): their rows are never read, changed or
+deleted here, and every statement is limited to `evaluate.OWNED_RULES`. **Experimental rules**
+(B1, B3, C1x) are evaluated only when the owner-only switch is effective (`flags.effective.
+experimental_findings`: the environment and the stored flag; until M8 every account is a household
+account, so the switch is the whole rule). Without it they are not computed and nothing of theirs
+is written. **Switch turned off later:** the next pass deletes the stored experimental rows
+(a stored row no recompute produces is deleted, below); until then the read function already hides
+them (`views.findings_read` drops a row by its experimental rule id whatever its tier). Turned on
+again, they are recomputed as new episodes: origin from that first write, so an old one is
+`backfill` and a current one `live` (and notifies once more).
+
+**Inputs** (`findings_store.gather`, one transaction): the `measures` revision, the day setting,
+the observations of `daily.KEYS` (the daily pass's), the stored `metric_daily` rows, the segmental
+muscle (175) and per-foot (158, 159, 197, 198) observations, the `measure_groups.attrib` of the
+nerve readings (guided is 15), Q1's state (live connections through `connections.state`, the one
+read of that table's ids and statuses outside the repository's own sessions, so the crypto guard
+keeps the table in `ownvitals.connections`; their `sync_cursors` capability and
+`backfill_state.status`, `devices.battery`, queued or running `withings_backfill` and
+`withings_connect` jobs) and the switch. A reading is used unless flagged `unconfirmed`,
+`implausible` or `duplicate`; under `fixed_tz` it gets the fixed zone. `jump` is criterion J's
+flag, carried on the daily value's source groups. **Today** is `now` in the fixed zone, or in the
+zone of the most recent usable reading (UTC with none). Activity, sleep and workout observations
+are not read: no v1 rule uses them; a later rule reads the activity day as stored (#230).
+`nothing` without a revision row; `behind` when an observation read carries another revision or
+the stored daily rows are not those of these observations and this day setting (provenance and
+count compared with a recompute), so the evaluation never reads stale daily values.
+
+**Replay.** Each (rule, subject) is evaluated on every evaluation day in order (its trigger's
+days: a daily value, a guided or routine reading, a group with a pair) and folded through
+`advance_simple` or, for the trend-test rules, `advance_persistent`. A rule at day *d* reads only
+data up to *d*, so the whole-history replay gives the episodes an incremental evaluation in data
+order would have given, and a recompute after a data revision re-derives them. C1 and N2 routine
+memoise their band per first day (`bands=`; the band at *q* reads only days before *q*), so a
+replay is linear in bands. Q1 has no history: each part is evaluated on today and applied to the
+stored active episode (`advance_simple`): fire and none active, open; fire while active, update
+(reference day and origin stay); no fire, or a device or stream no longer reported, end. Ended Q1
+episodes are history and never touched.
+
+**Episodes and the diff** (ADR 0010 §4). A stored and a computed episode with the same rule,
+subject and reference day are one episode: it keeps its id, `first_seen`, `origin`,
+`notify_state`, `notified_at` and `seen_at`; the rest is updated when it differs. A computed
+episode with no match is inserted with `origin = origin(window_end, today)`, computed at this first
+write from the window end it has then and never changed, and `notify_state = 'pending'` exactly
+when that origin is `live` ("to notify": sending is the notifications issue). Backfilled history is
+`backfill` and `none`. A stored episode no recompute produces is deleted (its data changed or was
+removed, or the switch is off). Statements run deletes, ends, updates, inserts, so the one active
+episode per (owner, rule, subject) index holds throughout. `first_seen`, `last_seen` and `ended_at`
+are the evaluation days of the first firing, the latest firing and the end, stored at 00:00 UTC, so
+a recompute of the same data is byte-identical and a second run changes nothing (`current`).
+
+**Row.** `rule_version` is `rules/1.<rule version>` (the shared bands and confidence, then the
+rule's own `SPECS` version); `tier`, `severity`, `confidence`, `evidence` (with `trigger_groups`)
+and `data_quality` are the latest firing's, a non-finite number stored as `null`; `metric_keys`
+are the rule's inputs (B6: the two segment keys; N5: `meastype_158`/`meastype_159`; Q1: `weight`
+for no weigh-in, none otherwise). Subjects follow ADR 0010 §4; a device id the subject check
+cannot hold is skipped.
+
+**Provenance.** `input_revision` is the `measures` counter: the one stream the v1 rules read
+(through observations and daily values); Q1's state records are not a `data_revisions` stream.
+`input_fingerprint` is `evaluate.fingerprint`: SHA-256 over the rule versions, today, the switch,
+the daily values with their groups and jump flags, the readings and segments, and Q1's state.
+Every re-derived row carries both; an ended Q1 episode keeps the provenance it ended with.
+
+**Write** (`findings_store._write`): the writer discipline of `daily_db`. One transaction takes the
+owner's normalisation lock (`pg_advisory_xact_lock(6, hashtext(owner))`), locks the revision row
+`FOR SHARE`, **gathers every input again** and compares the revision and the fingerprint with the
+ones read; otherwise `stale` and nothing is written. A purge of imported data between read and write
+removes the revision row, so the pass writes nothing (tested by interleaving the purge). Two passes
+of one owner queue on the lock; the second finds the first's rows and ends `current`.
+
+**The job.** `derive_evaluate`, input `{connection_id, origin}`, separate singleton keys
+(`evaluate_live`, `evaluate_backfill`), registered in the worker's registry only; queued by
+`derive_daily` after a `written` or `current` pass, so the nightly reconciliation re-evaluates
+Q1's time-dependent part every day. It runs as the owner under the fence (RLS; worker-context
+test). Settings come from the environment (`Settings()`), the switch from the database.
+
+**`ownvitals analysis check --user <uuid>`** (M4 "reproducible on your data"). One read-only user
+session: recomputes the daily values from the observations and compares them with `metric_daily`
+by content, then gathers the evaluation inputs, evaluates and counts the diff the worker would
+apply. It prints counts, versions, rule ids and states only (never a value, date, timestamp,
+subject or id; a probe-style shape test), exits 0 on a match and 1 on a mismatch. Run it after the
+day's evaluation: `today` and Q1's 14 days move with time.
+
+**Known gaps.**
+
+- Every pass replays the whole history (about 3 s of CPU for two years of seven daily metrics, measured
+  locally). Incremental evaluation from the earliest changed day needs the persistence state
+  stored; not needed at household scale.
+- A connection-status or device-battery change is evaluated at the next pass (a sync or the nightly
+  chain); nothing queues a pass on the change itself.
+- Without a `measures` revision row (nothing imported) nothing is evaluated, Q1 included.
+- The UI copy of the "delete imported data" option must say "all imported data" (it removes every
+  connection's imported rows and all derived rows, `user_profiles` stays); the connections UI that
+  shows it is not on `main` yet (M6).
+
+Tests: `tests/test_derived_evaluate.py` (the rule tables, replay, persistence, the band memo, the
+switch, the reading-level rules, Q1, the fingerprint, the diff; no database),
+`tests/test_derived_evaluate_db.py` (a synthetic year's episodes, a second run, origin and
+notification, re-derivation, the switch on, off and stored off, Q1, the purge, ingest, daily and
+switch interleavings, the lock, concurrent passes, other writers' rules, the worker context, the
+enqueue and the chain from the daily pass), `tests/test_derived_evaluate_schema.py` (migration 0016
+and the read function's `C1x` drop) and `tests/test_derived_check.py` (the check command).

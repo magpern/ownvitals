@@ -102,6 +102,9 @@ an episode of a trend-test rule takes the run's first day.
   band at its own first day wins, so a growing run keeps its first day and band. The band is
   the display band (k 1.5) `PRECEDING` that first day. A run may begin on an already raised day
   that its own band calls raised.
+- **Band memo** (#187): `c1` and `n2_routine` take an optional `bands=` dict, a memo of the band
+  at each run's first day for a caller that evaluates many days of the same series (the rule
+  evaluation's replay); the result is the same with or without it (tested).
 - **C1x**: the run is taken backwards from `day` in the direction of `day`'s value; no band, so no
   policy and confidence is R only.
 - **B3** has no policy window, so confidence is `high`. The day's ratio is the earliest morning

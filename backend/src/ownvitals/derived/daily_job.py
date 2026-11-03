@@ -8,8 +8,11 @@ lane of both is the scheduler's (``queue_enqueue`` maps only ``withings_backfill
 backfill lane; see ``docs/dev/derived.md``, "Known gaps").
 
 The job is enqueued by ``derive_normalize`` after its pass (``run_normalize``), with the same
-origin, because the daily values read what that pass wrote. It runs as the owner under the
-fence, so RLS applies. Registered in the worker's registry only.
+origin, because the daily values read what that pass wrote. After a pass that ended ``written``
+or ``current`` it queues the rule evaluation (``derive_evaluate``, #187) with its own origin; a
+``stale``, ``behind`` or ``nothing`` pass queues nothing (whatever moved the inputs queues a
+newer pass). It runs as the owner under the fence, so RLS applies. Registered in the worker's
+registry only.
 """
 
 import json
@@ -24,6 +27,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.derived.daily_db import daily_owner
+from ownvitals.derived.evaluate_job import enqueue_evaluate
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
 
@@ -67,6 +71,8 @@ async def run_daily(job: JobRun) -> Complete:
             "skipped": outcome.skipped,
         },
     )
+    if outcome.status in ("written", "current"):
+        await enqueue_evaluate(job.factory, parsed.connection_id, parsed.origin)
     return Complete()
 
 

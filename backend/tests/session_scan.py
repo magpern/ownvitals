@@ -16,7 +16,9 @@ Each has its own allowlist, of packages (the package and everything under it) an
   and ECG estimates: the findings API, notifications, export, doctor PDF and AI context read
   through it, so none of them opens a session of its own for those rows. The exact module
   ``ownvitals.views.reads`` (#189) is the read API's one other reader (status, metrics, days,
-  readings, nerve summary): it never reads those tables. **The rest of
+  readings, nerve summary): it never reads those tables. The exact module
+  ``ownvitals.derived.check_cli`` (#187) reads one named owner's daily values and findings for
+  ``ownvitals analysis check`` (read only, counts and versions out). **The rest of
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
   through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
@@ -68,6 +70,10 @@ JOBS_USER_SESSION = ("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvital
 ECG_USER_SESSION = ("ownvitals.ecg_validate",)
 # The one findings read function (#190, ADR 0006 section 11): not the routes, not the package.
 VIEWS_USER_SESSION = ("ownvitals.views.findings_read", "ownvitals.views.reads")
+# ``analysis check`` (#187): the owner's reproducibility check reads one named owner's daily
+# values and findings for the operator command; the rest of ``ownvitals.derived`` writes only
+# through the fence.
+DERIVED_USER_SESSION = ("ownvitals.derived.check_cli",)
 JOBS_SYSTEM_SESSION = ("ownvitals.jobs.queue",)
 # The key ring's startup check (#8), the one module of ``ownvitals.crypto`` that may.
 KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
@@ -81,7 +87,12 @@ AI_SYSTEM_SESSION = ("ownvitals.ai.budget",)
 
 USER_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
-    modules=(*JOBS_USER_SESSION, *ECG_USER_SESSION, *VIEWS_USER_SESSION),
+    modules=(
+        *JOBS_USER_SESSION,
+        *ECG_USER_SESSION,
+        *VIEWS_USER_SESSION,
+        *DERIVED_USER_SESSION,
+    ),
 )
 SYSTEM_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth"),

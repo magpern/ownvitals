@@ -7,7 +7,7 @@ C1x is experimental: it has its own ``rule_id``, so the two tiers are separate f
 HR" is heart pulse (11)'s daily value as defined in §3, not a clinical resting heart rate.
 """
 
-from collections.abc import Sequence
+from collections.abc import MutableMapping, Sequence
 from datetime import date, timedelta
 
 from ownvitals.analysis.daily import DailyValue
@@ -49,12 +49,20 @@ def run_ending_at(daily: Sequence[DailyValue], day: date) -> list[DailyValue]:
 
 
 def c1(
-    daily: Sequence[DailyValue], day: date, *, provenance: ProvenanceMap | None = None
+    daily: Sequence[DailyValue],
+    day: date,
+    *,
+    provenance: ProvenanceMap | None = None,
+    bands: MutableMapping[date, Band | InsufficientData] | None = None,
 ) -> RuleResult:
     """C1: a run of at least 3 consecutive days ending at ``day``, each value at least the median
     plus 10 bpm and above the display high, with median and band (k 1.5, BASELINE policy) over the
     90 days before the run's first day. The longest run that satisfies this is taken, so a growing
-    run keeps its first day and band. Window: the run; reference day: its first day."""
+    run keeps its first day and band. Window: the run; reference day: its first day.
+
+    ``bands`` is an optional memo of the band at each first day, for a caller that evaluates many
+    days of the **same** ``daily`` (the band at *q* reads only days before *q*); the result is
+    the same with or without it."""
     require_value(daily, day, KEY)
     chain = run_ending_at(daily, day)
     if len(chain) < MIN_RUN_DAYS:
@@ -62,7 +70,11 @@ def c1(
     shortest = len(chain) - MIN_RUN_DAYS
     for index in range(shortest + 1):
         run = chain[index:]
-        band = display_band(KEY, daily, run[0].day, window=Window.PRECEDING)
+        band = bands.get(run[0].day) if bands is not None else None
+        if band is None:
+            band = display_band(KEY, daily, run[0].day, window=Window.PRECEDING)
+            if bands is not None:
+                bands[run[0].day] = band
         if isinstance(band, InsufficientData):
             if index == shortest:
                 return insufficient_from("C1", KEY, day, band, "heart_pulse baseline policy")
