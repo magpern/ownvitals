@@ -6,6 +6,7 @@ import './styles/fonts.css'
 import './styles/tokens.css'
 import './styles/app.css'
 import './styles/primitives.css'
+import './styles/charts.css'
 import './styles/shell.css'
 import './styles/auth.css'
 
