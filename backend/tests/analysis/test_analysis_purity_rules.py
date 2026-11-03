@@ -186,6 +186,8 @@ ADDED = [
     "ownvitals.headers",
     # the entry point: it imports the web server, the web app, the configuration and logging (#99)
     "ownvitals.__main__",
+    # the worker process, found by the #102 review (the dynamic check caught it only through db)
+    "ownvitals.worker",
 ]
 
 

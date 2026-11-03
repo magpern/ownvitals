@@ -139,6 +139,7 @@ def test_the_api_ships_no_kind_and_the_worker_ships_the_withings_kinds() -> None
         "token_refresh_recover",
         "withings_backfill",
         "withings_connect",
+        "withings_disconnect",  # the revoke of a disconnect or an account deletion (#163)
         "withings_poll",
         "withings_reconcile",
         "withings_sync",
