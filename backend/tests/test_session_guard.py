@@ -38,6 +38,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.jobs.service",
             "ownvitals.jobs.progress",
             "ownvitals.ecg_validate",
+            "ownvitals.views.findings_read",
         ),
     )
     system = Allowlist(
@@ -84,6 +85,10 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
         "ownvitals.connectionsx",
         "ownvitals.ecg",
         "ownvitals.ecg.validate_cli",
+        "ownvitals.ecg.overlay",
+        "ownvitals.views",
+        "ownvitals.views.findings_routes",
+        "ownvitals.views.findings_read.other",
     ],
 )
 def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
@@ -102,6 +107,8 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.jobs.service", True, False),
         ("ownvitals.jobs.progress", True, False),
         ("ownvitals.ecg_validate", True, False),
+        # The one findings read function (#190): that exact module, not its routes.
+        ("ownvitals.views.findings_read", True, False),
         ("ownvitals.jobs.queue", False, True),
         # The key ring's startup check (#8): that exact module, nothing else in the package.
         ("ownvitals.crypto.keks", False, True),

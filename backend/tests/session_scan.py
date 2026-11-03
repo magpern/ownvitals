@@ -11,7 +11,10 @@ Each has its own allowlist, of packages (the package and everything under it) an
   it), ``ownvitals.jobs.service`` (the jobs API's own writes for the signed-in user, web only) and
   ``ownvitals.jobs.progress`` (the event stream's owner-scoped reads, web only). The exact
   module ``ownvitals.ecg_validate`` (#47) reads one named owner's ECG rows for the operator
-  command; the pure ``ownvitals.ecg`` library stays outside the allowlist. **The rest of
+  command; the pure ``ownvitals.ecg`` library stays outside the allowlist. The exact module
+  ``ownvitals.views.findings_read`` (#190) is ADR 0006 section 11's one read function for findings
+  and ECG estimates: the findings API, notifications, export, doctor PDF and AI context read
+  through it, so none of them opens a session of its own for those rows. **The rest of
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
   through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
@@ -60,6 +63,8 @@ class Allowlist:
 JOBS_USER_SESSION = ("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvitals.jobs.progress")
 # The owner ECG report (#47): one module, not the pure ECG library.
 ECG_USER_SESSION = ("ownvitals.ecg_validate",)
+# The one findings read function (#190, ADR 0006 section 11): not the routes, not the package.
+VIEWS_USER_SESSION = ("ownvitals.views.findings_read",)
 JOBS_SYSTEM_SESSION = ("ownvitals.jobs.queue",)
 # The key ring's startup check (#8), the one module of ``ownvitals.crypto`` that may.
 KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
@@ -70,7 +75,7 @@ NOTIFY_SYSTEM_SESSION = ("ownvitals.notify.outbox",)
 
 USER_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
-    modules=(*JOBS_USER_SESSION, *ECG_USER_SESSION),
+    modules=(*JOBS_USER_SESSION, *ECG_USER_SESSION, *VIEWS_USER_SESSION),
 )
 SYSTEM_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth"),
