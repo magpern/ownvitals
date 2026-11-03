@@ -90,7 +90,8 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     ),
     # the worker: the issuer's account check and the purge
     "ownvitals.auth.owners": frozenset({"ACCOUNTS"}),
-    "ownvitals.auth.purge": frozenset({"purge_expired"}),
+    # and the revoke a disconnect or an account deletion enqueues (#163)
+    "ownvitals.auth.purge": frozenset({"purge_expired", "register_disconnect_kind"}),
     # the operator CLI
     "ownvitals.auth.operator": frozenset(
         {

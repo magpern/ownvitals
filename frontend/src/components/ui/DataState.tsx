@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react'
+import type { Resource } from '../../api/useResource'
+import { Button } from './Button'
 
 // The data states: the vocabulary every view uses (docs/design/mockups/src/Main.dc.html, "Data
 // states"). One component and one wording for every state, everywhere, so a stream that cannot be
@@ -90,5 +92,34 @@ export function DataState({ kind, progress, children }: DataStateProps) {
       {hasBar ? <progress className="ov-bar" max={100} value={percent(progress)} aria-label={bar} /> : null}
       {children === undefined ? null : <p className="ov-data-state__detail">{children}</p>}
     </div>
+  )
+}
+
+/**
+ * What a screen shows while it reads (`useResource`, src/api/useResource.ts): a line while it
+ * loads, the reason and a "Try again" when it fails, and the data once there is some. While a
+ * reload runs the last good data stays on screen. The states of the data itself (stale, importing,
+ * not supported ...) are `DataState`, chosen by the screen from what the API says.
+ */
+export function ResourceView<T>({
+  resource,
+  children,
+}: {
+  resource: Resource<T>
+  children: (data: T) => ReactNode
+}) {
+  if (resource.data !== null) return <>{children(resource.data)}</>
+  if (resource.status === 'error' && resource.error !== null) {
+    return (
+      <div className="ov-resource" role="alert" data-kind={resource.error.kind}>
+        <p className="ov-resource__message">{resource.error.message}</p>
+        <Button onClick={resource.reload}>Try again</Button>
+      </div>
+    )
+  }
+  return (
+    <p className="ov-resource" role="status" aria-busy="true">
+      Loading…
+    </p>
   )
 }

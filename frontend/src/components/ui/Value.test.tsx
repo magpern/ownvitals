@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { Mono, Num, Value } from './Value'
+import { Mono, Num, Value, ValueCard } from './Value'
 
 // The value styles: a number and its unit, a raw value in mono, and the estimate that never looks
 // like a certified value (docs/design/mockups/src/Main.dc.html).
@@ -54,5 +54,28 @@ describe('Num and Mono', () => {
   it('set ids, versions and raw values in mono', () => {
     render(<Mono>grp 4812 · daily 1.0.0 · rev 4812</Mono>)
     expect(screen.getByText('grp 4812 · daily 1.0.0 · rev 4812')).toHaveClass('ov-mono')
+  })
+})
+
+describe('ValueCard', () => {
+  it('says who produced a reported value, and is not boxed', () => {
+    const { container } = render(<ValueCard source="reported" detail="Body Scan" value="401" unit="ms" label="QTc" />)
+    expect(container).toHaveTextContent('Reported by Withings · Body Scan')
+    expect(container.querySelector('.ov-card--experimental')).toBeNull()
+    expect(container.querySelector('.ov-value--estimate')).toBeNull()
+  })
+
+  it('says a calculated value is ownvitals’s', () => {
+    const { container } = render(<ValueCard source="calculated" detail="analysis 1.2" value="77.6–79.3" unit="kg" label="Typical range, 90 days">How it was made</ValueCard>)
+    expect(container).toHaveTextContent('Calculated by ownvitals · analysis 1.2')
+    expect(container).toHaveTextContent('How it was made')
+    expect(container.querySelector('.ov-card--experimental')).toBeNull()
+  })
+
+  it('shows an estimate italic, dotted, with "est.", in a dashed box and its own source line', () => {
+    const { container } = render(<ValueCard source="estimated" detail="experimental · only you see this" value="41" unit="ms" label="RMSSD from the ECG signal" />)
+    expect(container).toHaveTextContent('Estimated by ownvitals · experimental · only you see this')
+    expect(container.querySelector('.ov-card--experimental')).not.toBeNull()
+    expect(container.querySelector('.ov-value--estimate')).toHaveTextContent('est. 41')
   })
 })
