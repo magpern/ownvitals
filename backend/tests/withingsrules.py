@@ -12,6 +12,9 @@ up in access logs and proxies. The authorize page is the exception (a browser ``
 Assumed: status 2554 ("not implemented", the answer to a wrong webservice) for (a) and 503
 ("invalid params") for (b); that Withings ignores other query parameters; that the check applies to
 every API endpoint (token, revoke, getnonce, getdemoaccess, notify and the data endpoints).
+Also refused with 503 (assumed, stricter; servers differ on ``;`` as a separator, so a client must
+not send one): a ``;`` in the query string, and a non-empty body that is not
+``application/x-www-form-urlencoded`` (the media type alone is compared, so a charset is fine).
 
 Callback URL (findings section 2: HTTPS on port 443 with a domain name, no IP or localhost, at
 most 255 characters; an application whose callback breaks the rule falls into restricted mode, 10
@@ -19,8 +22,11 @@ linked users). Modelled as a refusal (status 293, like a bad URL), the stricter 
 "restricted mode", so that the subscription-URL builder of #24 and #25 has something to fail
 against. Assumed: "domain name" means at least two non-empty labels whose last label is
 alphabetic (a TLD, not a number such as ``127.1`` or ``2130706433``); a trailing dot is refused;
-``.localhost`` names are localhost; the scheme and host are compared case-insensitively; userinfo
-and fragments are not judged; reserved names such as ``*.example.test`` are domain names.
+``.localhost`` names are localhost; the scheme and host are compared case-insensitively; fragments
+are not judged; reserved names such as ``*.example.test`` are domain names.
+Added after the #71 review (assumed, the stricter reading): whitespace anywhere, userinfo
+(``user@host``), a label outside ``[a-z0-9-]`` (so no ``_``) and the ``.local`` and ``.internal``
+names are refused.
 
 Rate limit (findings section 2: 120 requests per minute per application, 601 when exceeded).
 Modelled as a token bucket per application on the fake clock: capacity 120, refilled at 2 per
@@ -33,10 +39,14 @@ stricter case: a client must back off without being told how long).
 from __future__ import annotations
 
 import ipaddress
+import re
 from urllib.parse import urlsplit
 
 from withingswire import STATUS_BAD_PARAMS, STATUS_NOT_IMPLEMENTED, Request
 
+FORM_TYPE = "application/x-www-form-urlencoded"
+LABEL = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?")  # a host name label: no "_", no spaces
+RESERVED_TLDS = frozenset({"localhost", "local", "internal"})
 SECRET_PARAMS = frozenset({"client_secret", "code", "refresh_token", "access_token", "signature"})
 CALLBACK_MAX_LENGTH = 255
 CALLBACK_PORT = 443
@@ -47,6 +57,11 @@ def api_refusal(request: Request) -> tuple[int, str] | None:
     """``(status, text)`` when an API call is shaped the way Withings does not take it."""
     if request.method.upper() != "POST":
         return STATUS_NOT_IMPLEMENTED, "wrong webservice: the API takes POST requests only"
+    if ";" in urlsplit(request.url).query:  # some servers split on it, others do not
+        return STATUS_BAD_PARAMS, "invalid_params: ';' in the query string"
+    media_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    if request.body and media_type != FORM_TYPE:
+        return STATUS_BAD_PARAMS, f"invalid_params: the body is not {FORM_TYPE}"
     leaked = sorted(SECRET_PARAMS & {name.lower() for name in request.query_params()})
     if leaked:
         return STATUS_BAD_PARAMS, f"invalid_params: {','.join(leaked)} in the query string"
@@ -61,15 +76,29 @@ def _is_ip(host: str) -> bool:
     return True
 
 
-def callback_url_problem(url: str) -> str | None:
-    """Why Withings would not take ``url`` as a callback URL, or ``None`` when it would."""
+def callback_url_problem(url: str, *, strict: bool = True) -> str | None:
+    """Why Withings would not take ``url`` as a callback URL, or ``None`` when it would.
+
+    ``strict=False`` is the e2e-only opt-out (``FakeWithings(strict_callbacks=False)``): the
+    compose stack's receiver is plain HTTP on a service name, so only the shape is checked
+    (``http`` or ``https``, a host, no whitespace, no userinfo, at most 255 characters). The
+    default is strict, and a test shows the default refuses the compose receiver.
+    """
     if not url or len(url) > CALLBACK_MAX_LENGTH:
         return f"empty or longer than {CALLBACK_MAX_LENGTH} characters"
+    if url != url.strip() or any(c.isspace() for c in url):
+        return "whitespace in the URL"
     try:
         parts = urlsplit(url)
         port = parts.port
     except ValueError:
         return "not a valid URL"
+    if "@" in parts.netloc:
+        return "userinfo in the URL"
+    if not strict:
+        if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+            return "not an http(s) URL with a host"
+        return None
     if parts.scheme.lower() != "https":
         return "not HTTPS"
     if port not in (None, CALLBACK_PORT):
@@ -81,7 +110,11 @@ def callback_url_problem(url: str) -> str | None:
     if labels[-1] == "localhost":
         return "localhost"
     tld = labels[-1]
-    if len(labels) < 2 or not all(labels) or not (tld.isalpha() or tld.startswith("xn--")):
+    if len(labels) < 2 or not all(LABEL.fullmatch(label) for label in labels):
+        return "not a domain name"
+    if tld in RESERVED_TLDS:
+        return "a local or internal name"
+    if not (tld.isalpha() or tld.startswith("xn--")):
         return "not a domain name"
     return None
 

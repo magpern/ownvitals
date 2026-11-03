@@ -125,9 +125,12 @@ The fake (`backend/tests/withingsfake.py` and its modules: `withingscore` protoc
 `withingswire` constants and records, `withingsstore` data endpoints and paging, `withingsnotify`,
 `withingsrules` refusals, `withingsdata`/`withingsstreams` the seeded synthetic generator,
 `withingsshapes` the documented shapes) answers as both Withings hosts, logs every request with
-secrets masked (`fake.log`), and injects failures per request number:
+secrets masked whatever the case of the name (`fake.log`), and injects failures per request number:
 `fake.inject("drop" | "delay" | "status" | "http" | "garbage" | "mutate", at=n, endpoint="measure:getmeas", ...)`.
 Everything it serves is synthetic and its answers carry `x-ownvitals-synthetic: true`.
+`make_fake(rate_limit=...)` passes the limit on (`None`: off). A real-time webhook timeout cancels
+the receiver's handler, which a real server would not. The e2e stack runs the same
+`withingscore` behind HTTPS (`e2e/fake-withings`, [e2e.md](e2e.md)).
 
 **The fake's readings where the public spec is silent** (PR #63 and #71; each one constant or
 place in the fake, each for the probe to confirm), which the client is tested against:
@@ -149,8 +152,11 @@ place in the fake, each for the probe to confirm), which the client is tested ag
   `more` is an integer for `getmeas` and a boolean elsewhere;
 - `notify`: subscribing again updates the comment; several URLs per appli; `update` takes any
   combination of `new_*` and `comment`; callback URLs must be HTTPS on port 443 with a domain
-  name and at most 255 characters (else 293);
-- requests: `POST` with a form body only, no secret in the query string (else 503); 120 requests
+  name and at most 255 characters, no whitespace, no `user@` part, no `_` or space in the host,
+  no `.local`/`.internal` name (else 293); `FakeWithings(strict_callbacks=False)` is the e2e-only
+  opt-out (any http(s) URL with a host; the default refuses, `test_withings_fake_strictness.py`);
+- requests: `POST` with a form body only (`application/x-www-form-urlencoded`, a charset is fine),
+  no secret in the query string and no `;` in it (else 503); 120 requests
   a minute per app as a token bucket (burst 120);
 - not modelled: restricted mode, the Withings+ gate (`blocked_by_provider_plan`), the US medical
   cloud, ECG lead information.
