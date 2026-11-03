@@ -26,6 +26,7 @@ NAMES = (
     "queue_enqueue",
     "queue_cancel_for_secret",
     "queue_replay",
+    "queue_schedule",
     "ensure_month_partitions",
     "webhook_secrets_apply",
     "webhook_event_insert",

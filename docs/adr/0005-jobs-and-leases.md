@@ -145,7 +145,15 @@ queued ──claim──> running ──> completed | failed | cancelled
     level but READ COMMITTED, then takes the rotation lock of §9, then locks the row (ADR 0004
     §4; amended 2026-10-31, #72 and #88);
     `ownvitals_app` may execute it. #21 builds the role and the function; #24's guard keeps
-    every caller but the worker's rotation module out.
+    every caller but the worker's rotation module out;
+  - from #164, the scheduler's `queue_schedule(p_kind text, p_interval_seconds int)`, owned by
+    `ownvitals_queue` with the queue functions' `search_path`, version comment and ACL (amended
+    2026-11-03, #164). It accepts only `withings_poll` and `withings_reconcile` and an interval
+    of 3600 to 604800 seconds, and for every `connected` connection whose owner has no job of
+    that kind for it queued or running and none created within the interval, it calls
+    `queue_enqueue` (origin `scheduler`) under the namespace-1 owner lock; at most 500 per call.
+    It returns the count only. It needs no privilege beyond the queue role's (`jobs`, and
+    `connections (id, owner_id, status)`).
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day
@@ -386,3 +394,16 @@ Architect decision on the non-blocking finding 5 of the #83 review (its Opus PAS
 - §3: the webhook-secret function's order is ADR 0004 §4's. It refuses any isolation level but
   READ COMMITTED first, then takes the rotation lock of §9, then locks the row (the earlier text
   said it takes the rotation lock first). Both orders fail closed; the two ADRs now agree.
+
+### 2026-11-03 (#164): the scheduler's definer function
+
+Architect decision, made in place in §3 and marked "amended 2026-11-03, #164": the poll and the
+reconciliation (PLAN §4.4) are scheduled by `queue_schedule`, a `SECURITY DEFINER` function of
+the queue role, because ADR 0002 §4 gives the scheduler no context and no path that hands an
+owner or connection id to application code: the worker loop calls the function on a timer and
+gets back a count only, and each job gets its context when claimed, like any other. The kind and
+interval whitelist keeps the function from creating any other work or a flood of jobs, the
+"none queued or running, none created within the interval" test decides what is due from the
+jobs table (so restarts and several workers add nothing), and the cap of 500 per call bounds how
+long one transaction holds owner locks; the rest stay due for the next tick. The queue version
+stays `ownvitals-queue v2`: no existing function's contract changed.

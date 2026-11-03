@@ -11,9 +11,9 @@ Every Withings call takes a rate-limiter token first and releases the slot after
 when the answer is a capability. An unsupported stream is recorded as that state and no zero
 row is written. Partition months are created one at a time and committed before the rows.
 
-Handlers are not attached to the process-wide registry: existing tests require that registry
-to stay empty until the worker is wired. `register_sync_kinds` registers only the five kinds
-this issue owns, on the registry it is given.
+Handlers are not attached to the API's registry (``KINDS``, which stays empty).
+`register_sync_kinds` registers this module's five kinds on the registry it is given; the
+worker's registry (``ownvitals.worker.kinds``) is built with it.
 """
 
 import json
@@ -402,7 +402,9 @@ async def execute_poll(job: JobRun, account: Account, client: WithingsClient) ->
             await _enqueue(job, account, "withings_backfill", spec.name)
 
 
-async def _materials(job: JobRun, connection_id: UUID) -> tuple[Account, WithingsApp]:
+async def open_materials(job: JobRun, connection_id: UUID) -> tuple[Account, WithingsApp]:
+    """The owner's grant and the app's client, read in the job's context. A missing key, a
+    connection that is not usable or a decrypt failure is that job category."""
     from ownvitals.config import Settings
     from ownvitals.connections.errors import ConnectionFailure
     from ownvitals.connections.providers.app_secret import open_client_secret
@@ -439,7 +441,7 @@ async def run_backfill(job: JobRun) -> Complete:
     parsed = job.input
     if not isinstance(parsed, StreamInput):
         raise JobFailure("invalid_input")
-    account, app = await _materials(job, parsed.connection_id)
+    account, app = await open_materials(job, parsed.connection_id)
     async with WithingsClient.open(app) as client:
         await execute_backfill(job, account, client, parsed.stream)
     return Complete()
@@ -449,7 +451,7 @@ async def run_sync_kind(job: JobRun) -> Complete:
     parsed = job.input
     if not isinstance(parsed, StreamInput):
         raise JobFailure("invalid_input")
-    account, app = await _materials(job, parsed.connection_id)
+    account, app = await open_materials(job, parsed.connection_id)
     async with WithingsClient.open(app) as client:
         await execute_sync(job, account, client, parsed.stream)
     return Complete()
@@ -459,7 +461,7 @@ async def run_ecg_fetch(job: JobRun) -> Complete:
     parsed = job.input
     if not isinstance(parsed, StreamInput):
         raise JobFailure("invalid_input")
-    account, app = await _materials(job, parsed.connection_id)
+    account, app = await open_materials(job, parsed.connection_id)
     async with WithingsClient.open(app) as client:
         await execute_sync(job, account, client, "ecg")
     return Complete()
@@ -469,7 +471,7 @@ async def run_connect(job: JobRun) -> Complete:
     parsed = job.input
     if not isinstance(parsed, ConnectInput):
         raise JobFailure("invalid_input")
-    account, app = await _materials(job, parsed.connection_id)
+    account, app = await open_materials(job, parsed.connection_id)
     async with WithingsClient.open(app) as client:
         await execute_connect(job, account, client)
     return Complete()
@@ -479,7 +481,7 @@ async def run_poll(job: JobRun) -> Complete:
     parsed = job.input
     if not isinstance(parsed, ConnectInput):
         raise JobFailure("invalid_input")
-    account, app = await _materials(job, parsed.connection_id)
+    account, app = await open_materials(job, parsed.connection_id)
     async with WithingsClient.open(app) as client:
         await execute_poll(job, account, client)
     return Complete()
