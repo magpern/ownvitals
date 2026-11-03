@@ -26,6 +26,22 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 6 (2026-11-03, Architect): `findings.rule_id` and `tier` checks take the rule-id shapes the rules use
+
+- **Changes:** PLAN §5's `findings` checks (`rule_id` as a letter plus one or two digits, and
+  `tier = 'system'` exactly when `rule_id = 'Q1'`) are relaxed by migration
+  `0016_findings_rule_ids`. `rule_id` may carry the variant suffixes the PLAN §7.2 rules already
+  use: `^[A-Z][0-9]{1,2}(x|:[a-z][a-z_]{0,23})?$` (for example `C1x`, `N2:guided`,
+  `Q1:no_weigh_in`), and `tier = 'system'` holds exactly when the id matches `^Q1(:|$)`. Both
+  columns stay NOT NULL, so the checks cannot evaluate to NULL. No new tier, rule or column.
+- **Evidence:** a failing insert. The merged rule specs (and the findings read function's
+  experimental list) use ids such as `C1x` and `N2:guided`, which migration 0011's checks refuse,
+  so the rule evaluation job (#187) could not write them. Found by the #187 Developer; fixed in
+  PR #234 with a test that every rule id in the specs satisfies the checks and malformed ids and
+  a system-tier row with a non-Q1 id are refused.
+- **ADR:** none new; the rule ids are ADR 0010's. The shapes are documented in
+  `docs/dev/derived.md`.
+
 ### Amendment 5 (2026-11-01, owner): Cursor security roles use Grok 4.7 high
 
 - **Changes:** Amendment 4's Cursor security-critical Developer, production security
