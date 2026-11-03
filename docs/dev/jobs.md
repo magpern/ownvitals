@@ -189,6 +189,16 @@ entry is still active (`NoTargets` confirms none; the worker process passes `Web
   job). With no open entry, or the seed unavailable (logged as `webhook seed unavailable` with
   the app id), the run reconciles without the repair.
 
+### Known gaps (tracked in #165)
+
+- `queue_schedule` cannot filter on `connections.provider` (the queue role has no `SELECT` on
+  it), so a `connected` connection of the `test` provider also gets a poll; that job fails
+  closed when it opens the grant.
+- `notify_update` has no handler, and `WebhookTargets` confirms only entries already open
+  (`active_from` passed): a re-point job aimed at a not-yet-open new secret would be cancelled.
+- Nothing enqueues `withings_connect` or `token_refresh_recover` yet (the OAuth callback stores
+  the grant only); the 6-hourly poll starts the backfills of a new connection.
+
 ## Seams until #10, #13 and #77 (fail closed)
 
 | Seam | Default in #9 | Replaced by |
