@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests scripts/ci-gate.sh and scripts/ci-changes.sh with sample inputs, and scripts/ci-uv-version.sh
 # on scratch trees. Run by the `checks` job.
-# Ported from classbeat (d8060510) for the jobs changes, checks, backend and frontend.
+# Ported from classbeat (d8060510) for the jobs changes, checks, backend, frontend and e2e.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -11,14 +11,15 @@ report() { # report <ok|FAIL> <message>
   [ "$1" = ok ] || failures=$((failures + 1))
 }
 
-# needs <changes> <checks> <backend> <frontend> <backend filter> <frontend filter> <stack filter>
+# needs <changes> <checks> <backend> <frontend> <e2e> <backend filter> <frontend filter> <stack filter>
 needs() {
-  jq -nc --arg ch "$1" --arg ck "$2" --arg b "$3" --arg f "$4" \
-    --arg fb "$5" --arg ff "$6" --arg fs "$7" '{
+  jq -nc --arg ch "$1" --arg ck "$2" --arg b "$3" --arg f "$4" --arg e "$5" \
+    --arg fb "$6" --arg ff "$7" --arg fs "$8" '{
       changes: {result: $ch, outputs: {backend: $fb, frontend: $ff, stack: $fs, all: "false"}},
       checks: {result: $ck, outputs: {}},
       backend: {result: $b, outputs: {}},
-      frontend: {result: $f, outputs: {}}}'
+      frontend: {result: $f, outputs: {}},
+      e2e: {result: $e, outputs: {}}}'
 }
 
 # gate <name> <expected exit 0|1> <needs json> [results override]
@@ -29,25 +30,32 @@ gate() {
   if [ "$got" -eq "$want" ]; then report ok "gate: $name"; else report FAIL "gate: $name (exit $got, want $want)"; fi
 }
 
-#     name                                  want  needs: changes checks backend frontend  filters: backend frontend stack
-gate "docs only, all skipped"                 0 "$(needs success success skipped skipped false false false)"
-gate "everything ran and passed"              0 "$(needs success success success success true true true)"
-gate "backend only, frontend skipped"         0 "$(needs success success success skipped true false true)"
-gate "frontend only, backend skipped"         0 "$(needs success success skipped success false true true)"
-gate "ran although its filter was false"      0 "$(needs success success success success false false false)"
-gate "backend skipped, filter true"           1 "$(needs success success skipped skipped true false false)"
-gate "frontend skipped, filter true"          1 "$(needs success success skipped skipped false true false)"
-gate "backend failed"                         1 "$(needs success success failure skipped true false false)"
-gate "backend cancelled"                      1 "$(needs success success cancelled skipped true false false)"
-gate "frontend failed"                        1 "$(needs success success skipped failure false true false)"
-gate "failed although its filter was false"   1 "$(needs success success failure skipped false false false)"
-gate "checks failed"                          1 "$(needs success failure skipped skipped false false false)"
-gate "checks skipped"                         1 "$(needs success skipped skipped skipped false false false)"
-gate "checks cancelled"                       1 "$(needs success cancelled skipped skipped false false false)"
-gate "changes failed"                         1 "$(needs failure success skipped skipped '' '' '')"
-gate "changes skipped"                        1 "$(needs skipped success skipped skipped '' '' '')"
-gate "filter output missing"                  1 "$(needs success success skipped skipped '' '' '')"
-gate "job missing from needs"                 1 "$(needs success success skipped skipped false false false | jq -c 'del(.frontend)')"
+#     name                                  want  needs: changes checks backend frontend e2e  filters: backend frontend stack
+gate "docs only, all skipped"                 0 "$(needs success success skipped skipped skipped false false false)"
+gate "everything ran and passed"              0 "$(needs success success success success success true true true)"
+gate "backend only, frontend skipped"         0 "$(needs success success success skipped success true false true)"
+gate "frontend only, backend skipped"         0 "$(needs success success skipped success success false true true)"
+gate "ran although its filter was false"      0 "$(needs success success success success skipped false false false)"
+gate "backend skipped, filter true"           1 "$(needs success success skipped skipped skipped true false false)"
+gate "frontend skipped, filter true"          1 "$(needs success success skipped skipped skipped false true false)"
+gate "backend failed"                         1 "$(needs success success failure skipped skipped true false false)"
+gate "backend cancelled"                      1 "$(needs success success cancelled skipped skipped true false false)"
+gate "frontend failed"                        1 "$(needs success success skipped failure skipped false true false)"
+gate "failed although its filter was false"   1 "$(needs success success failure skipped skipped false false false)"
+gate "e2e skipped, stack filter true"         1 "$(needs success success skipped skipped skipped false false true)"
+gate "e2e failed, stack filter true"          1 "$(needs success success skipped skipped failure false false true)"
+gate "e2e cancelled, stack filter true"       1 "$(needs success success skipped skipped cancelled false false true)"
+gate "e2e failed although stack was false"    1 "$(needs success success skipped skipped failure false false false)"
+gate "e2e ran although stack was false"       0 "$(needs success success skipped skipped success false false false)"
+gate "e2e skipped, stack filter false"        0 "$(needs success success skipped skipped skipped false false false)"
+gate "e2e missing from needs"                 1 "$(needs success success skipped skipped skipped false false false | jq -c 'del(.e2e)')"
+gate "checks failed"                          1 "$(needs success failure skipped skipped skipped false false false)"
+gate "checks skipped"                         1 "$(needs success skipped skipped skipped skipped false false false)"
+gate "checks cancelled"                       1 "$(needs success cancelled skipped skipped skipped false false false)"
+gate "changes failed"                         1 "$(needs failure success skipped skipped skipped '' '' '')"
+gate "changes skipped"                        1 "$(needs skipped success skipped skipped skipped '' '' '')"
+gate "filter output missing"                  1 "$(needs success success skipped skipped skipped '' '' '')"
+gate "job missing from needs"                 1 "$(needs success success skipped skipped skipped false false false | jq -c 'del(.frontend)')"
 gate "empty needs"                            1 "{}"
 gate 'NEEDS is a string'                      1 '"abcd"' "a b c d"
 gate 'NEEDS is a number'                      1 '4' "a b c d"
@@ -56,35 +64,35 @@ gate 'NEEDS is null'                          1 'null' ""
 gate 'NEEDS is an object of strings'          1 '{"backend":"x","changes":"x","checks":"x","frontend":"x"}' "a b c d"
 gate 'NEEDS is malformed JSON'                1 '{' "a"
 # Value-level mutations of a valid docs-only input: each must fail the gate. The results list
-# is passed as four words so the count check cannot be what rejects them.
-docs="$(needs success success skipped skipped false false false)"
-four="success success skipped skipped"
+# is passed as five words so the count check cannot be what rejects them.
+docs="$(needs success success skipped skipped skipped false false false)"
+five="success success skipped skipped skipped"
 mutated() { jq -c "$1" <<< "$docs"; }
-gate "filter is boolean false"                1 "$(mutated '.changes.outputs.backend = false')" "$four"
-gate "filter is number 0"                     1 "$(mutated '.changes.outputs.backend = 0')" "$four"
-gate "filter is False"                        1 "$(mutated '.changes.outputs.backend = "False"')" "$four"
-gate "filter has a trailing space"            1 "$(mutated '.changes.outputs.frontend = "false "')" "$four"
-gate "filter is false then a fake job line"   1 "$(mutated '.changes.outputs.frontend = "false\nx success"')" "$four"
-gate "filter is two words"                    1 "$(mutated '.changes.outputs.backend = "false true"')" "$four"
-gate "filter is an array"                     1 "$(mutated '.changes.outputs.backend = ["false"]')" "$four"
-gate "outputs is a string"                    1 "$(mutated '.changes.outputs = "x"')" "$four"
-gate "outputs is missing"                     1 "$(mutated 'del(.changes.outputs)')" "$four"
-gate "result is null"                         1 "$(mutated '.checks.result = null')" "$four"
-gate "result is missing"                      1 "$(mutated 'del(.checks.result)')" "$four"
-gate "result is Success"                      1 "$(mutated '.checks.result = "Success"')" "$four"
-gate "result is a boolean"                    1 "$(mutated '.checks.result = true')" "$four"
-gate "result is success x"                    1 "$(mutated '.checks.result = "success x"')" "$four"
-gate "backend missing, crafted changes result" 1 "$(mutated 'del(.backend) | .changes.result = "success\nbackend success"')" "$four"
-gate "job value is a string"                  1 "$(mutated '.checks = "success"')" "$four"
-gate "job value is null"                      1 "$(mutated '.checks = null')" "$four"
-gate "job value is an array"                  1 "$(mutated '.checks = []')" "$four"
-gate "extra job"                              1 "$(mutated '.extra = {"result": "success", "outputs": {}}')" "$four success"
-gate "renamed job Frontend"                   1 "$(mutated 'del(.frontend) | .Frontend = {"result": "success"}')" "$four"
-gate "job name with a space"                  1 "$(mutated 'del(.backend) | .["backend x"] = {"result": "success"}')" "$four"
-gate "job name with a newline"                1 "$(mutated 'del(.backend) | .["zz\nbackend"] = {"result": "success"}')" "$four"
-gate "two JSON documents"                     1 "$docs $docs" "$four"
-gate "NEEDS is whitespace"                    1 "   " "$four"
-gate "valid input still passes"               0 "$docs" "$four"
+gate "filter is boolean false"                1 "$(mutated '.changes.outputs.backend = false')" "$five"
+gate "filter is number 0"                     1 "$(mutated '.changes.outputs.backend = 0')" "$five"
+gate "filter is False"                        1 "$(mutated '.changes.outputs.backend = "False"')" "$five"
+gate "filter has a trailing space"            1 "$(mutated '.changes.outputs.frontend = "false "')" "$five"
+gate "filter is false then a fake job line"   1 "$(mutated '.changes.outputs.frontend = "false\nx success"')" "$five"
+gate "filter is two words"                    1 "$(mutated '.changes.outputs.backend = "false true"')" "$five"
+gate "filter is an array"                     1 "$(mutated '.changes.outputs.backend = ["false"]')" "$five"
+gate "outputs is a string"                    1 "$(mutated '.changes.outputs = "x"')" "$five"
+gate "outputs is missing"                     1 "$(mutated 'del(.changes.outputs)')" "$five"
+gate "result is null"                         1 "$(mutated '.checks.result = null')" "$five"
+gate "result is missing"                      1 "$(mutated 'del(.checks.result)')" "$five"
+gate "result is Success"                      1 "$(mutated '.checks.result = "Success"')" "$five"
+gate "result is a boolean"                    1 "$(mutated '.checks.result = true')" "$five"
+gate "result is success x"                    1 "$(mutated '.checks.result = "success x"')" "$five"
+gate "backend missing, crafted changes result" 1 "$(mutated 'del(.backend) | .changes.result = "success\nbackend success"')" "$five"
+gate "job value is a string"                  1 "$(mutated '.checks = "success"')" "$five"
+gate "job value is null"                      1 "$(mutated '.checks = null')" "$five"
+gate "job value is an array"                  1 "$(mutated '.checks = []')" "$five"
+gate "extra job"                              1 "$(mutated '.extra = {"result": "success", "outputs": {}}')" "$five success"
+gate "renamed job Frontend"                   1 "$(mutated 'del(.frontend) | .Frontend = {"result": "success"}')" "$five"
+gate "job name with a space"                  1 "$(mutated 'del(.backend) | .["backend x"] = {"result": "success"}')" "$five"
+gate "job name with a newline"                1 "$(mutated 'del(.backend) | .["zz\nbackend"] = {"result": "success"}')" "$five"
+gate "two JSON documents"                     1 "$docs $docs" "$five"
+gate "NEEDS is whitespace"                    1 "   " "$five"
+gate "valid input still passes"               0 "$docs" "$five"
 
 # The filter-value validation must be what rejects a bad filter, not only a later step: each
 # case fails with that check's message. (Without the check the gate still fails closed, so the
@@ -96,12 +104,12 @@ gate_says() {
   if [ "$got" -eq 1 ] && grep -qF "$msg" <<< "$out"; then report ok "gate says: $name"; else report FAIL "gate says: $name (exit $got)"; fi
 }
 bad_filter="every filter output must be the string true or false"
-gate_says "filter is boolean false"   "$bad_filter" "$(mutated '.changes.outputs.backend = false')" "$four"
-gate_says "filter is False"           "$bad_filter" "$(mutated '.changes.outputs.frontend = "False"')" "$four"
-gate_says "filter is missing"         "$bad_filter" "$(mutated 'del(.changes.outputs.backend)')" "$four"
-gate_says "filter is an array"        "$bad_filter" "$(mutated '.changes.outputs.frontend = ["false"]')" "$four"
+gate_says "filter is boolean false"   "$bad_filter" "$(mutated '.changes.outputs.backend = false')" "$five"
+gate_says "filter is False"           "$bad_filter" "$(mutated '.changes.outputs.frontend = "False"')" "$five"
+gate_says "filter is missing"         "$bad_filter" "$(mutated 'del(.changes.outputs.backend)')" "$five"
+gate_says "filter is an array"        "$bad_filter" "$(mutated '.changes.outputs.frontend = ["false"]')" "$five"
 gate "result count mismatch"                  1 "$docs" "success success"
-gate "three results for four jobs"            1 "$docs" "success success skipped"
+gate "four results for five jobs"             1 "$docs" "success success skipped skipped"
 
 # changes <name> <event> <"file file ..."> <expected "backend frontend stack all">
 tmp="$(mktemp -d)"
