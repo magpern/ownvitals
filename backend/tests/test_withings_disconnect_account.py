@@ -200,9 +200,7 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
             )
             # The AI cost cap (#205): the user's month and one settled reservation.
             conn.execute(
-                text(
-                    "INSERT INTO ai_spend (owner_id, month, spent) VALUES (:o, '2026-11-01', 5)"
-                ),
+                text("INSERT INTO ai_spend (owner_id, month, spent) VALUES (:o, '2026-11-01', 5)"),
                 {"o": owner_id},
             )
             conn.execute(
