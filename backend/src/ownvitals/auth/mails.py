@@ -2,6 +2,7 @@
 ``OWNVITALS_PUBLIC_BASE_URL`` with the token in the URL fragment, never from the Host header."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 from ownvitals.config import Settings
@@ -34,26 +35,46 @@ def account_exists(settings: Settings, to: str) -> MailMessage:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ResetRemoved:
+    """What ``admin mfa-reset`` removed besides the TOTP, recovery codes and password."""
+
+    passkeys: int = 0
+    identities: int = 0
+
+
+def _removed_text(removed: ResetRemoved) -> str:
+    parts = ["your authenticator app and recovery codes were removed"]
+    if removed.passkeys:
+        parts.append(
+            "your passkey was removed" if removed.passkeys == 1 else "your passkeys were removed"
+        )
+    if removed.identities:
+        parts.append("Google sign-in was unlinked")
+    parts += ["your password was cleared", "you were signed out everywhere"]
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
 def password_reset(
     settings: Settings,
     to: str,
     token: str,
     *,
     passkeys: Sequence[tuple[str, datetime]] = (),
-    after_mfa_reset: bool = False,
+    after_mfa_reset: ResetRemoved | None = None,
 ) -> MailMessage:
     """The reset link. A plain reset lists the account's passkeys, which it keeps (ADR 0011
-    section 3); after ``admin mfa-reset`` the mail says what the reset removed."""
+    section 3); after ``admin mfa-reset`` the mail says what the reset removed, naming only
+    what the account had."""
     intro = ""
-    if after_mfa_reset:
+    if after_mfa_reset is not None:
         intro = (
-            "The operator reset the two-factor authentication of your ownvitals account. Your "
-            "authenticator app, recovery codes and passkeys were removed, Google sign-in was "
-            "unlinked and you were signed out everywhere. Choose a new password, then set up "
-            "two-factor authentication again.\n\n"
+            "The operator reset the two-factor authentication of your ownvitals account: "
+            f"{_removed_text(after_mfa_reset)}. Choose a new password with the link below, then "
+            "set up two-factor authentication again.\n\n"
         )
     listed = ""
-    if passkeys and not after_mfa_reset:
+    if passkeys and after_mfa_reset is None:
         names = "".join(f"- {name} (added {created:%Y-%m-%d})\n" for name, created in passkeys)
         listed = (
             "\nResetting the password keeps these passkeys on your account:\n"

@@ -61,11 +61,19 @@ answers 404 `passkeys_unavailable`; locally, use `http://localhost:<port>`.
 - **Registration** stores `aaguid` as reported (all zeros under attestation `none`), the
   transports the browser lists (only WebAuthn's names), and the backup flags (shown as "synced"
   and "backed up", never enforced). A credential id already registered, to anyone, is refused.
-- **Account recovery** (`admin mfa-reset`) removes the TOTP, recovery codes, every passkey and
-  every Google identity, and the reset mail says so. This also closes the #165 finding that a
-  Google identity linked by someone holding the account survived the reset. `keys wipe` removes
-  passkeys with the TOTP but leaves Google identities (a key loss, not a takeover; the Architect
-  decides whether it should unlink them too).
+- **Account recovery** (`admin mfa-reset`) locks the account row, then removes the TOTP,
+  recovery codes, every passkey and every Google identity and clears the password hash (ADR 0011
+  §3 amendment of 2026-11-03, amending ADR 0003 §2); the reset mail names what was removed and
+  carries the link that sets a new password. This closes the #165 finding that a Google identity
+  linked by someone holding the account survived the reset. `keys wipe` removes passkeys and
+  Google identities too but keeps the password; its mail points a Google-only account to the
+  reset link.
+- **Attestation** is `none` only: any other format in the attestation object is refused before
+  py_webauthn sees it, so no attestation statement or certificate chain is processed.
+- **Relying-party id** is not checked against the public suffix list (no dependency for it). A
+  public suffix can only be configured as `webauthn_rp_id` if `public_base_url`'s host is under
+  it, and browsers refuse a public-suffix rp id, so such a setting fails closed: no passkey can
+  be registered or used.
 - **A password reset** keeps passkeys; its link mail lists them with a link to the Security page.
   A password change sends no mail today, so it lists nothing.
 

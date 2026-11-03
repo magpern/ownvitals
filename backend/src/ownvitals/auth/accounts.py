@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth.devices import forget_devices
 from ownvitals.auth.events import record_event
+from ownvitals.auth.mails import ResetRemoved
 from ownvitals.auth.passkeys import lock_user, remove_all_passkeys
 from ownvitals.auth.sessions import revoke_user_sessions
 from ownvitals.auth.tables import identities, invites, mfa_recovery_codes, mfa_totp, users
@@ -156,36 +157,46 @@ async def grant_admin_if_listed(db: AsyncSession, settings: Settings, user_id: U
     return True
 
 
-async def reset_mfa(db: AsyncSession, email: str) -> UserRow:
-    """Lost authenticator: remove the user's TOTP and recovery codes, every passkey and every
-    linked Google identity, revoke every session and forget their known devices, in one
-    transaction. The caller then sends the password-reset link (``hooks``).
+async def remove_sign_in_methods(db: AsyncSession, user_id: UUID) -> ResetRemoved:
+    """Every passkey and every linked Google identity of the account (ADR 0011 section 3):
+    neither may survive a reset of the second factor and win the first enrolment of ADR 0003
+    section 2. The caller holds the account row (``passkeys.lock_user``)."""
+    passkeys = await remove_all_passkeys(db, user_id)
+    unlinked = await db.execute(
+        delete(identities).where(identities.c.user_id == user_id).returning(identities.c.id)
+    )
+    return ResetRemoved(passkeys=passkeys, identities=len(unlinked.all()))
 
-    ADR 0011 section 3: a passkey or a Google identity that someone added while holding the
-    account must not survive the reset and win the first enrolment of ADR 0003 section 2, so
-    after a reset the only way in is the password set through the mailed link. The account row
-    is locked ``FOR UPDATE`` first; a passkey sign-in or registration locks it too
-    (``passkeys.lock_user``), so neither can commit a session or a passkey after this
-    transaction removed them.
+
+async def reset_mfa(db: AsyncSession, email: str) -> tuple[UserRow, ResetRemoved]:
+    """Lost authenticator: remove the user's TOTP and recovery codes, every passkey, every
+    linked Google identity and the password, revoke every session and forget their known
+    devices, in one transaction. The caller then sends the password-reset link (``hooks``).
+
+    ADR 0011 section 3 (amended 2026-11-03, which amends ADR 0003 section 2): after a reset the
+    only way in is the password set through the mailed link. A passkey or a Google identity that
+    someone added while holding the account, or a password they learned, must not survive the
+    reset and win the first enrolment. The account row is locked ``FOR UPDATE`` first; a
+    passkey sign-in or registration locks it too (``passkeys.lock_user``), so neither can commit
+    a session or a passkey after this transaction removed them.
     """
     user = await _require_user(db, email)
     await lock_user(db, user.id)
     await db.execute(delete(mfa_totp).where(mfa_totp.c.user_id == user.id))
     await db.execute(delete(mfa_recovery_codes).where(mfa_recovery_codes.c.user_id == user.id))
-    passkeys = await remove_all_passkeys(db, user.id)
-    unlinked = len(
-        (
-            await db.execute(
-                delete(identities).where(identities.c.user_id == user.id).returning(identities.c.id)
-            )
-        ).all()
-    )
+    removed = await remove_sign_in_methods(db, user.id)
+    await db.execute(update(users).where(users.c.id == user.id).values(password_hash=None))
     await revoke_user_sessions(db, user.id)
     await forget_devices(db, user.id)
     await record_event(
         db,
         "mfa_reset",
         user_id=user.id,
-        detail={"source": "cli", "passkeys_removed": passkeys, "identities_removed": unlinked},
+        detail={
+            "source": "cli",
+            "passkeys_removed": removed.passkeys,
+            "identities_removed": removed.identities,
+            "password_cleared": True,
+        },
     )
-    return user
+    return user, removed

@@ -83,6 +83,8 @@ BROKEN = {
     "user presence missing": {"flags": UV | AT},
     "a disallowed algorithm": {"algorithm": "es384"},
     "made in a cross-origin frame": {"cross_origin": True},
+    # A valid packed self-attestation: refused before py_webauthn sees it (attestation none only).
+    "a packed attestation": {"fmt": "packed"},
 }
 
 

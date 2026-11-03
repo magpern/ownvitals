@@ -17,7 +17,7 @@ from ownvitals.auth import accounts
 from ownvitals.auth.devices import forget_devices
 from ownvitals.auth.events import record_event
 from ownvitals.auth.hooks import register_reset_link_sender, send_reset_link
-from ownvitals.auth.passkeys import lock_user, remove_all_passkeys
+from ownvitals.auth.passkeys import lock_user
 from ownvitals.auth.reset_routes import make_reset_link_sender
 from ownvitals.auth.sessions import revoke_user_sessions
 from ownvitals.auth.tables import auth_events, mfa_recovery_codes, mfa_totp, users
@@ -46,15 +46,15 @@ async def revoke_admin(factory: Factory, settings: Settings, email: str) -> bool
 
 
 async def mfa_reset(factory: Factory, settings: Settings, email: str) -> bool:
-    """Remove the user's TOTP, recovery codes, passkeys, Google identities and known devices,
-    revoke every session and write ``mfa_reset`` (one transaction), then mail a reset link that
-    says so. Returns whether it was mailed;
+    """Remove the user's TOTP, recovery codes, passkeys, Google identities, password and known
+    devices, revoke every session and write ``mfa_reset`` (one transaction), then mail a reset
+    link that says what was removed. Returns whether it was mailed;
     raises ``AccountError`` for an unknown address and ``MailError`` when the mail fails (the
     reset itself stays done)."""
     async with system_session(factory) as db:
-        user = await accounts.reset_mfa(db, email)
+        user, removed = await accounts.reset_mfa(db, email)
     register_reset_link_sender(
-        make_reset_link_sender(settings, factory, Mailer(settings), after_mfa_reset=True)
+        make_reset_link_sender(settings, factory, Mailer(settings), after_mfa_reset=removed)
     )
     try:
         return await send_reset_link(user.id, user.email)
@@ -70,6 +70,7 @@ class WipeResult:
     email: str
     providers: tuple[str, ...]
     totp_reset: bool
+    google_unlinked: bool = False
 
     def __repr__(self) -> str:
         return f"{type(self).__name__} redacted"
@@ -82,6 +83,7 @@ class PendingWipe:
     event_id: UUID
     email: str
     totp_reset: bool
+    google_unlinked: bool = False
 
     def __repr__(self) -> str:
         return f"{type(self).__name__} redacted"
@@ -117,9 +119,10 @@ async def app_sessions(factory: Factory, role: str) -> int:
 async def wipe_user(
     db: AsyncSession, user_id: UUID, providers: tuple[str, ...]
 ) -> WipeResult | None:
-    """Reset the authenticator as ``mfa-reset`` does (TOTP, recovery codes and every passkey,
-    ADR 0011 section 3; Google identities stay, see ``docs/dev/auth-passkeys.md``), and record
-    ``connections_wiped``.
+    """Reset the authenticator as ``mfa-reset`` does (TOTP, recovery codes, every passkey and
+    every Google identity, ADR 0011 section 3), and record ``connections_wiped``. The password
+    stays: a key loss is not a takeover, and the user signs in with it to enrol again (a
+    Google-only account sets one through the reset link, which the mail names).
 
     ``None`` when there is no connection row and no authenticator: nothing was removed.
     ``db`` is the caller's transaction. The mail is sent after that transaction commits.
@@ -136,7 +139,7 @@ async def wipe_user(
         )
     ).first()
     await db.execute(delete(mfa_recovery_codes).where(mfa_recovery_codes.c.user_id == user_id))
-    await remove_all_passkeys(db, user_id)
+    unlinked = (await accounts.remove_sign_in_methods(db, user_id)).identities > 0
     await revoke_user_sessions(db, user_id)
     await forget_devices(db, user_id)
     totp_reset = removed is not None
@@ -152,13 +155,14 @@ async def wipe_user(
                 detail={
                     "providers": list(providers),
                     "totp_reset": totp_reset,
+                    "google_unlinked": unlinked,
                     "mailed": False,
                 },
             )
             .returning(auth_events.c.id)
         )
     ).scalar_one()
-    return WipeResult(event_id, email, providers, totp_reset)
+    return WipeResult(event_id, email, providers, totp_reset, unlinked)
 
 
 async def pending_wipe_mails(factory: Factory) -> list[PendingWipe]:
@@ -176,7 +180,14 @@ async def pending_wipe_mails(factory: Factory) -> list[PendingWipe]:
     pending: list[PendingWipe] = []
     for row in rows:
         detail = row.detail if isinstance(row.detail, dict) else {}
-        pending.append(PendingWipe(row.id, row.email, bool(detail.get("totp_reset"))))
+        pending.append(
+            PendingWipe(
+                row.id,
+                row.email,
+                bool(detail.get("totp_reset")),
+                bool(detail.get("google_unlinked")),
+            )
+        )
     return pending
 
 

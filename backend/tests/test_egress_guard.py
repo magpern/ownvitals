@@ -399,6 +399,7 @@ def test_only_in_pins_mail_the_worker_hostname_and_db_functions_psycopg() -> Non
 WEBAUTHN = (
     "webauthn",
     "webauthn.helpers.options_to_json",
+    "webauthn.helpers.parse_attestation_object",
     "webauthn.helpers.cose",
     "webauthn.helpers.structs",
 )

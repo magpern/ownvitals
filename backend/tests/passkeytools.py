@@ -108,8 +108,10 @@ class SoftAuthenticator:
         cross_origin: bool | None = False,
         credential_id: bytes | None = None,
         sign_count: int = 0,
+        fmt: Literal["none", "packed"] = "none",
     ) -> dict[str, Any]:
-        """The response to registration ``options`` (as the server sent them)."""
+        """The response to registration ``options`` (as the server sent them). ``fmt`` packed
+        gives a valid self-attestation (signed by the credential's own key)."""
         credential = SoftCredential(
             credential_id or secrets.token_bytes(32),
             _new_key(algorithm),
@@ -126,10 +128,14 @@ class SoftAuthenticator:
             + credential.credential_id
             + credential.cose()
         )
-        attestation = cbor2.dumps({"fmt": "none", "attStmt": {}, "authData": auth_data})
         client_data = self._client_data(
             kind, challenge or options["challenge"], origin, cross_origin
         )
+        statement: dict[str, Any] = {}
+        if fmt == "packed":
+            signed = auth_data + hashlib.sha256(client_data).digest()
+            statement = {"alg": -7, "sig": credential.sign(signed)}
+        attestation = cbor2.dumps({"fmt": fmt, "attStmt": statement, "authData": auth_data})
         self.credentials.append(credential)
         return {
             "id": b64(credential.credential_id),

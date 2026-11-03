@@ -44,8 +44,10 @@ from webauthn import (
 )
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.options_to_json import options_to_json
+from webauthn.helpers.parse_attestation_object import parse_attestation_object
 from webauthn.helpers.structs import (
     AttestationConveyancePreference,
+    AttestationFormat,
     AuthenticatorSelectionCriteria,
     AuthenticatorTransport,
     ClientDataType,
@@ -64,6 +66,7 @@ from ownvitals.auth.passkeys import (
     Passkey,
     PasskeyFailure,
     RelyingParty,
+    b64url_decode,
     lock_user,
     new_challenge,
     read_client_data,
@@ -209,6 +212,7 @@ async def finish_registration(
     """Verify a registration response and store the passkey. ``PasskeyFailure`` otherwise."""
     challenge = read_client_data(client_data, ClientDataType.WEBAUTHN_CREATE.value, rp)
     await take_challenge(factory, challenge, "register", session_id=session_id, user_id=user_id)
+    _require_no_attestation(credential, user_id)
     try:
         verified = verify_registration_response(
             credential=credential,
@@ -267,6 +271,18 @@ async def finish_registration(
         if row is None:
             raise PasskeyFailure("duplicate", user_id=user_id)
     return to_passkey(row)
+
+
+def _require_no_attestation(credential: dict[str, Any], user_id: UUID) -> None:
+    """Attestation ``none`` only (section 1): any other format is refused before py_webauthn
+    looks at it, so no attestation statement and no certificate chain is ever processed."""
+    try:
+        encoded = credential["response"]["attestationObject"]
+        attestation = parse_attestation_object(b64url_decode(encoded))
+    except Exception:
+        raise PasskeyFailure("verification", user_id=user_id) from None
+    if attestation.fmt != AttestationFormat.NONE:
+        raise PasskeyFailure("verification", user_id=user_id)
 
 
 def _aaguid(value: str) -> UUID | None:

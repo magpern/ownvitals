@@ -95,7 +95,7 @@ async def reset_mail(
     user_id: UUID,
     email: str,
     *,
-    after_mfa_reset: bool = False,
+    after_mfa_reset: mails.ResetRemoved | None = None,
 ):
     """Issue a reset token for the user and build the mail. A reset keeps the account's
     passkeys, so the mail lists them (ADR 0011 section 3)."""
@@ -111,11 +111,11 @@ def make_reset_link_sender(
     session_factory: async_sessionmaker[AsyncSession],
     mail: Mailer,
     *,
-    after_mfa_reset: bool = False,
+    after_mfa_reset: mails.ResetRemoved | None = None,
 ) -> ResetLinkSender:
     """The sender ``auth.register_reset_link_sender`` takes: ``admin mfa-reset`` mails the
     user a reset link (awaited: the CLI has no response to send first), saying what the reset
-    removed when ``after_mfa_reset``."""
+    removed when ``after_mfa_reset`` is given."""
 
     async def send(user_id: UUID, email: str) -> None:
         async with system_session(session_factory) as db:
