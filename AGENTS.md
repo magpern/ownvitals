@@ -31,8 +31,14 @@ role file.
 token vault and rotation, OAuth state; the webhook receiver; RLS, roles and `SECURITY DEFINER`
 functions; jobs, leases and the rate limiter; auth (passwords, sessions, TOTP, step-up, passkeys,
 QR login); export and delete; the deploy mechanism; AI egress; encryption and key handling. The
-issue carries the `security-critical` label and says so in its "Owner:" line. When in doubt, it
-is security-critical.
+issue carries the `security-critical` label and says so in its "Owner:" line. When in doubt
+between security-critical and security-adjacent, it is security-critical.
+
+**Security-adjacent** (a Sonnet Developer and an Opus first Reviewer): code that handles owned
+data under the existing guards but adds no new trust boundary: derived-data writers that follow
+the purge-race pattern (`derived/*_db.py`), rule and score logic, findings and read APIs behind
+the existing read guards. The issue carries the `security-adjacent` label. Everything else is
+ordinary (Sonnet Developer, Sonnet Reviewer). Delta reviews follow item 3 of the review gate.
 
 ## Unit of work: one issue, one PR
 
@@ -75,8 +81,9 @@ deterministic CI security checks (§10.3) and on the owner's human security revi
    starts `Agent review (<model>): PASS <head SHA>`, followed by the non-blocking findings. A
    `FAIL` is recorded the same way: `Agent review (<model>): FAIL <head SHA>`, blocking findings
    first, each with file and line.
-2. The Reviewer was a fresh context: Opus for security-critical PRs, Sonnet for the rest (UI,
-   docs, tooling, tests). When in doubt, Opus.
+2. The Reviewer was a fresh context: Opus for security-critical and security-adjacent PRs
+   (first review), Sonnet for the rest (UI, docs, tooling, tests, Dependabot). When in doubt
+   between two tiers of the same kind, take the higher one.
 3. **A new head SHA needs a new review**:
    - *Merge-only update:* the only change since the reviewed head is a merge of `main` with no
      hand-resolved conflict, and CI is green on the new head. The Architect checks that
@@ -86,8 +93,10 @@ deterministic CI security checks (§10.3) and on the owner's human security revi
      the merge.
    - *Fix round after a `FAIL`:* a delta review of the diff since the last reviewed head that
      verifies each earlier finding. Fresh Opus for a behaviour change on a security-critical PR
-     or after a second `FAIL`; a fresh Sonnet may review a tests- or docs-only delta that loosens
-     no guard, and must check each earlier finding by mutating the code the new test protects.
+     or after a second `FAIL`. A fresh Sonnet reviews every other delta (security-adjacent PRs
+     included, and tests- or docs-only changes that loosen no guard) and must check each earlier
+     finding by mutating the code the new test protects. A Sonnet delta that finds a guard
+     loosened or a new behaviour change on a security-critical path escalates to Opus.
    Reviewers rely on CI for the full suite. They run only the targeted tests and at most about 8
    mutation checks, chosen by risk, and say which they ran.
 4. Not a `PASS`: the implementing session's own check, a review run in the same context, green
