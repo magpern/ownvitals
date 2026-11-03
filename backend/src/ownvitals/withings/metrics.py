@@ -100,9 +100,9 @@ def record_reconcile(*, changed: int = 0, deleted: int = 0) -> None:
 
 
 def set_queue(stats: dict[str, int], oldest_queued_age_seconds: float = 0.0) -> None:
-    """``stats`` is ``queue_stats()``'s ``metric -> total`` (state names, no ids)."""
+    """``stats`` is ``queue_stats()``'s ``metric -> total``: keys ``jobs_<state>``, no ids."""
     for state in JOB_STATES:
-        queue_jobs.set(stats.get(state, 0), state=state)
+        queue_jobs.set(stats.get(f"jobs_{state}", 0), state=state)
     queue_age.set(max(0.0, oldest_queued_age_seconds))
 
 

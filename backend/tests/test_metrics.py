@@ -1,7 +1,8 @@
 """Registry, label safety and the internal endpoint. Synthetic data only."""
 
-import asyncio
+import re
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -78,7 +79,7 @@ def test_subscriptions_reconcile_queue_refresh_api_move():
     w.record_reconcile(changed=4, deleted=2)
     assert w.reconcile_rows.get(kind="changed") == 4
     assert w.reconcile_rows.get(kind="deleted") == 2
-    w.set_queue({"queued": 5, "dead_letter": 2}, 42)
+    w.set_queue({"jobs_queued": 5, "jobs_dead_letter": 2}, 42)
     assert w.queue_jobs.get(state="dead_letter") == 2
     assert w.queue_age.get() == 42
     w.record_refresh_failure()
@@ -96,39 +97,23 @@ def test_counter_cannot_go_down():
         w.api_calls.inc(-1)
 
 
-@pytest.mark.parametrize(
-    "host",
-    ["0.0.0.0", "::", "8.8.8.8", "example.com", "", "2001:4860:4860::8888"],  # noqa: S104
-)
-def test_bind_refuses_non_internal(host):
-    with pytest.raises(m.BindRefused):
-        m.check_bind(host)
+def test_le_label_is_reserved():
+    with pytest.raises(m.LabelError, match="not allowed"):
+        m.Gauge("ownvitals_x", "x", {"le": ["1"]})
 
 
-@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "10.1.2.3", "192.168.0.5", "172.20.0.2"])
-def test_bind_accepts_internal(host):
-    m.check_bind(host)
+def test_help_escapes_only_backslash_and_newline():
+    registry = m.Registry()
+    registry.register(m.Counter("ownvitals_h_total", 'a "quoted" \\ line\nbreak'))
+    assert '# HELP ownvitals_h_total a "quoted" \\\\ line\\nbreak\n' in registry.render()
 
 
-async def _get(port: int, request: bytes) -> bytes:
-    reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    writer.write(request)
-    await writer.drain()
-    data = await reader.read()
-    writer.close()
-    return data
-
-
-async def test_endpoint_serves_metrics_only():
-    w.record_api_call()
-    server = await m.serve_metrics("127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
-    try:
-        ok = await _get(port, b"GET /metrics HTTP/1.1\r\n\r\n")
-        assert ok.startswith(b"HTTP/1.1 200")
-        assert b"ownvitals_withings_api_calls_total 1" in ok
-        assert (await _get(port, b"GET / HTTP/1.1\r\n\r\n")).startswith(b"HTTP/1.1 404")
-        assert (await _get(port, b"POST /metrics HTTP/1.1\r\n\r\n")).startswith(b"HTTP/1.1 405")
-    finally:
-        server.close()
-        await server.wait_closed()
+def test_job_states_match_queue_stats_in_the_sql():
+    sql = (Path(__file__).parents[2] / "docker/postgres/queue/20-queue.sql").read_text()
+    body = sql.split("FUNCTION public.queue_stats()", 1)[1].split("END $$", 1)[0]
+    states = re.search(r"ARRAY\[([^\]]*)\]", body)
+    assert states is not None
+    declared = {x.strip().strip("'") for x in states.group(1).split(",")}
+    assert declared == set(w.JOB_STATES)
+    w.set_queue({f"jobs_{state}": 1 for state in declared})
+    assert w.queue_jobs.get(state="dead_letter") == 1

@@ -25,16 +25,18 @@ other value raises `LabelError`. A user id, email, token or measurement therefor
 series. `tests/test_metrics.py` fails if a registered metric has a label off the list or an open,
 identifier-shaped or numeric value. Metrics are aggregates across users: counts and ages only.
 
-## Endpoint
+## No endpoint here
 
-`serve_metrics(host, port)` answers `GET /metrics` only (404 and 405 otherwise) and refuses to
-bind to anything but a loopback or private IP literal (`BindRefused` for `0.0.0.0`, `::`, public
-addresses and names). It is for the home server's Prometheus and is never routed through SWAG.
+This module is pure: it opens no socket (the egress guard forbids server sockets outside
+`ownvitals.egress`). The scrape endpoint, its wiring and the DB aggregates are #167: the listener
+design (bind refusal including IPv4-mapped, 6to4 and link-local addresses, a read timeout, a
+4096-byte request-line limit and a connection cap, each with tests) moves there. Job-state
+gauges take `queue_stats()` output (`jobs_<state>` keys); a test pins the states against
+`docker/postgres/queue/20-queue.sql`.
 
-## Not wired yet (follow-ups)
+## Not wired yet (#167)
 
-The call sites live in files this issue does not own: the webhook receiver, sync, reconcile,
-token refresh, the rate limiter and the worker loop (where `serve_metrics` would start and the
-aggregate gauges would be refreshed). Cross-user aggregates (last sync per stream, subscription
-health, completeness) need reviewed `SECURITY DEFINER` functions (AGENTS.md); only
+Recorders are not called from the webhook receiver, sync, reconcile, token refresh or the rate
+limiter, and nothing serves the registry. Cross-user aggregates (last sync per stream,
+subscription health, completeness) need reviewed `SECURITY DEFINER` functions (AGENTS.md); only
 `queue_stats()` exists today.
