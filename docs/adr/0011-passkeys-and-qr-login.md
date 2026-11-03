@@ -160,6 +160,16 @@ uniqueness), the same signcount test (stored 5, then 0: suspended), `test_auth_t
   first-enrolment race of ADR 0003 §2. And **a passkey sign-in to an account without a confirmed
   TOTP is refused** with the generic answer, so first enrolment after a reset is reachable only
   through the password set by the mailed reset link (ADR 0003 §2), never through a passkey.
+- **Amendment (2026-11-03, Architect decision after the #226 review; amends ADR 0003 §2).**
+  `admin mfa-reset` also **unlinks every Google identity** and **clears the password hash**, in
+  the same transaction, so "only through the password set by the mailed reset link" holds
+  literally: neither an identity nor a password that someone learned or linked while holding the
+  account reaches the first enrolment. Its mail names what was removed (only what the account
+  had) and carries the link that sets the new password. `keys wipe`, which also resets the second
+  factor, removes passkeys and unlinks Google identities too, but keeps the password (a key loss,
+  not a takeover); its mail points a Google-only account to the reset link. Lock order: every path
+  that resets the second factor locks the account row `FOR UPDATE` first, and every passkey
+  sign-in or registration locks it before its final write.
 - **A password reset or change keeps passkeys**: it removes no second factor, so a planted passkey
   still meets the TOTP. Its mail lists the account's passkeys (names and creation dates) with a
   link to review them on the Security page.

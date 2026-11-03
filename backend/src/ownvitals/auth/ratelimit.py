@@ -46,6 +46,8 @@ MAIL_ACCOUNT = Limit("mail", "account", 10, 3600)
 MAIL_IP = Limit("mail", "ip", 10, 3600)
 OAUTH_IP = Limit("oauth", "ip", 30, 15 * 60)
 PASSWORD_CHANGE = Limit("password-change", "account", 10, 3600)
+# Passkey sign-in options (ADR 0011 section 1): every request counts, success or not.
+PASSKEY_OPTIONS_IP = Limit("passkey-options", "ip", 20, 10 * 60)
 
 OnSuccess = Literal["decrement", "delete"]
 

@@ -16,7 +16,7 @@ command prints the step to finish.
 import argparse
 from collections import Counter
 from collections.abc import Awaitable, Callable
-from typing import Any, TextIO
+from typing import Any, Protocol, TextIO
 
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -85,15 +85,31 @@ def _failures(counts: Counter[str]) -> int:
     return sum(count for key, count in counts.items() if not key.endswith(_OK_OUTCOMES))
 
 
-def _mail(settings: Settings, totp_reset: bool, email: str) -> MailMessage:
+class _Wiped(Protocol):
+    """A wiped account, as the operator module reports it (``WipeResult``, ``PendingWipe``)."""
+
+    @property
+    def email(self) -> str: ...
+    @property
+    def totp_reset(self) -> bool: ...
+    @property
+    def google_unlinked(self) -> bool: ...
+
+
+def _mail(settings: Settings, event: _Wiped) -> MailMessage:
     """What was removed and what to do. No token, no address, no provider account."""
     lines = ["Saved provider connections were removed from this ownvitals account."]
-    if totp_reset:
+    if event.totp_reset:
         lines.append("The authenticator and its recovery codes were removed too.")
+    if event.google_unlinked:
+        lines.append(
+            "Google sign-in was unlinked. If you have no password, set one first: "
+            f"{settings.public_base_url}/reset"
+        )
     lines.append("Sign in, set up an authenticator again, and reconnect your provider.")
     lines.append(f"Sign in: {settings.public_base_url}/signin")
     lines.append("If you did not expect this message, contact whoever runs the site.")
-    return MailMessage(email, "Reconnect your ownvitals account", "\n".join(lines) + "\n")
+    return MailMessage(event.email, "Reconnect your ownvitals account", "\n".join(lines) + "\n")
 
 
 async def _send(settings: Settings, factory: Factory, event_id: Any, message: MailMessage) -> bool:
@@ -151,9 +167,7 @@ async def resend(settings: Settings, factory: Factory, out: TextIO) -> int:
     sent = 0
     for event in pending:
         try:
-            ok = await _send(
-                settings, factory, event.event_id, _mail(settings, event.totp_reset, event.email)
-            )
+            ok = await _send(settings, factory, event.event_id, _mail(settings, event))
         except Exception:
             ok = False
         sent += int(ok)
@@ -180,9 +194,7 @@ async def _each(factory: Factory, settings: Settings, out: TextIO, err: TextIO) 
         counts["connections"] += len(event.providers)
         counts["totp reset"] += int(event.totp_reset)
         try:
-            sent = await _send(
-                settings, factory, event.event_id, _mail(settings, event.totp_reset, event.email)
-            )
+            sent = await _send(settings, factory, event.event_id, _mail(settings, event))
         except Exception:
             sent = False
         counts["mails sent" if sent else "mails unsent"] += 1

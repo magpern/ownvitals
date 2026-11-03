@@ -195,6 +195,49 @@ TABLE: dict[str, Entry] = {
         "the web framework's validation error class (auth.setup)",
         "RequestValidationError",
     ),
+    # Passkeys (#178, ADR 0011 section 1): py_webauthn builds options and verifies responses in
+    # memory. It is capable only through pyOpenSSL (OpenSSL.SSL imports socket), which it
+    # imports to validate attestation certificate chains, in memory, against root certificates
+    # it is given; it builds no client and opens no connection. ownvitals refuses every
+    # attestation format but "none" before calling it, so no statement or chain is processed.
+    # Only the ceremonies module may use it.
+    "webauthn": _allowed(
+        "builds WebAuthn options and verifies responses in memory; opens no connection",
+        "generate_authentication_options",
+        "generate_registration_options",
+        "verify_authentication_response",
+        "verify_registration_response",
+        only_in=("ownvitals.auth.passkey_ceremonies",),
+    ),
+    "webauthn.helpers.options_to_json": _allowed(
+        "serialises built options to JSON (webauthn.options_to_json); plain data",
+        "options_to_json",
+        only_in=("ownvitals.auth.passkey_ceremonies",),
+    ),
+    "webauthn.helpers.parse_attestation_object": _allowed(
+        "reads the attestation format from the CBOR object, so anything but none is refused "
+        "before verification",
+        "parse_attestation_object",
+        only_in=("ownvitals.auth.passkey_ceremonies",),
+    ),
+    "webauthn.helpers.cose": _allowed(
+        "the COSE algorithm numbers of the allowed list (ES256, EdDSA, RS256)",
+        "COSEAlgorithmIdentifier",
+        only_in=("ownvitals.auth.passkey_ceremonies",),
+    ),
+    "webauthn.helpers.structs": _allowed(
+        "the option and response data classes and enums; plain data",
+        "AttestationConveyancePreference",
+        "AttestationFormat",
+        "AuthenticatorSelectionCriteria",
+        "AuthenticatorTransport",
+        "ClientDataType",
+        "CredentialDeviceType",
+        "PublicKeyCredentialDescriptor",
+        "ResidentKeyRequirement",
+        "UserVerificationRequirement",
+        only_in=("ownvitals.auth.passkey_ceremonies",),
+    ),
 }
 
 EDGE_CUTS: dict[str, str] = {
