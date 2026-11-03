@@ -41,9 +41,10 @@ own path with its own lock, described there; it bypasses none of these for user 
    owner sets it to a reference (an issue URL or a dated document id) once the checklist of §2 is
    complete; agents never set it. Empty: AI is off whatever the flag says, and the admin page
    says "provider review not recorded".
-3. **The evals passed for this model and prompt** (§9): the setting `ai_eval_ref` holds the
-   model id and `ai_prompt_version` the owner's eval run passed with, and they equal the current
-   ones. The owner sets it after reading the summary; agents never set it.
+3. **The evals passed for this model, prompt and tool set** (§9): the setting `ai_eval_ref` holds
+   the model id, `ai_prompt_version` and `ai_toolset_version` (a constant bumped whenever a tool,
+   its arguments or its output schema change) that the owner's eval run passed with, and all three
+   equal the current ones. The owner sets it after reading the summary; agents never set it.
 4. **The user consented** (§3), to the current consent version, and has not withdrawn.
 5. **The user's monthly budget allows it** (§7): a reservation succeeded.
 
@@ -52,8 +53,8 @@ without it the worker refuses AI jobs with `ai_not_configured`. The key never en
 a job row, an event or a model request body other than the SDK's header.
 
 Proved by: `test_ai_gates.py` (each lock alone off → no call, the fake model records zero
-requests; all five on → one call; an `ai_eval_ref` naming another model or prompt version → no
-call), `test_egress_runtime.py` (already: the model host only with AI
+requests; all five on → one call; an `ai_eval_ref` naming another model, prompt version or
+tool-set version → no call), `test_egress_runtime.py` (already: the model host only with AI
 on, worker only), the compose checks of the backend suite extended (the key file only in the worker
 service of `compose.yaml`).
 
@@ -91,8 +92,8 @@ provider's terms needs a new review reference; the admin page shows the referenc
   `UPDATE ai_consents SET withdrawn_at …` (which takes the consent row's lock), (2) cancel the
   user's queued and running AI jobs (a running job's next fenced write fails, ADR 0005 §4), (3)
   **delete** `ai_conversations`, `ai_messages` and `ai_digests` of the user.
-- **Storing a reply** is a transaction that first reads the consent row `FOR SHARE` and checks it
-  is not withdrawn, then inserts the reply. The two transactions therefore serialise on the
+- **Storing a reply or a digest** is a transaction that first reads the consent row `FOR SHARE` and checks it
+  is not withdrawn, then inserts the reply or digest. The two transactions therefore serialise on the
   consent row: either the reply commits first and the withdrawal then deletes it, or the
   withdrawal commits first and the reply transaction sees `withdrawn_at` and stores nothing. The
   worker also re-checks consent before each model call, so no new call starts after withdrawal.
@@ -209,23 +210,43 @@ greps the logs and `ai_audit`.
   price for input, the higher one). The owner's eval run (§9) reports the largest ratio of actual
   to bounded input tokens; a ratio above 1 blocks setting `ai_eval_ref`.
 - **Tables.** `ai_reservations` (owned): `id`, `owner_id`, `month`, `amount` (micro-USD,
-  `CHECK (amount >= 0)`), `actual` (NULL until settled), `state` (`reserved`, `settled`,
+  `CHECK (amount >= 0)`), `actual` (NULL until settled, `CHECK (actual >= 0)`), `state` (`reserved`, `settled`,
   `released`), `job_id`, `created_at`. `ai_spend` (owned, one row per owner and month):
   `reserved`, `spent`, both `CHECK (… >= 0)`. `ai_spend_global` (system, one row per month): the
-  same two columns and checks, and the global cap.
+  same two columns and checks, and the global cap. **Privileges**: `ownvitals_app` has only
+  `SELECT` on `ai_spend` and `ai_reservations` (under forced RLS, to show the user their budget)
+  and **no privilege at all** on `ai_spend_global`; every write goes through the functions below.
+  The migration creates the tables and these grants, nothing else.
 - **Functions** (ADR 0002 §3's rules: `SECURITY DEFINER`, owned by a `NOLOGIN` role
   `ownvitals_ai`, fixed `search_path`, no caller-supplied owner: the owner is the transaction's
-  `UserContext` user, as RLS reads it; minimal returns; installed by the migration and reviewed):
+  `UserContext` user, as RLS reads it; minimal returns). **They are never created by a
+  migration.** Like the queue functions (`docs/dev/jobs.md`, "db-functions"), they live in a new
+  idempotent script, `docker/postgres/ai/50-ai.sql` (the role `ownvitals_ai` and the five functions
+  of this section, `ai_purge_expired()` of §5 included), which compose's `db-functions` one-shot
+  runs **as the superuser** after `20-queue.sql`, `30-maint.sql`, `40-withings.sql` and
+  `rate.sql`, in the same transaction (`db-functions.sh` and the `Dockerfile`'s `/app/db-functions`
+  copy list gain the file). Each function's `md5(pg_get_functiondef)` is pinned in
+  `backend/src/ownvitals/db/queue_digests.py`, so the startup and per-connection check
+  (`queue_check.py`, `verify_queue`) refuses a database whose functions differ, and guard 9
+  (`tests/queue_guard.py`) admits `ownvitals_ai`'s functions exactly. **One lock order in every
+  function**: the month's global row, then the user's row, then the reservation row; a function
+  that starts from a reservation id reads its month and owner without a lock first, then locks in
+  that order, so reserve, settle, release and the reaper can't deadlock with one another:
   - `ai_reserve(amount, job_id) → reservation id | NULL`: locks the global row, then the user's
-    row (one lock order everywhere), and only if `spent + reserved + amount ≤ cap` on **both**
+    row, and only if `spent + reserved + amount ≤ cap` on **both**
     adds `amount` to both `reserved` and inserts the reservation (`reserved`). NULL → no call.
   - `ai_settle(id, actual)`: `UPDATE ai_reservations SET state = 'settled', actual = $2 WHERE id
     = $1 AND owner_id = <context user> AND state = 'reserved' RETURNING month, amount`; only if a
     row returns, in the **same transaction**, both counters of **the reservation's own month**
     move `reserved −= amount, spent += actual`. A second settle, or a settle after a release, finds
-    no `reserved` row and changes nothing.
+    no `reserved` row and changes nothing. **Actual above the reservation** (the bound was wrong):
+    the actual amount is charged in full, since it was billed, even when that takes `spent` past
+    the cap (the counters' `CHECK`s are against negatives, not against the cap); the call is
+    recorded as an `ai_cost_overrun` (an audit status and a metric, counts only), and since every
+    later reservation needs `spent + reserved + amount ≤ cap`, no further call is made that month
+    once the cap is passed.
   - `ai_release(id)`: the same with `state = 'released'` and `reserved −= amount` only.
-  - `ai_settle_lost()`: the reaper's cross-user path. It settles, at their full `amount`, the
+  - `ai_settle_lost()`: the reaper's cross-user path, in the same lock order per row. It settles, at their full `amount`, the
     reservations still `reserved` whose job is terminal or whose lease expired, with the same
     conditional update per row, and returns only a count. It is the only cross-user AI spend path.
 - **When each runs.** Settle with the response's usage after a completed call. **Release only
@@ -243,15 +264,19 @@ greps the logs and `ai_audit`.
 
 Proved by: `test_ai_cost_cap.py` (with PostgreSQL, not mocks): 50 concurrent reservations
 against a cap that admits 10 → exactly 10 succeed and `spent + reserved` never exceeds either cap,
-sampled during the run; **double settle** (the second changes nothing); **settle then crash**
+sampled during the run; reserve, settle, release and `ai_settle_lost()` run concurrently on the
+same user without deadlock; **double settle** (the second changes nothing); **settle then crash**
 (the settle committed, the job not marked done; `ai_settle_lost()` then changes nothing);
 release then settle (no change); a timeout and a 500 charged at the reserved amount, a 429
 released; a reservation made in January and settled in February charges January; the global cap
-binding before the user cap; the `CHECK`s refuse a negative counter; an unpriced model refused;
+binding before the user cap; the `CHECK`s refuse a negative counter or actual; an actual
+above the reservation charged in full, recorded as an overrun, and the next reservation that
+month refused; `ownvitals_app` can't write `ai_spend` or `ai_reservations` and can't read
+`ai_spend_global`; an unpriced model refused;
 caps of 0 refuse everything; `ai_reserve` with no `UserContext` refused. `test_ai_pricing.py`:
 the bound is never below the actual cost for every recorded fake response.
-The definer-function tests (as `test_queue_functions.py` does for the queue): the four
-functions' owner, `search_path` and grants.
+The definer-function tests (as `test_queue_functions.py` does for the queue): the five
+functions' owner, `search_path`, grants and digests; `queue_check` refuses a changed body.
 
 ### 8. Prompt injection: threat model
 
@@ -284,10 +309,22 @@ Two layers, both on **synthetic accounts only**:
   backend must refuse each.
 - **The model evals (real model, run by the owner, outside CI)**: `python -m ownvitals.ai.eval`,
   a module of its own, not a subcommand of the generic operator CLI.
-  - **Process role.** It is a worker-role module: it joins `WORKER_ROLE_MODULES` (the egress
-    guard's list of modules that may call `install_worker_allowlist`, `docs/dev/egress.md`, ADR
-    0009), and calls it with `ai_enabled=True` only after the checks below pass. Web-only entry
-    points stay refused in it. Its outbound host is `api.anthropic.com` only.
+  - **Process role: an eval role of its own, model host only.** It is **not** a worker-role
+    module (the worker's list holds the Withings hosts). `ownvitals.egress` gains one entry,
+    `install_eval_allowlist()`, whose list is exactly `api.anthropic.com`, and a hook kind `eval`
+    for `install_egress_hook('eval', settings)` (ADR 0009's runtime hook, the authoritative
+    control): its resolver set is `api.anthropic.com` plus the database URLs' hosts, with no
+    Withings, Google or SMTP host. `model_async_client()` builds in a worker with AI on **or** in
+    the eval role; every other client builder (Withings, Google, the code exchange, mail) raises
+    `OutboundBlocked` there. The module's `main` first runs the checks below, then installs the hook
+    and the allowlist, both before any connection. The egress guard admits it by name in two lists
+    of `tests/egress_scan.py`: `HOOK_INSTALLERS` (today the worker entry point, the CLI and web)
+    gains `ownvitals.ai.eval`, and a new `EVAL_ROLE_MODULES` (`ownvitals.ai.eval` only) is the
+    only place `install_eval_allowlist` may be called; `WORKER_ROLE_MODULES` does not change.
+    Tests: `test_egress_runtime.py` extended (in the eval role the model client works and every
+    Withings, Google, code-exchange and mail entry point refuses), `test_egress_hook.py` with an
+    `eval` child (resolving `wbsapi.withings.net` or the SMTP host is refused, the model host
+    allowed), `test_egress_guard.py` (the two lists exactly; a call from any other module fails).
   - **Its own database, synthetic only.** It refuses to start unless its database URL differs from
     the app's configured one and the database name ends in `_ai_eval`. It creates the schema there,
     seeds its own synthetic accounts (each with `users.synthetic = true`, a column only seeders
@@ -346,10 +383,15 @@ Two layers, both on **synthetic accounts only**:
   step-up row); the tools and their schema test; the worker client, jobs and conversations; the
   audit log; the cost cap with `ai_reservations`, `ai_spend`, the global row and the definer
   functions `ai_reserve`, `ai_settle`, `ai_release` and `ai_settle_lost`; the CI evals and the
-  `ownvitals.ai.eval` module, which joins `WORKER_ROLE_MODULES` (an egress-guard change, ADR 0009);
+  `ownvitals.ai.eval` module with the egress package's eval role (`install_eval_allowlist`, hook
+  kind `eval`, `HOOK_INSTALLERS` and `EVAL_ROLE_MODULES` in the guard; ADR 0009 and
+  `docs/dev/egress.md` are amended by that issue); `docker/postgres/ai/50-ai.sql` with its
+  digests;
   the 90-day conversation purge as a worker maintenance task through a narrow definer function,
   `ai_purge_expired()`, which deletes conversations past retention and returns a count; the UI (consent, chat, digest, budget messages), whose screens the
   mock-ups don't cover and so go to the Architect (AGENTS.md "UI design").
+- ADR 0003 §1's derived-key list (`app_secret_key` → HKDF-SHA256) gains the label `ai-audit`
+  (§6); rotating `app_secret_key` makes old audit fingerprints unmatchable, which is acceptable.
 - ADR 0003 §4's table gains "Give AI consent: step-up yes"; ADR 0007 gains the outbox kind
   `ai_digest_ready` (a fixed text, no content).
 - `compose.yaml` mounts `anthropic_api_key` into the worker only; `docs/dev/ai.md` is written by

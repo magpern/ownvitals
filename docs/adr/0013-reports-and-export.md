@@ -107,7 +107,10 @@ One archive per request, `ownvitals-export-<date>.zip`, with:
     by `ctx`'s user id alone (the user-scoped rule of ADR 0003 §1, guard 8) and returns only the
     allowlisted columns. The builder never imports the account tables; guard 8 enforces it.
     Audit events (§5) are written through `ownvitals.auth`'s `record_event(ctx, kind, detail)`,
-    also keyed by `ctx`'s user, a second new entry point.
+    also keyed by `ctx`'s user, a second new entry point. `kind` is one of §5's kinds and
+    `detail` a typed model per kind with a closed set of fields (export id, export kind, size,
+    attempt number, completed flag, a reason code from an enum): **no free text**, refused by
+    the model otherwise.
 
   It streams the archive into
   `export_chunks` (an owned table: `owner_id`, `export_id`, `seq`, `bytes` of at most 4 MiB),
@@ -127,15 +130,23 @@ One archive per request, `ownvitals-export-<date>.zip`, with:
   attachment`, `Cache-Control: no-store`, `Content-Type: application/zip` (or `application/pdf`),
   `X-Content-Type-Options: nosniff`. The body is streamed from the chunks. **Cross-site requests
   are refused**: the request must carry `Sec-Fetch-Site: same-origin`; any other value, or none,
-  gets 403 without counting an attempt, so another site can't make a stepped-up browser spend
-  the download (the SPA starts it as a same-origin navigation).
+  gets 403 `download_same_origin_required` without counting an attempt, so another site can't
+  make a stepped-up browser spend the download (the SPA starts it as a same-origin navigation).
+  The error page served with that 403 says "Start the download from your ownvitals Settings
+  page." and links there.
 - **Single use, short-lived.** A download that streams to the end sets `download_count` and
   deletes the chunks at once (the row stays, `expired`, as a record); an interrupted download can
   be retried, at most 3 attempts in all, until `expires_at`. "Single-use" therefore means one
   completed transfer.
 - **Purge.** An hourly worker maintenance task (owner-less upkeep, ADR 0005 §8) calls one narrow
-  `SECURITY DEFINER` function, `exports_purge_expired()` (ADR 0002 §3's rules: `NOLOGIN` owner,
-  fixed `search_path`, no arguments, returns counts only). It is the only cross-user export path:
+  `SECURITY DEFINER` function, `exports_purge_expired()` (ADR 0002 §3's rules: owned by a
+  `NOLOGIN` role `ownvitals_exports`, fixed `search_path`, no arguments, returns counts only).
+  It is **never created by a migration**: it lives in a new idempotent script,
+  `docker/postgres/exports/60-exports.sql`, which compose's `db-functions` one-shot runs as the
+  superuser with the other function scripts (`docs/dev/jobs.md`, "db-functions"; after ADR 0014's
+  `50-ai.sql`), and its `md5(pg_get_functiondef)` is pinned in
+  `backend/src/ownvitals/db/queue_digests.py`, checked at startup and per connection
+  (`queue_check.py`) and admitted exactly by guard 9 (`tests/queue_guard.py`). It is the only cross-user export path:
   it marks exports past `expires_at` expired, deletes their chunks and the chunks of failed
   builds, and deletes export rows past their 90 days.
 - **Not under the envelope.** Chunks hold the same data as the source rows, under the same RLS
@@ -198,10 +209,10 @@ the whole history).
 | §3 FIT | `test_export_fit.py`: off by default; on: decode, CRC, every field equals the rows; no estimate field |
 | §4 request | `test_auth_stepup.py` extended (export: refused without recent auth, without step-up; accepted with both); `test_exports_api.py` (one in progress, the 24 h limit; the doctor PDF's own limits) |
 | §4 isolation | `test_export_isolation.py`: two synthetic users with rows in every owned table **and** in `users` and `auth_events`; user A's export holds none of B's rows, B's email or B's events; B's session gets 404 for A's export id; the job runs only in A's context (RLS tests in the worker context); the builder imports no account table (guard 8) |
-| §4 download | `test_exports_download.py`: refused without step-up; refused with `Sec-Fetch-Site` `cross-site`, `same-site`, `none` or missing, without counting an attempt; 404 cross-user; headers; a completed download deletes the chunks; three attempts then refused; no export id or token-like value in logs (the logging test) |
-| §4 purge | `test_exports_purge.py`: `exports_purge_expired()` expires and deletes chunks past `expires_at` for two users, deletes rows after 90 days, returns counts only; its owner, `search_path` and grants |
+| §4 download | `test_exports_download.py`: refused without step-up; refused with `Sec-Fetch-Site` `cross-site`, `same-site`, `none` or missing, as 403 `download_same_origin_required` with the Settings link, without counting an attempt; 404 cross-user; headers; a completed download deletes the chunks; three attempts then refused; no export id or token-like value in logs (the logging test) |
+| §4 purge | `test_exports_purge.py`: `exports_purge_expired()` expires and deletes chunks past `expires_at` for two users, deletes rows after 90 days, returns counts only; its owner, `search_path`, grants and digest; `queue_check` refuses a changed body |
 | §4 size | `test_export_size.py`: a limit set low fails the job with `export_too_large` and leaves no chunk |
-| §5 audit | `test_exports_api.py`: each event written, none with content |
+| §5 audit | `test_exports_api.py`: each event written, none with content; `record_event` refuses a `detail` field outside its kind's model |
 | §6 doctor PDF | `test_doctor_pdf.py`: text extraction finds each section, the footer on every page; no estimate, experimental or trend finding, score or `attrib=1` value appears even when the account has them; hidden findings absent; manual readings hollow and counted as "entered manually"; no name or email in the PDF or the job's arguments; the ECG strip's scale (mm per second and per mV from the PDF's drawing units) within 0.5 % |
 | e2e | `export.spec.ts`: request with step-up, wait for ready, download, unzip, manifest checks |
 
