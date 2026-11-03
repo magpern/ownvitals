@@ -47,6 +47,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.crypto.keks",
             "ownvitals.flags.routes",
             "ownvitals.notify.outbox",
+            "ownvitals.ai.budget",
         ),
     )
     private = Allowlist(prefixes=("ownvitals.db",))
@@ -117,6 +118,10 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.notify.outbox", False, True),
         ("ownvitals.notify.sender", False, False),
         ("ownvitals.notify", False, False),
+        # The AI reaper (#205): that exact module, never a user session, nothing else in ai.
+        ("ownvitals.ai.budget", False, True),
+        ("ownvitals.ai", False, False),
+        ("ownvitals.ai.pricing", False, False),
     ],
 )
 def test_the_owning_modules_are_allowlisted(module: str, user: bool, system: bool) -> None:
