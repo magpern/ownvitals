@@ -29,6 +29,7 @@ from ownvitals.auth import totp
 from ownvitals.auth.cookies import SESSION_COOKIE
 from ownvitals.auth.deps import require_admin_stepup, require_sensitive, require_stepup
 from ownvitals.context import UserContext
+from passkeytools import SoftAuthenticator
 
 # PLAN section 6's step-up list, and the actions ADR 0003 section 4 adds, each with the test
 # below that covers it. A new action goes here and gets its test.
@@ -45,6 +46,9 @@ PLAN_ACTIONS = {
     "link Google": "test_link_google",
     "unlink Google": "test_unlink_google",
     "admin writes (5 minutes)": "test_admin_writes_need_a_step_up_within_five_minutes",
+    # ADR 0011 section 8 (M3): recent authentication and a step-up, like linking Google.
+    "add a passkey": "test_add_a_passkey",
+    "remove a passkey": "test_remove_a_passkey",
 }
 
 Act = Callable[[Browser], Awaitable[httpx.Response]]
@@ -191,6 +195,40 @@ async def test_unlink_google(env: Env) -> None:
     identity = await env.scalar("SELECT id FROM identities")
     await check_sensitive(
         env, browser, lambda b: b.request("DELETE", f"/api/auth/identities/{identity}"), 204
+    )
+
+
+async def test_add_a_passkey(env: Env) -> None:
+    """Both halves of the ceremony: the options, and the registration with a fresh challenge."""
+    browser = await signed_in(env)
+    auth = SoftAuthenticator()
+
+    async def add(b: Browser) -> httpx.Response:
+        options = await b.post("/api/auth/passkeys/register/options")
+        if options.status_code != 200:
+            return options
+        return await b.post(
+            "/api/auth/passkeys/register", {"credential": auth.create(options.json())}
+        )
+
+    await check_sensitive(env, browser, add, 201)
+    # The finishing call on its own is refused too once the window has passed.
+    options = (await browser.post("/api/auth/passkeys/register/options")).json()
+    await no_stepup(env)
+    late = await browser.post("/api/auth/passkeys/register", {"credential": auth.create(options)})
+    assert (late.status_code, reason(late)) == (403, "step_up_required")
+    assert await env.scalar("SELECT count(*) FROM webauthn_credentials") == 1
+
+
+async def test_remove_a_passkey(env: Env) -> None:
+    browser = await signed_in(env)
+    await env.run(
+        "INSERT INTO webauthn_credentials (user_id, credential_id, public_key, name) "
+        "SELECT id, sha256('synthetic'), 'k', 'Passkey' FROM users"
+    )
+    passkey = await env.scalar("SELECT id FROM webauthn_credentials")
+    await check_sensitive(
+        env, browser, lambda b: b.request("DELETE", f"/api/auth/passkeys/{passkey}"), 204
     )
 
 
