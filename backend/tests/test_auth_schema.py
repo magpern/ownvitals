@@ -113,11 +113,13 @@ def test_on_delete_rules(admin: Connection) -> None:
         ),
         {"tables": [*metadata.tables, "jobs", "job_events"]},
     ).all()
-    # Of jobs and job_events, only the owner keys #10 adds (job_events.job_id is #9's).
+    # Of jobs and job_events, only the owner keys #10 adds. #9's job_events_job_fkey is
+    # (owner_id, job_id) -> jobs, so its first column is owner_id too: without the target in the
+    # filter, which of the two landed in the dict depended on the catalog's row order (#178).
     rules = {
         (r[0], r[1]): (r[2], r[3])
         for r in rows
-        if r[0] not in ("jobs", "job_events") or r[1] == "owner_id"
+        if r[0] not in ("jobs", "job_events") or (r[1] == "owner_id" and r[2] == "users")
     }
     set_null = {("invites", "created_by"), ("invites", "used_by"), ("auth_events", "user_id")}
     for (table, column), (target, action) in rules.items():
