@@ -25,18 +25,20 @@ GRACEFUL_SHUTDOWN_SECONDS = 5
 
 
 class Server(uvicorn.Server):
-    """uvicorn's server that also tells the open job event streams to end when shutdown begins
-    (``app.state.event_hub.close_threadsafe()``, set by the job queue's lifespan), so they do not
-    hold the graceful shutdown. Without a hub it is plain uvicorn."""
+    """uvicorn's server that also tells the open job event streams and QR login streams to end
+    when shutdown begins (``app.state.event_hub`` and ``app.state.qr_hub``, set by the job
+    queue's and the QR routes' lifespans), so they do not hold the graceful shutdown. Without a
+    hub it is plain uvicorn."""
 
     def __init__(self, config: uvicorn.Config, app: FastAPI) -> None:
         super().__init__(config)
         self.app = app
 
     def handle_exit(self, sig: int, frame: FrameType | None) -> None:
-        hub = getattr(self.app.state, "event_hub", None)
-        if hub is not None:
-            hub.close_threadsafe()
+        for name in ("event_hub", "qr_hub"):  # the job and QR login streams
+            hub = getattr(self.app.state, name, None)
+            if hub is not None:
+                hub.close_threadsafe()
         super().handle_exit(sig, frame)
 
 

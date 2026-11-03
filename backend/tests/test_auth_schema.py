@@ -1,7 +1,7 @@
 """Migration 0005_auth: the account tables (system tables), their grants and their ON DELETE
 rules, and the owner foreign keys it adds to ``jobs`` and ``job_events``; migration
-0014_passkeys's three passkey tables (ADR 0011; their own checks are in
-``test_auth_passkeys_schema.py``)."""
+0014_passkeys's three passkey tables and 0015_qr_login's QR approve-login table (ADR 0011; their
+own checks are in ``test_auth_passkeys_schema.py`` and ``test_auth_qrlogin_schema.py``)."""
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -27,8 +27,8 @@ def admin(auth_schema: None, database_url: str):
     engine.dispose()
 
 
-def test_there_are_fifteen_auth_tables_all_listed_with_a_reason() -> None:
-    assert len(AUTH) == 15
+def test_there_are_sixteen_auth_tables_all_listed_with_a_reason() -> None:
+    assert len(AUTH) == 16
     for name in AUTH:
         assert SYSTEM_TABLES[name].strip(), name
 
@@ -121,7 +121,15 @@ def test_on_delete_rules(admin: Connection) -> None:
         for r in rows
         if r[0] not in ("jobs", "job_events") or (r[1] == "owner_id" and r[2] == "users")
     }
-    set_null = {("invites", "created_by"), ("invites", "used_by"), ("auth_events", "user_id")}
+    set_null = {
+        ("invites", "created_by"),
+        ("invites", "used_by"),
+        ("auth_events", "user_id"),
+        # ADR 0011 section 5: a QR row outlives its pre-session and its approving session
+        # unbound (it can then never complete), until the purge.
+        ("qr_logins", "presession_id"),
+        ("qr_logins", "approver_session_id"),
+    }
     for (table, column), (target, action) in rules.items():
         expected = "n" if (table, column) in set_null else "c"
         assert action == expected, (table, column)
@@ -138,7 +146,11 @@ def test_on_delete_rules(admin: Connection) -> None:
     assert rules[("webauthn_challenges", "user_id")] == ("users", "c")
     assert rules[("webauthn_challenges", "session_id")] == ("sessions", "c")
     assert rules[("webauthn_challenges", "presession_id")] == ("pre_sessions", "c")
-    assert len(rules) == 18
+    # ADR 0011 section 5: a QR row goes with its approving account.
+    assert rules[("qr_logins", "approver_user_id")] == ("users", "c")
+    assert rules[("qr_logins", "presession_id")] == ("pre_sessions", "n")
+    assert rules[("qr_logins", "approver_session_id")] == ("sessions", "n")
+    assert len(rules) == 21
 
 
 def test_deleting_a_user_cascades_except_events_and_invites(admin: Connection) -> None:

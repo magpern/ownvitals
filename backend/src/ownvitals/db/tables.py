@@ -43,6 +43,9 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
                 "before the user is known",
                 "webauthn_challenges": "single-use WebAuthn challenges, taken by hash before "
                 "the user is known",
+                # QR approve-login (ADR 0011 section 5, migration 0015_qr_login).
+                "qr_logins": "QR approve-login requests, created by a browser without a user "
+                "and found by nonce hash when a phone scans",
             }.items()
         },
         "withings_apps": "Withings application configuration (ADR 0002 section 3, ADR 0004 "

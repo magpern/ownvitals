@@ -2,8 +2,9 @@
 
 Only ``ownvitals.auth`` (and migrations and tests) may import this module or name these tables
 in SQL; guard 8 (``tests/test_auth_tables_guard.py``) fails the build otherwise. The migration
-``0005_auth`` creates the first twelve tables and ``0014_passkeys`` the passkey tables (ADR 0011
-sections 2 and 4); ``tests/test_auth_schema.py`` keeps the migrations and this module in step.
+``0005_auth`` creates the first twelve tables, ``0014_passkeys`` the passkey tables (ADR 0011
+sections 2 and 4) and ``0015_qr_login`` the QR approve-login table (section 5);
+``tests/test_auth_schema.py`` keeps the migrations and this module in step.
 """
 
 from typing import Any
@@ -111,6 +112,11 @@ sessions = Table(
     _ts("stepup_at"),
     Column("user_agent", Text),
     Column("ip", Text),
+    # QR approve-login (ADR 0011 section 5; migration 0015_qr_login).
+    Column("origin", Text, nullable=False, server_default="signin"),
+    Column("mfa_by_approval", Boolean, nullable=False, server_default="false"),
+    Column("approved_factor", Text),
+    Column("approved_by_session_id", UUID(as_uuid=True)),
     Index("sessions_user_id_idx", "user_id"),
     Index("sessions_expires_at_idx", "expires_at"),
 )
@@ -286,6 +292,35 @@ webauthn_challenges = Table(
     _ts("expires_at", nullable=False),
     CheckConstraint(
         "purpose IN ('register', 'signin', 'reauth')", name="webauthn_challenges_purpose"
+    ),
+)
+
+# QR approve-login (ADR 0011 section 5; migration 0015_qr_login).
+qr_logins = Table(
+    "qr_logins",
+    metadata,
+    _id(),
+    Column("nonce_hash", LargeBinary, nullable=False, unique=True),
+    Column("presession_id", UUID(as_uuid=True), ForeignKey("pre_sessions.id", ondelete="SET NULL")),
+    Column("state", Text, nullable=False, server_default="pending"),
+    _ts("created_at", nullable=False, default_now=True),
+    _ts("scan_deadline", nullable=False),
+    Column("desktop_ip", Text),
+    Column("desktop_browser", Text, nullable=False),
+    Column("desktop_os", Text, nullable=False),
+    Column("desktop_place", Text),
+    Column("approver_user_id", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")),
+    Column(
+        "approver_session_id", UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL")
+    ),
+    _ts("scanned_at"),
+    _ts("approve_deadline"),
+    _ts("approved_at"),
+    Column("approved_factor", Text),
+    _ts("complete_deadline"),
+    CheckConstraint(
+        "state IN ('pending', 'scanned', 'approved', 'completed', 'denied', 'expired')",
+        name="qr_logins_state",
     ),
 )
 
