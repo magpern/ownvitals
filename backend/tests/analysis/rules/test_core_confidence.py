@@ -19,8 +19,8 @@ from ownvitals.analysis.rules.core import (
     confidence_run,
     confidence_trend,
     lowest,
-    trend_of,
 )
+from ownvitals.analysis.rules.trendrule import trend_of
 
 LOW, MEDIUM, HIGH = Confidence.LOW, Confidence.MEDIUM, Confidence.HIGH
 
@@ -106,6 +106,8 @@ def test_the_tiers_of_the_rules_follow_the_adr() -> None:
     experimental = {r for r, s in SPECS.items() if s.tier is Tier.EXPERIMENTAL}
     assert experimental == {"B1", "B3", "C1x"}
     persistent = {r for r, s in SPECS.items() if s.persistent}
-    assert persistent == {"B2", "B4", "B5", "C2"}
-    assert all(s.tier is Tier.TREND for r, s in SPECS.items() if r not in experimental)
+    assert persistent == {"B2", "B4", "B5", "C2", "N3"}
+    system = {r for r, s in SPECS.items() if s.tier is Tier.SYSTEM}
+    assert system == {r for r in SPECS if r.startswith("Q1:")}
+    assert all(s.tier is Tier.TREND for r, s in SPECS.items() if r not in experimental | system)
     assert all(spec.rule_id == rule and spec.version == 1 for rule, spec in SPECS.items())

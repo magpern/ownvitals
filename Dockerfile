@@ -50,12 +50,13 @@ COPY --from=spa /spa/dist ./static
 # The database functions and their runner script (compose's db-functions one-shot): installed from
 # the release image, never from the host, so a rollback re-installs the previous release's
 # functions (docs/dev/deploy.md, "Database functions"). 30-maint.sql, then 40-withings.sql, then
-# rate.sql, then 50-ai.sql, are installed in the same transaction, after 20-queue.sql. Owned by
-# root; the app user can read them, not change them.
+# rate.sql, then 50-outbox.sql, then 50-ai.sql, are installed in the same transaction, after
+# 20-queue.sql. Owned by root; the app user can read them, not change them.
 COPY --chmod=0555 docker/postgres/queue/20-queue.sql docker/postgres/queue/db-functions.sh /app/db-functions/
 COPY --chmod=0555 docker/postgres/maint/30-maint.sql /app/db-functions/
 COPY --chmod=0555 docker/postgres/withings/40-withings.sql /app/db-functions/
 COPY --chmod=0555 docker/postgres/withings/rate.sql /app/db-functions/
+COPY --chmod=0555 docker/postgres/notify/50-outbox.sql /app/db-functions/
 COPY --chmod=0555 docker/postgres/ai/50-ai.sql /app/db-functions/
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \

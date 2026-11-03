@@ -130,6 +130,9 @@ ROWS: Final[Mapping[str, str]] = {
     "input_revision, input_fingerprint) VALUES (:owner, 'body_path:' || :tag, :day, 0, "
     "CAST('{\"status\": \"computed\"}' AS jsonb), 'synthetic/1', 0, :hash) RETURNING id",
     "user_profiles": "INSERT INTO public.user_profiles (owner_id) VALUES (:owner) RETURNING id",
+    # The mail outbox (#194). A sent row, so the one-pending-per-kind index never collides.
+    "mail_outbox": "INSERT INTO public.mail_outbox (owner_id, kind, route, state) "
+    "VALUES (:owner, 'findings_waiting', 'findings', 'sent') RETURNING id",
     # The AI cost cap (#205): one month row per planting (n) and a settled reservation.
     "ai_spend": "INSERT INTO public.ai_spend (owner_id, month) VALUES "
     "(:owner, CAST(DATE '2000-01-01' + make_interval(months => :n) AS date)) RETURNING id",

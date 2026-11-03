@@ -190,7 +190,7 @@ def test_the_entrypoint_starts_the_runner_with_the_image_s_sql() -> None:
         '  "host=db port=5432 dbname=ownvitals user=postgres" \\\n'
         "  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \\\n"
         "  /app/db-functions/40-withings.sql /app/db-functions/rate.sql \\\n"
-        "  /app/db-functions/50-ai.sql"
+        "  /app/db-functions/50-outbox.sql /app/db-functions/50-ai.sql"
     )
     assert "PGPASSWORD" not in source
     assert "psql" not in source

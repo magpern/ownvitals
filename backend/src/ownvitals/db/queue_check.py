@@ -13,10 +13,12 @@ procedure, aggregate or operator exists in any schema, except the Withings funct
 ``ensure_month_partitions``, ``webhook_secrets_apply``, ``webhook_event_insert`` and
 ``webhook_events_purge_owner`` admitted by name in ``20-queue.sql``, and the rate functions
 ``withings_rate_claim``,
-``withings_rate_release`` and ``withings_rate_pause`` admitted the same way, each pinned like a
-queue function when it is installed, and the AI cost cap's ``ai_reserve``, ``ai_settle``,
-``ai_release`` and ``ai_settle_lost`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 section 7;
-#205), owned by ``ownvitals_ai``: absent until that script has run, then all four, each pinned;
+``withings_rate_release`` and ``withings_rate_pause`` admitted the same way, and the mail outbox's
+``mail_outbox_claim``, ``mail_outbox_mark`` and ``owner_notice_queue`` (#194, ADR 0007 section 3;
+their digests in ``ownvitals.db.outbox_digests``), each pinned like a queue function when it is
+installed, and the AI cost cap's ``ai_reserve``, ``ai_settle``, ``ai_release`` and
+``ai_settle_lost`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 section 7; #205), owned by
+``ownvitals_ai``: absent until that script has run, then all four, each pinned;
 no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
 CHECK, index or partition expression of any table or domain calls one of ``SQL_TEXT_BUILTINS``.
 So nothing can shadow a built-in a function body calls, and nothing a function fires (a trigger,
@@ -44,6 +46,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from ownvitals.db.outbox_digests import OUTBOX_DIGESTS
 from ownvitals.db.queue_digests import QUEUE_DIGESTS
 from ownvitals.db.role_check import DatabaseRoleError, is_authentication_failure
 
@@ -130,6 +133,37 @@ RATE_PINS: dict[str, tuple[str, str, str, str]] = {
         _RATE_ACL,
     ),
 }
+# The mail outbox's family (docker/postgres/notify/50-outbox.sql, ADR 0007 section 3; #194),
+# owned by its own NOLOGIN role. Absent until db-functions has run that script; once present,
+# pinned the same way.
+OUTBOX_ROLE = "ownvitals_mail_outbox"
+OUTBOX_FUNCTION_NAMES = (
+    "mail_outbox_claim",
+    "mail_outbox_mark",
+    "owner_notice_queue",
+)
+OUTBOX_VERSION = "ownvitals-outbox v1"
+_OUTBOX_ACL = f"ownvitals_app=X/{OUTBOX_ROLE},{OUTBOX_ROLE}=X/{OUTBOX_ROLE}"
+OUTBOX_PINS: dict[str, tuple[str, str, str, str]] = {
+    "mail_outbox_claim": (
+        "p_limit integer, p_lease_seconds integer",
+        OUTBOX_ROLE,
+        "search_path=pg_catalog, pg_temp",
+        _OUTBOX_ACL,
+    ),
+    "mail_outbox_mark": (
+        "p_id uuid, p_outcome text",
+        OUTBOX_ROLE,
+        "search_path=pg_catalog, pg_temp",
+        _OUTBOX_ACL,
+    ),
+    "owner_notice_queue": (
+        "p_kind text",
+        OUTBOX_ROLE,
+        "search_path=pg_catalog, pg_temp",
+        _OUTBOX_ACL,
+    ),
+}
 # The AI cost cap's family (docker/postgres/ai/50-ai.sql, ADR 0014 section 7; #205), owned by
 # its own NOLOGIN role. Absent until db-functions has run that script; once one is present, all
 # four must be, each pinned (its digest in queue_digests.py with the others).
@@ -210,6 +244,7 @@ _NAMES = ", ".join(
         *QUEUE_FUNCTIONS,
         *WITHINGS_FUNCTION_NAMES,
         *RATE_FUNCTION_NAMES,
+        *OUTBOX_FUNCTION_NAMES,
         *AI_FUNCTION_NAMES,
     )
 )
@@ -418,6 +453,17 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
             continue
         args, owner, config, acl = RATE_PINS[name]
         expected = [name, args, "true", owner, config, RATE_VERSION, QUEUE_DIGESTS[name], acl]
+        if len(rows) != 1 or rows[0] != expected:
+            found.append(
+                f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
+                "settings, version, md5 or ACL)"
+            )
+    for name in OUTBOX_FUNCTION_NAMES:
+        rows = by_name.get(name, [])
+        if not rows:
+            continue
+        args, owner, config, acl = OUTBOX_PINS[name]
+        expected = [name, args, "true", owner, config, OUTBOX_VERSION, OUTBOX_DIGESTS[name], acl]
         if len(rows) != 1 or rows[0] != expected:
             found.append(
                 f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "

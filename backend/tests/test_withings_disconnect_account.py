@@ -203,6 +203,14 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
                 {"o": owner_id, "c": connection},
             )
             _plant_derived(conn, owner_id, digest)
+            # The mail outbox (#194): an owned row, gone with its account.
+            conn.execute(
+                text(
+                    "INSERT INTO mail_outbox (owner_id, kind, route) "
+                    "VALUES (:o, 'findings_waiting', 'findings')"
+                ),
+                {"o": owner_id},
+            )
             # The AI cost cap (#205): the user's month and one settled reservation.
             conn.execute(
                 text("INSERT INTO ai_spend (owner_id, month, spent) VALUES (:o, '2026-11-01', 5)"),
@@ -307,6 +315,7 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
         "intraday",
         "job_events",
         "jobs",
+        "mail_outbox",
         "measure_groups",
         "measures",
         "metric_daily",

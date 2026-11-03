@@ -19,6 +19,11 @@ WORKER_PACKAGES = (
     "ownvitals.findings",
     "ownvitals.reports",
     "ownvitals.insights",
+    # #194: the outbox writes (the owner notice of PLAN section 4.3 is queued in the worker).
+    # Exactly that module: the sender beside it is web's.
+    "ownvitals.notify.outbox",
+    # #205: the AI cost cap (the worker reserves, settles and runs the reaper).
+    "ownvitals.ai",
 )
 # What the worker process imports at start. Add each new worker entry point here (the worker
 # loop, the job runner, the Withings client ...); the reachability test imports them all in a
@@ -31,6 +36,7 @@ WORKER_ENTRYPOINTS = (
     "ownvitals.jobs",
     "ownvitals.withings.client",
     "ownvitals.worker.kinds",  # #164: the handlers the worker process registers
+    "ownvitals.notify.outbox",  # #194: the owner-notice write (connections.providers.withings)
 )
 # What the worker must not load (the egress package itself runs on httpx and urllib).
 _REACHABILITY_WATCHED = (

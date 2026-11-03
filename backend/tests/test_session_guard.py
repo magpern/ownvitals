@@ -46,6 +46,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.jobs.queue",
             "ownvitals.crypto.keks",
             "ownvitals.flags.routes",
+            "ownvitals.notify.outbox",
             "ownvitals.ai.budget",
         ),
     )
@@ -113,6 +114,10 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.flags.effective", False, False),
         ("ownvitals.admin.settings", False, False),
         ("ownvitals.admin.db", False, False),
+        # The outbox's claim and mark (#194): that exact module; the sender opens none.
+        ("ownvitals.notify.outbox", False, True),
+        ("ownvitals.notify.sender", False, False),
+        ("ownvitals.notify", False, False),
         # The AI reaper (#205): that exact module, never a user session, nothing else in ai.
         ("ownvitals.ai.budget", False, True),
         ("ownvitals.ai", False, False),

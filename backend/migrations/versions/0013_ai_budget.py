@@ -1,7 +1,7 @@
 """AI cost cap: reservations, per-user and global monthly spend (ADR 0014 section 7; #205)
 
 Revision ID: 0013_ai_budget
-Revises: 0011_analysis_schema
+Revises: 0012_outbox
 Create Date: 2026-11-03
 
 Units are integer micro-USD; a month is the calendar month in UTC, stored as its first day.
@@ -30,7 +30,7 @@ from alembic import op
 from ownvitals.db.rls import enable_owner_rls
 
 revision: str = "0013_ai_budget"
-down_revision: str | Sequence[str] | None = "0011_analysis_schema"
+down_revision: str | Sequence[str] | None = "0012_outbox"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

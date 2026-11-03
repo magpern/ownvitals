@@ -632,3 +632,62 @@ def test_reserve_buckets_by_the_utc_month(ai: Connection, app_database_url: str)
         reservation(ai, rid).month == now.date().replace(day=1)
         or (now + timedelta(seconds=5)).day == 1
     )
+
+
+# --- settle once, under concurrency -----------------------------------------------------------
+
+
+def _waiting_on_locks(su: Connection) -> int:
+    return int(
+        su.execute(
+            text(
+                "SELECT count(DISTINCT pid) FROM pg_locks WHERE NOT granted "
+                "AND locktype IN ('transactionid', 'tuple')"
+            )
+        ).scalar_one()
+    )
+
+
+@pytest.mark.parametrize("second", ["settle", "release", "reaper"])
+def test_two_racing_endings_of_one_reservation_change_it_once(
+    ai: Connection, app_database_url: str, second: str
+) -> None:
+    """Both calls pass the unlocked read of the reservation before either takes the month's
+    row: the superuser holds that row until both wait on it. Only the conditional update decides,
+    so exactly one call changes the reservation and the counters move once."""
+    user = new_user()
+    job = running_job(ai, user)
+    with app_engine(app_database_url) as app:
+        rid = reserve(app, user, job, 1000, user_cap=BIG, global_cap=BIG)
+        if second == "reaper":
+            ai.execute(text("DELETE FROM jobs WHERE id = :j"), {"j": job})
+        calls = {
+            "settle": (user, SETTLE, {"id": rid, "actual": 300}),
+            "release": (user, RELEASE, {"id": rid}),
+            "reaper": (None, SETTLE_LOST, {"n": 10}),
+        }
+        first_call = (user, SETTLE, {"id": rid, "actual": 200})
+        with engine_for(admin_url()) as engine, engine.connect() as holder:
+            holder.execute(
+                text("SELECT 1 FROM ai_spend_global WHERE month = :m FOR UPDATE"),
+                {"m": _month(ai)},
+            )
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [
+                    pool.submit(call, app, who, sql, **params)
+                    for who, sql, params in (first_call, calls[second])
+                ]
+                deadline = time.monotonic() + 10
+                while _waiting_on_locks(ai) < 2:
+                    assert time.monotonic() < deadline, "the calls never queued on the row"
+                    time.sleep(0.01)
+                holder.commit()
+                results = [f.result(timeout=30) for f in futures]
+    changed = [bool(r) for r in results]
+    assert sum(changed) == 1, results
+    row = reservation(ai, rid)
+    assert row.state in ("settled", "released")
+    ledger_matches_counters(ai)
+    reserved, spent = counters(ai, "ai_spend", owner_id=user, month=_month(ai))
+    assert reserved == 0
+    assert spent == (row.actual or 0)

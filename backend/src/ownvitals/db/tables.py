@@ -51,6 +51,9 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
         "slots, freed on release or when the lease expires",
         "withings_rate_demand": "which account is waiting for a Withings rate token, so a "
         "lane and round-robin can be applied; identifiers only, no health data",
+        # The mail outbox's system table (#194, ADR 0007 section 1): mail to the admins.
+        "owner_notices": "owner notices for the admins (ADR 0007): no recipient, a fixed kind "
+        "and route only; written and read only through the outbox's definer functions",
         # The AI cost cap (#205, ADR 0014 section 7). Cross-user, so not an owned table.
         "ai_spend_global": "the month's AI spend and reservations of all users together, "
         "held against the global cap; written only through the AI budget functions; counts in "
@@ -59,8 +62,9 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
 )
 # System tables the app role must have no privilege on at all (guard 2). The others get the
 # default DML of ADR 0002 section 5, or the narrower set their migration grants.
-# ``webhook_events`` is closed to the app role (ADR 0002 section 3), and so is
-# ``ai_spend_global`` (ADR 0014 section 7). ``withings_apps`` is not
+# ``webhook_events`` is closed to the app role (ADR 0002 section 3), and so are ``owner_notices``
+# (ADR 0007 section 3, amended #72) and ``ai_spend_global`` (ADR 0014 section 7).
+# ``withings_apps`` is not
 # listed: the app role holds column-level SELECT, which guard 2 records separately.
 NO_APP_ACCESS = frozenset(
     {
@@ -69,6 +73,7 @@ NO_APP_ACCESS = frozenset(
         "withings_rate_buckets",
         "withings_rate_slots",
         "withings_rate_demand",
+        "owner_notices",
         "ai_spend_global",
     }
 )

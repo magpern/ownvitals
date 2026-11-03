@@ -72,10 +72,11 @@ jobs only, no model call:
 
 | File | Covers |
 |---|---|
-| `test_ai_cost_cap.py` | 50 concurrent reservations admit exactly 10 (and a sampler sees no moment over a cap); the global cap across users; every function at once without deadlock; double settle; release then settle; settle then crash; a crash after reserve; the reaper's rules and limit; January settled in February; overrun; the CHECKs; the app role's privileges; RLS; account deletion |
+| `test_ai_cost_cap.py` | 50 concurrent reservations admit exactly 10 (and a sampler sees no moment over a cap); the global cap across users; every function at once without deadlock; double settle, sequential and racing (settle, release or the reaper); release then settle; settle then crash; a crash after reserve; the reaper's rules and limit; January settled in February; overrun; the CHECKs; the app role's privileges; RLS; account deletion |
 | `test_ai_functions.py` | each function callable by the app role only (every other role refused); signatures without an owner; guard 2, guard 9, digests and the startup check; the script plain SQL, idempotent, superuser only; drift found, refused and repaired |
 | `test_ai_budget.py` | the Python layer through the fence; a lost lease; the release rule; the month and the paused message; the cap settings; the worker's maintenance |
 | `test_ai_pricing.py` | no model priced; the bound never below a cost within it |
+| `test_ai_migration.py` | migration 0013 alone (no script) leaves the app role read-only |
 
 ## Known gaps
 
@@ -86,3 +87,12 @@ jobs only, no model call:
 - An account deleted while a reservation is open leaves its amount in the month's global
   `reserved` (the user rows cascade away); it lowers the global headroom for that month only.
 - With `ai_insights` off the reaper does not run, so a reservation left open keeps counting.
+- `MonthBudget.paused` reflects the user's cap only: the app role cannot read the global row, so
+  a month refused by the global cap shows as not paused. The chat and digest UI issue decides
+  what to show then.
+- The reaper also settles a reservation whose lease has expired before the queue reaper bumps
+  `lease_version`. A worker that is late but alive then finds it settled (`UNCHANGED`), so an
+  actual above the bound is not charged; the loss is limited by the request bound and the eval's
+  actual-to-bound ratio.
+- The overrun is logged (`ai_cost_overrun`, a count), not yet a metric: `metrics.py` comes with
+  #167.
