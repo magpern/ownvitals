@@ -181,13 +181,33 @@ async def test_a_second_run_changes_nothing_and_a_recompute_is_identical(env: En
 
 async def test_behind_until_the_normaliser_has_caught_up(env: Env) -> None:
     ctx, connection = await seeded(env)
-    assert (await env.daily(ctx)).status == "behind"  # no observations yet
     await env.normalise(ctx)
     assert (await env.daily(ctx)).status == "written"
     await env.ingest(ctx, connection, weight(7, OCT_20 + 3 * DAY, 78_000))
     assert (await env.daily(ctx)).status == "behind"  # the source moved; observations did not
     assert len(await env.days(ctx)) == 4  # and nothing was touched
     assert (await env.both(ctx)).inserted == 1
+
+
+async def test_other_streams_observations_are_not_this_passes_inputs(env: Env) -> None:
+    """Observations of another stream carry their own revision and may have no group id: they
+    neither make the pass `behind` nor reach the group id conversion (#230's rows)."""
+    ctx, _ = await seeded(env)
+    await env.normalise(ctx)
+    env.jenv.sql(
+        "INSERT INTO observations (owner_id, metric_key, ts, source_ts, source_tz, value, "
+        "source_value_raw, source_unit, conversion, quality_flags, source_grpid, source_type, "
+        "source_position, algo_version, input_revision, input_fingerprint) VALUES "
+        "(:o, 'weight', '2026-10-20T03:00:00Z', '2026-10-20T03:00:00Z', 'UTC', 1, 1, 0, "
+        "'e0:kg', '{}', NULL, NULL, NULL, 'other/1', 777, decode(repeat('ef', 32), 'hex')), "
+        "(:o, 'sleep_duration', '2026-10-20T03:00:00Z', '2026-10-20T03:00:00Z', 'UTC', 1, 1, 0, "
+        "'e0:s', '{}', NULL, NULL, NULL, 'other/1', 777, decode(repeat('ef', 32), 'hex'))",
+        o=ctx.user_id,
+    )
+    outcome = await env.daily(ctx)
+    assert (outcome.status, outcome.inserted) == ("written", 4)
+    assert len(await env.days(ctx)) == 4  # the other stream's row is not a weight reading
+    assert (await env.daily(ctx)).status == "current"
 
 
 async def test_nothing_imported_is_nothing(env: Env) -> None:
@@ -264,7 +284,7 @@ async def test_a_purge_and_the_same_data_again_is_stale_until_it_is_normalised(e
 
     assert (await env.daily(ctx, between=purge_and_ingest_again)).status == "stale"
     assert await env.days(ctx) == []
-    assert (await env.daily(ctx)).status == "behind"  # the observations are gone: normalise first
+    assert (await env.daily(ctx)).status == "current"  # the observations are gone: nothing to do
     assert (await env.both(ctx)).status == "written"
 
 

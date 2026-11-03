@@ -4,9 +4,8 @@
 fenced transaction, a test a user session):
 
 1. **Read** the ``measures`` revision *first*, then the observations of the metrics this pass
-   owns (``daily.KEYS``). If any observation of the owner carries another revision, or there is
-   none while the owner has live reading groups, the normaliser has not caught up with the
-   source (``behind``; it queues this pass when it has).
+   owns (``daily.KEYS``, rows with a source type). If any of them carries another revision, the
+   normaliser has not caught up with the source (``behind``; it queues this pass when it has).
    If every stored daily row already carries this revision, fingerprint and algorithm version,
    nothing changed (``current``).
 2. **Write**, and in the same transaction first take an owner-scoped advisory lock (two passes
@@ -51,16 +50,18 @@ _REVISION_LOCK = text(
     "SELECT revision FROM data_revisions WHERE owner_id = :o AND stream = :s FOR SHARE"
 )
 _LOCK = text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))")
+# Only the rows this pass reads: the measures-derived observations of its own metric keys.
+# Observations of another stream (sleep, activity) carry that stream's own revision and may have
+# no group id, so they must neither count as "behind" nor reach ``int(source_grpid)``.
 _OBSERVATIONS = text(
     "SELECT metric_key, source_grpid, source_type, source_position, ts, source_tz, value, "
     "quality_flags FROM observations WHERE owner_id = :o "
-    "AND metric_key = ANY(CAST(:keys AS text[]))"
+    "AND metric_key = ANY(CAST(:keys AS text[])) AND source_type IS NOT NULL"
 )
 _BEHIND = text(
-    "SELECT (SELECT count(*) FROM observations WHERE owner_id = :o AND input_revision <> :r) + "
-    "CASE WHEN NOT EXISTS (SELECT 1 FROM observations WHERE owner_id = :o) AND EXISTS "
-    "(SELECT 1 FROM measure_groups WHERE owner_id = :o AND deleted_at IS NULL "
-    "AND (category IS NULL OR category = 1)) THEN 1 ELSE 0 END"
+    "SELECT count(*) FROM observations WHERE owner_id = :o "
+    "AND metric_key = ANY(CAST(:keys AS text[])) AND source_type IS NOT NULL "
+    "AND input_revision <> :r"
 )
 _STATE = text(
     "SELECT count(*) AS total, count(*) FILTER (WHERE algo_version = :a AND "
@@ -149,7 +150,9 @@ async def _read(db: AsyncSession, owner: UUID) -> Inputs | Outcome:
     revision = await _revision(db, owner, lock=False)
     if revision == 0:
         return Outcome("nothing")
-    if (await db.execute(_BEHIND, {"o": owner, "r": revision})).scalar_one() > 0:
+    if (
+        await db.execute(_BEHIND, {"o": owner, "r": revision, "keys": list(KEYS)})
+    ).scalar_one() > 0:
         return Outcome("behind")
     observations = await _read_observations(db, owner)
     digest = fingerprint(observations)

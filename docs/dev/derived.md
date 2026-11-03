@@ -186,8 +186,10 @@ PLAN §7.1 step 3 and §5. Code: `derived/daily.py` (pure: `compute()`, `fingerp
 (`daily.KEYS`, the keys this pass owns); other keys are never read. A reading is used unless the
 normaliser flagged it `unconfirmed`, `implausible` or `duplicate`; `jump` is advisory. The day is
 the calendar date in the reading's own `source_tz`, so DST changes, trips and readings around
-midnight need no special case. Day assignment by the profile's `fixed_tz` is not applied here
-(#37's rule is the reading's zone); a later issue that reads `user_profiles` owns that change.
+midnight need no special case. Day assignment by the profile's `fixed_tz` is **not applied** here
+(#37's rule is the reading's zone). When it is, the zone setting must become part of the
+inputs (the fingerprint), so that a settings change recomputes the affected days; tracked in
+#187.
 
 **Row.** `method`, `value`, `morning` (the value, only for `morning`), `min`, `max`, `mad`, `n`
 from `DailyValue`; `mean` is the mean of the day's readings in a 60-digit half-even context,
@@ -202,12 +204,15 @@ rules.
 fingerprint. A reader compares both values (see "Provenance" above).
 
 **A pass** (`daily_owner`, one owner): (1) read the revision, then the observations. If any
-observation carries another revision, or there are none while live reading groups exist, the
-normaliser has not caught up: `behind` (it queues this pass when it has). If every stored row
+observation this pass reads (its own metric keys, with a source type: the rows derived from
+`measures`) carries another revision, the normaliser has not caught up: `behind` (it queues
+this pass when it has). Observations of another stream carry that stream's revision and may
+have no group id; they are never read, counted or compared. If every stored row
 carries this revision, fingerprint and version, `current`. (2) Compute (pure). (3) In one
 transaction: take an **owner-scoped advisory lock** (`pg_advisory_xact_lock` on
 `metric_daily:<owner>`), lock the revision row `FOR SHARE`, check that the revision and the
-observations' fingerprint are the ones read, and only then write; otherwise `stale`, nothing
+observations' fingerprint are the ones read (the fingerprint is **re-read inside the write
+transaction**, after the locks; it must stay there), and only then write; otherwise `stale`, nothing
 written. A purge of imported data removes the revision row and the observations, so a pass that
 read before it writes nothing (the review of #225; tested by interleaving a purge). The write
 compares **by content**: only days whose stored values differ are updated, days with no reading
