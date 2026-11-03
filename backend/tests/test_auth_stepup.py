@@ -112,7 +112,7 @@ async def test_connect_and_disconnect_need_the_exported_dependency(env: Env) -> 
 
 async def test_delete_account(env: Env) -> None:
     browser = await signed_in(env)
-    await check_sensitive(env, browser, lambda b: b.request("DELETE", "/api/auth/account"), 204)
+    await check_sensitive(env, browser, lambda b: b.request("DELETE", "/api/auth/account"), 200)
     assert await env.scalar("SELECT count(*) FROM users") == 0
 
 
