@@ -4,6 +4,9 @@ Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88 (
 Its three open questions were decided by the Architect on 2026-10-31 (§7 the code exchange,
 recorded as [roadmap Amendment 1](../roadmap.md); §7 reconnect and disconnect; §3 revocation
 after a KEK compromise), and so was the source of the webhook secrets (§4), raised in review.
+Post-port review (#16, 2026-11-03): no decision changed; the Withings OAuth state of §7 is kept
+hashed in the web process rather than in a table, which holds for one web process only (#165
+decides a table or an amendment; threat model T36).
 
 ## Context
 
