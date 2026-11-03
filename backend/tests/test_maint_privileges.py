@@ -110,6 +110,7 @@ FORBIDDEN_TABLES = {
     "workouts",
     "sleep_series",
     "intraday",
+    "user_profiles",
 }
 WRITE_PRIVILEGES = ("INSERT", "UPDATE", "DELETE", "TRUNCATE")
 
