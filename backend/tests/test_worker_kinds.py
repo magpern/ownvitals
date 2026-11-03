@@ -28,6 +28,8 @@ from jobtools import admin_fixture, queue_schema_fixture  # noqa: F401 - fixture
 from ownvitals.crypto.envelope import WebhookSeed
 from ownvitals.crypto.keks import KeyUnavailable
 from ownvitals.db import create_session_factory
+from ownvitals.derived.daily_job import KIND as DAILY_KIND
+from ownvitals.derived.daily_job import DailyInput
 from ownvitals.derived.normalize_job import KIND as NORMALIZE_KIND
 from ownvitals.derived.normalize_job import NormalizeInput
 from ownvitals.jobs import KINDS, Complete, JobFailure, JobRun
@@ -51,6 +53,7 @@ from ownvitals.worker.loop import Worker, create_worker_engine
 SEED_BYTES = b"\x11" * 32
 BASE = "https://app.example.test"
 WITHINGS_KINDS = [
+    "derive_daily",  # #186: the metric_daily pass, queued by derive_normalize
     "derive_normalize",  # #185: the observations pass, queued after the measures streams
     "ecg_fetch",
     "token_refresh_recover",
@@ -71,7 +74,11 @@ def test_the_worker_registry_holds_the_withings_kinds_and_the_api_none() -> None
     assert registry.names() == WITHINGS_KINDS
     for kind in registry:
         # The disconnect revoke (#163) takes its own input: ids of the row and the session.
-        own = {DISCONNECT_KIND: DisconnectInput, NORMALIZE_KIND: NormalizeInput}
+        own = {
+            DISCONNECT_KIND: DisconnectInput,
+            NORMALIZE_KIND: NormalizeInput,
+            DAILY_KIND: DailyInput,
+        }
         expected = own[kind.name] if kind.name in own else INPUT_MODELS[kind.name]
         assert kind.input_model is expected
     assert worker_registry() is not registry  # a new one each time; nothing shared

@@ -362,7 +362,7 @@ the SQL in `db-functions` uses the same numbers. A UUID key is hashed to `int4`
 | 3, partitions | `pg_advisory_xact_lock` | the parent table's oid, as `int4` | ADR 0002 §2 |
 | 4, webhook-secret rotation (amended 2026-10-31, #72) | `pg_advisory_xact_lock` | the `withings_apps` id, hashed | ADR 0008 §2 (each rotation step), ADR 0004 §4 (the function) |
 | 5, mfa failures (amended 2026-11-01, #10) | `pg_advisory_xact_lock` | the user id, hashed | ADR 0003 §2 (`record_failure`: the fifth failed code in an hour mails the user once) |
-| 6, normalisation (amended 2026-11-03, #229) | `pg_advisory_xact_lock` | the user id, hashed | `derived/normalize_db.py`: one write of `observations` per owner at a time, so a live and a backfill pass never insert the same keys together |
+| 6, normalisation (amended 2026-11-03, #229, #186) | `pg_advisory_xact_lock` | the user id, hashed | normaliser and daily passes, `derived/normalize_db.py` and `derived/daily_db.py`: one write of `observations` or `metric_daily` per owner at a time, so a live and a backfill pass never insert the same keys together |
 
 A new advisory lock adds its row here in the PR that introduces it.
 
