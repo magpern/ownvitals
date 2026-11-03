@@ -2,7 +2,7 @@
 
 Only ``ownvitals.auth`` (and migrations and tests) may import this module or name these tables
 in SQL; guard 8 (``tests/test_auth_tables_guard.py``) fails the build otherwise. The migration
-``0005_auth`` creates the first twelve tables and ``0013_passkeys`` the passkey tables (ADR 0011
+``0005_auth`` creates the first twelve tables and ``0014_passkeys`` the passkey tables (ADR 0011
 sections 2 and 4); ``tests/test_auth_schema.py`` keeps the migrations and this module in step.
 """
 
@@ -243,7 +243,7 @@ auth_events = Table(
     Index("auth_events_at_idx", "at"),
 )
 
-# Passkeys (ADR 0011 sections 1, 2 and 4; migration 0013_passkeys).
+# Passkeys (ADR 0011 sections 1, 2 and 4; migration 0014_passkeys).
 pre_sessions = Table(
     "pre_sessions",
     metadata,

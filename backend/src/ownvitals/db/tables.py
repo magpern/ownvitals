@@ -36,7 +36,7 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
                 "mfa_recovery_codes": "recovery-code HMACs, read during sign-in",
                 "rate_limits": "HMAC-keyed counters of anonymous and per-account attempts",
                 "auth_events": "the security event log, written before a user may be known",
-                # Passkeys (ADR 0011 sections 2 and 4, migration 0013_passkeys).
+                # Passkeys (ADR 0011 sections 2 and 4, migration 0014_passkeys).
                 "pre_sessions": "the pre-session of a browser without a session, found by "
                 "cookie hash before a user is known",
                 "webauthn_credentials": "passkeys, looked up by credential id at sign-in "
@@ -61,12 +61,17 @@ SYSTEM_TABLES: MappingProxyType[str, str] = MappingProxyType(
         # The mail outbox's system table (#194, ADR 0007 section 1): mail to the admins.
         "owner_notices": "owner notices for the admins (ADR 0007): no recipient, a fixed kind "
         "and route only; written and read only through the outbox's definer functions",
+        # The AI cost cap (#205, ADR 0014 section 7). Cross-user, so not an owned table.
+        "ai_spend_global": "the month's AI spend and reservations of all users together, "
+        "held against the global cap; written only through the AI budget functions; counts in "
+        "micro-USD, no user and no content",
     }
 )
 # System tables the app role must have no privilege on at all (guard 2). The others get the
 # default DML of ADR 0002 section 5, or the narrower set their migration grants.
-# ``webhook_events`` is closed to the app role (ADR 0002 section 3), and so is ``owner_notices``
-# (ADR 0007 section 3, amended #72). ``withings_apps`` is not
+# ``webhook_events`` is closed to the app role (ADR 0002 section 3), and so are ``owner_notices``
+# (ADR 0007 section 3, amended #72) and ``ai_spend_global`` (ADR 0014 section 7).
+# ``withings_apps`` is not
 # listed: the app role holds column-level SELECT, which guard 2 records separately.
 NO_APP_ACCESS = frozenset(
     {
@@ -76,5 +81,6 @@ NO_APP_ACCESS = frozenset(
         "withings_rate_slots",
         "withings_rate_demand",
         "owner_notices",
+        "ai_spend_global",
     }
 )

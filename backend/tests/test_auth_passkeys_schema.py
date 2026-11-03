@@ -1,4 +1,4 @@
-"""Migration 0013_passkeys: the passkey tables' checks, uniqueness and cascades (ADR 0011
+"""Migration 0014_passkeys: the passkey tables' checks, uniqueness and cascades (ADR 0011
 sections 1, 2 and 4). The columns, grants and ON DELETE rules are in ``test_auth_schema.py``.
 Synthetic rows only."""
 

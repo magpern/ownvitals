@@ -26,6 +26,8 @@ WITHINGS_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "withings" / "40-
 RATE_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "withings" / "rate.sql"
 OUTBOX_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "notify" / "50-outbox.sql"
 OUTBOX_ROLE = "ownvitals_mail_outbox"
+AI_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "ai" / "50-ai.sql"
+AI_ROLE = "ownvitals_ai"
 QUEUE_ROLE = "ownvitals_queue"
 WEBHOOK_ROLES = ("ownvitals_webhook_secrets", "ownvitals_webhook_events")
 # libpq reads these when the URL leaves the host or a service open; the database fixtures drop
@@ -195,19 +197,38 @@ def drop_outbox_functions(url: str | None = None) -> None:
         engine.dispose()
 
 
+def drop_ai_functions(url: str | None = None) -> None:
+    """Drop the AI budget functions and ``ownvitals_ai`` when they are there (#205).
+
+    The role's column grants and its functions go with it. Not a way to hide the family from
+    guard 2: ``migrated`` installs it again.
+    """
+    admin = url if url is not None else test_admin_url()
+    engine = create_engine(admin, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            exists = connection.execute(
+                text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": AI_ROLE}
+            ).first()
+            if exists is not None:
+                connection.execute(text(f"DROP OWNED BY {AI_ROLE} CASCADE"))
+                connection.execute(text(f"DROP ROLE {AI_ROLE}"))
+    finally:
+        engine.dispose()
+
+
 def install_db_functions(url: str | None = None) -> None:
     """``20-queue.sql``, then ``30-maint.sql``, then ``40-withings.sql``, then ``rate.sql``,
-    then ``50-outbox.sql``, as db-functions does."""
-    sql = "\n".join(
-        script.read_text(encoding="utf-8")
-        for script in (QUEUE_SCRIPT, MAINT_SCRIPT, WITHINGS_SCRIPT, RATE_SCRIPT, OUTBOX_SCRIPT)
-    )
+    then ``50-outbox.sql``, then ``50-ai.sql``, as db-functions does."""
+    scripts = (QUEUE_SCRIPT, MAINT_SCRIPT, WITHINGS_SCRIPT, RATE_SCRIPT, OUTBOX_SCRIPT, AI_SCRIPT)
+    sql = "\n".join(script.read_text(encoding="utf-8") for script in scripts)
     run_superuser_sql(url if url is not None else test_admin_url(), sql)
 
 
 def ready_to_downgrade(owner_url: str) -> None:
     """Drop the queue and the Withings functions, and empty the key-ring check table, so a
     downgrade can drop the tables."""
+    drop_ai_functions()
     drop_outbox_functions()
     drop_withings_functions()
     drop_queue()

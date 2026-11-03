@@ -22,6 +22,8 @@ WORKER_PACKAGES = (
     # #194: the outbox writes (the owner notice of PLAN section 4.3 is queued in the worker).
     # Exactly that module: the sender beside it is web's.
     "ownvitals.notify.outbox",
+    # #205: the AI cost cap (the worker reserves, settles and runs the reaper).
+    "ownvitals.ai",
 )
 # What the worker process imports at start. Add each new worker entry point here (the worker
 # loop, the job runner, the Withings client ...); the reachability test imports them all in a

@@ -9,7 +9,7 @@ issue. The rest of the account system is in [auth.md](auth.md).
 
 | Path | What |
 |---|---|
-| `backend/migrations/versions/0013_passkeys.py` | `users.webauthn_handle`, and the system tables `pre_sessions`, `webauthn_credentials`, `webauthn_challenges` (guard 8; `db/tables.py` lists them) |
+| `backend/migrations/versions/0014_passkeys.py` | `users.webauthn_handle`, and the system tables `pre_sessions`, `webauthn_credentials`, `webauthn_challenges` (guard 8; `db/tables.py` lists them) |
 | `backend/src/ownvitals/auth/passkeys.py` | the shared core: failures and their reasons, the relying party, challenges, the account-row lock, list, rename, remove; no WebAuthn library, so the CLI and the reset flow load none |
 | `backend/src/ownvitals/auth/passkey_ceremonies.py` | options, registration and authentication with the sign count; the only module that imports `webauthn` |
 | `backend/src/ownvitals/auth/passkey_routes.py` | `/api/auth/passkeys`: list, rename, remove, register |

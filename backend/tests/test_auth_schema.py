@@ -1,6 +1,6 @@
 """Migration 0005_auth: the account tables (system tables), their grants and their ON DELETE
 rules, and the owner foreign keys it adds to ``jobs`` and ``job_events``; migration
-0013_passkeys's three passkey tables (ADR 0011; their own checks are in
+0014_passkeys's three passkey tables (ADR 0011; their own checks are in
 ``test_auth_passkeys_schema.py``)."""
 
 import pytest
