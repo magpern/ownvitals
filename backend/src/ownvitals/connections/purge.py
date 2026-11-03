@@ -1,0 +1,74 @@
+"""The "also delete imported data" option of a disconnect (PLAN section 4.3, ADR 0004 section 7).
+
+It runs after the disconnect cleared the credentials, in the user's own session. Imported rows
+first, then this owner's webhook events through their definer (it finds them through the
+connection rows, so before the row goes), then the disconnected row itself, so its Withings
+account can be linked again. Account deletion (``ownvitals.auth.purge``) uses the webhook purge
+the same way before the account cascades.
+"""
+
+from uuid import UUID
+
+from sqlalchemy import Column, MetaData, Table, delete, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from ownvitals.connections.repository import delete_disconnected_row
+from ownvitals.context import UserContext
+from ownvitals.db import user_session
+from ownvitals.ingest.tables import data_revisions, sync_cursors
+from ownvitals.withings.tables import (
+    activity_daily,
+    devices,
+    ecg_recordings,
+    intraday,
+    measure_groups,
+    measures,
+    sleep_series,
+    sleep_summaries,
+    workouts,
+)
+
+Factory = async_sessionmaker[AsyncSession]
+# A narrow handle for the queue table, which has no Core table in this package.
+_JOBS = Table("jobs", MetaData(), Column("owner_id"))
+# Children before parents. Jobs last, so a failure leaves the queue row to retry from.
+IMPORTED = (
+    measures,
+    measure_groups,
+    devices,
+    ecg_recordings,
+    sleep_summaries,
+    activity_daily,
+    workouts,
+    sleep_series,
+    intraday,
+    sync_cursors,
+    data_revisions,
+    _JOBS,
+)
+
+
+async def purge_imported(factory: Factory, ctx: UserContext) -> None:
+    """Remove this user's imported rows. The Withings row stays.
+
+    The session is this user's, and every statement names their id, so another
+    user's rows are left alone. The queue's events follow their job.
+    """
+    async with user_session(factory, ctx) as db:
+        for table in IMPORTED:
+            await db.execute(delete(table).where(table.c.owner_id == ctx.user_id))
+
+
+async def purge_webhook_events(factory: Factory, ctx: UserContext) -> None:
+    """This owner's webhook events, through the definer. It finds them through the owner's
+    connection rows, so it runs while those rows still exist."""
+    async with user_session(factory, ctx) as db:
+        await db.execute(text("SELECT public.webhook_events_purge_owner()"))
+
+
+async def purge_connection(factory: Factory, ctx: UserContext, connection_id: UUID) -> None:
+    """Imported rows, this owner's webhook events, then the disconnected row. A row that is
+    still live is left in place."""
+    await purge_imported(factory, ctx)
+    await purge_webhook_events(factory, ctx)
+    await delete_disconnected_row(factory, ctx, connection_id)

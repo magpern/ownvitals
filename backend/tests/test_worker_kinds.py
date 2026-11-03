@@ -31,6 +31,7 @@ from ownvitals.db import create_session_factory
 from ownvitals.jobs import KINDS, Complete, JobFailure, JobRun
 from ownvitals.jobs.runner import RunConfig
 from ownvitals.jobs.withings import INPUT_MODELS, NO_TARGETS, ConnectInput
+from ownvitals.withings.disconnect import DISCONNECT_KIND, DisconnectInput
 from ownvitals.withings.subscriptions import callback_url, derive_secret
 from ownvitals.withings.tokens import RefreshResult
 from ownvitals.withings.webhooks import WebhookTargets
@@ -52,6 +53,7 @@ WITHINGS_KINDS = [
     "token_refresh_recover",
     "withings_backfill",
     "withings_connect",
+    "withings_disconnect",
     "withings_poll",
     "withings_reconcile",
     "withings_sync",
@@ -65,7 +67,9 @@ def test_the_worker_registry_holds_the_withings_kinds_and_the_api_none() -> None
     registry = worker_registry()
     assert registry.names() == WITHINGS_KINDS
     for kind in registry:
-        assert kind.input_model is INPUT_MODELS[kind.name]
+        # The disconnect revoke (#163) takes its own input: ids of the row and the session.
+        expected = DisconnectInput if kind.name == DISCONNECT_KIND else INPUT_MODELS[kind.name]
+        assert kind.input_model is expected
     assert worker_registry() is not registry  # a new one each time; nothing shared
     assert KINDS.names() == []  # the API's registry: POST /api/jobs still refuses every kind
 

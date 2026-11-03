@@ -155,7 +155,8 @@ async def test_deleting_the_account_needs_recent_auth_and_removes_everything(men
     assert await menv.scalar("SELECT count(*) FROM users") == 1
     await browser.post("/api/auth/reauth", {"password": "correct horse battery staple"})
     gone = await browser.request("DELETE", "/api/auth/account")
-    assert gone.status_code == 204
+    assert gone.status_code == 200
+    assert gone.json() == {"status": "deleted", "revoke_failed": False, "removal": None}
     for table in ("users", "sessions", "identities", "known_devices"):
         assert await menv.scalar(f"SELECT count(*) FROM {table}") == 0  # noqa: S608
     assert not browser.signed_in
@@ -171,13 +172,13 @@ async def test_deleting_the_account_needs_step_up_when_totp_is_confirmed(menv: E
     refused = await browser.request("DELETE", "/api/auth/account")
     assert (refused.status_code, reason(refused)) == (403, "step_up_required")
     await menv.run("UPDATE sessions SET stepup_at = now()")
-    assert (await browser.request("DELETE", "/api/auth/account")).status_code == 204
+    assert (await browser.request("DELETE", "/api/auth/account")).status_code == 200
 
 
 async def test_deleting_leaves_other_users_alone(menv: Env) -> None:
     browser = await signed_in(menv)
     await user_with_password(menv, "other@example.com")
-    assert (await browser.request("DELETE", "/api/auth/account")).status_code == 204
+    assert (await browser.request("DELETE", "/api/auth/account")).status_code == 200
     assert await menv.scalar("SELECT email FROM users") == "other@example.com"
 
 
