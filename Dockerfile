@@ -12,7 +12,7 @@ FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d
 # Node is for this stage only (Node 24, the major CI and Dependabot track; Dependabot's docker
 # entry offers minor and patch bumps of the tag and digest). The lockfile layer is cached until
 # it changes. `npm run build` is `tsc -b && vite build`, so a type error fails the image build.
-FROM node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS spa
+FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS spa
 
 WORKDIR /spa
 COPY frontend/package.json frontend/package-lock.json ./
