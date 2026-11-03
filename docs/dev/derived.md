@@ -78,14 +78,15 @@ that does not exist on `main`. Until it lands, an `observations` month exists on
 has asked for it. That step calls `ensure_month_partitions` for every table in
 `PARTITIONED`, `observations` included.
 
-## Known gap: "delete imported data"
+## "Delete imported data"
 
-ADR 0004 §7's "delete imported data" option (`auth/purge.py` `_IMPORTED`) does not yet remove
-`observations`, `metric_daily`, `findings` or `scores`. They are derived from the imported rows
-and are health data, so they must go with them; `user_profiles` stays. Account deletion already
-removes all five through the `owner_id` cascade, and the account-deletion test checks it. The
-tables stay empty until the first M4 writer, and the purge must be extended before that writer
-merges (tracked by the Architect).
+ADR 0004 §7's "also delete imported data" option (`connections/purge.py` `IMPORTED`) removes
+`observations`, `metric_daily`, `findings` and `scores` with the imported rows (#218): they are
+derived from them and are health data. Like the imported rows they are per owner, not per
+connection, so the option removes all of the user's derived rows. `user_profiles` stays
+(settings, listed in `KEPT`). Account deletion removes all five through the `owner_id` cascade.
+`tests/test_withings_disconnect_account.py` enumerates every owned table against `IMPORTED` and
+`KEPT`, so a new owned table must join one of them.
 
 ## Tests
 
