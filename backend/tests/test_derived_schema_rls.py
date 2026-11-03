@@ -2,8 +2,10 @@
 harness (``ctx.py``), as the app role. Two synthetic users; nothing crosses.
 
 Each table gets a test-only repository (``TableRows``) shaped like ``ctx.Rows``: one text column
-plays the row's name. ``filtered=False`` drops the repository's own owner filter, so RLS is the
-only wall left and must still hold alone. Synthetic rows only; no real account or measurement.
+plays the row's name. The names are valid in every table: ``body_path:`` makes them a score
+kind, and every name column accepts the colon. ``filtered=False`` drops the repository's own
+owner filter, so RLS is the only wall left and must still hold alone. Synthetic rows only; no
+real account or measurement.
 """
 
 import uuid
@@ -49,8 +51,9 @@ TABLES: dict[str, tuple[str, str]] = {
     ),
     "scores": (
         "kind",
-        "INSERT INTO scores (owner_id, kind, day, value, algo_version, input_revision, "
-        "input_fingerprint) VALUES (:owner, :name, '2026-10-28', 1, 'synthetic/1', 0, :h)",
+        "INSERT INTO scores (owner_id, kind, day, value, components, algo_version, "
+        "input_revision, input_fingerprint) VALUES (:owner, :name, '2026-10-28', 1, "
+        "'{\"status\": \"computed\"}', 'synthetic/1', 0, :h)",
     ),
     "user_profiles": (
         "day_tz",
@@ -133,17 +136,17 @@ async def test_no_row_crosses_between_two_users(
     alice, bob = _users(database_url)
     rows = TableRows(filtered=filtered, table=table)
     async with EXECUTION_CONTEXTS[context](app_database_url, rows=rows) as ctx:
-        alice_id = await ctx.add(alice, "alice_row")
-        bob_id = await ctx.add(bob, "bob_row")
-        assert await ctx.names(alice) == ["alice_row"]
-        assert await ctx.names(bob) == ["bob_row"]
+        alice_id = await ctx.add(alice, "body_path:alice_row")
+        bob_id = await ctx.add(bob, "body_path:bob_row")
+        assert await ctx.names(alice) == ["body_path:alice_row"]
+        assert await ctx.names(bob) == ["body_path:bob_row"]
         assert await ctx.find(bob, alice_id) is None
         assert await ctx.find(alice, bob_id) is None
         assert await ctx.delete(bob, alice_id) is False
-        assert await ctx.find(alice, alice_id) == "alice_row"
+        assert await ctx.find(alice, alice_id) == "body_path:alice_row"
         assert await ctx.delete(alice, alice_id) is True
         assert await ctx.names(alice) == []
-        assert await ctx.names(bob) == ["bob_row"]
+        assert await ctx.names(bob) == ["body_path:bob_row"]
     with engine_for(database_url) as engine, engine.connect() as conn:
         left = conn.execute(
             text(f"SELECT owner_id FROM public.{table} WHERE owner_id IN (:a, :b)"),  # noqa: S608
@@ -160,7 +163,7 @@ def test_without_a_user_nothing_is_seen_and_no_foreign_owner_is_written(
     alice, bob = _users(database_url)
     insert = text(TABLES[table][1])
     with engine_for(database_url) as engine, engine.begin() as conn:
-        conn.execute(insert, {"owner": alice, "name": "alice_row", "h": HASH})
+        conn.execute(insert, {"owner": alice, "name": "body_path:alice_row", "h": HASH})
     with engine_for(app_database_url) as engine:
         with engine.connect() as conn:
             seen = conn.execute(text(f"SELECT count(*) FROM public.{table}"))  # noqa: S608
@@ -170,7 +173,7 @@ def test_without_a_user_nothing_is_seen_and_no_foreign_owner_is_written(
         with engine.connect() as conn:
             conn.execute(text(as_alice), {"u": str(alice)})
             with pytest.raises(DBAPIError, match="row-level security"), conn.begin_nested():
-                conn.execute(insert, {"owner": bob, "name": "bob_row", "h": HASH})
+                conn.execute(insert, {"owner": bob, "name": "body_path:bob_row", "h": HASH})
             with pytest.raises(DBAPIError, match="row-level security"), conn.begin_nested():
                 conn.execute(update, {"b": bob})  # handing a row to another owner
             conn.rollback()

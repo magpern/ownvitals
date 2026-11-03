@@ -221,8 +221,9 @@ def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
         "origin, subject, window_start, window_end, input_revision, input_fingerprint) VALUES "
         "(:o, 'Q1', '1', 'system', 'info', 'high', 'live', 'user', '2026-11-02', "
         "'2026-11-02', 0, :h)",
-        "INSERT INTO scores (owner_id, kind, day, value, algo_version, input_revision, "
-        "input_fingerprint) VALUES (:o, 'synthetic', '2026-11-02', 0, 'score/1', 0, :h)",
+        "INSERT INTO scores (owner_id, kind, day, components, algo_version, input_revision, "
+        "input_fingerprint) VALUES (:o, 'his', '2026-11-02', '{\"status\": \"not_set\"}', "
+        "'his/1', 0, :h)",
         "INSERT INTO user_profiles (owner_id) VALUES (:o)",
     ):
         conn.execute(text(sql), {"o": owner_id, "h": digest})

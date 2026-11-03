@@ -126,13 +126,18 @@ ROWS: Final[Mapping[str, str]] = {
     "confidence, origin, subject, window_start, window_end, input_revision, input_fingerprint) "
     "VALUES (:owner, 'C1', '1', 'trend', 'attention', 'low', 'live', :tag, :day, :day, 0, "
     ":hash) RETURNING id",
-    "scores": "INSERT INTO public.scores (owner_id, kind, day, value, algo_version, "
-    "input_revision, input_fingerprint) VALUES (:owner, :tag, :day, 0, 'synthetic/1', 0, :hash) "
-    "RETURNING id",
-    # One profile per owner: a second insert for an owner who has one updates it instead, so
-    # the own-insert control still writes one row. Another owner's is refused by the policy.
-    "user_profiles": "INSERT INTO public.user_profiles (owner_id) VALUES (:owner) "
-    "ON CONFLICT (owner_id) DO UPDATE SET updated_at = now() RETURNING id",
+    "scores": "INSERT INTO public.scores (owner_id, kind, day, value, components, algo_version, "
+    "input_revision, input_fingerprint) VALUES (:owner, 'body_path:' || :tag, :day, 0, "
+    "CAST('{\"status\": \"computed\"}' AS jsonb), 'synthetic/1', 0, :hash) RETURNING id",
+    "user_profiles": "INSERT INTO public.user_profiles (owner_id) VALUES (:owner) RETURNING id",
+}
+# Tables with one row per owner (a unique key on ``owner_id`` alone): the own-insert control
+# first removes the context's own row, in the same rolled-back savepoint, or the planted row
+# would make it fail on the key. The foreign insert stays a plain insert in its minimal shape:
+# with the policy it is refused (42501) before the key is checked; with a relaxed ``WITH CHECK``
+# it reaches the key (23505) or goes through, and either is not ``REFUSED``.
+CLEAR_BEFORE_OWN_INSERT: Final[Mapping[str, str]] = {
+    "user_profiles": "DELETE FROM public.user_profiles WHERE owner_id = :owner",
 }
 _PARAM = re.compile(r"(?<![:\w]):([a-z_]+)")
 _WITHINGS_CONNECTION = text(
@@ -308,12 +313,17 @@ class _Undo(Exception):
 Outcome = int | str  # rows affected, or the SQLSTATE that refused it
 
 
-async def attempt(db: AsyncSession, statement: str, params: Mapping[str, Any]) -> Outcome:
+async def attempt(
+    db: AsyncSession, statement: str, params: Mapping[str, Any], *, before: str | None = None
+) -> Outcome:
     """Run one write in a savepoint that is always rolled back: the rows it touched, or the
-    SQLSTATE of the error that refused it."""
+    SQLSTATE of the error that refused it. ``before`` runs first in the same savepoint (its
+    rows are not counted)."""
     rows = 0
     try:
         async with db.begin_nested():
+            if before is not None:
+                await db.execute(text(before), dict(params))
             result = await db.execute(text(statement), dict(params))
             rows = int(result.rowcount)  # pyright: ignore[reportAttributeAccessIssue]
             raise _Undo
@@ -385,7 +395,9 @@ async def probe(
             "blind_update": await attempt(db, update, {"owner": me.user}),
             "blind_delete": await attempt(db, f"DELETE FROM public.{name}", {}),  # noqa: S608
             "truncate": await attempt(db, f"TRUNCATE public.{name}", {}),
-            "own_insert": await attempt(db, insert, bind(insert, me.params(2))),
+            "own_insert": await attempt(
+                db, insert, bind(insert, me.params(2)), before=CLEAR_BEFORE_OWN_INSERT.get(table)
+            ),
         }
     return report
 

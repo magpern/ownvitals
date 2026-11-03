@@ -61,16 +61,17 @@ def _finding(conn: Connection, owner: uuid.UUID, **overrides: Any) -> uuid.UUID:
         "ended_at": None,
         "notify_state": "none",
         "notified_at": None,
+        "metric_keys": ["resting_hr"],
         **overrides,
     }
     return conn.execute(
         text(
             "INSERT INTO findings (owner_id, rule_id, rule_version, tier, severity, confidence, "
             "origin, subject, window_start, window_end, input_revision, input_fingerprint, "
-            "status, ended_at, notify_state, notified_at) VALUES (:owner, :rule_id, "
+            "status, ended_at, notify_state, notified_at, metric_keys) VALUES (:owner, :rule_id, "
             ":rule_version, :tier, :severity, :confidence, :origin, :subject, '2026-10-01', "
-            "'2026-10-28', 0, :hash, :status, :ended_at, :notify_state, :notified_at) "
-            "RETURNING id"
+            "'2026-10-28', 0, :hash, :status, :ended_at, :notify_state, :notified_at, "
+            "CAST(:metric_keys AS text[])) RETURNING id"
         ),
         {"owner": owner, "hash": HASH, **row},
     ).scalar_one()
@@ -197,13 +198,14 @@ def _daily(conn: Connection, owner: uuid.UUID, **overrides: Any) -> None:
         "n": 2,
         "groups": [101],
         "day": "2026-10-28",
+        "key": "weight",
         **overrides,
     }
     conn.execute(
         text(
             "INSERT INTO metric_daily (owner_id, metric_key, day, method, value, morning, mean, "
             "min, max, mad, n, source_groups, algo_version, input_revision, input_fingerprint) "
-            "VALUES (:owner, 'weight', :day, :method, :value, :morning, :mean, :min, :max, :mad, "
+            "VALUES (:owner, :key, :day, :method, :value, :morning, :mean, :min, :max, :mad, "
             ":n, :groups, 'daily/1', 3, :hash)"
         ),
         {"owner": owner, "hash": HASH, **row},
@@ -228,15 +230,77 @@ def test_metric_daily_holds_the_daily_value(conn: Connection) -> None:
     _refused(conn, lambda: _daily(conn, owner, day="2026-10-30", value="NaN", morning="NaN"))
 
 
+def _score(conn: Connection, owner: uuid.UUID, **overrides: Any) -> None:
+    row: dict[str, Any] = {
+        "kind": "his",
+        "day": "2026-10-28",
+        "value": 62,
+        "status": "computed",
+        "version": "his/1",
+        **overrides,
+    }
+    conn.execute(
+        text(
+            "INSERT INTO scores (owner_id, kind, day, value, components, algo_version, "
+            "input_revision, input_fingerprint) VALUES (:owner, :kind, :day, :value, "
+            "jsonb_build_object('status', CAST(:status AS text)), :version, 1, :hash)"
+        ),
+        {"owner": owner, "hash": HASH, **row},
+    )
+
+
+def test_scores_take_adr_0012_kinds_and_a_value_only_when_computed(conn: Connection) -> None:
+    owner = _user(conn)
+    for kind in ("his", "readiness", "body_path:weight", "body_path:muscle_mass:left_arm"):
+        _score(conn, owner, kind=kind)
+    # ADR 0012 section 1: every status but computed stores value NULL.
+    for day, status in enumerate(derived.SCORE_STATUSES[1:], start=1):
+        _score(conn, owner, day=f"2026-10-{day:02d}", value=None, status=status)
+    _refused(conn, lambda: _score(conn, owner, day="2026-10-20", value=None))
+    _refused(conn, lambda: _score(conn, owner, day="2026-10-20", status="not_set"))
+    _refused(conn, lambda: _score(conn, owner, day="2026-10-20", status="normal"))
+    for kind in ("health_improvement", "body_path", "body_path:", "body_path:Weight", "his:x"):
+        _refused(conn, lambda kind=kind: _score(conn, owner, day="2026-10-20", kind=kind))
+
+
+GOOD_KEYS = ("weight", "segmental_muscle_mass:left_arm", "qtc_interval", "fat_mass:right_leg")
+BAD_KEYS = ("Weight", "weight:", ":left_arm", "a:b:c", "weight:Left", "fat mass", "1weight",
+            "weight;drop", "segmental_muscle_mass:left_arm_" + "x" * 30)  # fmt: skip
+
+
+def test_metric_keys_take_one_optional_segment(conn: Connection) -> None:
+    """ADR 0010's segmental keys (``segmental_muscle_mass:left_arm``) in every metric-key
+    column: observations, metric_daily and findings.metric_keys; nothing else."""
+    assert all(re.fullmatch(derived.METRIC_KEY_PATTERN, k) for k in GOOD_KEYS)
+    assert not any(re.fullmatch(derived.METRIC_KEY_PATTERN, k) for k in BAD_KEYS)
+    owner = _user(conn)
+    conn.execute(
+        text(
+            "CREATE TABLE public.observations_y2026m10 PARTITION OF public.observations "
+            "FOR VALUES FROM ('2026-10-01') TO ('2026-11-01')"
+        )
+    )
+    for n, key in enumerate(GOOD_KEYS):
+        _observation(conn, owner, key=key)
+        _daily(conn, owner, key=key)
+        _finding(conn, owner, subject=f"s{n}", metric_keys=[key])
+    _finding(conn, owner, subject="all", metric_keys=list(GOOD_KEYS))
+    for key in BAD_KEYS:
+        _refused(conn, lambda key=key: _observation(conn, owner, key=key))
+        _refused(conn, lambda key=key: _daily(conn, owner, key=key))
+        _refused(conn, lambda key=key: _finding(conn, owner, subject="bad", metric_keys=[key]))
+        _refused(
+            conn,
+            lambda key=key: _finding(conn, owner, subject="bad", metric_keys=["weight", key]),
+        )
+    _refused(conn, lambda: _finding(conn, owner, subject="bad", metric_keys=["weight", ""]))
+
+
 def test_scores_and_profiles_check_their_values(conn: Connection) -> None:
     owner = _user(conn)
-    score = (
-        "INSERT INTO scores (owner_id, kind, day, value, algo_version, input_revision, "
-        "input_fingerprint) VALUES (:o, 'health_improvement', '2026-10-28', 62, :v, 1, :h)"
-    )
-    conn.execute(text(score), {"o": owner, "v": "score/1", "h": HASH})
-    _refused(conn, lambda: conn.execute(text(score), {"o": owner, "v": "score/1", "h": HASH}))
-    _refused(conn, lambda: conn.execute(text(score), {"o": owner, "v": "v1", "h": HASH}))
+    _score(conn, owner)
+    _refused(conn, lambda: _score(conn, owner))  # one row per (owner, kind, day)
+    _refused(conn, lambda: _score(conn, owner, day="2026-10-29", version="v1"))
     conn.execute(text("INSERT INTO user_profiles (owner_id) VALUES (:o)"), {"o": owner})
     _refused(
         conn,
@@ -274,6 +338,7 @@ def _observation(conn: Connection, owner: uuid.UUID, **overrides: Any) -> None:
         "position": 2,
         "flags": [],
         "value": 3.2,
+        "key": "fat_mass_segment",
         **overrides,
     }
     conn.execute(
@@ -281,7 +346,7 @@ def _observation(conn: Connection, owner: uuid.UUID, **overrides: Any) -> None:
             "INSERT INTO observations (owner_id, metric_key, ts, source_ts, source_tz, value, "
             "source_value_raw, source_unit, conversion, quality_flags, source_grpid, "
             "source_type, source_position, algo_version, input_revision, input_fingerprint) "
-            "VALUES (:owner, 'fat_mass_segment', '2026-10-28 06:30:00+00', "
+            "VALUES (:owner, :key, '2026-10-28 06:30:00+00', "
             "'2026-10-28 06:30:00+00', 'Europe/Stockholm', :value, 3200, -3, 'scale:1e-3', "
             ":flags, :grpid, :type, :position, 'normalize/1', 1, :hash)"
         ),
@@ -339,6 +404,10 @@ def test_the_migration_writes_the_vocabularies_of_the_tables_module() -> None:
         assert listed(values), values
     assert "'{{" + ",".join(derived.DEFAULT_NOTIFY_TIERS) + "}}'" in source
     assert f"(rule_id = '{derived.SYSTEM_RULE}')" in source
+    assert f'_KEY_BODY = "{derived.METRIC_KEY_PATTERN[1:-1]}"' in source
+    statuses = re.search(r"components->>'status' IN \(([^)]*)\)", source)
+    assert statuses is not None
+    assert re.findall(r"'([a-z_]+)'", statuses[1]) == list(derived.SCORE_STATUSES)
     assert re.search(r"_OWNED = \(([^)]*)\)", source)[1] == ", ".join(  # type: ignore[index]
         f'"{name}"' for name in DERIVED_OWNED
     )

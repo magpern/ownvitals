@@ -30,7 +30,13 @@ depends_on: str | Sequence[str] | None = None
 
 _OWNED = ("observations", "metric_daily", "findings", "scores", "user_profiles")
 
-_KEY = "'^[a-z][a-z0-9_]{0,39}$'"
+# A metric key: a lower-case name, optionally one ``:`` and a second part, for ADR 0010's
+# segmental keys (``segmental_muscle_mass:left_arm``).
+_KEY_BODY = "[a-z][a-z0-9_]{0,39}(:[a-z][a-z0-9_]{0,23})?"
+_KEY = f"'^{_KEY_BODY}$'"
+# Every element of a text[] a metric key: the elements joined by commas (NULLs are refused
+# separately, so none is skipped by the join).
+_KEY_LIST = f"'^({_KEY_BODY}(,{_KEY_BODY})*)?$'"
 _TZ = "char_length({col}) BETWEEN 1 AND 64"
 # Finite and bounded: numeric 'NaN' sorts above every number, so BETWEEN refuses it, and the
 # infinities too.
@@ -133,6 +139,8 @@ CREATE TABLE public.findings (
     origin text NOT NULL CONSTRAINT findings_origin CHECK (origin IN ('live', 'backfill')),
     metric_keys text[] NOT NULL DEFAULT '{}'::text[] CONSTRAINT findings_metric_keys CHECK (
         cardinality(metric_keys) <= 16 AND array_position(metric_keys, NULL) IS NULL
+        AND array_to_string(metric_keys, ',')
+            ~ @KEY_LIST@
     ),
     subject text NOT NULL
         CONSTRAINT findings_subject CHECK (subject ~ '^[A-Za-z0-9_.:/-]{1,160}$'),
@@ -168,6 +176,8 @@ CREATE TABLE public.findings (
     CONSTRAINT findings_notified CHECK ((notify_state = 'sent') = (notified_at IS NOT NULL))
 )"""
 
+_FINDINGS = _FINDINGS.replace("@KEY_LIST@", _KEY_LIST)
+
 _ACTIVE_EPISODE = """
 CREATE UNIQUE INDEX findings_active_episode
     ON public.findings (owner_id, rule_id, subject) WHERE status = 'active'
@@ -177,14 +187,21 @@ _SCORES = f"""
 CREATE TABLE public.scores (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id uuid NOT NULL REFERENCES public.users (id) ON DELETE CASCADE,
-    kind text NOT NULL CONSTRAINT scores_kind CHECK (kind ~ {_KEY}),
+    kind text NOT NULL CONSTRAINT scores_kind
+        CHECK (kind ~ '^(his|readiness|body_path:{_KEY_BODY})$'),
     day date NOT NULL,
-    value numeric NOT NULL CONSTRAINT scores_value CHECK ({_FINITE.format(col="value")}),
-    components jsonb NOT NULL DEFAULT '{{}}'::jsonb
+    value numeric CONSTRAINT scores_value CHECK ({_FINITE.format(col="value")}),
+    components jsonb NOT NULL
         CONSTRAINT scores_components CHECK (jsonb_typeof(components) = 'object'),
     {_provenance("scores")}
     CONSTRAINT scores_owner_id_id_key UNIQUE (owner_id, id),
-    CONSTRAINT scores_day_key UNIQUE (owner_id, kind, day)
+    CONSTRAINT scores_day_key UNIQUE (owner_id, kind, day),
+    -- ADR 0012 sections 1 and 5: the status is in components; only computed has a value.
+    CONSTRAINT scores_status CHECK (
+        components->>'status' IN ('computed', 'insufficient_data', 'not_available',
+                                  'not_supported', 'not_set')
+        AND ((components->>'status' = 'computed') = (value IS NOT NULL))
+    )
 )"""
 
 _PROFILES = f"""

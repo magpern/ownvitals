@@ -66,6 +66,10 @@ TEMPERATURE_UNITS = ("c", "f")
 DATETIME_FORMATS = ("d_mon_y", "mon_d_y", "iso")
 CHART_RANGES = ("30d", "90d", "6mo", "1y")
 OVERVIEW_GROUPS = ("body", "heart", "nerve", "activity")
+# scores.components.status (ADR 0012 section 1); only ``computed`` has a value.
+SCORE_STATUSES = ("computed", "insufficient_data", "not_available", "not_supported", "not_set")
+# metric_key: a name, then optionally ``:`` and a second part (ADR 0010's segmental keys).
+METRIC_KEY_PATTERN = r"^[a-z][a-z0-9_]{0,39}(:[a-z][a-z0-9_]{0,23})?$"
 # Every tier notifies by default; the user may narrow it (``notify_tiers``).
 DEFAULT_NOTIFY_TIERS = TIERS
 
@@ -197,8 +201,9 @@ scores = Table(
     _owner(),
     Column("kind", Text, nullable=False),
     Column("day", Date, nullable=False),
-    Column("value", Numeric, nullable=False),
-    Column("components", JSONB, nullable=False, server_default=text("'{}'::jsonb")),
+    # NULL unless components.status is computed (ADR 0012 sections 1 and 5).
+    Column("value", Numeric),
+    Column("components", JSONB, nullable=False),
     *_provenance(),
     UniqueConstraint("owner_id", "id"),
     UniqueConstraint("owner_id", "kind", "day", name="scores_day_key"),

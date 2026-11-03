@@ -14,12 +14,28 @@ unique key includes `owner_id`. No foreign key between them and none into `obser
 | `observations` | `PRIMARY KEY (owner_id, id, ts)`; monthly partitions on `ts`; BRIN on `ts` | One normalised reading: `ts`, `source_ts`, `source_tz`, `value`, `source_value_raw`, `source_unit`, `conversion`, `quality_flags` (`unconfirmed`, `implausible`, `duplicate`, `jump`), and `source_ref` as three columns `source_grpid`, `source_type`, `source_position` |
 | `metric_daily` | `UNIQUE (owner_id, metric_key, day)` | #37's `DailyValue`: `method` (`morning`/`median`), `value`, `morning` (set exactly when the method is `morning`, and equal to `value`), `mean`, `min`, `max`, `mad`, `n`, and `source_groups` (the grpids the value came from: one for `morning`, every group the median used otherwise; ADR 0006 §11) |
 | `findings` | partial unique `findings_active_episode (owner_id, rule_id, subject) WHERE status = 'active'` | PLAN §5's columns; `window` is `window_start`/`window_end`; `subject`, `status` (`active`/`ended`, `ended_at` set exactly when ended), `reference_day`, `notify_state` (`none`/`pending`/`held`/`sent`), `notified_at`, `seen_at` |
-| `scores` | `UNIQUE (owner_id, kind, day)` | `value`, `components` |
+| `scores` | `UNIQUE (owner_id, kind, day)` | ADR 0012: `kind` is `his`, `readiness` or `body_path:<metric_key>`; `components.status` is `computed`, `insufficient_data`, `not_available`, `not_supported` or `not_set`, and `value` is set exactly when it is `computed` |
 | `user_profiles` | `UNIQUE (owner_id)` | The Settings mock-up: birth year, sex, day assignment (`reading_tz`, or `fixed_tz` with `day_tz`), display and notification preferences |
 
 Provenance (PLAN §5): `observations`, `metric_daily` and `scores` carry `algo_version`
 (`name/N`, as the analysis modules spell it), `input_revision` and `input_fingerprint`
 (32 bytes); `findings` carries `rule_version`, `input_revision` and `input_fingerprint`.
+
+`input_revision` is one `bigint`. A row that reads one stream stores that stream's
+`data_revisions.revision`. A row that reads several (a score, a finding over two metrics; ADR
+0012 §1 says "the counters of every stream read") stores **the sum of the counters of every
+stream it read**. Each counter only grows and is bumped on every change of its stream, so any
+change to any input stream changes the sum. Removing a stream's counter row (the "delete
+imported data" path) can lower a sum back to an earlier value, but it also changes the input
+rows, so `input_fingerprint` differs and the row is stale anyway. The writer issue implements
+the sum in one place and tests it.
+
+**Metric keys** (`observations.metric_key`, `metric_daily.metric_key`, each element of
+`findings.metric_keys`, and the part after `body_path:` in a score kind) match
+`^[a-z][a-z0-9_]{0,39}(:[a-z][a-z0-9_]{0,23})?$` (`derived.tables.METRIC_KEY_PATTERN`): a
+lower-case name of letters, digits and underscores, then optionally one `:` and a second part
+of the same alphabet. The second part is ADR 0010's segment or side, for example
+`segmental_muscle_mass:left_arm`. Upper case, a second colon or an empty part are refused.
 
 Constraints worth knowing before writing a row:
 
@@ -41,9 +57,21 @@ Constraints worth knowing before writing a row:
 `ensure_month_partitions` (`docker/postgres/withings/40-withings.sql`) admits `observations`
 beside `sleep_series` and `intraday`; `ownvitals.ingest.partitions.ensure_month` is the only
 caller, one short transaction per month, before the insert (ADR 0002 §2 rule 6). Changing the
-function's allowlist changed its pinned digest (`ownvitals/db/queue_digests.py`). The scheduler's
-"3 months ahead" step does not exist yet; it calls the same function for every partitioned table
-when it lands.
+function's allowlist changed its pinned digest (`ownvitals/db/queue_digests.py`).
+
+**Not done yet:** PLAN §5's "created 3 months ahead by the scheduler" needs a scheduler step
+that does not exist on `main`. Until it lands, an `observations` month exists only once a writer
+has asked for it. That step calls `ensure_month_partitions` for every table in
+`PARTITIONED`, `observations` included.
+
+## Known gap: "delete imported data"
+
+ADR 0004 §7's "delete imported data" option (`auth/purge.py` `_IMPORTED`) does not yet remove
+`observations`, `metric_daily`, `findings` or `scores`. They are derived from the imported rows
+and are health data, so they must go with them; `user_profiles` stays. Account deletion already
+removes all five through the `owner_id` cascade, and the account-deletion test checks it. The
+tables stay empty until the first M4 writer, and the purge must be extended before that writer
+merges (tracked by the Architect).
 
 ## Tests
 
@@ -52,6 +80,8 @@ the system tier, the check constraints, the vocabularies, the round trip) and
 `tests/test_derived_schema_rls.py` (two users in the web-request and worker-job contexts of
 `ctx.py`, with and without the repository's own owner filter; no user, no rows; no row written or
 moved to another owner). Each table also has its row in `tests/contexttools.py` `ROWS`, so the
-six-context probe of [isolation.md](isolation.md) covers it; `user_profiles`' row is an upsert on
-`owner_id`, because an owner has one profile and the probe's own-insert control inserts a second
-time. They need the test database of [backend.md](backend.md).
+six-context probe of [isolation.md](isolation.md) covers it. An owner has one profile, so for
+`user_profiles` the probe's own-insert control first deletes the context's own profile in the same savepoint
+(`CLEAR_BEFORE_OWN_INSERT`), so the foreign insert stays a plain insert that only the policy can
+refuse; `user_profiles`, `observations` and `findings` are in the relaxation matrix
+(`MATRIX_TABLES`). They need the test database of [backend.md](backend.md).
