@@ -7,7 +7,7 @@ success releases what it reserved (``Attempt.succeed``) and never touches a newe
 Bucket keys are an HMAC of ``(action, scope, value, window)``: no email or IP in the clear.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
@@ -100,16 +100,24 @@ class Attempt:
         self.slots = []
 
 
-def _window_start(window: int) -> Any:
-    return func.to_timestamp(
-        func.floor(func.extract("epoch", func.clock_timestamp()) / window) * window
-    )
+def _database_now() -> Any:
+    return func.clock_timestamp()
+
+
+def _window_start(window: int, now: Callable[[], Any]) -> Any:
+    return func.to_timestamp(func.floor(func.extract("epoch", now()) / window) * window)
 
 
 class RateLimiter:
-    def __init__(self, factory: async_sessionmaker[AsyncSession], keys: Keys) -> None:
+    def __init__(
+        self,
+        factory: async_sessionmaker[AsyncSession],
+        keys: Keys,
+        now: Callable[[], Any] = _database_now,
+    ) -> None:
         self._factory = factory
         self._keys = keys
+        self._now = now  # a SQL timestamp expression; tests pin it, production uses the DB clock
 
     def bucket_hash(self, limit: Limit, value: str) -> bytes:
         return hmac_digest(
@@ -119,7 +127,7 @@ class RateLimiter:
     async def _reserve_one(self, bucket: Bucket) -> tuple[Slot, bool, int]:
         window = bucket.limit.window_seconds
         bucket_hash = self.bucket_hash(bucket.limit, bucket.value)
-        started = _window_start(window)
+        started = _window_start(window, self._now)
         statement = (
             insert(rate_limits)
             .values(bucket_hash=bucket_hash, window_start=started, count=1)
@@ -135,7 +143,7 @@ class RateLimiter:
                         "epoch",
                         rate_limits.c.window_start
                         + func.make_interval(0, 0, 0, 0, 0, 0, literal(float(window), Float))
-                        - func.clock_timestamp(),
+                        - self._now(),
                     )
                 ).label("retry_after"),
             )

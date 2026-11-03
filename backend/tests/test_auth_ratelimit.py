@@ -5,7 +5,7 @@ import dataclasses
 import ipaddress
 import threading
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -132,14 +132,48 @@ async def test_ipv6_addresses_share_a_bucket_per_64(env: Env) -> None:
     assert bucket_ip("2001:db8:1:3::1") != bucket_ip(same[0])
     assert bucket_ip(same[0]) == "2001:db8:1:2::/64"
     assert bucket_ip("192.0.2.9") == "192.0.2.9"
-    # End to end: rotating addresses inside one /64 does not escape the per-IP limit.
+
+
+def pinned_limiter(env: Env, at: datetime) -> RateLimiter:
+    """The app's limiter with its clock fixed at ``at``, so a run never straddles a window."""
+    from sqlalchemy import literal
+    from sqlalchemy.types import DateTime
+
+    live = limiter(env)
+    return RateLimiter(live._factory, live._keys, lambda: literal(at, DateTime(timezone=True)))
+
+
+async def _rotate_inside_one_64(env: Env, at: datetime) -> list[bool]:
+    pinned = pinned_limiter(env, at)
     results = []
     for i in range(35):
         buckets = password_buckets(
             f"user{i}@example.com", f"2001:db8:1:2::{i:x}", known_device=False
         )
-        results.append((await limiter(env).begin(buckets)).allowed)
+        results.append((await pinned.begin(buckets)).allowed)
+    return results
+
+
+@pytest.mark.parametrize(
+    "at",
+    [
+        datetime(2026, 1, 1, 12, 7, 30, tzinfo=UTC),
+        # One second before the 15-minute boundary: the whole run stays in the old window.
+        datetime(2026, 1, 1, 12, 14, 59, tzinfo=UTC),
+        datetime(2026, 1, 1, 12, 15, 0, tzinfo=UTC),
+    ],
+)
+async def test_ipv6_addresses_in_one_64_share_the_ip_limit(env: Env, at: datetime) -> None:
+    # End to end: rotating addresses inside one /64 does not escape the per-IP limit.
+    results = await _rotate_inside_one_64(env, at)
     assert results.count(True) == 30  # SIGN_IN_IP: 30 per 15 minutes
+
+
+async def test_the_ip_limit_resets_at_the_window_boundary(env: Env) -> None:
+    before = datetime(2026, 1, 1, 12, 14, 59, tzinfo=UTC)
+    assert (await _rotate_inside_one_64(env, before)).count(True) == 30
+    after = before + timedelta(seconds=1)  # the next window: a fresh allowance of 30
+    assert (await _rotate_inside_one_64(env, after)).count(True) == 30
 
 
 def test_an_ipv6_scope_id_is_dropped() -> None:
