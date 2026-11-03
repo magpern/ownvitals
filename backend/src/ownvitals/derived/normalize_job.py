@@ -7,6 +7,8 @@ pass never collapses into, or delays, a live one. The claim lane of both is the 
 (``queue_enqueue`` maps only ``withings_backfill`` to the backfill lane; see
 ``docs/dev/derived.md``, "Known gaps").
 
+After its pass the job queues ``derive_daily`` (``daily_job``) with the same origin.
+
 The job is enqueued after an ingest commit (``enqueue_normalize``): the end of a measures
 backfill or sync, and of the nightly reconciliation. The enqueue runs through the queue's
 definer function, with the job's own connection id; the pass itself runs as the owner under the
@@ -23,6 +25,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.derived.daily_job import enqueue_daily
 from ownvitals.derived.normalize_db import normalise_owner
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
@@ -67,6 +70,10 @@ async def run_normalize(job: JobRun) -> Complete:
             "skipped": outcome.skipped,
         },
     )
+    # The daily values read what this pass wrote. A ``stale`` pass queues nothing: whatever moved
+    # its inputs queued a newer pass, which gets here. Nothing imported: nothing to derive.
+    if outcome.status in ("written", "current"):
+        await enqueue_daily(job.factory, parsed.connection_id, parsed.origin)
     return Complete()
 
 

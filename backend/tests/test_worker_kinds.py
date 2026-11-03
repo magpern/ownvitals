@@ -51,6 +51,7 @@ from ownvitals.worker.loop import Worker, create_worker_engine
 SEED_BYTES = b"\x11" * 32
 BASE = "https://app.example.test"
 WITHINGS_KINDS = [
+    "derive_daily",  # #186: the metric_daily pass, queued by derive_normalize
     "derive_normalize",  # #185: the observations pass, queued after the measures streams
     "ecg_fetch",
     "token_refresh_recover",

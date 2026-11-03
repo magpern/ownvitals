@@ -175,7 +175,9 @@ entry is still active (`NoTargets` confirms none; the worker process passes `Web
   kept as the job's category) and `withings_disconnect` (`auth.purge.register_disconnect_kind`,
   #163: the revoke a disconnect or an account deletion enqueues; see
   [connections.md](connections.md)) and `derive_normalize` (`derived/normalize_job.py`, #185:
-  normalises the owner's measures into `observations`; see [derived.md](derived.md)). `KINDS` is the API's registry and stays empty,
+  normalises the owner's measures into `observations`; see [derived.md](derived.md)) and
+  `derive_daily` (`derived/daily_job.py`, #186: daily values into `metric_daily`, queued by
+  `derive_normalize`). `KINDS` is the API's registry and stays empty,
   so `POST /api/jobs` refuses every kind and web imports no handler; `Worker` and `run_worker`
   default to it, so a caller that passes no registry claims nothing. `notify_update` has no
   handler yet.
