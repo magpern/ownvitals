@@ -1,0 +1,65 @@
+# The end-to-end overlay: `docker compose -f compose.yaml -f compose.e2e.yaml up -d`
+# (e2e/scripts/stack-up.sh does the whole preparation; docs/dev/e2e.md). Everything here is a
+# fake: no real Google, Withings or mail provider, and every identity and secret is synthetic.
+#
+# - fake-oidc answers to Google's two back-channel host names inside the compose network (the
+#   egress allowlist is code, so web keeps calling the real names), with a certificate from a
+#   throwaway CA that e2e/scripts/stack-prepare.sh adds to web's certifi bundle, mounted over
+#   the image's copy. The browser's visit to accounts.google.com is intercepted by Playwright.
+# - Google sign-in is switched on for web with a made-up client id and the generated secret.
+# - fake-oidc only starts with OWNVITALS_ENVIRONMENT=test; web stays `dev`.
+
+services:
+  web:
+    environment:
+      OWNVITALS_OAUTH_GOOGLE_CLIENT_ID: e2e-client.apps.googleusercontent.com
+    secrets:
+      - oauth_google_client_secret
+    volumes:
+      - ./e2e/.certs/cacert.pem:/app/.venv/lib/python3.12/site-packages/certifi/cacert.pem:ro
+    depends_on:
+      fake-oidc:
+        condition: service_healthy
+
+  # The worker refuses to start without the KEK ring (connection_kek, a synthetic file that
+  # scripts/worktree.sh init creates); the base file mounts it for web only.
+  worker:
+    secrets:
+      - connection_kek
+
+  fake-oidc:
+    build: ./e2e/fake-oidc
+    image: ${COMPOSE_PROJECT_NAME:-ownvitals}-fake-oidc:local
+    restart: "no"
+    environment:
+      OWNVITALS_ENVIRONMENT: test
+      FAKE_OIDC_CLIENT_ID: e2e-client.apps.googleusercontent.com
+      FAKE_OIDC_REDIRECT_BASE: http://127.0.0.1:${WEB_PORT:-8000}
+    secrets:
+      - oauth_google_client_secret
+    volumes:
+      - ./e2e/.certs/oidc.key:/certs/oidc.key:ro
+      - ./e2e/.certs/oidc.pem:/certs/oidc.pem:ro
+    # The container's user is not root and listens on 443.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    networks:
+      default:
+        aliases:
+          - oauth2.googleapis.com
+          - www.googleapis.com
+    ports:
+      - "127.0.0.1:${FAKE_OIDC_PORT:-9100}:9100"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:9100/__test/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+secrets:
+  oauth_google_client_secret:
+    file: ./secrets/oauth_google_client_secret
