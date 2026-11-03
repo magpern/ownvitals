@@ -84,7 +84,8 @@ ADR 0004 §7's "also delete imported data" option (`connections/purge.py` `IMPOR
 `observations`, `metric_daily`, `findings` and `scores` with the imported rows (#218): they are
 derived from them and are health data. Like the imported rows they are per owner, not per
 connection, so the option removes all of the user's derived rows. `user_profiles` stays
-(settings, listed in `KEPT`). Account deletion removes all five through the `owner_id` cascade.
+(settings), and so does `mail_outbox` (notification state, no health data); both are listed in
+`KEPT`. Account deletion removes all five derived tables through the `owner_id` cascade.
 `tests/test_withings_disconnect_account.py` enumerates every owned table against `IMPORTED` and
 `KEPT`, so a new owned table must join one of them.
 

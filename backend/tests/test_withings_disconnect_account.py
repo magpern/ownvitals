@@ -1,5 +1,5 @@
 """Account deletion revokes first, then cascades every owned row; "delete imported data" removes
-the imported and derived rows and keeps the settings. Synthetic rows only."""
+the imported and derived rows and keeps the settings and the mail outbox. Synthetic rows only."""
 
 import re
 import urllib.request
@@ -37,7 +37,8 @@ _PARTITIONS = (
 # Owned tables the import purge reaches without naming them: the connection row is removed by
 # ``delete_disconnected_row`` and job events cascade from their job.
 _PURGED_BESIDE = ("connections", "job_events")
-_PROFILE = "SELECT to_jsonb(p) FROM user_profiles p WHERE owner_id = :o"
+# The whole row of a kept table, to show the purge left it unchanged.
+_SNAPSHOT = "SELECT to_jsonb(t) FROM public.{table} t WHERE owner_id = :o ORDER BY 1::text"
 _OWNED = """
 SELECT c.relname,
        EXISTS (
@@ -82,11 +83,13 @@ def _rows(url: str, sql: str) -> list[tuple[object, ...]]:
         engine.dispose()
 
 
-def _rows_for(url: str, sql: str, owner_id: UUID) -> list[tuple[object, ...]]:
+def _snapshot(url: str, table: str, owner_id: UUID) -> list[tuple[object, ...]]:
+    if _NAME.fullmatch(table) is None:
+        raise AssertionError(table)
     engine = create_engine(url)
     try:
         with engine.connect() as conn:
-            return list(conn.execute(text(sql), {"o": owner_id}).all())
+            return list(conn.execute(text(_SNAPSHOT.format(table=table)), {"o": owner_id}).all())
     finally:
         engine.dispose()
 
@@ -415,7 +418,7 @@ async def test_delete_imported_removes_only_that_owners_rows(
     names = {str(name) for name, _ in _rows(database_url, _OWNED)}
     assert names == purged | kept
     assert {"observations", "metric_daily", "findings", "scores"} <= purged
-    assert kept == {"user_profiles"}
+    assert kept == {"user_profiles", "mail_outbox"}
     _partitions(database_url, True)
     try:
         _plant(database_url, linked.ctx.user_id, linked.connection_id, "c")
@@ -426,9 +429,12 @@ async def test_delete_imported_removes_only_that_owners_rows(
             "notify_weekly = true WHERE owner_id = :o",
             o=linked.ctx.user_id,
         )
-        profile = _rows_for(database_url, _PROFILE, linked.ctx.user_id)
-        other_profile = _rows_for(database_url, _PROFILE, other.user_id)
-        assert len(profile) == 1
+        before = {
+            (name, owner_id): _snapshot(database_url, name, owner_id)
+            for name in kept
+            for owner_id in (linked.ctx.user_id, other.user_id)
+        }
+        assert all(len(rows) == 1 for rows in before.values())
         for name in names:
             assert _count(database_url, name, linked.ctx.user_id) == 1, name
             assert _count(database_url, name, other.user_id) == 1, name
@@ -447,8 +453,8 @@ async def test_delete_imported_removes_only_that_owners_rows(
         for name in kept:
             assert _count(database_url, name, linked.ctx.user_id) == 1, name
             assert _count(database_url, name, other.user_id) == 1, name
-        assert _rows_for(database_url, _PROFILE, linked.ctx.user_id) == profile
-        assert _rows_for(database_url, _PROFILE, other.user_id) == other_profile
+        for (name, owner_id), rows in before.items():
+            assert _snapshot(database_url, name, owner_id) == rows, name
         assert (
             _scalar(
                 database_url,
