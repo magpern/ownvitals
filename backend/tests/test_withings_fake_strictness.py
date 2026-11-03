@@ -41,44 +41,50 @@ def test_the_log_masks_a_secret_whatever_the_case_of_its_name() -> None:
     assert "leaked-value" not in repr(fake.log)
 
 
+def _goals(
+    fake: FakeWithings, token: str, *, query: str = "", headers: dict[str, str] | None = None
+):
+    """An otherwise valid, authenticated call (status 0 unless the rule under test refuses it)."""
+    sent = {"authorization": f"Bearer {token}", **(FORM if headers is None else headers)}
+    body = urlencode({"action": "getgoals"}).encode()
+    return fake.handle(Request("POST", f"https://{API_HOST}/v2/user{query}", sent, body)).json()
+
+
 def test_make_fake_passes_the_rate_limit() -> None:
-    limited, app, _ = make_fake(rate_limit=2, days=2, ecg_count=0)
-    statuses = [
-        _post(limited, "/v2/oauth2", action="requesttoken", client_id=app.client_id).json()[
-            "status"
-        ]
-        for _ in range(3)
-    ]
-    assert statuses[-1] == STATUS_RATE_LIMITED
-    free, app, _ = make_fake(rate_limit=None, days=2, ecg_count=0)
-    for _ in range(130):
-        reply = _post(free, "/v2/oauth2", action="requesttoken", client_id=app.client_id)
-        assert reply.json()["status"] != STATUS_RATE_LIMITED
+    limited, app, user = make_fake(rate_limit=2, days=2, ecg_count=0)
+    token = limited.tokens_for(app.client_id, user.userid)["access_token"]
+    assert [_goals(limited, token)["status"] for _ in range(3)] == [0, 0, STATUS_RATE_LIMITED]
+    free, app, user = make_fake(rate_limit=None, days=2, ecg_count=0)
+    token = free.tokens_for(app.client_id, user.userid)["access_token"]
+    assert {_goals(free, token)["status"] for _ in range(130)} == {0}
 
 
 def test_a_semicolon_in_the_query_string_is_refused() -> None:
-    fake, app, _ = make_fake()
-    reply = _post(fake, "/v2/oauth2", query="?a=1;client_secret=x", action="requesttoken",
-                  client_id=app.client_id)  # fmt: skip
-    assert reply.json()["status"] == STATUS_BAD_PARAMS
+    fake, app, user = make_fake(days=2, ecg_count=0)
+    token = fake.tokens_for(app.client_id, user.userid)["access_token"]
+    assert _goals(fake, token, query="?a=1")["status"] == 0
+    refused = _goals(fake, token, query="?a=1;client_secret=x")
+    assert refused["status"] == STATUS_BAD_PARAMS
+    assert "';'" in refused["error"]
 
 
 @pytest.mark.parametrize(
     "headers", [{}, {"content-type": "application/json"}, {"content-type": "text/plain"}]
 )
 def test_a_form_body_without_the_form_media_type_is_refused(headers: dict[str, str]) -> None:
-    fake, app, _ = make_fake()
-    body = urlencode({"action": "requesttoken", "client_id": app.client_id}).encode()
-    reply = fake.handle(Request("POST", f"https://{API_HOST}/v2/oauth2", headers, body))
-    assert reply.json()["status"] == STATUS_BAD_PARAMS
+    fake, app, user = make_fake(days=2, ecg_count=0)
+    token = fake.tokens_for(app.client_id, user.userid)["access_token"]
+    assert _goals(fake, token)["status"] == 0
+    refused = _goals(fake, token, headers=headers)
+    assert refused["status"] == STATUS_BAD_PARAMS
+    assert "form-urlencoded" in refused["error"]
 
 
 def test_the_form_media_type_may_carry_a_charset() -> None:
-    fake, app, _ = make_fake()
+    fake, app, user = make_fake(days=2, ecg_count=0)
+    token = fake.tokens_for(app.client_id, user.userid)["access_token"]
     headers = {"content-type": "Application/X-WWW-Form-Urlencoded; charset=utf-8"}
-    body = urlencode({"action": "requesttoken", "client_id": app.client_id}).encode()
-    reply = fake.handle(Request("POST", f"https://{API_HOST}/v2/oauth2", headers, body))
-    assert "form-urlencoded" not in reply.json().get("error", "")
+    assert _goals(fake, token, headers=headers)["status"] == 0
 
 
 REFUSED_HOSTS = {

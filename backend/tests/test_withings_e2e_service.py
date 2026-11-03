@@ -299,3 +299,32 @@ def test_the_image_is_the_standard_library_shell_and_nothing_else() -> None:
         "Dockerfile",
         "server.py",
     ]
+
+
+# ------------------------------------------------------------------------ the start-up guard
+
+
+@pytest.mark.parametrize("environment", [None, "", "dev", "prod", "Test"])
+def test_the_service_refuses_to_start_outside_the_test_environment(
+    server: Any, monkeypatch: pytest.MonkeyPatch, environment: str | None
+) -> None:
+    monkeypatch.delenv("OWNVITALS_ENVIRONMENT", raising=False)
+    if environment is not None:
+        monkeypatch.setenv("OWNVITALS_ENVIRONMENT", environment)
+    with pytest.raises(SystemExit, match="OWNVITALS_ENVIRONMENT=test"):
+        server.main()
+
+
+def test_the_service_gets_past_the_guard_in_the_test_environment(
+    server: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Past(Exception):
+        pass
+
+    def stop(*_args: object) -> None:
+        raise Past
+
+    monkeypatch.setenv("OWNVITALS_ENVIRONMENT", "test")
+    monkeypatch.setattr(server, "Service", stop)
+    with pytest.raises(Past):
+        server.main()
