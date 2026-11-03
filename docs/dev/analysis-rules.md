@@ -1,4 +1,4 @@
-# Finding rules v1: body composition and heart (ADR 0010)
+# Finding rules v1: body, heart, nerve and system (ADR 0010)
 
 `backend/src/ownvitals/analysis/rules/` holds the pure rule functions of
 [ADR 0010](../adr/0010-finding-rules-v1.md) (test specification:
@@ -17,6 +17,8 @@ uvx uv@0.13.6 run pytest -q tests/analysis/rules tests/test_analysis_purity.py
 | `episodes.py` | `origin`, `advance_simple`, `advance_persistent`, `reconcile` |
 | `body.py` | B1, B2, B3, B4, B5, B6 |
 | `heart.py` | C1, C1x, C2 |
+| `nerve.py` | N1 (the gate), N2, N3, N5 |
+| `system.py` | Q1's four parts |
 
 ## Calling a rule
 
@@ -108,6 +110,49 @@ an episode of a trend-test rule takes the run's first day.
   `(grpid, position)`, the first in canonical order wins.
 - **B1**: the gain is `Decimal` exact; the ECW check is against the finding band at the start day.
 
+## Nerve health and system rules (#184)
+
+`nerve.py` (nerve keys `nerve_health_score` 167, `nerve_response_score` 196, `esc` 229; any other
+key is a `ValueError`, and the three are never mixed) and `system.py`. Same results and contract as
+above.
+
+| Rule | Call | Rule id and subject |
+|---|---|---|
+| N1 | `n1(key, daily, day, window_days=90)`: `NERVE_TREND` (4 days with data spanning 28) as `Sufficient` or `InsufficientData`; never a finding | none |
+| N2 guided | `n2_guided(readings, day, metric_key=)` | `N2:guided`, the key |
+| N2 routine | `n2_routine(readings, day, metric_key=, provenance=)` | `N2:routine`, the key |
+| N3 | `n3(daily, day, metric_key=, provenance=)` | `N3`, the key |
+| N5 | `n5(first, second, day, pair="158_159" or "197_198")` (usable `Reading`s of the two members) | `N5`, `nerve_foot_<pair>` |
+| Q1 | `q1_no_weigh_in(weight, capability, today)`, `q1_low_battery(DeviceState, today)`, `q1_reconnect(ConnectionState, today)`, `q1_import_incomplete(StreamState, today)` | `Q1:no_weigh_in` (`user`), `Q1:low_battery` (`hash_deviceid`), `Q1:reconnect` (`connection`), `Q1:import_incomplete` (the stream) |
+
+Decisions where the ADR leaves room:
+
+- **N2's two parts have their own rule ids** (`N2:guided`, `N2:routine`, `SPECS`/`SEVERITY`), so a
+  guided and a routine finding of one key are separate episodes (§4: one active per rule id and
+  subject). Q1 has one rule id per part for the same reason and because severities differ. The
+  wiring issue stores these ids.
+- **N2 takes the metric's usable `Reading`s** (guided `attrib` 15 and routine alike): the band and
+  N1 read the daily values of all of them, the guided part reads the readings, the routine part
+  the daily values of the `attrib` other than 15 readings. Guided: the first guided reading below
+  `finding_band(day).low` fires (strictly below), window and reference day `day`. Routine: of the
+  routine measure days ending at `day`, the longest run of at least 2 with every value below the
+  band at the run's first day (like C1); a run's baseline gap is skipped, the shortest run's is
+  insufficient data. Confidence: D (N1 and the band), and R with a minimum of 2 (high from 4).
+  Both parts raise `ValueError` when `day` has no trigger reading (the caller schedules).
+  Neither is persistent: they open on the first firing and end on the first non-firing evaluation.
+- **N3** tests the 180 then the 90 days at alpha 0.025 each; a window below N1 is not tested; both
+  below is insufficient data. The window is the 180 if it fired. `persistent` (`advance_persistent`):
+  a weekly cadence opens on its 6th evaluation (day 36).
+- **N5** pairs readings by `grpid` (the first duplicate wins), the days with a pair are checked
+  with `NERVE_TREND`, the median SI is exact and "more than 0.20". No group with both members
+  anywhere is `Insufficient` with a reason starting "not supported", never "no difference".
+  The foot keys `nerve_foot_158` and so on need no metric rows: no daily value or band is built.
+- **Q1** inputs are plain dataclasses (`DeviceState`, `ConnectionState`, `StreamState`); capability
+  strings are PLAN §4.2's and only `"supported"` counts. No weigh-in takes the usable weight
+  readings (an `attrib` 1 reading is ignored even if passed); its reference day is the last
+  weigh-in, so the episode is stable. Findings carry the state they read in `evidence["state"]`
+  and `data_quality`; confidence is `high`, tier `system`, severity per part (§6).
+
 ## Not in this module
 
 ADR 0010 test-spec "Episodes and origin" case 6 (`today` follows the `source_tz` of the user's
@@ -120,5 +165,5 @@ with a scripted condition (`test_core_episodes.py`), confidence and severity
 (`test_core_confidence.py`), deterministic and order-independent, insufficient on sparse series
 (`test_core_properties.py`), the false-episode rate at phi 0.6 (`test_core_rate.py`: 80 seeded
 no-change years, about 13 s; 4 of 80 years open an episode with persistence and 47 of 80 would
-without it, against the ADR's bound of 10 %), and the rules (`test_body*.py`, `test_heart.py`).
+without it, against the ADR's bound of 10 %), and the rules (`test_body*.py`, `test_heart.py`, `test_nerve*.py`, `test_system.py`).
 Fixtures are synthetic (`rules_builders.py`).

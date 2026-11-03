@@ -117,6 +117,18 @@ SPECS: Mapping[str, RuleSpec] = MappingProxyType(
             _spec("C1", Tier.TREND),
             _spec("C1x", Tier.EXPERIMENTAL),
             _spec("C2", Tier.TREND, persistent=True),
+            # Nerve health (nerve.py). N2's two parts are separate rules so that a guided and a
+            # routine finding of one nerve key are separate episodes (one active per rule_id and
+            # subject, §4). N1 is a gate, not a rule; N4 is not in v1.
+            _spec("N2:guided", Tier.TREND),
+            _spec("N2:routine", Tier.TREND),
+            _spec("N3", Tier.TREND, persistent=True),
+            _spec("N5", Tier.TREND),
+            # System (system.py), one rule per Q1 part.
+            _spec("Q1:no_weigh_in", Tier.SYSTEM, severity=Severity.INFO),
+            _spec("Q1:low_battery", Tier.SYSTEM, severity=Severity.INFO),
+            _spec("Q1:reconnect", Tier.SYSTEM, severity=Severity.URGENT),
+            _spec("Q1:import_incomplete", Tier.SYSTEM, severity=Severity.INFO),
         ]
     )
 )
@@ -134,7 +146,7 @@ SEVERITY: Mapping[str, Severity] = MappingProxyType(
             rule: Severity.ATTENTION
             for rule in (
                 *("E2", "E3", "E4", "E6", "B1", "B2", "B3", "B4", "B5", "B6"),
-                *("N2", "N3", "N5", "C1", "C1x", "C2"),
+                *("N2:guided", "N2:routine", "N3", "N5", "C1", "C1x", "C2"),
             )
         },
     }
