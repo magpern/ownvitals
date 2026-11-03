@@ -9,8 +9,9 @@ be linked again. A plain disconnect keeps the row until the account goes.
 The revoke itself runs in the worker (roadmap Amendment 1: web makes no Withings call but
 the code exchange). The routes enqueue a ``withings_disconnect`` job; its handler here
 (``disconnect_kind``) checks the step-up of the session named in the input again, then runs
-``disconnect_withings``. The worker registers the kind (#164). The web side then finishes
-with ``connections.purge.purge_connection`` or ``delete_account``.
+``disconnect_withings``. The worker registers the kind (the worker-kinds follow-up of #173,
+which also lists ``register_disconnect_kind`` in guard 8's entry points). The web side then
+finishes with ``connections.purge.purge_connection`` or ``delete_account``.
 """
 
 import time
@@ -172,7 +173,12 @@ async def session_stepped_up(
 ) -> bool:
     """Whether ``session_id`` is a live, full session of this user with a recent
     authentication and a step-up (``require_sensitive``), allowing ``JOB_SLACK`` for the time
-    the job waited. A timestamp after now is not a proof."""
+    the job waited. A timestamp after now is not a proof.
+
+    Narrower than ``sessions.resolve_session`` by design: it does not check the idle timeout
+    or a disabled account (the issuer refuses a disabled owner before the handler runs), and
+    "full" is ``mfa_at`` being set. Within ``JOB_SLACK`` it only gates a revoke, which
+    protects the user's privacy rather than granting access."""
     now = func.now()
     query = select(sessions.c.id).where(
         sessions.c.id == session_id,
@@ -325,6 +331,9 @@ def disconnect_kind(
 
 
 def register_disconnect_kind(registry: KindRegistry) -> None:
-    """Register ``withings_disconnect`` on the worker's registry (#164 calls this)."""
+    """Register ``withings_disconnect`` on the worker's registry.
+
+    The worker-kinds follow-up of #173 calls this; it also adds the name to guard 8's
+    ``PUBLIC_ENTRY_POINTS`` (``tests/auth_tables_scan.py``)."""
     if registry.get(DISCONNECT_KIND) is None:
         registry.register(disconnect_kind())

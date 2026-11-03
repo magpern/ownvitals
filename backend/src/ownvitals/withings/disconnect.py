@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 _PROVIDER = "withings"
 # The job kind a disconnect or an account deletion enqueues. Its handler is in
-# ``ownvitals.auth.purge``; the worker registers it (#164).
+# ``ownvitals.auth.purge``; the worker registers it (the worker-kinds follow-up of #173).
 DISCONNECT_KIND = "withings_disconnect"
 REMOVAL = (
     "The upstream revoke did not finish. Remove this application's access in the Withings account."
@@ -194,8 +194,10 @@ async def disconnect_withings(
     """Revoke upstream, then drop credentials on this user's live Withings row.
 
     ``stepped_up`` must be true. A row that is not this user's live Withings row is
-    refused and nothing is changed. Provider failures are retried inside ``budget``
-    (two transient retries when none is passed).
+    refused and nothing is changed. Only this row is cleared, and only while its token
+    generation is the one seen at the start (``cleared`` is ``False`` otherwise: a reconnect
+    or a refresh wrote new tokens meanwhile, and the caller decides). Provider failures are
+    retried inside ``budget`` (two transient retries when none is passed).
     """
     if stepped_up is not True:
         raise DisconnectRefused("step_up_required")
@@ -228,7 +230,16 @@ async def disconnect_withings(
         # The credential is removed even when the provider call fails closed.
         failed = True
         unexpected = exc
-    cleared = await disconnect(factory, ctx, _PROVIDER, revoke_failed=failed)
+    # This row at the generation it had when the revoke started: a run that finishes after
+    # the route gave up and the user reconnected leaves the new grant alone.
+    cleared = await disconnect(
+        factory,
+        ctx,
+        _PROVIDER,
+        revoke_failed=failed,
+        connection_id=connection_id,
+        generation=live.token_generation,
+    )
     logger.info(
         "withings disconnect finished",
         extra={

@@ -9,7 +9,7 @@ import asyncio
 import contextlib
 import json
 import urllib.request
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import parse_qs
@@ -36,11 +36,17 @@ from ownvitals.auth.sessions import RECENT_AUTH_WINDOW as SESSIONS_RECENT_AUTH
 from ownvitals.auth.sessions import STEPUP_WINDOW as SESSIONS_STEPUP
 from ownvitals.connections import routes as connection_routes
 from ownvitals.connections.providers.withings import store_grant
+from ownvitals.connections.repository import disconnect
 from ownvitals.context import UserContext
 from ownvitals.egress import core, install_worker_allowlist
 from ownvitals.jobs import KindRegistry, queue, service
 from ownvitals.jobs.runner import Execution, RunConfig, execute
-from ownvitals.withings.disconnect import DISCONNECT_KIND, REMOVAL, DisconnectInput
+from ownvitals.withings.disconnect import (
+    DISCONNECT_KIND,
+    REMOVAL,
+    DisconnectInput,
+    disconnect_withings,
+)
 from ownvitals.withings.errors import RetryBudget
 from ownvitals.withings.oauth import StateStore, callback, start
 from test_withings_disconnect import (
@@ -93,6 +99,8 @@ class Spy(FakeWithingsTransport):
         self.database_url = database_url
         self.connection_id: UUID | None = None
         self.revokes: list[tuple[str, bool]] = []
+        # Runs once, just before the OAuth revoke is answered (a race the test stages).
+        self.before_grant_revoke: Callable[[], Awaitable[None]] | None = None
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         body = parse_qs((await request.aread()).decode())
@@ -100,6 +108,10 @@ class Spy(FakeWithingsTransport):
         if action == "revoke" and self.connection_id is not None:
             held = _scalar(self.database_url, _CREDENTIALS, c=self.connection_id) == 1
             self.revokes.append((request.url.path.strip("/"), held))
+        hook = self.before_grant_revoke
+        if action == "revoke" and request.url.path.startswith("/v2/oauth2") and hook is not None:
+            self.before_grant_revoke = None
+            await hook()
         return await super().handle_async_request(request)
 
 
@@ -456,3 +468,136 @@ async def test_the_kind_is_left_for_the_worker_to_register() -> None:
 def test_the_purge_repeats_the_session_windows() -> None:
     assert STEPUP_WINDOW == SESSIONS_STEPUP
     assert RECENT_AUTH_WINDOW == SESSIONS_RECENT_AUTH
+
+
+# --- review of 9295c57: a full queue never blocks; a late run leaves a reconnect alone ----------
+
+
+def _system_jobs(url: str, owner_id: UUID, count: int) -> None:
+    """Queued webhook jobs the owner did not create, over ``jobs_per_user`` (2)."""
+    for _ in range(count):
+        _run(
+            url,
+            "INSERT INTO jobs (owner_id, kind, origin, state, input) "
+            "VALUES (:o, 'withings_sync', 'webhook', 'queued', '{}')",
+            o=owner_id,
+        )
+
+
+def _queued_disconnect(url: str, owner_id: UUID) -> None:
+    """An earlier ``withings_disconnect`` still queued: the owner's slot is taken."""
+    _run(
+        url,
+        "INSERT INTO jobs (owner_id, kind, origin, state, input, idempotency_key, request_hash) "
+        "VALUES (:o, :k, 'user', 'queued', '{}', 'synthetic-disconnect-0001', :h)",
+        o=owner_id,
+        k=DISCONNECT_KIND,
+        h=b"\x22" * 32,
+    )
+
+
+def _done(response: httpx.Response, path: str) -> dict[str, object]:
+    assert response.status_code == 200, (path, response.text)
+    return response.json()
+
+
+@pytest.mark.parametrize("path", ["/api/connections/withings", "/api/auth/account"])
+async def test_a_queue_full_of_system_jobs_does_not_block_the_revoke(
+    env: Env, owner: object, database_url: str, path: str
+) -> None:
+    """The disconnect job takes a slot of its own: five webhook jobs (``jobs_per_user`` is 2)
+    neither refuse the request nor keep the worker's revoke from running."""
+    linked = await _linked(env, owner, database_url)
+    _system_jobs(database_url, linked.ctx.user_id, 5)
+    async with worker(env, linked):
+        body = _done(await linked.browser.request("DELETE", path), path)
+    assert body["revoke_failed"] is False
+    assert linked.spy.revokes == [("notify", True), ("notify", True), ("v2/oauth2", True)]
+    if path == "/api/auth/account":
+        assert _scalar(database_url, "SELECT count(*) FROM users") == 0
+    else:
+        assert _scalar(database_url, _CREDENTIALS, c=linked.connection_id) == 0
+
+
+@pytest.mark.parametrize("path", ["/api/connections/withings", "/api/auth/account"])
+async def test_when_no_job_can_be_queued_the_route_clears_locally(
+    env: Env, owner: object, database_url: str, path: str
+) -> None:
+    """The owner's disconnect slot is taken and the queue is full of system jobs: no 429; the
+    credentials are cleared (or the account deleted) and the revoke is reported failed."""
+    linked = await _linked(env, owner, database_url)
+    _system_jobs(database_url, linked.ctx.user_id, 5)
+    _queued_disconnect(database_url, linked.ctx.user_id)
+    body = _done(await linked.browser.request("DELETE", path), path)
+    assert (body["revoke_failed"], body["removal"]) == (True, REMOVAL)
+    assert linked.fake.log == []
+    if path == "/api/auth/account":
+        assert _scalar(database_url, "SELECT count(*) FROM users") == 0
+    else:
+        assert _scalar(database_url, _CREDENTIALS, c=linked.connection_id) == 0
+        assert _job_states(database_url, linked.ctx.user_id) == [("queued", None)]
+
+
+@pytest.mark.parametrize("path", ["/api/connections/withings", "/api/auth/account"])
+async def test_a_failed_enqueue_falls_through_to_the_local_clear(
+    env: Env, owner: object, database_url: str, path: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    linked = await _linked(env, owner, database_url)
+
+    async def refused(*_: object, **__: object) -> object:
+        raise RuntimeError("synthetic enqueue failure")
+
+    monkeypatch.setattr(connection_routes.service, "create", refused)
+    body = _done(await linked.browser.request("DELETE", path), path)
+    assert (body["revoke_failed"], body["removal"]) == (True, REMOVAL)
+    assert linked.fake.log == []
+    if path == "/api/auth/account":
+        assert _scalar(database_url, "SELECT count(*) FROM users") == 0
+    else:
+        assert _scalar(database_url, _CREDENTIALS, c=linked.connection_id) == 0
+
+
+async def test_a_late_run_leaves_a_reconnected_connection_alone(
+    env: Env, owner: object, database_url: str
+) -> None:
+    """The route gave up and cleared the row; the user linked the same Withings account again
+    (the same row, a new generation); then the old run reaches its clear. It must not drop the
+    new grant."""
+    linked = await _linked(env, owner, database_url)
+    install_worker_allowlist(ai_enabled=False)
+    ring = env.app.state.keyring
+
+    async def route_gave_up_then_reconnect() -> None:
+        await disconnect(
+            env.factory,
+            linked.ctx,
+            "withings",
+            revoke_failed=True,
+            connection_id=linked.connection_id,
+        )
+        await store_grant(
+            env.factory,
+            ring,
+            linked.ctx,
+            linked.app_id,
+            linked.userid,
+            "user.metrics",
+            "synthetic-access-token-relinked",
+            "synthetic-refresh-token-relinked",
+            expires_in=10800,
+        )
+
+    linked.spy.before_grant_revoke = route_gave_up_then_reconnect
+    result = await disconnect_withings(
+        env.factory, ring, linked.ctx, linked.connection_id, stepped_up=True, inner=linked.spy
+    )
+    assert result.cleared is False
+    assert _scalar(database_url, _CREDENTIALS, c=linked.connection_id) == 1
+    status = "SELECT status, last_error FROM connections WHERE id = :c"
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text(status), {"c": linked.connection_id}).one()
+    finally:
+        engine.dispose()
+    assert (row.status, row.last_error) == ("connected", None)

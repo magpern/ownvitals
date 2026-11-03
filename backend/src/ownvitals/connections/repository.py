@@ -252,7 +252,13 @@ async def connect(
 
 
 async def disconnect(
-    factory: Factory, ctx: UserContext, provider: str, *, revoke_failed: bool = False
+    factory: Factory,
+    ctx: UserContext,
+    provider: str,
+    *,
+    revoke_failed: bool = False,
+    connection_id: UUID | None = None,
+    generation: int | None = None,
 ) -> bool:
     """Drop the live row's credentials and mark it disconnected. The row stays.
 
@@ -260,19 +266,18 @@ async def disconnect(
     ``last_error`` is cleared. ``False`` when the user has no live row for ``provider``
     (the route still answers 204). The generation is a token-write counter, so a
     disconnect does not change it.
+
+    ``connection_id`` limits it to that row, and ``generation`` to that token generation:
+    a revoke that finishes late then leaves a newer connection (or the same row after a
+    reconnect, which writes a new generation) alone.
     """
+    filters = [_C.owner_id == ctx.user_id, _C.provider == provider, _C.status != DISCONNECTED]
+    if connection_id is not None:
+        filters.append(_C.id == connection_id)
+    if generation is not None:
+        filters.append(_C.token_generation == generation)
     async with user_session(factory, ctx) as db:
-        row = (
-            await db.execute(
-                select(_C.id)
-                .where(
-                    _C.owner_id == ctx.user_id,
-                    _C.provider == provider,
-                    _C.status != DISCONNECTED,
-                )
-                .with_for_update()
-            )
-        ).first()
+        row = (await db.execute(select(_C.id).where(*filters).with_for_update())).first()
         if row is None:
             return False
         await db.execute(

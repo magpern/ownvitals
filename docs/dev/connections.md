@@ -43,14 +43,18 @@ revoke-first path of ADR 0004 section 7. Web makes no Withings call (roadmap Ame
 
 1. the route enqueues a `withings_disconnect` job (`withings.disconnect.DisconnectInput`:
    the connection id and the id of the session that passed the step-up), at the user lane,
-   with one slot over `jobs_per_user`; a full queue answers 429 `busy` and changes nothing;
+   in a slot of its own: the owner's other jobs (webhook, scheduler, backfill) never block it,
+   and at most one disconnect job is queued or running per owner. When none can be queued
+   (or the enqueue fails), the route goes straight to step 3; it never answers 429;
 2. it waits for the job up to `connections.routes.REVOKE_WAIT_SECONDS` (25 s). The handler
    (`auth.purge.disconnect_kind`) checks the session again (this owner's, live, full, a
    re-authentication and a step-up within ten minutes plus `JOB_SLACK`), then runs
    `disconnect_withings` inside one `provider_call`;
-3. if the row is still live afterwards (the job failed before the revoke, timed out, or no
-   worker runs the kind), the route cancels a still-queued job, clears the credentials itself
-   and records `revoke_failed`. Credentials never outlive the request;
+3. if the row is still live afterwards (no job was queued, the job failed before the revoke,
+   timed out, or no worker runs the kind), the route cancels a still-queued job, clears that
+   row's credentials itself and records `revoke_failed`. Credentials never outlive the
+   request. The job clears only its row at the token generation it started with, so a run
+   that ends late leaves a reconnected connection alone;
 4. `?delete_imported=true` then removes the imported rows, this owner's webhook events (while
    the row still names them) and the disconnected row (`connections.purge.purge_connection`);
    account deletion purges the webhook events and deletes the account
@@ -60,7 +64,8 @@ Both answer 200: `{"status": "disconnected", "revoke_failed", "removal", "import
 and `{"status": "deleted", "revoke_failed", "removal"}`. `removal` is the instruction to remove
 access in the Withings account, set exactly when `revoke_failed` is; `GET /api/connections`
 shows the same as `last_error: "revoke_failed"`. No live Withings row: 409 `not_connected`.
-The worker registers the kind with `auth.purge.register_disconnect_kind` (#164).
+The worker registers the kind with `auth.purge.register_disconnect_kind` (the worker-kinds
+follow-up of #173, which adds the name to guard 8's `PUBLIC_ENTRY_POINTS`).
 
 The job issuer's account directory (`ownvitals.auth.owners.ACCOUNTS.connection_refs`) reads
 live `(provider, id)` pairs in the owner's session. A disconnected row is not a ref.

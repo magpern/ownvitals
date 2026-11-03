@@ -170,7 +170,8 @@ async def delete_account(
     info: Annotated[SessionInfo | None, Depends(current_session)],
 ) -> Deleted:
     """Delete the user (recent auth and a step-up): revoke a live Withings grant first, then
-    the account; rows cascade. 429 ``busy`` (nothing deleted) when the job queue is full."""
+    the account; rows cascade. A full job queue never blocks it: the revoke then counts as
+    failed and the credentials are cleared locally (``revoke_withings``)."""
     if info is None:
         raise refuse(401, "not_authenticated")
     failed = False
