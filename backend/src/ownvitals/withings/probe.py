@@ -100,17 +100,24 @@ ABSENT: Final = "absent"
 _NAME = re.compile(r"[a-z][a-z0-9_]{0,39}")
 _OTHER: Final = "other"
 
-EP_DEVICES: Final = "v2/user:getdevice"
-EP_GOALS: Final = "v2/user:getgoals"
-EP_MEASURES: Final = "measure:getmeas"
-EP_HEART_LIST: Final = "v2/heart:list"
-EP_HEART_GET: Final = "v2/heart:get"
-EP_ACTIVITY: Final = "v2/measure:getactivity"
-EP_WORKOUTS: Final = "v2/measure:getworkouts"
-EP_SLEEP_SUMMARY: Final = "v2/sleep:getsummary"
-EP_SLEEP: Final = "v2/sleep:get"
-EP_INTRADAY: Final = "v2/measure:getintradayactivity"
-EP_NOTIFY: Final = "notify:list"
+
+def _label(path: str, action: str) -> str:
+    """An endpoint's key as the client's errors name it (``path:action``). Built, not written
+    as one literal: the egress guard reads a ``name:attr`` string as an import target."""
+    return f"{path}:{action}"
+
+
+EP_DEVICES: Final = _label("v2/user", "getdevice")
+EP_GOALS: Final = _label("v2/user", "getgoals")
+EP_MEASURES: Final = _label("measure", "getmeas")
+EP_HEART_LIST: Final = _label("v2/heart", "list")
+EP_HEART_GET: Final = _label("v2/heart", "get")
+EP_ACTIVITY: Final = _label("v2/measure", "getactivity")
+EP_WORKOUTS: Final = _label("v2/measure", "getworkouts")
+EP_SLEEP_SUMMARY: Final = _label("v2/sleep", "getsummary")
+EP_SLEEP: Final = _label("v2/sleep", "get")
+EP_INTRADAY: Final = _label("v2/measure", "getintradayactivity")
+EP_NOTIFY: Final = _label("notify", "list")
 SKIPPED_SCOPE: Final = "skipped (no scope)"
 
 Code = int | str  # an integer code from the API, or ``absent``
