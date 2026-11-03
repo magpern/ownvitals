@@ -32,6 +32,7 @@ from sqlalchemy import text
 
 from ownvitals.auth.purge import register_disconnect_kind
 from ownvitals.crypto.keks import KeyRing, KeyRingError, KeyUnavailable
+from ownvitals.derived.daily_job import register_daily_kind
 from ownvitals.derived.normalize_job import enqueue_normalize, register_normalize_kind
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
@@ -163,4 +164,5 @@ def worker_registry() -> KindRegistry:
     registry.register(JobKind("token_refresh_recover", ConnectInput, run_token_recover))
     register_disconnect_kind(registry)
     register_normalize_kind(registry)
+    register_daily_kind(registry)
     return registry

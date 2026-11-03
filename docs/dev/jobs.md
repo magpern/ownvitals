@@ -176,7 +176,9 @@ entry is still active (`NoTargets` confirms none; the worker process passes `Web
   #163: the revoke a disconnect or an account deletion enqueues; see
   [connections.md](connections.md)) and `derive_normalize` (`derived/normalize_job.py`, #185:
   normalises the owner's measures, sleep summaries, activity days and workouts into
-  `observations`, #229; see [derived.md](derived.md)). `KINDS` is the API's registry and stays empty,
+  `observations`, #229; see [derived.md](derived.md)) and `derive_daily` (`derived/daily_job.py`,
+  #186: daily values into `metric_daily`, queued by `derive_normalize` after its measures pass).
+  `KINDS` is the API's registry and stays empty,
   so `POST /api/jobs` refuses every kind and web imports no handler; `Worker` and `run_worker`
   default to it, so a caller that passes no registry claims nothing. `notify_update` has no
   handler yet.

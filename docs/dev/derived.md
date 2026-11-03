@@ -3,8 +3,9 @@
 The tables the analysis writes (PLAN §5 and §7, roadmap Amendments 2 and 3, ADR 0010 §4,
 ADR 0002 §2). Migration `0011_analysis_schema` creates them; `ownvitals.derived.tables` holds the
 Core tables and the vocabularies the migration's check constraints accept. Writers come with the
-M4 wiring issues; this file starts with the schema (#181) and ends with the first writer,
-normalisation into `observations` (#185, and the sleep and activity streams of #229).
+M4 wiring issues; this file starts with the schema (#181) and goes on with the writers:
+normalisation into `observations` (#185, and the sleep and activity streams of #229) and the daily
+values in `metric_daily` (#186).
 
 All five tables are **owned**: `owner_id` cascading from `users`, forced RLS with the
 `owner_isolation` policy, `UNIQUE (owner_id, id)` (or the partitioned key below), and every other
@@ -250,3 +251,78 @@ counter, fingerprint and lock tests for each stream, the job over every source, 
 best-effort enqueue) and `tests/test_derived_normalize_db.py` (rows and provenance,
 idempotence, delete and backdate, the purge, ingest and counter interleaved between read and write,
 the lock, partitions, the worker context through the runner, the enqueue, the sync hooks).
+
+## Daily values: `metric_daily` (#186)
+
+PLAN §7.1 step 3 and §5. Code: `derived/daily.py` (pure: `compute()`, `fingerprint()`),
+`derived/daily_db.py` (read, verify, write) and `derived/daily_job.py` (the `derive_daily` kind and
+`enqueue_daily`). #37's `daily_values()` (see [analysis.md](analysis.md)) does the arithmetic.
+
+**Input.** The owner's `observations` of the metric keys of `analysis.quality.METRICS`
+(`daily.KEYS`, the keys this pass owns); other keys are never read. A reading is used unless the
+normaliser flagged it `unconfirmed`, `implausible` or `duplicate`; `jump` is advisory. The day is
+the calendar date in the reading's own `source_tz`, so DST changes, trips and readings around
+midnight need no special case. Day assignment by the profile's `fixed_tz` is **not applied** here
+(#37's rule is the reading's zone). When it is, the zone setting must become part of the
+inputs (the fingerprint), so that a settings change recomputes the affected days; tracked in
+#187.
+
+**Row.** `method`, `value`, `morning` (the value, only for `morning`), `min`, `max`, `mad`, `n`
+from `DailyValue`; `mean` is the mean of the day's readings in a 60-digit half-even context,
+clamped into `[min, max]` (`DailyValue` has none; a mean such as 1/3 has no finite form).
+`source_groups` is the `grpid` of the first morning reading, or every `grpid` of the day for a
+median, ascending (ADR 0006 §11). A property test checks it against an oracle written from the
+rules.
+
+**Provenance.** `algo_version = daily/1`; `input_revision` is the owner's `measures` counter;
+`input_fingerprint` is SHA-256 over `daily/1`, `normalize/1` and the sorted observation rows read
+(key, group, type, position, instant, zone, value, flags). Every owned row carries the same
+fingerprint. A reader compares both values (see "Provenance" above).
+
+**A pass** (`daily_owner`, one owner): (1) read the revision, then the observations. If any
+observation this pass reads (its own metric keys, with a source type: the rows derived from
+`measures`) carries another revision, the normaliser has not caught up: `behind` (it queues
+this pass when it has). Observations of another stream carry that stream's revision and may
+have no group id; they are never read, counted or compared. If every stored row
+carries this revision, fingerprint and version, `current`. (2) Compute (pure). (3) In one
+transaction: take the owner's **normalisation lock** (`pg_advisory_xact_lock(6, hashtext(owner))`,
+namespace 6, ADR 0005 §9: the lock the normaliser's write takes, so the two never write together),
+lock the revision row `FOR SHARE`, check that the revision and the
+observations' fingerprint are the ones read (the fingerprint is **re-read inside the write
+transaction**, after the locks; it must stay there), and only then write; otherwise `stale`, nothing
+written. A purge of imported data removes the revision row and the observations, so a pass that
+read before it writes nothing (the review of #225; tested by interleaving a purge). The write
+compares **by content**: only days whose stored values differ are updated, days with no reading
+left are deleted, missing days inserted, so a soft delete or a backdated edit changes exactly the
+days it touched (`Outcome.affected` lists them), and the provenance of the others moves with one
+statement. All statements are scoped to `daily.KEYS`: a `metric_daily` row of any other key is
+never deleted or re-stamped. Two concurrent passes for one owner queue on that lock; the
+second reads the first's rows after the lock and finds them in place, so neither can hit the
+unique key (tested with both passes held between read and write).
+
+Inputs are the observations' content: a purge followed by the same data normalised again is the
+same input and a pass that read before it may write (the rows are right). Without the
+normalisation in between the observations are gone and the pass is `stale`.
+
+**The job.** `derive_daily`, input `{connection_id, origin: live|backfill}`, registered in the
+worker's registry only. `derive_normalize` queues it after a pass that ended `written` or
+`current`, with its own origin (a `stale` pass queues nothing: whatever moved its inputs queued a
+newer one; nothing imported queues nothing). Separate singleton keys (`daily_live`,
+`daily_backfill`); repeats of one origin collapse. It runs as the owner under the fence, so RLS
+applies (worker-context test).
+
+**Known gaps.**
+
+- The evaluation job (#187) does not exist yet, so this pass chains to nothing. #187 is queued
+  from `run_daily` when it lands.
+- The claim lane is the scheduler's (3) for both origins, as for `derive_normalize` (see "Known
+  gaps" above).
+- A change to one metric moves the shared fingerprint, so one provenance statement re-stamps all
+  of the owner's daily rows; the content comparison keeps the rewrite to the days that changed.
+
+Tests: `tests/test_derived_daily.py` (days, DST, trips, midnight, the median and morning sources,
+the mean, exclusions, order independence, the property test, the fingerprint; no database) and
+`tests/test_derived_daily_db.py` (rows and provenance, idempotence, `behind`, the exactly
+affected days after a soft delete and a backdated edit, the purge, ingest, counter and
+observation interleavings, the lock, concurrent passes, other metric keys untouched, the worker
+context through the runner, the enqueue and the chain from the normaliser).
