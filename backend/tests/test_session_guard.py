@@ -39,6 +39,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.jobs.progress",
             "ownvitals.ecg_validate",
             "ownvitals.views.findings_read",
+            "ownvitals.views.reads",
             "ownvitals.derived.check_cli",
         ),
     )
@@ -91,6 +92,12 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
         "ownvitals.views",
         "ownvitals.views.findings_routes",
         "ownvitals.views.findings_read.other",
+        "ownvitals.views.reads.other",
+        "ownvitals.views.status_routes",
+        "ownvitals.views.metrics_routes",
+        "ownvitals.views.days_routes",
+        "ownvitals.views.nerve_routes",
+        "ownvitals.views.assemble",
     ],
 )
 def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
@@ -111,6 +118,8 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.ecg_validate", True, False),
         # The one findings read function (#190): that exact module, not its routes.
         ("ownvitals.views.findings_read", True, False),
+        # The read API's reader (#189): that exact module, not its routes.
+        ("ownvitals.views.reads", True, False),
         # The owner's reproducibility check (#187): that exact module, not the writers.
         ("ownvitals.derived.check_cli", True, False),
         ("ownvitals.derived.findings_store", False, False),
