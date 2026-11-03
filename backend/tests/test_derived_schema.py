@@ -5,6 +5,7 @@ account or measurement.
 
 # Each refusal runs in a nested transaction inside pytest.raises so it rolls back alone.
 
+import json
 import re
 import uuid
 from collections.abc import Iterator
@@ -239,13 +240,22 @@ def _score(conn: Connection, owner: uuid.UUID, **overrides: Any) -> None:
         "version": "his/1",
         **overrides,
     }
+    # ``components`` (raw JSON) replaces the status object, so a test can omit the status.
+    components = row.pop("components", None)
+    if components is None:
+        components = json.dumps({"status": row["status"]})
     conn.execute(
         text(
             "INSERT INTO scores (owner_id, kind, day, value, components, algo_version, "
             "input_revision, input_fingerprint) VALUES (:owner, :kind, :day, :value, "
-            "jsonb_build_object('status', CAST(:status AS text)), :version, 1, :hash)"
+            "CAST(:components AS jsonb), :version, 1, :hash)"
         ),
-        {"owner": owner, "hash": HASH, **row},
+        {
+            "owner": owner,
+            "hash": HASH,
+            "components": components,
+            **{k: v for k, v in row.items() if k != "status"},
+        },
     )
 
 
@@ -261,6 +271,34 @@ def test_scores_take_adr_0012_kinds_and_a_value_only_when_computed(conn: Connect
     _refused(conn, lambda: _score(conn, owner, day="2026-10-20", status="normal"))
     for kind in ("health_improvement", "body_path", "body_path:", "body_path:Weight", "his:x"):
         _refused(conn, lambda kind=kind: _score(conn, owner, day="2026-10-20", kind=kind))
+
+
+@pytest.mark.parametrize(
+    ("components", "value"),
+    [
+        ("{}", 62),  # no status, with a value
+        ("{}", None),  # no status, no value
+        ('{"status": null}', None),  # a JSON-null status
+        ('{"status": null}', 62),
+        ('{"status": 1}', 62),  # not a string
+        ('{"status": ["computed"]}', 62),
+        ('{"status": "computed"}', None),  # computed needs its value
+        ('{"status": ""}', None),
+        ('{"status": "Computed"}', 62),
+    ],
+)
+def test_scores_status_is_null_proof(conn: Connection, components: str, value: Any) -> None:
+    """A CHECK that evaluates to NULL passes in Postgres, so a missing or JSON-null status must
+    still be refused (the #216 review's N1)."""
+    owner = _user(conn)
+    _refused(conn, lambda: _score(conn, owner, components=components, value=value))
+
+
+@pytest.mark.parametrize("status", derived.SCORE_STATUSES[1:])
+def test_a_score_that_is_not_computed_has_no_value(conn: Connection, status: str) -> None:
+    owner = _user(conn)
+    _refused(conn, lambda: _score(conn, owner, status=status))
+    _score(conn, owner, status=status, value=None)
 
 
 GOOD_KEYS = ("weight", "segmental_muscle_mass:left_arm", "qtc_interval", "fat_mass:right_leg")
@@ -294,6 +332,79 @@ def test_metric_keys_take_one_optional_segment(conn: Connection) -> None:
             lambda key=key: _finding(conn, owner, subject="bad", metric_keys=["weight", key]),
         )
     _refused(conn, lambda: _finding(conn, owner, subject="bad", metric_keys=["weight", ""]))
+    _finding(conn, owner, subject="none", metric_keys=[])  # a Q1-style finding: no metric
+    _refused(
+        conn,
+        lambda: _finding(conn, owner, subject="many", metric_keys=[f"k{n}" for n in range(17)]),
+    )
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        ["weight,bmi"],  # one element holding a comma: two valid keys once joined
+        ["weight,Bmi"],
+        ["weight", "fat_mass,bmi"],
+        [""],  # a lone empty element joins to ''
+        ["", ""],
+        ["", "weight"],
+        [None],  # the join skips NULLs
+        ["weight", None],
+        [None, None],
+    ],
+)
+def test_every_metric_keys_element_is_checked(conn: Connection, keys: list[str | None]) -> None:
+    """Each element is a metric key on its own, not just the joined string (the #216 review's
+    N2)."""
+    owner = _user(conn)
+    _refused(conn, lambda: _finding(conn, owner, metric_keys=keys))
+
+
+@pytest.mark.parametrize(
+    ("table", "assignment"),
+    [
+        ("user_profiles", "notify_tiers = ARRAY[NULL]::text[]"),
+        ("user_profiles", "notify_tiers = ARRAY['device', NULL]"),
+        ("user_profiles", "notify_tiers = ARRAY['']"),
+        ("user_profiles", "overview_order = ARRAY[NULL]::text[]"),
+        ("user_profiles", "overview_order = ARRAY['']"),
+        ("user_profiles", "day_assignment = 'fixed_tz', day_tz = NULL"),
+        ("user_profiles", "day_assignment = 'reading_tz', day_tz = 'Europe/Stockholm'"),
+        ("user_profiles", "day_assignment = 'fixed_tz', day_tz = ''"),
+    ],
+)
+def test_profile_checks_refuse_null_and_empty_elements(
+    conn: Connection, table: str, assignment: str
+) -> None:
+    """The NULL-trap audit of the nullable and array columns of ``user_profiles``."""
+    owner = _user(conn)
+    conn.execute(text("INSERT INTO user_profiles (owner_id) VALUES (:o)"), {"o": owner})
+    update = text(f"UPDATE {table} SET {assignment} WHERE owner_id = :o")  # noqa: S608
+    with pytest.raises(IntegrityError), conn.begin_nested():
+        conn.execute(update, {"o": owner})
+
+
+def test_derived_null_traps_are_closed(conn: Connection) -> None:
+    """The NULL-trap audit of the other nullable and array columns: a NULL element, a NULL in
+    a nullable column a check reads, and the source reference without its group."""
+    owner = _user(conn)
+    conn.execute(
+        text(
+            "CREATE TABLE public.observations_y2026m10 PARTITION OF public.observations "
+            "FOR VALUES FROM ('2026-10-01') TO ('2026-11-01')"
+        )
+    )
+    _refused(conn, lambda: _observation(conn, owner, flags=[None]))
+    _refused(conn, lambda: _observation(conn, owner, flags=["jump", None]))
+    _refused(conn, lambda: _observation(conn, owner, flags=[""]))
+    _refused(conn, lambda: _observation(conn, owner, grpid=None, position=None))  # type alone
+    _refused(conn, lambda: _daily(conn, owner, groups=[None]))
+    _refused(conn, lambda: _daily(conn, owner, method="median", value=80.3, groups=[1, None]))
+    _refused(conn, lambda: _daily(conn, owner, morning=None))  # morning method, no morning
+    _refused(conn, lambda: _daily(conn, owner, method="median", value=80.3, morning=80.3))
+    _refused(conn, lambda: _daily(conn, owner, morning="NaN", value="NaN"))
+    _refused(conn, lambda: _finding(conn, owner, status="ended", ended_at=None))
+    _refused(conn, lambda: _finding(conn, owner, notify_state="sent", notified_at=None))
 
 
 def test_scores_and_profiles_check_their_values(conn: Connection) -> None:

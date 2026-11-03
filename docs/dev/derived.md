@@ -27,8 +27,8 @@ Provenance (PLAN §5): `observations`, `metric_daily` and `scores` carry `algo_v
 stream it read**. Each counter only grows and is bumped on every change of its stream, so any
 change to any input stream changes the sum. Removing a stream's counter row (the "delete
 imported data" path) can lower a sum back to an earlier value, but it also changes the input
-rows, so `input_fingerprint` differs and the row is stale anyway. The writer issue implements
-the sum in one place and tests it.
+rows, so `input_fingerprint` differs and the row is stale anyway. A reader therefore always
+compares **both** values. The writer issue implements the sum in one place and tests it.
 
 **Metric keys** (`observations.metric_key`, `metric_daily.metric_key`, each element of
 `findings.metric_keys`, and the part after `body_path:` in a score kind) match
@@ -36,6 +36,20 @@ the sum in one place and tests it.
 lower-case name of letters, digits and underscores, then optionally one `:` and a second part
 of the same alphabet. The second part is ADR 0010's segment or side, for example
 `segmental_muscle_mass:left_arm`. Upper case, a second colon or an empty part are refused.
+`findings.metric_keys` holds up to 16 such keys and may be empty (a Q1 finding has no metric);
+every element is checked on its own: an empty element, a NULL element or an element holding a
+comma is refused (the check matches the comma-joined string and requires as many parts as
+elements).
+
+**NULL-proof checks.** A `CHECK` that evaluates to NULL passes in Postgres. Every check that
+reads a JSON key or a nullable value is written so it cannot: `scores_status` and
+`findings_metric_keys` are wrapped in `coalesce(..., false)`, a score's status must be a JSON
+string (`jsonb_typeof(components->'status') = 'string'`), and "value only when computed" uses
+`IS NOT DISTINCT FROM`. Nullable columns a check reads (`metric_daily.morning`,
+`observations.source_*`, `findings.ended_at` and `notified_at`, `user_profiles.day_tz`) are
+tested with `IS NULL`/`IS NOT NULL`, never compared with `=`. Array columns refuse NULL
+elements with `array_position(col, NULL) IS NULL`. `birth_year`, `sex` and `scores.value` may
+be NULL by design (unset, or a score that is not `computed`).
 
 Constraints worth knowing before writing a row:
 
