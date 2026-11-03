@@ -37,8 +37,10 @@ def _settings(app_database_url: str, owner_database_url: str, **overrides: objec
 
 
 async def _stop_web(env: Env) -> None:
-    """Web is stopped before a wipe: the event hub's LISTEN, then the pool."""
+    """Web is stopped before a wipe: the event hubs' LISTEN (jobs and QR login), then the
+    pool."""
     await env.app.state.event_hub.stop()
+    await env.app.state.qr_hub.stop()
     await env.app.state.engine.dispose()
 
 

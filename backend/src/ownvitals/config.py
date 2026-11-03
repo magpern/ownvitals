@@ -188,6 +188,16 @@ class Settings(BaseSettings):
     # ADR 0011 open question 1. Refused true until the owner answers it: a passkey replaces the
     # password only, and every sign-in still completes TOTP. No code path reads it as true.
     passkey_satisfies_second_factor: bool = False
+    # QR approve-login (ADR 0011 sections 5 to 7). ``qr_login_enabled`` is open question 3's
+    # safe-off: false hides the start route and refuses scans. ``geo_source`` is where the
+    # desktop's place comes from (open question 2): ``none`` (default, "Place unknown") or
+    # ``cloudflare`` (the visitor-location headers, from a ``cf_connecting_ip_proxies`` peer
+    # only); ``geoip_file`` is refused until the owner answers and a reviewed PR adds a reader.
+    # The SSE streams of the desktop: at most this many per IP (IPv6 by /64) and per web process.
+    qr_login_enabled: bool = True
+    geo_source: Literal["none", "cloudflare", "geoip_file"] = "none"
+    qr_streams_per_ip: int = Field(default=5, ge=1, le=5)
+    qr_streams_per_process: int = Field(default=100, ge=1, le=100)
     # How often the worker purges expired auth rows.
     purge_interval_seconds: float = 3600.0
 
@@ -331,6 +341,16 @@ class Settings(BaseSettings):
             raise ValueError(
                 "passkey_satisfies_second_factor=true is refused until the owner decides "
                 "(ADR 0011 open question 1)"
+            )
+        return value
+
+    @field_validator("geo_source")
+    @classmethod
+    def _refuse_geoip_file(cls, value: str) -> str:
+        if value == "geoip_file":
+            raise ValueError(
+                "geo_source=geoip_file is refused until the owner decides (ADR 0011 open "
+                "question 2) and a reviewed PR adds the reader"
             )
         return value
 
