@@ -136,6 +136,7 @@ def test_the_api_ships_no_kind_and_the_worker_ships_the_withings_kinds() -> None
     assert KINDS.names() == []
     assert worker_registry().names() == [
         "derive_daily",  # the metric_daily pass (#186)
+        "derive_evaluate",  # the rule evaluation (#187)
         "derive_normalize",  # the observations pass (#185)
         "ecg_fetch",
         "token_refresh_recover",
