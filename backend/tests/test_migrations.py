@@ -25,6 +25,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0011_analysis_schema",
         "0010_withings_rate",
         "0009_withings_schema",
         "0008_withings_jobs",
@@ -71,11 +72,12 @@ def test_the_migrations_create_exactly_their_tables(
 ) -> None:
     """Besides Alembic's own table, 0003's job tables (ADR 0005 section 1), 0004's key-ring
     check table (ADR 0004 section 3), 0005's account tables (ADR 0003, #10), 0006's stored
-    flags and admin audit log (#12), 0007's connections table (#13), 0009's Withings tables
-    and 0013's AI cost cap (#205).
+    flags and admin audit log (#12), 0007's connections table (#13), 0009's Withings tables,
+    0011's derived tables (#181) and 0013's AI cost cap (#205).
     """
     from ownvitals.ai.budget import AI_OWNED
     from ownvitals.auth.tables import metadata
+    from ownvitals.derived.tables import DERIVED_OWNED
     from ownvitals.ingest.tables import INGEST_OWNED
     from ownvitals.withings.tables import WITHINGS_OWNED
 
@@ -98,6 +100,7 @@ def test_the_migrations_create_exactly_their_tables(
             *metadata.tables,
             *WITHINGS_OWNED,
             *INGEST_OWNED,
+            *DERIVED_OWNED,
         }
     assert applied_revisions(database_url) == []
     assert public_tables(database_url) == {"alembic_version"}  # downgraded: all of them gone

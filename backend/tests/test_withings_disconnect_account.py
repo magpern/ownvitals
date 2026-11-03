@@ -5,7 +5,7 @@ import urllib.request
 from uuid import UUID
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture  # noqa: F401
@@ -26,6 +26,10 @@ _PARTITIONS = (
     (
         "intraday_y2026m11",
         "intraday",
+    ),
+    (
+        "observations_y2026m11",
+        "observations",
     ),
 )
 _OWNED = """
@@ -198,6 +202,7 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
                 ),
                 {"o": owner_id, "c": connection},
             )
+            _plant_derived(conn, owner_id, digest)
             # The AI cost cap (#205): the user's month and one settled reservation.
             conn.execute(
                 text("INSERT INTO ai_spend (owner_id, month, spent) VALUES (:o, '2026-11-01', 5)"),
@@ -213,6 +218,28 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
             )
     finally:
         engine.dispose()
+
+
+def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
+    """One synthetic row in each derived table (#181)."""
+    for sql in (
+        "INSERT INTO observations (owner_id, metric_key, ts, source_ts, source_tz, value, "
+        "source_value_raw, source_unit, conversion, source_grpid, source_type, algo_version, "
+        "input_revision, input_fingerprint) VALUES (:o, 'weight', '2026-11-02 08:00:00+00', "
+        "'2026-11-02 08:00:00+00', 'Etc/UTC', 0, 0, 0, 'synthetic', 1, 1, 'normalize/1', 0, :h)",
+        "INSERT INTO metric_daily (owner_id, metric_key, day, method, value, mean, min, max, "
+        "mad, n, source_groups, algo_version, input_revision, input_fingerprint) VALUES (:o, "
+        "'weight', '2026-11-02', 'median', 0, 0, 0, 0, 0, 1, '{1}', 'daily/1', 0, :h)",
+        "INSERT INTO findings (owner_id, rule_id, rule_version, tier, severity, confidence, "
+        "origin, subject, window_start, window_end, input_revision, input_fingerprint) VALUES "
+        "(:o, 'Q1', '1', 'system', 'info', 'high', 'live', 'user', '2026-11-02', "
+        "'2026-11-02', 0, :h)",
+        "INSERT INTO scores (owner_id, kind, day, components, algo_version, input_revision, "
+        "input_fingerprint) VALUES (:o, 'his', '2026-11-02', '{\"status\": \"not_set\"}', "
+        "'his/1', 0, :h)",
+        "INSERT INTO user_profiles (owner_id) VALUES (:o)",
+    ):
+        conn.execute(text(sql), {"o": owner_id, "h": digest})
 
 
 def _count(url: str, table: str, owner_id: UUID) -> int:
@@ -276,14 +303,19 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
         "data_revisions",
         "devices",
         "ecg_recordings",
+        "findings",
         "intraday",
         "job_events",
         "jobs",
         "measure_groups",
         "measures",
+        "metric_daily",
+        "observations",
+        "scores",
         "sleep_series",
         "sleep_summaries",
         "sync_cursors",
+        "user_profiles",
         "workouts",
     }
     for name, cascades in catalog:

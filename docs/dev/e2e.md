@@ -8,9 +8,10 @@ spec uses is made up per run. M0's "done when" (PLAN §11) is the login-and-TOTP
 |---|---|
 | `compose.e2e.yaml` | the overlay on `compose.yaml`: `fake-oidc`, Google sign-in switched on for web, web's trust bundle |
 | `e2e/fake-oidc/` | the stand-in for Google's token and JWKS hosts (Node, no dependencies) |
+| `e2e/fake-withings/` | the stand-in for Withings (`server.py`, Python standard library, runs `backend/tests/withingscore.py`) |
 | `e2e/scripts/` | `stack-up.sh`, `stack-prepare.sh`, `stack-checks.sh`, `stack-down.sh` |
 | `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps) |
-| `e2e/specs/` | `auth-password`, `auth-google`, `step-up`, `password-reset` |
+| `e2e/specs/` | `auth-password`, `auth-google`, `step-up`, `password-reset`, `fake-withings` |
 
 ## Run it
 
@@ -60,6 +61,39 @@ https with certifi's trust store (`SSL_CERT_FILE` is ignored on purpose). So:
 4. fake-oidc refuses to start unless `OWNVITALS_ENVIRONMENT=test`; web stays `dev`. It logs
    method and path only.
 
+## How Withings is faked
+
+`fake-withings` (#36) answers as `wbsapi.withings.net` and `account.withings.com` through compose
+network aliases, with a certificate from the same throwaway CA as fake-oidc (`stack-prepare.sh`
+writes `e2e/.certs/withings.{key,pem}`). Web and the worker both get the CA through the mounted
+trust bundle (the worker needs it for the Withings calls of M1).
+
+- **One protocol.** `server.py` only turns HTTPS requests into `withingswire.Request` and the
+  `Response` back, does the HEAD check of `notify` and the webhook POST over the network, and
+  serves the control endpoints. All behaviour is `FakeWithings` from `backend/tests/`, mounted
+  read-only at `/protocol`, so the in-process fake and this one cannot drift.
+  `backend/tests/test_withings_e2e_service.py` fails when `server.py` defines or names protocol
+  code (constants, hosts, scopes, endpoints, `hmac`/`hashlib`) and when its answers differ from the
+  in-process fake's.
+- **No published port.** The TLS side (443) serves the API only. The control side is plain HTTP on
+  9101 in the same container, under `/__e2e/`, and `compose.e2e.yaml` has no `ports:` for the
+  service: only containers on the compose network reach it (the spec checks `compose ps` and that
+  the host cannot connect). Specs call it from inside the container (`helpers/fake-withings.ts`,
+  `control(...)`, `resetWorld()`).
+- **Control.** `POST /__e2e/reset` (a fresh fake: one app, one synthetic user, a token pair,
+  returned), `POST /__e2e/inject` (`kind` one of `drop|delay|status|http|garbage`, `at` a request
+  number or list, optional `endpoint`, `when`, `status`, `wait_seconds`, `http_status`,
+  `seconds`), `GET /__e2e/state` (counts, the masked request log, subscriptions as scheme and host
+  only, failures fired), `POST /__e2e/send-webhook` (`userid`, `appli`, optional `fields` or a
+  forged `form`; one attempt per subscribed URL, the retry schedule spans hours and is not run
+  here), `GET /__e2e/ready`.
+- **Callback URLs.** The strict default (HTTPS, 443, a domain name) would refuse the compose
+  receiver, which is plain HTTP on `web:8000`. The service starts the fake with
+  `strict_callbacks=False`, the one e2e-only opt-out (a backend test shows the default refuses),
+  and sends the HEAD check and webhooks to `FAKE_WITHINGS_CALLBACK_BASE` (`http://web:8000`)
+  instead of the subscribed URL's own host, which the container cannot reach.
+- Starts only with `OWNVITALS_ENVIRONMENT=test`; real clock; the log is method and path only.
+
 ## The specs
 
 - `auth-password`: invite (operator CLI in the web container) → sign-up → mail link and password
@@ -71,6 +105,11 @@ https with certifi's trust store (`SSL_CERT_FILE` is ignored on purpose). So:
   everywhere. A wrong code changes nothing.
 - `password-reset`: mail from mailpit → new password → the old one is refused, the new one signs
   in (as far as enrolment).
+
+- `fake-withings`: the worker's own Withings client (real egress allowlist) reaches the fake over
+  TLS and its calls are counted without a token or secret in the log; an injected 601 arrives as
+  `RateLimited`; the control endpoints are reachable from the worker by service name and not from
+  the host or the browser, and the TLS side does not serve `/__e2e/`.
 
 `helpers/totp.ts` implements RFC 6238 itself (checked against the RFC's test vector). The server
 refuses a code of a step already used, so `Authenticator.next()` hands out a later step each time:
@@ -88,6 +127,10 @@ of `ci` and in `JOBS`/`FILTERS` of `scripts/ci-gate.sh` (filter `stack`). `npm a
 is part of `checks` and required.
 
 ## Assumptions not verified here
+
+- `fake-withings`: the first CI run is its first run in Docker (the sysctl for port 443 as a
+  non-root user, the alias names, the mounted bundle in the worker). Nothing about it is verified
+  against the real Withings (INTEGRATION_VERIFIED is the owner's).
 
 - The specs were written without a Docker daemon in the authoring session; the first CI run is
   their first run. Chromium must keep `Secure` cookies (`__Host-`) on `http://127.0.0.1`, which it

@@ -104,7 +104,7 @@ def notify(
             return err(STATUS_BAD_PARAMS, "invalid_params: appli")
         if APPLI_SCOPE[appli] not in scopes:
             return err(STATUS_NO_SCOPE, "scope not authorized for this appli")
-        if callback_url_problem(url):
+        if callback_url_problem(url, strict=fake.strict_callbacks):
             return bad_callback
 
         def subscribe(status: int) -> Response:
@@ -130,7 +130,7 @@ def notify(
             fake.subscriptions.remove(sub)
         return ok({})
     new_url = p.get("new_callbackurl")  # update
-    if new_url is not None and callback_url_problem(new_url):
+    if new_url is not None and callback_url_problem(new_url, strict=fake.strict_callbacks):
         return bad_callback
     new_appli = _appli(p.get("new_appli"))
     if "new_appli" in p and (new_appli is None or APPLI_SCOPE[new_appli] not in scopes):
