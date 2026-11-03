@@ -3,8 +3,9 @@
 The change request needs recent authentication and a step-up and answers
 the same whether or not the new address is in use; only the mail differs. The confirmation needs
 a signed-in session of the user the token was issued to, so a victim clicking a link from
-someone else's account changes nothing. Deleting the account deletes the ``users`` row; the
-foreign keys cascade.
+someone else's account changes nothing. Deleting the account first revokes a live Withings
+connection through the worker (``connections.routes.revoke_withings``, PLAN section 4.3), then
+deletes the ``users`` row; the foreign keys cascade. The answer says whether a revoke failed.
 """
 
 from typing import Annotated
@@ -16,12 +17,12 @@ from sqlalchemy.exc import IntegrityError
 
 from ownvitals.auth import mails
 from ownvitals.auth.accounts import find_user
-from ownvitals.auth.admin_accounts import delete_user_account
 from ownvitals.auth.clientip import bucket_ip
 from ownvitals.auth.cookies import clear_session_cookie
 from ownvitals.auth.deps import current_session, request_ip, require_sensitive, require_user
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import EmailAddress, factory, mailer, reserve
+from ownvitals.auth.purge import delete_account as delete_owned_account
 from ownvitals.auth.ratelimit import MAIL_ACCOUNT, MAIL_IP, MAIL_PAIR, SIGN_IN_IP, Bucket
 from ownvitals.auth.sessions import SessionInfo, revoke_user_sessions
 from ownvitals.auth.signup_routes import Accepted, refuse
@@ -32,10 +33,13 @@ from ownvitals.auth.tokens import (
     delete_outstanding_tokens,
     issue_token,
 )
+from ownvitals.connections.repository import list_connections
+from ownvitals.connections.routes import WITHINGS, revoke_withings
 from ownvitals.context import UserContext
 from ownvitals.db import system_session
 from ownvitals.emailnorm import normalize_email
 from ownvitals.mail import MailMessage, send_logged
+from ownvitals.withings.disconnect import REMOVAL
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -59,6 +63,14 @@ class _Refused(Exception):
 class Changed(BaseModel):
     status: str = "changed"
     email: str
+
+
+class Deleted(BaseModel):
+    """The account is gone. ``removal`` is set exactly when ``revoke_failed`` is."""
+
+    status: str = "deleted"
+    revoke_failed: bool
+    removal: str | None
 
 
 @router.post("/email/change", status_code=202)
@@ -150,13 +162,22 @@ async def confirm_email_change(
     return Changed(email=new_email)
 
 
-@router.delete("/account", status_code=204)
+@router.delete("/account")
 async def delete_account(
     request: Request,
     response: Response,
     ctx: Annotated[UserContext, Depends(require_sensitive)],
-) -> None:
-    """Delete the user (recent auth and a step-up); rows cascade."""
-    async with system_session(factory(request)) as db:
-        await delete_user_account(db, ctx.user_id, ip=request_ip(request))
+    info: Annotated[SessionInfo | None, Depends(current_session)],
+) -> Deleted:
+    """Delete the user (recent auth and a step-up): revoke a live Withings grant first, then
+    the account; rows cascade. A full job queue never blocks it: the revoke then counts as
+    failed and the credentials are cleared locally (``revoke_withings``)."""
+    if info is None:
+        raise refuse(401, "not_authenticated")
+    failed = False
+    for row in await list_connections(factory(request), ctx):
+        if row.provider == WITHINGS and row.status != "disconnected":
+            failed = await revoke_withings(request, ctx, info, row.id) or failed
+    await delete_owned_account(factory(request), ctx, ip=request_ip(request))
     clear_session_cookie(response)
+    return Deleted(revoke_failed=failed, removal=REMOVAL if failed else None)

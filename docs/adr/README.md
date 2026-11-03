@@ -33,6 +33,10 @@ question open says so in an **Open questions** section and names who answers it.
 | [0008](0008-webhook-secret-lifecycle.md) | Webhook-secret lifecycle, rotations and subscriptions (moved from ADR 0004 §4) | Accepted |
 | [0009](0009-runtime-egress-enforcement.md) | Runtime egress enforcement: an audit hook per process, the standard event loop only, no uvloop | Accepted |
 | [0010](0010-finding-rules-v1.md) | v1 finding rules: parameters, definitions, confidence; its [test specification](0010-finding-rules-v1-tests.md) is part of it | Accepted |
+| [0011](0011-passkeys-and-qr-login.md) | Passkeys (WebAuthn) and QR approve-login under mandatory TOTP and step-up | Proposed |
+| [0012](0012-scores.md) | Scores: Health Improvement Score, Body Path and Readiness; its [test specification](0012-scores-tests.md) is part of it | Proposed |
+| [0013](0013-reports-and-export.md) | Reports and export: JSON/CSV/FIT export, the doctor PDF, step-up and single-use download | Proposed |
+| [0014](0014-ai-insights.md) | AI insights: provider review, consent, minimal tools, worker-only client, cost cap, prompt-injection evals | Proposed |
 
 The health-data threat model that these ADRs feed is
 [docs/security/threat-model.md](../security/threat-model.md).

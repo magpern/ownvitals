@@ -38,11 +38,18 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.jobs.service",
             "ownvitals.jobs.progress",
             "ownvitals.ecg_validate",
+            "ownvitals.views.findings_read",
         ),
     )
     system = Allowlist(
         prefixes=("ownvitals.db", "ownvitals.auth"),
-        modules=("ownvitals.jobs.queue", "ownvitals.crypto.keks", "ownvitals.flags.routes"),
+        modules=(
+            "ownvitals.jobs.queue",
+            "ownvitals.crypto.keks",
+            "ownvitals.flags.routes",
+            "ownvitals.notify.outbox",
+            "ownvitals.ai.budget",
+        ),
     )
     private = Allowlist(prefixes=("ownvitals.db",))
     assert (user, system) == (USER_SESSION, SYSTEM_SESSION)
@@ -79,6 +86,10 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
         "ownvitals.connectionsx",
         "ownvitals.ecg",
         "ownvitals.ecg.validate_cli",
+        "ownvitals.ecg.overlay",
+        "ownvitals.views",
+        "ownvitals.views.findings_routes",
+        "ownvitals.views.findings_read.other",
     ],
 )
 def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
@@ -97,6 +108,8 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.jobs.service", True, False),
         ("ownvitals.jobs.progress", True, False),
         ("ownvitals.ecg_validate", True, False),
+        # The one findings read function (#190): that exact module, not its routes.
+        ("ownvitals.views.findings_read", True, False),
         ("ownvitals.jobs.queue", False, True),
         # The key ring's startup check (#8): that exact module, nothing else in the package.
         ("ownvitals.crypto.keks", False, True),
@@ -108,6 +121,14 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.flags.effective", False, False),
         ("ownvitals.admin.settings", False, False),
         ("ownvitals.admin.db", False, False),
+        # The outbox's claim and mark (#194): that exact module; the sender opens none.
+        ("ownvitals.notify.outbox", False, True),
+        ("ownvitals.notify.sender", False, False),
+        ("ownvitals.notify", False, False),
+        # The AI reaper (#205): that exact module, never a user session, nothing else in ai.
+        ("ownvitals.ai.budget", False, True),
+        ("ownvitals.ai", False, False),
+        ("ownvitals.ai.pricing", False, False),
     ],
 )
 def test_the_owning_modules_are_allowlisted(module: str, user: bool, system: bool) -> None:

@@ -44,3 +44,33 @@ describe('the safe areas', () => {
     for (const side of ['right', 'bottom', 'left']) expect(tabs, side).toContain(`padding-${side}: env(safe-area-inset-${side})`)
   })
 })
+
+// The test above only proves that an inset appears somewhere in a file; it would stay green if one
+// selector lost its inset while another kept it. This one names the selector that owns each side,
+// and that the inset is in its padding (the shorthand counts: `.ov-content` writes its bottom
+// padding that way).
+describe('the safe areas, selector by selector', () => {
+  /** The declarations of every rule whose selector is exactly `selector`. */
+  function declarations(css: string, selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const rules = [...css.matchAll(new RegExp(`(?:^|[\\s}])${escaped}\\s*\\{([^}]*)\\}`, 'g'))]
+    return rules.map((rule) => rule[1] ?? '').join('\n')
+  }
+
+  const owners: [string, string, string, string[]][] = [
+    ['the app frame (shell.css)', '.ov-app', shell, ['right', 'left']],
+    ['the top bar (shell.css)', '.ov-topbar', shell, ['top']],
+    ['the content on a phone (shell.css)', '.ov-content', shell, ['bottom']],
+    ['the phone tabs (shell.css)', '.ov-phone-tabs', shell, ['right', 'bottom', 'left']],
+    ['the plain frame\'s header (app.css)', '.shell__header', app, ['top', 'right', 'left']],
+    ['the plain frame\'s page (app.css)', '.shell__main', app, ['right', 'bottom', 'left']],
+  ]
+
+  it.each(owners)('%s (%s) pads the sides it touches', (_name, selector, css, sides) => {
+    const body = declarations(css, selector)
+    expect(body, `${selector} has no rule`).not.toBe('')
+    for (const side of sides) {
+      expect(body, `${selector} ${side}`).toMatch(new RegExp(`padding(?:-${side})?:[^;]*env\\(safe-area-inset-${side}\\)`))
+    }
+  })
+})

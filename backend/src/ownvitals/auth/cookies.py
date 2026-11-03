@@ -13,11 +13,14 @@ DEVICE_COOKIE = "__Host-ownvitals_device"
 CSRF_COOKIE = "__Host-ownvitals_csrf"
 OAUTH_COOKIE = "__Host-ownvitals_oauth"
 PENDING_COOKIE = "__Host-ownvitals_pending"
+# The pre-session of a browser without a session (ADR 0011 section 4).
+PRE_COOKIE = "__Host-ownvitals_pre"
 
 DEVICE_MAX_AGE = 365 * 24 * 3600
 CSRF_MAX_AGE = 30 * 24 * 3600
 OAUTH_MAX_AGE = 10 * 60
 PENDING_MAX_AGE = 24 * 3600
+PRE_MAX_AGE = 5 * 60
 
 
 def set_session_cookie(response: Response, issued: IssuedSession) -> None:
@@ -92,3 +95,20 @@ def clear_oauth_cookie(response: Response) -> None:
 
 def clear_pending_cookie(response: Response) -> None:
     response.delete_cookie(PENDING_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+
+
+def set_pre_cookie(response: Response, value: str) -> None:
+    """``HttpOnly``, ``Secure``, ``SameSite=Strict``, 5 minutes (ADR 0011 section 4)."""
+    response.set_cookie(
+        PRE_COOKIE,
+        value,
+        max_age=PRE_MAX_AGE,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
+
+
+def clear_pre_cookie(response: Response) -> None:
+    response.delete_cookie(PRE_COOKIE, path="/", secure=True, httponly=True, samesite="strict")

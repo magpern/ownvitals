@@ -29,6 +29,7 @@ class Receiver:
         self.post_paths: list[str] = []
         self.head_status = 200
         self.post_status = 200
+        self.failing_posts = 0  # the next N POSTs answer 500, then ``post_status`` again
         self.redirect_to: str | None = None  # a Location header on the POST answer
         self.clock_seconds = 0.0  # the handler takes this long on the fake clock
         self.sleep_seconds = 0.0  # ... and this long in real time
@@ -60,7 +61,8 @@ class Receiver:
                 self.fake.clock.advance(self.clock_seconds)
             if self.sleep_seconds:
                 await asyncio.sleep(self.sleep_seconds)
-            status = self.post_status
+            status = 500 if self.failing_posts > 0 else self.post_status
+            self.failing_posts = max(0, self.failing_posts - 1)
             if self.redirect_to is not None:
                 headers.append((b"location", self.redirect_to.encode()))
         await send({"type": "http.response.start", "status": status, "headers": headers})

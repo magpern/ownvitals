@@ -3,15 +3,14 @@ webhook sender helper with Withings' retry schedule. The receiver is a tiny in-p
 nothing touches the network.
 """
 
-from collections.abc import MutableMapping
 from typing import Any
-from urllib.parse import parse_qsl
 
 import httpx
 import pytest
 
 from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport, call, deliver_webhook, head_check_with, make_fake
+from withingsreceiver import Receiver
 from withingswire import (
     STATUS_BAD_CALLBACK,
     STATUS_BAD_PARAMS,
@@ -27,40 +26,11 @@ HOOK = "https://app.example.test/api/webhooks/withings/synthetic-secret"
 DAY = 86_400
 
 
-class Receiver:
-    """A stand-in for the webhook receiver: answers HEAD and POST, records what it got."""
-
-    def __init__(self) -> None:
-        self.heads: list[str] = []
-        self.posts: list[dict[str, str]] = []
-        self.head_status = 200
-        self.failing_posts = 0  # the next N POSTs answer 500
-
-    async def __call__(self, scope: MutableMapping[str, Any], receive: Any, send: Any) -> None:
-        body = b""
-        while True:
-            message = await receive()
-            body += message.get("body", b"")
-            if not message.get("more_body"):
-                break
-        if scope["method"] == "HEAD":
-            self.heads.append(scope["path"])
-            status = self.head_status
-        else:
-            self.posts.append(dict(parse_qsl(body.decode())))
-            status = 500 if self.failing_posts > 0 else 200
-            self.failing_posts = max(0, self.failing_posts - 1)
-        await send({"type": "http.response.start", "status": status, "headers": []})
-        await send({"type": "http.response.body", "body": b""})
-
-
 class World:
     def __init__(self) -> None:
         self.fake, self.app, self.user = make_fake(seed=2, days=5, ecg_count=1)
         self.receiver = Receiver()
-        self.hook_client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=self.receiver), base_url="https://app.example.test"
-        )
+        self.hook_client = self.receiver.client()
         transport = FakeWithingsTransport(self.fake, head_check=head_check_with(self.hook_client))
         self.client = httpx.AsyncClient(transport=transport)
         self.token = self.fake.tokens_for(self.app.client_id, self.user.userid)["access_token"]

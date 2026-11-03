@@ -8,8 +8,11 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
 from dbtools import PARENT, drop_tables, migrated, owner_connection, run_rls_helper
+from ownvitals.ai.budget import AI_OWNED
 from ownvitals.db import SYSTEM_TABLES
+from ownvitals.derived.tables import DERIVED_OWNED
 from ownvitals.ingest.tables import INGEST_OWNED
+from ownvitals.notify.outbox import OUTBOX_TABLES
 from ownvitals.withings.tables import WITHINGS_OWNED
 from rls_guard import GLOBAL_UNIQUE_INDEXES, check_tables
 
@@ -42,14 +45,19 @@ def test_the_migrated_schema_meets_the_contract(database_url: str) -> None:
             tables = connection.execute(
                 text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
             ).scalars()
-            # Owned so far: the job tables (0003), connections (0007) and the Withings
-            # tables (0009). System tables include withings_apps and webhook_events.
+            # Owned so far: the job tables (0003), connections (0007), the Withings
+            # tables (0009), the derived tables (0011), the mail outbox (0012) and the AI cost
+            # cap (0013). System tables include withings_apps, webhook_events, owner_notices and
+            # ai_spend_global.
             assert set(tables) == set(SYSTEM_TABLES) | {
                 "jobs",
                 "job_events",
                 "connections",
                 *WITHINGS_OWNED,
                 *INGEST_OWNED,
+                *DERIVED_OWNED,
+                *OUTBOX_TABLES,
+                *AI_OWNED,
             }
     finally:
         engine.dispose()

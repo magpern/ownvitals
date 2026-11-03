@@ -172,8 +172,12 @@ entry is still active (`NoTargets` confirms none; the worker process passes `Web
   `withings_sync`, `ecg_fetch` and `withings_poll` (`withings/sync.py`), `withings_reconcile`
   (`execute_nightly`, `withings/reconcile.py`) and `token_refresh_recover` (`recover_refresh`,
   `withings/tokens.py`, inside one `provider_call`; `needs_reconnect` and `not_connected` are
-  kept as the job's category). `KINDS` is the API's registry and stays empty, so
-  `POST /api/jobs` refuses every kind and web imports no handler; `Worker` and `run_worker`
+  kept as the job's category) and `withings_disconnect` (`auth.purge.register_disconnect_kind`,
+  #163: the revoke a disconnect or an account deletion enqueues; see
+  [connections.md](connections.md)) and `derive_normalize` (`derived/normalize_job.py`, #185:
+  normalises the owner's measures, sleep summaries, activity days and workouts into
+  `observations`, #229; see [derived.md](derived.md)). `KINDS` is the API's registry and stays empty,
+  so `POST /api/jobs` refuses every kind and web imports no handler; `Worker` and `run_worker`
   default to it, so a caller that passes no registry claims nothing. `notify_update` has no
   handler yet.
 - `WORKER_TARGETS`: `withings.webhooks.WebhookTargets`. A job with `target_secret_id` runs only

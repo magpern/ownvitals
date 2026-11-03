@@ -139,6 +139,38 @@ describe('the licence rule', () => {
     expect(unacceptedLicences(planted)).toEqual(['o@1.0.0: "LGPL-3.0"', 'p@1.0.0: "Unlicense"'])
   })
 
+  // `dev: true` is set by hand on the packages below, so npm's flags cannot find them: only the
+  // closure worked out from the dependency fields can. Each row fails if that one field stops
+  // being followed (a mutation of `productionClosure` in test/licenceScan.ts).
+  describe('the closure follows optionalDependencies', () => {
+    it('of a package that ships', () => {
+      const planted = lockWith({
+        'node_modules/a': { version: '1.0.0', license: 'MIT', optionalDependencies: { o: '1.0.0' } },
+        'node_modules/o': { version: '1.0.0', license: 'LGPL-3.0', dev: true },
+      })
+      expect(productionClosure(planted).map(nameOf)).toContain('o')
+      expect(unacceptedLicences(planted)).toContain('o@1.0.0: "LGPL-3.0"')
+    })
+
+    it('of the project itself', () => {
+      const planted = lockWith({
+        '': { dependencies: { a: '1.0.0' }, optionalDependencies: { o: '1.0.0' }, devDependencies: { tool: '1.0.0' } },
+        'node_modules/o': { version: '1.0.0', license: 'LGPL-3.0', dev: true },
+      })
+      expect(productionClosure(planted).map(nameOf)).toContain('o')
+      expect(unacceptedLicences(planted)).toContain('o@1.0.0: "LGPL-3.0"')
+    })
+
+    it('and then what that package needs', () => {
+      const planted = lockWith({
+        'node_modules/a': { version: '1.0.0', license: 'MIT', optionalDependencies: { o: '1.0.0' } },
+        'node_modules/o': { version: '1.0.0', license: 'MIT', dev: true, dependencies: { deep: '1.0.0' } },
+        'node_modules/deep': { version: '1.0.0', license: 'GPL-3.0', dev: true },
+      })
+      expect(unacceptedLicences(planted)).toContain('deep@1.0.0: "GPL-3.0"')
+    })
+  })
+
   // The bundler decides what ships, not the lockfile: Vite follows a shipped package's imports into
   // node_modules, optional peer or not, so an installed peer is always checked, whatever its flags.
   describe('an optional peer dependency', () => {

@@ -22,6 +22,9 @@ WEBHOOK_SECRET_ROTATION: Final = 4
 # 5: MFA failures, ``pg_advisory_xact_lock``, keyed by the user id (ADR 0003 section 2: the fifth
 # failure in an hour mails the user once; ``ownvitals.auth.mfa.record_failure``, #10).
 MFA_FAILURES: Final = 5
+# 6: normalisation, ``pg_advisory_xact_lock``, keyed by the user id: one write of
+# ``observations`` per owner at a time (``ownvitals.derived.normalize_db``, #229).
+NORMALISATION: Final = 6
 
 NAMESPACES: Final = {
     "job_creation": JOB_CREATION,
@@ -29,4 +32,5 @@ NAMESPACES: Final = {
     "partitions": PARTITIONS,
     "webhook_secret_rotation": WEBHOOK_SECRET_ROTATION,
     "mfa_failures": MFA_FAILURES,
+    "normalisation": NORMALISATION,
 }

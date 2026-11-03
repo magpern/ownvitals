@@ -22,8 +22,8 @@ it. `refresh_in_flight` and `refresh_intent_at` are the M1 refresh seam; a token
 them.
 
 The provider check admits `withings` (M1, not connected yet) and `test`. Routes offer `test`
-only when `environment` is `test`. Any other provider, including `withings` until M1, answers
-`404 {"detail": {"reason": "unknown_provider"}}`.
+only when `environment` is `test`. Any other provider answers
+`404 {"detail": {"reason": "unknown_provider"}}`, except `DELETE` of `withings` (below).
 
 ## Routes
 
@@ -35,6 +35,37 @@ No ciphertext, no `public`, no tokens.
 provider's body is `access_token` and `refresh_token` (8 to 256 characters). Disconnect nulls
 the credential columns, sets `disconnected` and keeps the row. Both answer without a token in
 the body. Validation errors on `/api/connections` drop `input` (`auth.setup`).
+
+### Withings disconnect and account deletion (#163)
+
+`DELETE /api/connections/withings` (any environment) and `DELETE /api/auth/account` take the
+revoke-first path of ADR 0004 section 7. Web makes no Withings call (roadmap Amendment 1):
+
+1. the route enqueues a `withings_disconnect` job (`withings.disconnect.DisconnectInput`:
+   the connection id and the id of the session that passed the step-up), at the user lane,
+   in a slot of its own: the owner's other jobs (webhook, scheduler, backfill) never block it,
+   and at most one disconnect job is queued or running per owner. When none can be queued
+   (or the enqueue fails), the route goes straight to step 3; it never answers 429;
+2. it waits for the job up to `connections.routes.REVOKE_WAIT_SECONDS` (25 s). The handler
+   (`auth.purge.disconnect_kind`) checks the session again (this owner's, live, full, a
+   re-authentication and a step-up within ten minutes plus `JOB_SLACK`), then runs
+   `disconnect_withings` inside one `provider_call`;
+3. if the row is still live afterwards (no job was queued, the job failed before the revoke,
+   timed out, or no worker runs the kind), the route cancels a still-queued job, clears that
+   row's credentials itself and records `revoke_failed`. Credentials never outlive the
+   request. The job clears only its row at the token generation it started with, so a run
+   that ends late leaves a reconnected connection alone;
+4. `?delete_imported=true` then removes the imported rows, this owner's webhook events (while
+   the row still names them) and the disconnected row (`connections.purge.purge_connection`);
+   account deletion purges the webhook events and deletes the account
+   (`auth.purge.delete_account`).
+
+Both answer 200: `{"status": "disconnected", "revoke_failed", "removal", "imported_deleted"}`
+and `{"status": "deleted", "revoke_failed", "removal"}`. `removal` is the instruction to remove
+access in the Withings account, set exactly when `revoke_failed` is; `GET /api/connections`
+shows the same as `last_error: "revoke_failed"`. No live Withings row: 409 `not_connected`.
+The worker registers the kind (`worker.kinds.worker_registry` calls
+`auth.purge.register_disconnect_kind`, a guard 8 entry point); the API's registry stays empty.
 
 The job issuer's account directory (`ownvitals.auth.owners.ACCOUNTS.connection_refs`) reads
 live `(provider, id)` pairs in the owner's session. A disconnected row is not a ref.
@@ -88,7 +119,7 @@ docker compose exec db psql -U postgres -d ownvitals -c CHECKPOINT
 cd backend
 uvx uv@0.13.6 run pytest -q tests/test_connections.py tests/test_connections_schema.py \
   tests/test_connections_generation.py tests/test_connection_errors.py \
-  tests/test_keys_rewrap.py tests/test_keys_wipe.py
+  tests/test_keys_rewrap.py tests/test_keys_wipe.py tests/test_withings_disconnect_routes.py
 ```
 
 Fixtures are synthetic. The test provider never calls Withings.

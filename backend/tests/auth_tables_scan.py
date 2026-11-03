@@ -90,7 +90,8 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     ),
     # the worker: the issuer's account check and the purge
     "ownvitals.auth.owners": frozenset({"ACCOUNTS"}),
-    "ownvitals.auth.purge": frozenset({"purge_expired"}),
+    # and the revoke a disconnect or an account deletion enqueues (#163)
+    "ownvitals.auth.purge": frozenset({"purge_expired", "register_disconnect_kind"}),
     # the operator CLI
     "ownvitals.auth.operator": frozenset(
         {
@@ -140,6 +141,9 @@ TABLE_NAMES = (
     "mfa_recovery_codes",
     "rate_limits",
     "auth_events",
+    "pre_sessions",
+    "webauthn_credentials",
+    "webauthn_challenges",
 )
 SUBMODULES = frozenset(
     {
@@ -164,6 +168,10 @@ SUBMODULES = frozenset(
         "notifier",
         "operator",
         "owners",
+        "passkey_ceremonies",
+        "passkey_routes",
+        "passkey_signin_routes",
+        "passkeys",
         "oauth_client",
         "oauth_handoff",
         "oauth_idtoken",
@@ -172,6 +180,7 @@ SUBMODULES = frozenset(
         "oauth_routes",
         "oauth_store",
         "passwords",
+        "presession",
         "purge",
         "ratelimit",
         "reset_routes",

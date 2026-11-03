@@ -10,7 +10,7 @@ compose=(docker compose -f compose.yaml -f compose.e2e.yaml)
 
 # Compose loads every secret file at start-up; the real value is written by stack-prepare.sh.
 [ -f secrets/oauth_google_client_secret ] || : > secrets/oauth_google_client_secret
-"${compose[@]}" build web fake-oidc
+"${compose[@]}" build web fake-oidc fake-withings
 image="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' .env):local"
 "$root/e2e/scripts/stack-prepare.sh" "$image"
 
@@ -24,6 +24,6 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 "${compose[@]}" ps
-"${compose[@]}" logs --tail 40 web fake-oidc migrate db-functions 2>&1 | sed 's/\(token\|secret\)=[^ ]*/\1=<redacted>/g' >&2
+"${compose[@]}" logs --tail 40 web fake-oidc fake-withings migrate db-functions 2>&1 | sed 's/\(token\|secret\)=[^ ]*/\1=<redacted>/g' >&2
 echo "stack-up: web did not become ready" >&2
 exit 1
