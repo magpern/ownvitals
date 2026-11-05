@@ -27,10 +27,11 @@ at commit `d80605100992f85f8f02672b9b5f885ed6166214`; read it, don't modify it.
 - Open the PR with `gh pr create`, body: Scope, Acceptance criteria (each with how it's tested),
   `Closes #<issue>`, Tested, Notes for the reviewer, and the footer
   `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
-- Wait for CI (`gh pr checks <n> --watch`) and fix failures. Never weaken a test, lint, guard or
-  check to make CI pass.
+- Check CI once (`gh pr checks <n>`), fix failures that are already red, then end your turn and
+  report; do not poll, `sleep` or set timers while CI runs, the Architect wakes you with the
+  result. Never weaken a test, lint, guard or check to make CI pass.
 - You never review or merge your own PR and never write a verdict comment. When a review
-  returns `FAIL`, fix **all** blocking findings, push, wait for CI, and report back.
+  returns `FAIL`, fix **all** blocking findings, push, and report back.
 - Never print, log or commit secrets. Claim no status beyond IMPLEMENTED.
 
 Report back: the PR number, the head SHA, what CI says, what you verified and what remains
