@@ -20,7 +20,7 @@ if they change. A change goes in as a roadmap amendment (see "Decisions and ADRs
 | Architect / Orchestrator | Opus (the main session) | Milestones → issues (one per PR, acceptance criteria, "Depends on #n"), scheduling, merge order, ADRs, amendments, `docs/status.md`, the integration review of every PR before merge | Normally write production code |
 | Developer | Sonnet; **Opus for security-critical issues** (security-adjacent stays Sonnet) | One issue → one PR in its own branch and worktree: code, tests, CI fixes, **all** blocking findings | Change architecture or acceptance criteria without the Architect |
 | Explorer | Haiku | Bounded work: searches, synthetic fixtures, `fake-withings` payloads from the public spec, docs research | Decide security, auth, isolation, crypto or health-claims questions |
-| Reviewer | A **fresh context per review**: Opus for the first review of security-critical and security-adjacent PRs, Sonnet otherwise (deltas: review gate item 3) | The diff, acceptance criteria, tests, CI output, spec and ADR compliance → `PASS` or `FAIL` | Fix its own findings; review an ADR it wrote; share context with the Developer |
+| Reviewer | A **fresh context for the first review of a PR**, resumed for its later delta reviews (review gate item 3): Opus for the first review of security-critical and security-adjacent PRs, Sonnet otherwise (deltas: review gate item 3) | The diff, acceptance criteria, tests, CI output, spec and ADR compliance → `PASS` or `FAIL` | Fix its own findings; review an ADR it wrote; share context with the Developer |
 
 Model *classes*, not versions: use the current generation of each tier. A substitution never
 widens a role's authority. Role definitions live in `.claude/agents/`; when a session cannot
@@ -62,7 +62,7 @@ every Opus review and sets the tier when it writes the issue. Everything else is
 
 ```
 issue → Developer (+ Explorer) in its own worktree → PR → CI
-      → fresh Reviewer → PASS → Architect integration review → merge
+      → fresh Reviewer (resumed for deltas) → PASS → Architect integration review → merge
                        → FAIL → Developer fixes every blocking finding → CI → delta review
 ```
 
@@ -82,7 +82,7 @@ deterministic CI security checks (§10.3) and on the owner's human security revi
    starts `Agent review (<model>): PASS <head SHA>`, followed by the non-blocking findings. A
    `FAIL` is recorded the same way: `Agent review (<model>): FAIL <head SHA>`, blocking findings
    first, each with file and line.
-2. The Reviewer was a fresh context: Opus for security-critical and security-adjacent PRs
+2. The Reviewer's first review of the PR was a fresh context: Opus for security-critical and security-adjacent PRs
    (first review), Sonnet for the rest (UI, docs, tooling, tests, Dependabot). Tier doubts are
    settled upward (see the definitions above).
 3. **A new head SHA needs a new review**:
@@ -93,14 +93,22 @@ deterministic CI security checks (§10.3) and on the owner's human security revi
      module the PR changes or calls, or a conflict was resolved by hand, a fresh Reviewer checks
      the merge.
    - *Fix round after a `FAIL`:* a delta review of the diff since the last reviewed head that
-     verifies each earlier finding. Fresh Opus for a behaviour change on a security-critical PR
-     or after a second `FAIL`. A fresh Sonnet reviews every other delta (security-adjacent PRs
-     included, and tests- or docs-only changes that loosen no guard) and must check each earlier
-     finding by mutating the code the new test protects. A Sonnet delta that finds a guard
-     loosened or a new behaviour change on a security-critical path escalates to Opus.
+     verifies each earlier finding. **Reuse the PR's own Reviewer**: the Architect resumes it
+     (`SendMessage` to its agent id) with the new head SHA and a pointer to the Developer's fix
+     summary, instead of spawning a new one, so the PR, issue, spec and ADRs are not read again.
+     Its agent id is recorded per PR in `docs/status.md` (Active table). It stays independent: it
+     never shares context with the Developer and never reviews work it wrote. Fresh Opus (never
+     a resumed Reviewer) for a behaviour change on a security-critical PR or after a second
+     `FAIL`, so a Reviewer anchored on its own earlier verdicts is not the only check. A resumed
+     or fresh Sonnet reviews every other delta (security-adjacent PRs included, and tests- or
+     docs-only changes that loosen no guard) and must check each earlier finding by mutating the
+     code the new test protects. A Sonnet delta that finds a guard loosened or a new behaviour
+     change on a security-critical path escalates to fresh Opus. A Reviewer that can no longer
+     be resumed (lost after a restart) is replaced by a fresh one given the earlier findings.
+     Each review is still a separate verdict comment on its head SHA.
    Reviewers rely on CI for the full suite. They run only the targeted tests and at most about 8
    mutation checks, chosen by risk, and say which they ran.
-4. Not a `PASS`: the implementing session's own check, a review run in the same context, green
+4. Not a `PASS`: the implementing session's own check, a review run in the Developer's context, green
    CI, passing tests, or "it's fine" in chat.
 5. Agents record verdicts only as comments. They never submit an approving review and never
    write a comment starting `Human review:`.
@@ -260,8 +268,25 @@ Every orchestration cycle, and always after a restart:
 2. reconcile: `git fetch`, open PRs with their head SHA, CI and verdict comments, open issues and
    their labels, `git worktree list`, running stacks;
 3. fix any drift in `docs/status.md`, then continue with the next unblocked issue without
-   re-planning finished work. A PR whose head has no verdict gets a fresh Reviewer; a branch
+   re-planning finished work. A PR whose head has no verdict gets a Reviewer (the PR's own, resumed, for a delta; otherwise fresh); a branch
    with no PR goes back to its Developer.
+
+## Token economy
+
+Agents are paid for by the token, so the loop is built to avoid idle and repeated spend:
+
+- A Developer ends its turn after pushing and reports; it never polls CI in a loop, `sleep`s or
+  sets timers. The Architect waits for CI with a monitor or a scheduled check-in and wakes the
+  Developer (`SendMessage`) only when there is a result to act on.
+- A Reviewer or Developer for a PR is resumed for follow-up rounds on that PR, not respawned
+  (review gate item 3).
+- Briefs are short: the issue number, head SHA, file pointers and what changed since the last
+  round. Reports are about 15 lines; detail lives in the PR.
+- Developers run lint, types and targeted tests; CI runs the full suite.
+- The Architect reads GitHub with `fields`/`minimal_output` and avoids whole-file or whole-PR
+  reads it does not need.
+- About three Developers at a time: more only adds stale branches, branch updates and re-runs
+  under the up-to-date rule. Migration numbers and lock namespaces are assigned up front.
 
 ## Reading budget
 
