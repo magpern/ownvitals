@@ -7,7 +7,6 @@ module is not written yet is documented where it is declared.
 
 import ipaddress
 import math
-import os
 import re
 from pathlib import Path
 from typing import Any, Literal
@@ -19,19 +18,23 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
+# The secret files and the host and network helpers live in their own modules; re-exported here.
+from ownvitals.config_net import (  # noqa: F401 (re-exported)
+    PLAIN_SMTP_HOSTS,
+    _is_ip,
+    _is_local_host,
+    parse_networks,
+    public_origin,
+)
+from ownvitals.config_secrets import (  # noqa: F401 (re-exported)
+    DEFAULT_SECRETS_DIR,
+    SECRET_FILE_FIELDS,
+    read_secret_files,
+    secrets_dir,
+)
 from ownvitals.emailnorm import normalize_email
 
 DATABASE_DRIVER = "postgresql+psycopg"
-DEFAULT_SECRETS_DIR = "/run/secrets"
-# Fields read from secret files, and never from the environment.
-SECRET_FILE_FIELDS = (
-    "database_password",
-    "database_owner_password",
-    "database_maint_password",
-    "app_secret_key",
-    "smtp_password",
-    "oauth_google_client_secret",
-)
 # The only libpq parameters a database URL may carry in its query string in prod (an allowlist,
 # compared exactly): verifying the server and labelling the connection. Everything else is
 # refused, among them ``password``, ``passfile`` and ``sslpassword`` (a password from somewhere
@@ -52,8 +55,6 @@ PROD_QUERY_PARAMETERS = frozenset(
         "sslsni",
     }
 )
-# Hosts where unencrypted SMTP (``smtp_tls = none``) is allowed: loopback and the compose service.
-PLAIN_SMTP_HOSTS = frozenset({"localhost", "mailpit"})
 MIN_APP_SECRET_BYTES = 32
 DEFAULT_SMTP_TOTAL_SECONDS = 20.0
 # The id of the current KEK (the ``connection_kek`` secret file, read by the crypto package).
@@ -62,25 +63,6 @@ CONNECTION_KEK_ID = re.compile(r"kek-[a-z0-9-]{1,28}")
 # ``webhook_pepper`` secret files, read by the crypto package; ADR 0004 section 4).
 WEBHOOK_SEED_ID = re.compile(r"seed-[a-z0-9-]{1,28}")
 WEBHOOK_PEPPER_ID = re.compile(r"pep-[a-z0-9-]{1,28}")
-
-
-def secrets_dir() -> Path:
-    """Where secret files live: ``OWNVITALS_SECRETS_DIR``, default ``/run/secrets``."""
-    return Path(os.environ.get("OWNVITALS_SECRETS_DIR") or DEFAULT_SECRETS_DIR)
-
-
-def read_secret_files(directory: Path, names: tuple[str, ...]) -> dict[str, str]:
-    """Read ``<directory>/<name>`` for each name; missing files and directories are skipped."""
-    if not directory.is_dir():
-        return {}
-    values: dict[str, str] = {}
-    for name in names:
-        path = directory / name
-        if path.is_file():
-            text = path.read_bytes().decode("utf-8")
-            # Only the trailing newline an editor or `echo` adds; spaces may be part of a secret.
-            values[name] = text.removesuffix("\n").removesuffix("\r")
-    return values
 
 
 class SecretFilesSettingsSource(PydanticBaseSettingsSource):
@@ -502,48 +484,6 @@ class Settings(BaseSettings):
         if self.maint_database_url is None or password is None or not password.get_secret_value():
             return None
         return _with_password(self.maint_database_url, password)
-
-
-def _is_local_host(host: str) -> bool:
-    if host.lower() in PLAIN_SMTP_HOSTS:
-        return True
-    try:
-        return ipaddress.ip_address(host.strip("[]")).is_loopback
-    except ValueError:
-        return False
-
-
-def _is_ip(host: str) -> bool:
-    try:
-        ipaddress.ip_address(host.strip("[]"))
-    except ValueError:
-        return False
-    return True
-
-
-def public_origin(url: str) -> str:
-    """``scheme://host[:port]`` of ``url``, lower case, as a browser sends it in ``Origin``."""
-    parts = urlsplit(url)
-    host = parts.hostname or ""
-    if ":" in host:
-        host = f"[{host}]"
-    default = {"http": 80, "https": 443}.get(parts.scheme.lower())
-    port = f":{parts.port}" if parts.port is not None and parts.port != default else ""
-    return f"{parts.scheme.lower()}://{host.lower()}{port}"
-
-
-def parse_networks(
-    value: str, name: str = "trusted_proxies"
-) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
-    """Parse a comma-separated list of addresses and CIDR ranges (``name`` is the setting)."""
-    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
-    for item in value.split(","):
-        if item.strip():
-            try:
-                networks.append(ipaddress.ip_network(item.strip(), strict=False))
-            except ValueError:
-                raise ValueError(f"{name} must list IP addresses or CIDR ranges") from None
-    return tuple(networks)
 
 
 def _with_password(url: SecretStr, password: SecretStr | None) -> URL:
