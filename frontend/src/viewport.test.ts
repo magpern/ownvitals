@@ -10,7 +10,10 @@ import { ROOT } from './test/sourceScan'
 // one module script and no inline script or style: the meta tag is not one.)
 
 const html = readFileSync(join(ROOT, 'index.html'), 'utf8')
-const shell = readFileSync(join(ROOT, 'src/styles/shell.css'), 'utf8')
+// shell.css, shell-account.css and shell-tabs.css are one stylesheet in three files, in this order.
+const shell = ['shell', 'shell-account', 'shell-tabs']
+  .map((name) => readFileSync(join(ROOT, `src/styles/${name}.css`), 'utf8'))
+  .join('\n')
 const app = readFileSync(join(ROOT, 'src/styles/app.css'), 'utf8')
 
 describe('the viewport', () => {

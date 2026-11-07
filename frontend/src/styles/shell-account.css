@@ -1,0 +1,102 @@
+/* The app frame, continued from shell.css: the account menu. */
+
+/* Account menu */
+
+.ov-acct-wrap {
+  position: relative;
+}
+
+.ov-acct {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: var(--ov-target);
+  padding: 0 0.875rem 0 6px;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-full);
+  background: var(--ov-surface);
+  color: var(--ov-text);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.ov-acct__email {
+  overflow-wrap: anywhere;
+}
+
+.ov-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--ov-brand-soft);
+  color: var(--ov-brand);
+  font-size: 0.875rem;
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 16.25rem;
+  padding: 6px;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+  background: var(--ov-surface);
+  box-shadow: var(--ov-shadow);
+}
+
+.ov-menu__who {
+  margin: 0;
+  padding: var(--ov-space-2) var(--ov-space-3);
+  border-bottom: 1px solid var(--ov-line);
+  font-weight: var(--ov-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.ov-menu [role='menu'] {
+  display: flex;
+  flex-direction: column;
+}
+
+.ov-menu a,
+.ov-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: var(--ov-target);
+  padding: 0 var(--ov-space-3);
+  border: 0;
+  border-radius: var(--ov-radius-sm);
+  background: transparent;
+  color: var(--ov-text);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ov-menu a:hover,
+.ov-menu button:hover {
+  background: var(--ov-bg);
+}
+
+.ov-menu svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.ov-menu__rule {
+  height: 1px;
+  margin: var(--ov-space-1) 0;
+  border: 0;
+  background: var(--ov-line);
+}
