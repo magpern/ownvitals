@@ -22,6 +22,28 @@
   mark a production or legal gate passed: those are the owner's.
 - No real health data anywhere an agent works: synthetic fixtures and fakes only.
 
+## Code structure and token economy
+
+Applies to source code under `backend/src/` and `frontend/src/`. Tests, migrations, SQL,
+generated files, fixtures and docs are exempt from the line caps.
+
+1. **Small, cohesive modules.** A new source file has ONE responsibility and stays under about
+   300 lines (about 150 for pure rule modules). Never split a cohesive function artificially to
+   hit a cap: cohesion comes before the line count.
+2. **Split on touch.** A change to an existing file over 300 lines must not just add code to it.
+   In the same PR, move one cohesive part into its own module so the big file ends the PR at
+   net ≤ 0 lines. Do the move as its own behaviour-neutral commit (no logic change), so the
+   Reviewer can check it with `git diff -M`. Files in "Shared-file locks" (`config.py`, …) keep
+   their lock; the extracted module is new and needs none.
+3. **Pure core first.** Rules, policies and calculations (`*_policy`, `*_model`, `*_calc`) are
+   separate from side effects (database, network, filesystem, UI). A pure module never imports
+   I/O: no SQLAlchemy sessions, HTTP clients, `os`/`pathlib` I/O, clock or randomness (pass
+   them in). This sits inside the existing rules: egress only through `ownvitals.egress`, owned
+   rows only through `UserContext`; a split never moves a security check out of its guard.
+4. **Token-lean checks.** Never read a whole large file when `grep -n` or a line range finds
+   what you need. While working, run only the test files that cover the files you changed; CI
+   runs the full suite.
+
 ## Commits
 
 - Conventional Commits 1.0.0 (see AGENTS.md).
