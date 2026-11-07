@@ -31,15 +31,13 @@ The result is typed; its ``repr`` names no value.
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Final, Literal, get_args
+from typing import Any, Final
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ownvitals.analysis.rules.core import SPECS, Tier
 from ownvitals.config import Settings
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
@@ -47,7 +45,6 @@ from ownvitals.ecg.overlay import (
     GATED_RULES,
     EstimateView,
     GroupKey,
-    Outcome,
     Overlay,
     RecordingKey,
     ecg_gate_overlay,
@@ -58,37 +55,31 @@ from ownvitals.ecg.overlay import (
 )
 from ownvitals.ecg.validate_cli import input_fingerprint
 from ownvitals.flags import effective
+from ownvitals.views.findings_models import (
+    AREA_BY_LETTER,
+    AREAS,
+    CONSUMERS,
+    EXPERIMENTAL,
+    EXPERIMENTAL_RULES,
+    INCLUDES_HIDDEN,
+    PAGE_DEFAULT,
+    PAGE_MAX,
+    TABS,
+    Consumer,
+    FindingDetail,
+    FindingsQuery,
+    FindingView,
+    GateView,
+    LinkedEstimate,
+    Reading,
+    Tab,
+    area_of,
+    groups_of_evidence,
+)
 
-Consumer = Literal["dashboard", "notification", "export", "doctor_pdf", "ai_context"]
-CONSUMERS: Final = get_args(Consumer)
-# Section 11: the export carries every finding with its overlay state; the others leave a hidden
-# finding out.
-INCLUDES_HIDDEN: Final = frozenset({"export"})
-Tab = Literal["live", "history"]
-TABS: Final = get_args(Tab)
 # The tab is the origin (PLAN §7.1 step 7): live findings, and those found while backfilling.
 _ORIGIN: Final = {"live": "live", "history": "backfill"}
-FINDING_TIERS: Final = ("device", "trend", "experimental", "system")
-EXPERIMENTAL: Final = "experimental"
-# The design's area filter (Findings mock-up) by the rule's letter; Q1 is the system area.
-AREAS: Final = ("body", "heart", "nerve", "activity", "system")
-_AREA_BY_LETTER: Final = {
-    "B": "body",
-    "C": "heart",
-    "E": "heart",
-    "N": "nerve",
-    "A": "activity",
-    "Q": "system",
-}
-# Experimental by definition, whatever a stored row's tier says: ADR 0010 §7's experimental
-# rules and ADR 0006 section 11's E4 and E5.
-EXPERIMENTAL_RULES: Final = frozenset(
-    {rule for rule, spec in SPECS.items() if spec.tier is Tier.EXPERIMENTAL} | {"E4", "E5"}
-)
 READINGS_LIMIT: Final = 500
-# The API's page size (``GET /api/findings``): default and maximum. Other consumers read all.
-PAGE_DEFAULT: Final = 50
-PAGE_MAX: Final = 200
 
 _COLUMNS = (
     "id, rule_id, rule_version, tier, severity, confidence, data_quality, origin, metric_keys, "
@@ -141,80 +132,6 @@ SessionFactory = async_sessionmaker[AsyncSession]
 
 
 @dataclass(frozen=True)
-class FindingsQuery:
-    """The list filters: ``tab`` (``live``/``history``), ``tier`` and ``area``; ``None`` is all.
-    ``limit`` (``None``: every row) and ``offset`` page over the stored rows, newest
-    ``last_seen`` first; a page can hold fewer than ``limit`` findings when some are hidden."""
-
-    tab: Tab | None = None
-    tier: str | None = None
-    area: str | None = None
-    limit: int | None = None
-    offset: int = 0
-
-    def __post_init__(self) -> None:
-        if self.tab is not None and self.tab not in TABS:
-            raise ValueError("unknown tab")
-        if self.tier is not None and self.tier not in FINDING_TIERS:
-            raise ValueError("unknown tier")
-        if self.area is not None and self.area not in AREAS:
-            raise ValueError("unknown area")
-        if self.limit is not None and not 1 <= self.limit <= PAGE_MAX:
-            raise ValueError("limit out of range")
-        if self.offset < 0:
-            raise ValueError("offset out of range")
-
-
-@dataclass(frozen=True)
-class GateView:
-    """Our gate on the finding's trigger recordings; given only behind the switch."""
-
-    outcome: Outcome
-    counted: int
-    failed: int
-
-
-@dataclass(frozen=True)
-class FindingView:
-    """One finding as an output may show it. ``hidden`` is set only for the export (the other
-    consumers never receive a hidden finding). ``not_evaluated`` is section 11's mark on E4 and
-    E6. ``gate`` is ``None`` without the switch."""
-
-    id: UUID
-    rule_id: str
-    rule_version: str
-    tier: str
-    area: str | None
-    severity: str
-    confidence: str
-    data_quality: Mapping[str, Any]
-    origin: str
-    metric_keys: tuple[str, ...]
-    subject: str
-    window_start: date
-    window_end: date
-    reference_day: date | None
-    evidence: Mapping[str, Any]
-    status: str
-    first_seen: datetime
-    last_seen: datetime
-    ended_at: datetime | None
-    notify_state: str
-    notified_at: datetime | None
-    seen_at: datetime | None
-    hidden: bool
-    not_evaluated: bool
-    gate: GateView | None
-
-    def __repr__(self) -> str:
-        return "FindingView redacted"
-
-    @property
-    def trigger_groups(self) -> tuple[int, ...]:
-        return _trigger_groups(self.evidence)
-
-
-@dataclass(frozen=True)
 class FindingsRead:
     findings: tuple[FindingView, ...]
     experimental: bool  # whether the switch was on for this read
@@ -224,57 +141,8 @@ class FindingsRead:
         return f"FindingsRead({len(self.findings)} findings)"
 
 
-@dataclass(frozen=True)
-class Reading:
-    """A reading that drove a finding: one of its trigger groups' observations."""
-
-    metric_key: str
-    ts: datetime
-    value: Decimal
-    grpid: int | None
-    quality_flags: tuple[str, ...]
-
-    def __repr__(self) -> str:
-        return "Reading redacted"
-
-
-@dataclass(frozen=True)
-class LinkedEstimate:
-    recording_id: UUID
-    grpid: int
-    view: EstimateView
-
-    def __repr__(self) -> str:
-        return "LinkedEstimate redacted"
-
-
-@dataclass(frozen=True)
-class FindingDetail:
-    finding: FindingView
-    readings: tuple[Reading, ...]
-    estimates: tuple[LinkedEstimate, ...]  # empty without the switch
-
-    def __repr__(self) -> str:
-        return "FindingDetail redacted"
-
-
-def area_of(rule_id: str) -> str | None:
-    return _AREA_BY_LETTER.get(rule_id[:1]) if rule_id else None
-
-
 def _is_experimental(tier: str, rule_id: str) -> bool:
     return tier == EXPERIMENTAL or rule_id in EXPERIMENTAL_RULES
-
-
-def _trigger_groups(evidence: Mapping[str, Any]) -> tuple[int, ...]:
-    raw = evidence.get("trigger_groups")
-    if not isinstance(raw, list):
-        return ()
-    found: list[int] = []
-    for value in raw:  # pyright: ignore[reportUnknownVariableType]
-        if isinstance(value, int) and not isinstance(value, bool):
-            found.append(value)
-    return tuple(dict.fromkeys(found))
 
 
 def _mapping(value: object) -> Mapping[str, Any]:
@@ -388,7 +256,7 @@ async def _load(
         "experimental_rules": sorted(EXPERIMENTAL_RULES),
         "letters": None
         if query.area is None
-        else sorted(k for k, v in _AREA_BY_LETTER.items() if v == query.area),
+        else sorted(k for k, v in AREA_BY_LETTER.items() if v == query.area),
         # One row more than the page, to know whether another page follows.
         "limit": None if query.limit is None else query.limit + 1,
         "offset": query.offset,
@@ -404,12 +272,12 @@ async def _load(
         if (switch or not _is_experimental(str(row["tier"]), str(row["rule_id"])))
         and (query.area is None or area_of(str(row["rule_id"])) == query.area)
     ]
-    groups = sorted({g for row in kept for g in _trigger_groups(_mapping(row["evidence"]))})
+    groups = sorted({g for row in kept for g in groups_of_evidence(_mapping(row["evidence"]))})
     group_keys, recordings = await _links(db, owner, groups)
     views: list[FindingView] = []
     linked_by_finding: dict[UUID, dict[int, tuple[RecordingKey, ...]]] = {}
     for row in kept:
-        triggers = _trigger_groups(_mapping(row["evidence"]))
+        triggers = groups_of_evidence(_mapping(row["evidence"]))
         linked = resolve_links(triggers, group_keys, recordings)
         overlay = ecg_gate_overlay(str(row["rule_id"]), linked)
         if overlay.hidden and consumer not in INCLUDES_HIDDEN:
@@ -539,6 +407,7 @@ __all__ = [
     "GateView",
     "LinkedEstimate",
     "Reading",
+    "Tab",
     "area_of",
     "read_ecg_estimates",
     "read_finding",
