@@ -25,7 +25,8 @@ from ownvitals.derived.normalize_job import TRIGGERS, enqueue_normalize
 from ownvitals.ingest.calls import Account, Classified, Halt, limited
 from ownvitals.ingest.codec import payload_hash
 from ownvitals.ingest.cursors import read_cursor, write_cursor
-from ownvitals.ingest.fetch import ecg_window, incremental, measure_window, once, window
+from ownvitals.ingest.fetch import ecg_window, measure_window, once, window
+from ownvitals.ingest.fetch_incremental import incremental
 from ownvitals.ingest.revisions import bump
 from ownvitals.ingest.when import from_epoch
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry

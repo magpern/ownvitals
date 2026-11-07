@@ -1,29 +1,23 @@
 """Fetch one backfill window and write it. Partition months commit before their rows."""
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from ownvitals.ingest.calls import Account, Classified, Got, limited
+from ownvitals.ingest.fetch_dated import dated_window, next_offset
 from ownvitals.ingest.partitions import ensure_month
 from ownvitals.ingest.rows import (
     goal_body,
-    upsert_activity,
     upsert_device,
     upsert_ecg,
     upsert_measure_group,
-    upsert_sleep_summary,
-    upsert_workout,
 )
 from ownvitals.ingest.series import intraday_points, sleep_points, write_points
-from ownvitals.ingest.when import FLOOR, from_epoch, month_of
+from ownvitals.ingest.when import month_of
 from ownvitals.jobs.run import JobRun
 from ownvitals.withings.client import WithingsClient
 from ownvitals.withings.errors import RetryBudget
 from ownvitals.withings.models import HeartListEntry
-
-
-def _next(more: bool, offset: int) -> int | None:
-    return offset if more else None
 
 
 async def measure_window(
@@ -74,7 +68,7 @@ async def measure_window(
                     )
                     if outcome == "skipped":
                         skipped += 1
-            nxt = _next(bool(body.more), int(body.offset))
+            nxt = next_offset(bool(body.more), int(body.offset))
             if nxt is None or nxt <= offset:
                 break
             offset = nxt
@@ -111,7 +105,7 @@ async def ecg_window(
         if isinstance(body, Classified):
             return body
         entries.extend(body.series)
-        nxt = _next(bool(body.more), int(body.offset))
+        nxt = next_offset(bool(body.more), int(body.offset))
         if nxt is None or nxt <= offset:
             break
         offset = nxt
@@ -139,123 +133,6 @@ async def ecg_window(
             if outcome == "skipped":
                 skipped += 1
     return Got(skipped=skipped, zone=zone, lastupdate=end, empty=not any(e.ecg for e in entries))
-
-
-def _writer(shape: str) -> Any:
-    if shape == "activity":
-        return upsert_activity
-    if shape == "workouts":
-        return upsert_workout
-    return upsert_sleep_summary
-
-
-async def dated_window(
-    job: JobRun,
-    account: Account,
-    client: WithingsClient,
-    lane: int,
-    budget: RetryBudget,
-    shape: str,
-    start: int,
-    end: int,
-    now: datetime,
-    *,
-    lastupdate: int | None = None,
-) -> Got | Classified:
-    """A date window, or, when ``lastupdate`` is set, every row modified after that cursor.
-
-    Backfill passes no cursor, so the date bounds stay the window it was given. The returned
-    cursor is the end of the range the caller has now covered.
-    """
-    if lastupdate is None:
-        start_day = from_epoch(start).date()
-        end_day = from_epoch(end).date()
-    else:
-        start_day = None
-        end_day = None
-    offset = 0
-    skipped = 0
-    empty = True
-    zone = account.zone
-    writer = _writer(shape)
-    while True:
-        body = await _dated_page(
-            job, account, client, lane, budget, shape, start_day, end_day, offset, lastupdate
-        )
-        if isinstance(body, Classified):
-            return body
-        rows = body.activities if shape == "activity" else body.series
-        if rows:
-            empty = False
-        async with job.fenced() as fs:
-            for row in rows:
-                zone = getattr(row, "timezone", None) or zone
-                outcome = await writer(
-                    fs.db, job.ctx.user_id, account.connection_id, row, zone, now
-                )
-                if outcome == "skipped":
-                    skipped += 1
-        nxt = _next(bool(body.more), int(body.offset))
-        if nxt is None or nxt <= offset:
-            break
-        offset = nxt
-        await job.checkpoint()
-    return Got(skipped=skipped, zone=zone, lastupdate=end, empty=empty)
-
-
-async def _dated_page(
-    job: JobRun,
-    account: Account,
-    client: WithingsClient,
-    lane: int,
-    budget: RetryBudget,
-    shape: str,
-    start_day: date | None,
-    end_day: date | None,
-    offset: int,
-    lastupdate: int | None,
-) -> Any:
-    if shape == "activity":
-        return await limited(
-            job,
-            account,
-            lane,
-            lambda offset=offset: client.getactivity(
-                account.access_token,
-                startdateymd=start_day,
-                enddateymd=end_day,
-                lastupdate=lastupdate,
-                offset=offset or None,
-                budget=budget,
-            ),
-        )
-    if shape == "workouts":
-        return await limited(
-            job,
-            account,
-            lane,
-            lambda offset=offset: client.getworkouts(
-                account.access_token,
-                startdateymd=start_day,
-                enddateymd=end_day,
-                lastupdate=lastupdate,
-                offset=offset or None,
-                budget=budget,
-            ),
-        )
-    return await limited(
-        job,
-        account,
-        lane,
-        lambda offset=offset: client.sleep_getsummary(
-            account.access_token,
-            startdateymd=start_day,
-            enddateymd=end_day,
-            lastupdate=lastupdate,
-            offset=offset or None,
-            budget=budget,
-        ),
-    )
 
 
 async def series_window(
@@ -304,102 +181,6 @@ async def series_window(
         async with job.fenced() as fs:
             await write_points(fs.db, table, job.ctx.user_id, account.connection_id, list(points))
     return Got(skipped=skipped, empty=not points, zone=account.zone, lastupdate=end)
-
-
-_DAY = 86_400
-
-
-def _spans(start: int, end: int) -> list[tuple[int, int]]:
-    """Inclusive day spans from ``start`` up to ``end``, with no gap and no shared second."""
-    spans: list[tuple[int, int]] = []
-    cursor = start
-    while cursor < end:
-        nxt = min(cursor + _DAY, end)
-        stop = nxt if nxt == end else nxt - 1
-        if stop >= cursor:
-            spans.append((cursor, stop))
-        cursor = nxt if nxt == end else cursor + _DAY
-    return spans
-
-
-async def series_since(
-    job: JobRun,
-    account: Account,
-    client: WithingsClient,
-    lane: int,
-    budget: RetryBudget,
-    table: str,
-    lastupdate: int | None,
-    end: int,
-    now: datetime,
-    *,
-    history_days: int,
-) -> Got | Classified:
-    """Walk from the stored cursor to ``end``, one day at a time (the calls allow 24 h).
-
-    A missing cursor covers ``history_days``, not the last day only. The cursor moves to the
-    end only after every day in the gap has been requested.
-    """
-    floor = int(FLOOR.timestamp())
-    start = max(floor, end - history_days * _DAY) if lastupdate is None else max(floor, lastupdate)
-    if start >= end:
-        return Got(lastupdate=start, empty=True, zone=account.zone)
-    skipped = 0
-    empty = True
-    zone = account.zone
-    covered = start
-    for begin, stop in _spans(start, end):
-        await job.checkpoint()
-        got = await series_window(job, account, client, lane, budget, table, begin, stop, now)
-        if isinstance(got, Classified):
-            return got
-        skipped += got.skipped
-        empty = empty and got.empty
-        zone = got.zone or zone
-        covered = stop
-    return Got(skipped=skipped, zone=zone, lastupdate=covered, empty=empty)
-
-
-async def incremental(
-    job: JobRun,
-    account: Account,
-    client: WithingsClient,
-    lane: int,
-    budget: RetryBudget,
-    shape: str,
-    lastupdate: int | None,
-    end: int,
-    now: datetime,
-    *,
-    history_days: int | None,
-) -> Got | Classified:
-    """Activity, workouts and sleep summary use ``lastupdate``. Series walk forward from it."""
-    if shape in {"activity", "workouts", "sleep_summary"}:
-        return await dated_window(
-            job,
-            account,
-            client,
-            lane,
-            budget,
-            shape,
-            0,
-            end,
-            now,
-            lastupdate=0 if lastupdate is None else lastupdate,
-        )
-    table = "sleep_series" if shape == "sleep_series" else "intraday"
-    return await series_since(
-        job,
-        account,
-        client,
-        lane,
-        budget,
-        table,
-        lastupdate,
-        end,
-        now,
-        history_days=history_days or 1,
-    )
 
 
 async def once(
