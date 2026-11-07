@@ -36,7 +36,7 @@ from ownvitals.ingest.rows import soft_delete_measure, upsert_measure_group
 from ownvitals.jobs import KINDS, KindRegistry, queue
 from ownvitals.jobs.runner import Execution, RunConfig, execute
 from ownvitals.jobs.withings import StreamInput
-from ownvitals.withings import sync
+from ownvitals.withings import sync_kinds
 from ownvitals.withings.models import MeasureGroup
 from ownvitals.worker.kinds import worker_registry
 
@@ -368,19 +368,19 @@ async def test_the_normalised_streams_queue_a_pass_and_the_others_do_not(
     async def done(*args: object, **kwargs: object) -> str:
         return "supported"
 
-    monkeypatch.setattr(sync, "enqueue_normalize", remember)
-    monkeypatch.setattr(sync, "open_materials", materials)
-    monkeypatch.setattr(sync, "WithingsClient", _Client)
-    monkeypatch.setattr(sync, "execute_backfill", done)
-    monkeypatch.setattr(sync, "execute_sync", done)
+    monkeypatch.setattr(sync_kinds, "enqueue_normalize", remember)
+    monkeypatch.setattr(sync_kinds, "open_materials", materials)
+    monkeypatch.setattr(sync_kinds, "WithingsClient", _Client)
+    monkeypatch.setattr(sync_kinds, "execute_backfill", done)
+    monkeypatch.setattr(sync_kinds, "execute_sync", done)
     connection = uuid.uuid4()
     # #229: the sleep summaries, activity days and workouts are normalised too; the two
     # high-volume series are not.
     queuing = ("measures", "sleep_summary", "activity_daily", "workouts")
     for stream in (*queuing, "sleep_series", "intraday"):
         parsed = StreamInput(connection_id=connection, stream=stream)
-        await sync.run_backfill(_Job(parsed))  # type: ignore[arg-type]
-        await sync.run_sync_kind(_Job(parsed))  # type: ignore[arg-type]
+        await sync_kinds.run_backfill(_Job(parsed))  # type: ignore[arg-type]
+        await sync_kinds.run_sync_kind(_Job(parsed))  # type: ignore[arg-type]
     assert queued == [
         # the backfill and the incremental pass stay apart
         ("factory", connection, origin)

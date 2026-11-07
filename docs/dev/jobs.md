@@ -169,7 +169,7 @@ entry is still active (`NoTargets` confirms none; the worker process passes `Web
 `ownvitals/worker/kinds.py` holds what `python -m ownvitals.worker` passes to `run_worker`:
 
 - `worker_registry()`: a new registry with `withings_connect`, `withings_backfill`,
-  `withings_sync`, `ecg_fetch` and `withings_poll` (`withings/sync.py`), `withings_reconcile`
+  `withings_sync`, `ecg_fetch` and `withings_poll` (`withings/sync_kinds.py`), `withings_reconcile`
   (`execute_nightly`, `withings/reconcile.py`) and `token_refresh_recover` (`recover_refresh`,
   `withings/tokens.py`, inside one `provider_call`; `needs_reconnect` and `not_connected` are
   kept as the job's category) and `withings_disconnect` (`auth.purge.register_disconnect_kind`,
