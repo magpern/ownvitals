@@ -3,28 +3,45 @@
 Token writes compare-and-swap ``token_generation``. The refresh lock is session-scoped on its
 own pooled connection, so the intent commits before the Withings call and the lock still
 covers that call. The app client secret lives in ``app_secret``.
+
+This module opens a row and stores a grant. The refresh's writes (the lock, the intent, the
+commit and the give-up) live in ``withings_refresh.py`` and the row's sealed payload and token
+checks in ``withings_payload.py``; both are re-exported here.
 """
 
 import json
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, literal_column, select, text, update
+from sqlalchemy import func, literal_column, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from ownvitals.connections.errors import ConnectionFailure
+from ownvitals.connections.providers.withings_payload import (
+    _C,
+    _REFRESH_TTL,
+    Factory,
+    _as_public,
+    _payload,
+    _public,
+    _token,
+)
+from ownvitals.connections.providers.withings_payload import PROVIDER as PROVIDER
+from ownvitals.connections.providers.withings_refresh import clear_intent as clear_intent
+from ownvitals.connections.providers.withings_refresh import commit_refresh as commit_refresh
+from ownvitals.connections.providers.withings_refresh import give_up as give_up
+from ownvitals.connections.providers.withings_refresh import (
+    hold_refresh_lock as hold_refresh_lock,
+)
+from ownvitals.connections.providers.withings_refresh import mark_intent as mark_intent
 from ownvitals.connections.repository import write_tokens
 from ownvitals.connections.tables import DISCONNECTED, connections
 from ownvitals.context import UserContext
 from ownvitals.crypto.envelope import (
     DecryptFailed,
-    canonical_json,
     connection_aad,
     connection_wrap_aad,
     open_sealed,
@@ -32,23 +49,8 @@ from ownvitals.crypto.envelope import (
 )
 from ownvitals.crypto.keks import KeyRing, KeyUnavailable
 from ownvitals.db import user_session
-from ownvitals.db.queue_locks import TOKEN_REFRESH
-from ownvitals.jobs.fence import Lease, fenced_session
-from ownvitals.notify.outbox import queue_owner_notice
 
-PROVIDER = "withings"
-_REFRESH_TTL = timedelta(days=365)
-# The worker client's total deadline (``egress.WITHINGS_TOTAL_SECONDS``). The lease is extended
-# by this plus the fence's own margin, in the same transaction as the intent.
-_CALL_SECONDS = 30.0
-_TOKEN_MIN = 8
-_TOKEN_MAX = 256
-_C = connections.c
-_LOCK = text("SELECT pg_advisory_lock(:ns, hashtext(CAST(:connection_id AS text)))")
-_UNLOCK = text("SELECT pg_advisory_unlock(:ns, hashtext(CAST(:connection_id AS text)))")
 _REASONS = frozenset({"linked_elsewhere", "other_withings_account", "conflict"})
-
-Factory = async_sessionmaker[AsyncSession]
 
 
 class GrantRefused(Exception):
@@ -87,46 +89,6 @@ class OpenWithings:
         return f"OpenWithings(id={self.id}, generation={self.generation}, status={self.status!r})"
 
 
-def _engine(factory: Factory) -> AsyncEngine:
-    bind = factory.kw.get("bind")
-    if not isinstance(bind, AsyncEngine):
-        raise RuntimeError("the session factory is not bound to an engine")
-    return bind
-
-
-def _actor(ctx: UserContext, lease: Lease | None) -> UserContext:
-    return ctx if lease is None else lease.ctx
-
-
-@asynccontextmanager
-async def _writes(
-    factory: Factory, ctx: UserContext, lease: Lease | None
-) -> AsyncIterator[tuple[AsyncSession, Any]]:
-    """A short transaction. With a lease it is fenced, and it ends before any Withings call."""
-    actor = _actor(ctx, lease)
-    if lease is None:
-        async with user_session(factory, actor) as db:
-            yield db, None
-    else:
-        async with fenced_session(factory, lease) as fenced:
-            yield fenced.db, fenced
-
-
-@asynccontextmanager
-async def hold_refresh_lock(factory: Factory, connection_id: UUID) -> AsyncIterator[None]:
-    """Session lock on a second connection, held across the intent commit and the call."""
-    async with _engine(factory).connect() as conn:
-        await conn.execute(_LOCK, {"ns": TOKEN_REFRESH, "connection_id": str(connection_id)})
-        await conn.commit()
-        try:
-            yield
-        finally:
-            if conn.in_transaction():
-                await conn.rollback()
-            await conn.execute(_UNLOCK, {"ns": TOKEN_REFRESH, "connection_id": str(connection_id)})
-            await conn.commit()
-
-
 def _scope_list(scope: str) -> list[str]:
     items = [part for part in scope.split(",") if part]
     if len(items) > 20 or any(
@@ -134,34 +96,6 @@ def _scope_list(scope: str) -> list[str]:
     ):
         raise ConnectionFailure("unknown")
     return items
-
-
-def _token(value: str) -> str:
-    if not isinstance(value, str) or not _TOKEN_MIN <= len(value) <= _TOKEN_MAX:
-        raise ConnectionFailure("unknown")
-    return value
-
-
-def _payload(access: str, refresh: str, access_expires_at: datetime) -> bytes:
-    return canonical_json(
-        {
-            "access_expires_at": access_expires_at.isoformat(),
-            "access_token": access,
-            "refresh_token": refresh,
-        }
-    )
-
-
-def _public(app_id: int, userid: int, scopes: list[str]) -> dict[str, Any]:
-    return {"app_id": app_id, "withings_userid": userid, "scopes": scopes}
-
-
-def _as_public(value: Any) -> dict[str, Any]:
-    if isinstance(value, str):
-        value = json.loads(value)
-    if not isinstance(value, dict):
-        raise ConnectionFailure("decrypt_failed")
-    return value
 
 
 def _matches(public: dict[str, Any], app_id: int, userid: int) -> bool:
@@ -364,141 +298,3 @@ async def store_grant(
     if refused is not None or stored is None:
         raise GrantRefused(refused or "conflict")
     return stored
-
-
-async def mark_intent(
-    factory: Factory,
-    ctx: UserContext,
-    connection_id: UUID,
-    generation: int,
-    lease: Lease | None = None,
-) -> str:
-    """Commit ``refresh_in_flight = generation``. ``cancelled`` when the job asked to stop."""
-    async with _writes(factory, ctx, lease) as (db, fenced):
-        if fenced is not None and await fenced.extend_lease_for_call(_CALL_SECONDS):
-            return "cancelled"
-        marked = (
-            await db.execute(
-                update(connections)
-                .where(
-                    _C.id == connection_id,
-                    _C.owner_id == _actor(ctx, lease).user_id,
-                    _C.token_generation == generation,
-                    _C.refresh_in_flight.is_(None),
-                    _C.status == "connected",
-                )
-                .values(
-                    refresh_in_flight=generation,
-                    refresh_intent_at=func.now(),
-                    updated_at=func.now(),
-                )
-                .returning(_C.id)
-            )
-        ).first()
-    return "marked" if marked is not None else "absent"
-
-
-async def clear_intent(
-    factory: Factory,
-    ctx: UserContext,
-    connection_id: UUID,
-    generation: int,
-    lease: Lease | None = None,
-) -> bool:
-    """Drop the intent when Withings did not rotate the token. The generation stays."""
-    async with _writes(factory, ctx, lease) as (db, _fenced):
-        cleared = (
-            await db.execute(
-                update(connections)
-                .where(
-                    _C.id == connection_id,
-                    _C.owner_id == _actor(ctx, lease).user_id,
-                    _C.token_generation == generation,
-                    _C.refresh_in_flight == generation,
-                )
-                .values(refresh_in_flight=None, refresh_intent_at=None, updated_at=func.now())
-                .returning(_C.id)
-            )
-        ).first()
-    return cleared is not None
-
-
-async def give_up(
-    factory: Factory,
-    ctx: UserContext,
-    connection_id: UUID,
-    generation: int,
-    lease: Lease | None = None,
-) -> bool:
-    """``needs_reconnect`` and the in-app notice, plus the owner notice in the mail outbox, in
-    the same transaction (PLAN section 4.3 step 4, ADR 0007 section 4). Credentials stay. The
-    worker opens no SMTP connection: web sends the notice."""
-    async with _writes(factory, ctx, lease) as (db, _fenced):
-        given = (
-            await db.execute(
-                update(connections)
-                .where(
-                    _C.id == connection_id,
-                    _C.owner_id == _actor(ctx, lease).user_id,
-                    _C.token_generation == generation,
-                )
-                .values(
-                    status="needs_reconnect",
-                    last_error="needs_reconnect",
-                    refresh_in_flight=None,
-                    refresh_intent_at=None,
-                    updated_at=func.now(),
-                )
-                .returning(_C.id)
-            )
-        ).first()
-        if given is not None:
-            await queue_owner_notice(db, "connection_needs_reconnect")
-    return given is not None
-
-
-async def commit_refresh(
-    factory: Factory,
-    ring: KeyRing,
-    ctx: UserContext,
-    connection_id: UUID,
-    generation: int,
-    access_token: str,
-    refresh_token: str,
-    expires_in: int,
-    lease: Lease | None = None,
-) -> bool:
-    """CAS-write generation + 1 and clear the intent, or change nothing."""
-    if type(expires_in) is not int or not 1 <= expires_in <= 86_400:
-        raise ConnectionFailure("unknown")
-    access, refresh = _token(access_token), _token(refresh_token)
-    actor = _actor(ctx, lease)
-    access_expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
-    async with _writes(factory, ctx, lease) as (db, _fenced):
-        kek = await ring.current(db)
-        row = (
-            await db.execute(
-                select(_C.public).where(
-                    _C.id == connection_id,
-                    _C.owner_id == actor.user_id,
-                    _C.token_generation == generation,
-                )
-            )
-        ).first()
-        if row is None:
-            return False
-        sealed = seal(
-            _payload(access, refresh, access_expires_at),
-            connection_aad(actor.user_id, PROVIDER, connection_id),
-            kek,
-            connection_wrap_aad(kek.key_id, actor.user_id, PROVIDER, connection_id),
-        )
-        return await write_tokens(
-            db,
-            actor,
-            connection_id,
-            generation,
-            sealed,
-            public=_as_public(row.public),
-            expires_at=datetime.now(UTC) + _REFRESH_TTL,
-        )
