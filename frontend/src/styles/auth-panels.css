@@ -1,0 +1,150 @@
+/* The second-factor and security pages, continued from auth.css: bands, dialog and sessions. */
+
+/* The lock band at the top of the Security tab (`.notice.info`) */
+
+.ov-band {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ov-space-3);
+  margin: 0;
+  padding: 0.875rem var(--ov-space-4);
+  border-radius: var(--ov-radius-ctl);
+  background: var(--ov-device-soft);
+  font-size: var(--ov-text-sm);
+}
+
+.ov-band svg {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--ov-device);
+}
+
+/* The admin band (docs/design/mockups/src/ov.css `.admin-band`). */
+
+.ov-admin-band {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0.75rem var(--ov-space-4);
+  background: var(--ov-admin);
+  color: var(--ov-admin-ink);
+  font-size: var(--ov-text-sm);
+}
+
+.ov-admin-band__lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+}
+
+.ov-admin-band svg {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+/* "Confirm it's you" */
+
+.ov-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ov-space-4);
+  background: var(--ov-scrim);
+}
+
+.ov-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-4);
+  width: 100%;
+  max-width: 27.5rem;
+  max-height: 100%;
+  overflow: auto;
+  padding: var(--ov-space-6);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-lg);
+  background: var(--ov-surface);
+  box-shadow: var(--ov-shadow);
+}
+
+.ov-dialog p,
+.ov-dialog .notice,
+.ov-dialog .field {
+  margin: 0;
+}
+
+.ov-dialog__icon {
+  color: var(--ov-brand);
+}
+
+.ov-dialog__title {
+  margin: 0;
+  font-size: var(--ov-text-lg);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ov-space-2);
+}
+
+/* "Where you're signed in" */
+
+.ov-tbl-wrap {
+  /* Positioned, so a visually hidden header (.ov-sr, absolute) scrolls with the table instead of
+     widening the page at phone width. */
+  position: relative;
+  overflow-x: auto;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+  background: var(--ov-surface);
+}
+
+.ov-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.ov-tbl th {
+  padding: var(--ov-space-3) var(--ov-space-4);
+  border-bottom: 1px solid var(--ov-line);
+  color: var(--ov-muted);
+  font-size: var(--ov-text-xs);
+  font-weight: var(--ov-weight-semibold);
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.ov-tbl td {
+  padding: var(--ov-space-3) var(--ov-space-4);
+  border-bottom: 1px solid var(--ov-line-soft);
+  vertical-align: middle;
+}
+
+.ov-tbl tr:last-child td {
+  border-bottom: 0;
+}
+
+.ov-tbl__sel td {
+  background: var(--ov-brand-soft);
+}
+
+.ov-tbl td .ov-state {
+  margin-left: var(--ov-space-2);
+}
+
+.ov-tbl .ov-r {
+  text-align: right;
+}

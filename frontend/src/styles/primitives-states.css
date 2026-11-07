@@ -1,0 +1,113 @@
+/* Design primitives, continued from primitives-marks.css: data states. */
+
+/* Data states: one pill per state, an optional bar and an optional line of detail */
+
+.ov-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ov-space-2);
+  min-height: 1.75rem;
+  padding: 0.125rem 0.6875rem;
+  border-radius: var(--ov-radius-full);
+  background: var(--ov-raised);
+  color: var(--ov-text);
+  font-size: var(--ov-text-sm);
+  font-weight: var(--ov-weight-medium);
+  white-space: nowrap;
+}
+
+.ov-state--ok {
+  background: var(--ov-ok-soft);
+  color: var(--ov-ok);
+}
+
+.ov-state--attn {
+  background: var(--ov-attn-soft);
+  color: var(--ov-attn);
+}
+
+.ov-state--urgent {
+  background: var(--ov-urgent-soft);
+  color: var(--ov-urgent);
+}
+
+.ov-state--info {
+  background: var(--ov-device-soft);
+  color: var(--ov-device);
+}
+
+.ov-state--off {
+  border: 1px dashed var(--ov-muted);
+  background: transparent;
+  color: var(--ov-muted);
+}
+
+.ov-dot {
+  display: inline-block;
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--ov-muted);
+}
+
+.ov-dot--ok {
+  background: var(--ov-ok);
+}
+
+.ov-dot--attn {
+  background: var(--ov-attn);
+}
+
+.ov-dot--urgent {
+  background: var(--ov-urgent);
+}
+
+.ov-dot--off {
+  border: 1.5px solid var(--ov-muted);
+  background: transparent;
+}
+
+.ov-data-state {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.ov-data-state > .ov-state {
+  align-self: flex-start;
+}
+
+.ov-data-state__detail {
+  margin: 0;
+  color: var(--ov-muted);
+  font-size: var(--ov-text-sm);
+}
+
+/* A native <progress>: no inline style is needed for its width. */
+.ov-bar {
+  display: block;
+  width: 100%;
+  height: 0.5rem;
+  border: 0;
+  border-radius: var(--ov-radius-xs);
+  background: var(--ov-raised);
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ov-bar::-webkit-progress-bar {
+  border-radius: var(--ov-radius-xs);
+  background: var(--ov-raised);
+}
+
+.ov-bar::-webkit-progress-value {
+  border-radius: var(--ov-radius-xs);
+  background: var(--ov-brand);
+}
+
+.ov-bar::-moz-progress-bar {
+  border-radius: var(--ov-radius-xs);
+  background: var(--ov-brand);
+}

@@ -262,7 +262,12 @@ describe('contrast', () => {
 // --- touch targets and the phone breakpoint ----------------------------------------------------
 
 describe('the frame on a phone', () => {
-  const shell = parseRules(readFileSync(join(ROOT, 'src/styles/shell.css'), 'utf8'))
+  // shell.css, shell-account.css and shell-tabs.css are one stylesheet in three files, in this order.
+  const shell = parseRules(
+    ['shell', 'shell-account', 'shell-tabs']
+      .map((name) => readFileSync(join(ROOT, `src/styles/${name}.css`), 'utf8'))
+      .join('\n'),
+  )
   const primitives = parseRules(readFileSync(join(ROOT, 'src/styles/primitives.css'), 'utf8'))
   const find = (rules: Rule[], selector: string, media: string | null = null) =>
     rules.find((rule) => rule.selector === selector && rule.media === media)?.declarations
