@@ -613,13 +613,13 @@ async def test_the_worker_loop_runs_the_registered_disconnect(
     """Route, job, ``Worker.run`` over ``worker_registry()`` (the production registration),
     revokes against the fake, credentials cleared, no revoke failure. Only the transport (the
     fake instead of the egress client) and the key ring (the app's) are substituted."""
-    from ownvitals.auth import purge as purge_module
+    from ownvitals.auth import disconnect_job as job_module
     from ownvitals.worker.kinds import worker_registry
     from ownvitals.worker.loop import Worker, create_worker_engine
 
     linked = await _linked(env, owner, database_url)
     install_worker_allowlist(ai_enabled=False)
-    real = purge_module.disconnect_withings
+    real = job_module.disconnect_withings
 
     async def over_the_fake(*args: Any, **kwargs: Any) -> Any:
         return await real(*args, **{**kwargs, "inner": linked.spy, "sleep": _asleep})
@@ -627,8 +627,8 @@ async def test_the_worker_loop_runs_the_registered_disconnect(
     async def app_ring(_: object) -> object:
         return env.app.state.keyring
 
-    monkeypatch.setattr(purge_module, "disconnect_withings", over_the_fake)
-    monkeypatch.setattr(purge_module, "_worker_ring", app_ring)
+    monkeypatch.setattr(job_module, "disconnect_withings", over_the_fake)
+    monkeypatch.setattr(job_module, "_worker_ring", app_ring)
     registry = worker_registry()
     assert registry.get(DISCONNECT_KIND) is not None
     settings = env.settings.model_copy(update={"worker_poll_seconds": 0.1})

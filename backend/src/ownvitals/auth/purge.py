@@ -7,23 +7,34 @@ removed on their own. That option deletes the Withings row too, so the account c
 be linked again. A plain disconnect keeps the row until the account goes.
 
 The revoke itself runs in the worker (roadmap Amendment 1: web makes no Withings call but
-the code exchange). The routes enqueue a ``withings_disconnect`` job; its handler here
-(``disconnect_kind``) checks the step-up of the session named in the input again, then runs
-``disconnect_withings``. The worker registers the kind (``ownvitals.worker.kinds``; guard 8
-lists ``register_disconnect_kind`` among the entry points). The web side then finishes with
+the code exchange). The routes enqueue a ``withings_disconnect`` job; its handler
+(``disconnect_job.disconnect_kind``) checks the step-up of the session named in the input
+again, then runs ``disconnect_withings``. The worker registers the kind
+(``ownvitals.worker.kinds``; guard 8 lists ``register_disconnect_kind`` among the entry
+points, re-exported here). The web side then finishes with
 ``connections.purge.purge_connection`` or ``delete_account``.
 """
 
-import time
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.admin_accounts import delete_user_account
+from ownvitals.auth.disconnect_job import (  # noqa: F401 - re-exported
+    DISCONNECT_DEADLINE_SECONDS,
+    JOB_SLACK,
+    RECENT_AUTH_WINDOW,
+    STEPUP_WINDOW,
+    Sleep,
+    disconnect_kind,
+    execute_disconnect,
+    register_disconnect_kind,
+    session_stepped_up,
+)
 from ownvitals.auth.qrlogin import expire_overdue, last_deadline
 from ownvitals.auth.tables import (
     auth_events,
@@ -42,14 +53,9 @@ from ownvitals.config import Settings
 from ownvitals.connections.purge import purge_connection, purge_webhook_events
 from ownvitals.connections.repository import list_connections
 from ownvitals.context import UserContext
-from ownvitals.crypto.keks import KeyRing, KeyRingError, load_keyring
+from ownvitals.crypto.keks import KeyRing
 from ownvitals.db import system_session
-from ownvitals.jobs.errors import JobFailure
-from ownvitals.jobs.kinds import Complete, JobKind, KindRegistry
-from ownvitals.jobs.run import JobRun
 from ownvitals.withings.disconnect import (
-    DISCONNECT_KIND,
-    DisconnectInput,
     DisconnectRefused,
     DisconnectResult,
     disconnect_withings,
@@ -68,17 +74,6 @@ QR_KEEP = timedelta(hours=1)  # a QR login row, after its last deadline (ADR 001
 # ``sessions.PENDING_WINDOW``, repeated so the worker does not load the session module (a test
 # holds them equal).
 PENDING_WINDOW = timedelta(minutes=10)
-# ``sessions.STEPUP_WINDOW`` (the largest ``stepup_window_minutes`` allows) and
-# ``sessions.RECENT_AUTH_WINDOW``, repeated for the same reason (a test holds them equal).
-STEPUP_WINDOW = timedelta(minutes=10)
-RECENT_AUTH_WINDOW = timedelta(minutes=10)
-# How much older than the route's check the proof may be when the job runs. The route waits
-# far less than this for the job (``connections.routes.REVOKE_WAIT_SECONDS``).
-JOB_SLACK = timedelta(minutes=2)
-# The lease extension for the revoke calls of one job, and the retry deadline inside it.
-DISCONNECT_DEADLINE_SECONDS = 300.0
-_RETRY_SECONDS = 240.0
-Sleep = Callable[[float], Awaitable[None]]
 
 
 def _ago(days: int) -> Any:
@@ -183,32 +178,6 @@ async def delete_account(
         await delete_user_account(db, ctx.user_id, ip=ip)
 
 
-async def session_stepped_up(
-    factory: async_sessionmaker[AsyncSession], ctx: UserContext, session_id: UUID
-) -> bool:
-    """Whether ``session_id`` is a live, full session of this user with a recent
-    authentication and a step-up (``require_sensitive``), allowing ``JOB_SLACK`` for the time
-    the job waited. A timestamp after now is not a proof.
-
-    Narrower than ``sessions.resolve_session`` by design: it does not check the idle timeout
-    or a disabled account (the issuer refuses a disabled owner before the handler runs), and
-    "full" is ``mfa_at`` being set. Within ``JOB_SLACK`` it only gates a revoke, which
-    protects the user's privacy rather than granting access."""
-    now = func.now()
-    query = select(sessions.c.id).where(
-        sessions.c.id == session_id,
-        sessions.c.user_id == ctx.user_id,
-        sessions.c.expires_at > now,
-        sessions.c.mfa_at.is_not(None),
-        sessions.c.reauth_at <= now,
-        sessions.c.reauth_at >= now - (RECENT_AUTH_WINDOW + JOB_SLACK),
-        sessions.c.stepup_at <= now,
-        sessions.c.stepup_at >= now - (STEPUP_WINDOW + JOB_SLACK),
-    )
-    async with system_session(factory) as db:
-        return (await db.execute(query)).first() is not None
-
-
 async def finish_disconnect(
     factory: async_sessionmaker[AsyncSession],
     ring: KeyRing,
@@ -276,80 +245,3 @@ async def delete_owner(
             )
     await delete_account(factory, ctx, ip=ip)
     return result
-
-
-async def _worker_ring(job: JobRun) -> KeyRing:
-    try:
-        return await load_keyring(job.factory, Settings(), role="worker")
-    except KeyRingError:
-        raise JobFailure("key_unavailable") from None
-
-
-async def execute_disconnect(
-    job: JobRun,
-    ring: KeyRing,
-    *,
-    inner: object = None,
-    budget: RetryBudget | None = None,
-    sleep: Sleep | None = None,
-) -> DisconnectResult:
-    """One ``withings_disconnect`` run: the step-up check, then the revoke-first path.
-
-    A session that is not this owner's, or whose proof is too old, fails the run
-    (``invalid_input``) and nothing is revoked or cleared: the route clears the credentials
-    itself and reports the revoke as failed. A row that is not live fails ``not_connected``.
-    """
-    parsed = job.input
-    if not isinstance(parsed, DisconnectInput):
-        raise JobFailure("invalid_input")
-    if not await session_stepped_up(job.factory, job.ctx, parsed.session_id):
-        raise JobFailure("invalid_input")
-    limit = budget or RetryBudget(retries=2, deadline=time.monotonic() + _RETRY_SECONDS)
-    refused: str | None = None
-    result: DisconnectResult | None = None
-    async with job.provider_call(DISCONNECT_DEADLINE_SECONDS):
-        try:
-            result = await disconnect_withings(
-                job.factory,
-                ring,
-                job.ctx,
-                parsed.connection_id,
-                stepped_up=True,
-                inner=inner,
-                budget=limit,
-                sleep=sleep,
-            )
-        except DisconnectRefused as exc:
-            refused = exc.reason
-    if result is None:
-        raise JobFailure("not_connected" if refused == "not_connected" else "invalid_input")
-    return result
-
-
-def disconnect_kind(
-    *,
-    ring: KeyRing | None = None,
-    inner: object = None,
-    budget: Callable[[], RetryBudget] | None = None,
-    sleep: Sleep | None = None,
-) -> JobKind:
-    """The ``withings_disconnect`` kind. The worker passes nothing: the key ring is loaded per
-    run as the worker. Tests pass a ring and the fake's transport."""
-
-    async def run(job: JobRun) -> Complete:
-        held = ring if ring is not None else await _worker_ring(job)
-        await execute_disconnect(
-            job, held, inner=inner, budget=budget() if budget else None, sleep=sleep
-        )
-        return Complete()
-
-    return JobKind(DISCONNECT_KIND, DisconnectInput, run)
-
-
-def register_disconnect_kind(registry: KindRegistry) -> None:
-    """Register ``withings_disconnect`` on the worker's registry.
-
-    ``ownvitals.worker.kinds.worker_registry`` calls this; guard 8 lists it in
-    ``PUBLIC_ENTRY_POINTS`` (``tests/auth_tables_scan.py``)."""
-    if registry.get(DISCONNECT_KIND) is None:
-        registry.register(disconnect_kind())
