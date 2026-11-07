@@ -27,15 +27,19 @@ advance.
 
 import json
 import math
-import random
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Final, Protocol
 
 from pydantic import ValidationError
 
 from ownvitals.withings.models import WithingsModel
+from ownvitals.withings.retry_budget import (
+    BACKOFF_BASE_SECONDS,
+    JITTER,
+    MAX_BACKOFF_EXPONENT,
+    RetryBudget,
+)
 
 TOKEN_INVALID_STATUSES: Final = frozenset({401, 2553, 2555})  # PLAN §4.2
 RATE_LIMITED_STATUS: Final = 601
@@ -155,39 +159,7 @@ def http_error(http_status: int, endpoint: str) -> WithingsError:
     return Permanent(HTTP_STATUS, endpoint=endpoint, http_status=http_status)
 
 
-# ------------------------------------------------- retries and reading an answer
-
-BACKOFF_BASE_SECONDS: Final = 1.0
-JITTER: Final = 0.2  # +-20 %
-# 2**16 seconds is already far past any max_delay. A larger exponent overflows a float.
-MAX_BACKOFF_EXPONENT: Final = 16
-
-
-@dataclass
-class RetryBudget:
-    """How many ``Transient`` retries a caller allows, shared by every call it is passed to.
-    No single wait is longer than ``max_delay``, and none ends after ``deadline``
-    (``time.monotonic()`` seconds) when one is set."""
-
-    retries: int = 0
-    max_delay: float = 60.0
-    deadline: float | None = None
-    used: int = 0
-
-    def next_delay(self, rng: random.Random, now: float, hint: float | None = None) -> float | None:
-        """The wait before the next retry, spending one; None when the budget is spent."""
-        if self.retries <= 0:
-            return None
-        exponent = min(max(self.used, 0), MAX_BACKOFF_EXPONENT)
-        delay = min(BACKOFF_BASE_SECONDS * 2**exponent, self.max_delay)
-        delay *= 1 + rng.uniform(-JITTER, JITTER)
-        if hint is not None and hint > 0:
-            delay = max(delay, min(hint, self.max_delay))
-        if self.deadline is not None and now + delay > self.deadline:
-            return None
-        self.retries -= 1
-        self.used += 1
-        return delay
+# ------------------------------- reading an answer (retries: ``RetryBudget``, retry_budget.py)
 
 
 def _refuse_constant(name: str) -> Any:
