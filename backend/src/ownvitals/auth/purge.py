@@ -89,9 +89,9 @@ def _proof_at_or_before(now: Any) -> Any:
     """The later of ``reauth_at`` and ``stepup_at`` that is not after ``now``.
 
     A timestamp after ``now`` is not a proof: the same fail-closed lower bound as
-    ``sessions._within``. ``GREATEST`` ignores nulls, so a future value dropped by ``CASE``
+    ``session_model._within``. ``GREATEST`` ignores nulls, so a future value dropped by ``CASE``
     leaves the other timestamp, and both missing is null (the caller uses ``created_at``).
-    The same expression is in ``sessions.list_sessions``.
+    The same expression is in ``session_manage.list_sessions``.
     """
     return func.greatest(
         case((sessions.c.reauth_at <= now, sessions.c.reauth_at)),
