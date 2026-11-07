@@ -15,7 +15,8 @@ issue. The rest of the account system is in [auth.md](auth.md).
 | `backend/src/ownvitals/auth/passkey_ceremonies.py` | options, registration and authentication with the sign count; the only module that imports `webauthn` |
 | `backend/src/ownvitals/auth/passkey_credentials.py` | the account's user handle, the stored-credential lookup and the ceremony's input types; no WebAuthn library; `passkey_ceremonies` re-exports them |
 | `backend/src/ownvitals/auth/passkey_routes.py` | `/api/auth/passkeys`: list, rename, remove, register |
-| `backend/src/ownvitals/auth/passkey_signin_routes.py` | `/api/auth/passkeys`: sign-in and re-auth |
+| `backend/src/ownvitals/auth/passkey_signin_routes.py` | `/api/auth/passkeys`: sign-in |
+| `backend/src/ownvitals/auth/passkey_reauth_routes.py` | `/api/auth/passkeys`: re-auth |
 | `backend/src/ownvitals/auth/presession.py` | the pre-session cookie `__Host-ownvitals_pre` (section 4), shared with the QR issue |
 | `backend/tests/passkeytools.py` | `SoftAuthenticator`: a software authenticator with synthetic keys (ES256, Ed25519, and ES384 for the refusal test) that can break each part of a response |
 
