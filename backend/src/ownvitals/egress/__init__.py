@@ -32,8 +32,8 @@ event loop must be the standard library's selector loop (``require_standard_even
 
 Modules: ``core`` (lists, refusal, process roles, request budget, TLS context), ``opener`` (the
 worker's urllib opener), ``deadline`` (the total deadline of a urllib request), ``clients`` (the
-httpx transport and clients), ``code_exchange`` (the web process's one Withings call), ``hook``
-(the audit hook).
+httpx clients), ``transport`` (their allowlist transport), ``code_exchange`` (the web
+process's one Withings call), ``hook`` (the audit hook).
 
 The hook sees only Python's ``socket`` module (not C extensions such as libpq, nor ``ctypes``);
 a network-level egress rule stays the deployment's.

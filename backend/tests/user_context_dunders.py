@@ -108,7 +108,9 @@ ALLOWED: dict[str, Allowed] = {
         "`super().__init__(...)`; guard 5's hook rule refuses every other use", _forms("read")
     ),
     "__aiter__": Allowed(
-        "delegating `async for` to a wrapped stream", _forms("read"), _modules("egress/clients.py")
+        "delegating `async for` to a wrapped stream",
+        _forms("read"),
+        _modules("egress/transport.py"),
     ),
     "__cause__": Allowed(
         "walking an exception chain",
