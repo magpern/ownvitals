@@ -47,7 +47,6 @@ import secrets
 import socket
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -57,39 +56,21 @@ from ownvitals.config import Settings
 from ownvitals.crypto.keks import KeyRing, KeyRingError, load_keyring
 from ownvitals.db import (
     DatabaseRoleError,
-    create_engine,
     create_session_factory,
     verify_database_role,
 )
-from ownvitals.db.queue_check import install_queue_check, queue_verified, verify_queue
+from ownvitals.db.queue_check import queue_verified, verify_queue
 from ownvitals.jobs import KINDS, NO_ACCOUNTS, Accounts, KindRegistry, queue
 from ownvitals.jobs.runner import Execution, RunConfig, execute, hand_back
 from ownvitals.jobs.withings import NO_TARGETS, SecretTargets
 from ownvitals.worker.listen import listen
+from ownvitals.worker.pool import create_worker_engine
+from ownvitals.worker.pool import worker_pool as worker_pool
 
 logger = logging.getLogger(__name__)
 
 CHECK_BACKOFF_MAX_SECONDS = 30.0
 SCHEDULE_TICK_SECONDS = 300.0
-
-
-def worker_pool(settings: Settings) -> dict[str, Any]:
-    """The worker engine's pool: per run one handler and one heartbeat connection, plus the
-    ``LISTEN`` connection and one for claims, maintenance and the checks; an overflow of one per
-    run covers a run that opens a second transaction while its first is open. With the cap of 16
-    runs that is at most 50 connections."""
-    return {
-        "pool_size": 2 * settings.worker_concurrency + 2,
-        "max_overflow": settings.worker_concurrency,
-    }
-
-
-def create_worker_engine(settings: Settings, **kwargs: Any) -> AsyncEngine:
-    """The app role's engine with the queue check on every new connection (ADR 0005 section 3);
-    the role check is ``create_engine``'s own."""
-    engine = create_engine(settings, **{**worker_pool(settings), **kwargs})
-    install_queue_check(engine)
-    return engine
 
 
 async def verify_startup(engine: AsyncEngine) -> None:
