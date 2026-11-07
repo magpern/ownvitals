@@ -198,12 +198,12 @@ ALLOWED: dict[str, Allowed] = {
     "__NAMES__": Allowed(
         "a placeholder in SQL text, replaced before the query runs",
         _forms("assign:QUEUE_QUERY"),
-        _modules("db/queue_check.py"),
+        _modules("db/queue_expected.py"),
     ),
     "__SQL_TEXT_BUILTINS__": Allowed(
         "a placeholder in SQL text, replaced before the query runs",
         _forms("assign:QUEUE_QUERY"),
-        _modules("db/queue_check.py"),
+        _modules("db/queue_expected.py"),
     ),
 }
 
