@@ -13,7 +13,8 @@ sections 5 to 9. #179 adds the backend; the desktop's QR panel, the phone's appr
 | `backend/src/ownvitals/auth/qrlogin.py` | the rows and their state machine: start, complete, expiry (the desktop's side) |
 | `backend/src/ownvitals/auth/qrlogin_phone.py` | the phone's transitions: scan, approve, deny |
 | `backend/src/ownvitals/auth/qrlogin_model.py` | the windows, states and values (pure); `qrlogin` re-exports them |
-| `backend/src/ownvitals/auth/qrlogin_routes.py` | `/api/auth/qr`, and the router lifespan that runs the stream hub |
+| `backend/src/ownvitals/auth/qrlogin_routes.py` | `/api/auth/qr`, the desktop's routes, and the router lifespan that runs the stream hub |
+| `backend/src/ownvitals/auth/qrlogin_phone_routes.py` | `/api/auth/qr`, the phone's routes: scan, approve, deny |
 | `backend/src/ownvitals/auth/qrlogin_stream.py` | the desktop's SSE stream and its limits |
 | `backend/src/ownvitals/auth/useragent.py` | the browser and OS families of section 7, from `User-Agent` |
 | `backend/src/ownvitals/auth/geo.py` | the place of section 6 (`geo_source`) |
