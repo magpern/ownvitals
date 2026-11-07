@@ -21,97 +21,47 @@ first sees its new session revoked by the reset. Either way no live session is l
 Each transition sends ``pg_notify('qr_logins', <row id>)``: the row id only (T27), which wakes the
 desktop's stream (``qrlogin_stream``). Nothing here logs; the nonce is stored only as its SHA-256
 and never reaches a log, an ``auth_events`` row or an error message (section 9).
+
+The phone's transitions (scan, approve, deny) are in ``qrlogin_phone``; the windows, states
+and values in ``qrlogin_model`` (pure), re-exported here.
 """
 
-import base64
-import hashlib
 import secrets
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Any, Final, Literal
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import and_, func, insert, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ownvitals.auth import mfa
 from ownvitals.auth.events import record_event
-from ownvitals.auth.keys import Keys
 from ownvitals.auth.passkeys import b64url_decode, lock_user
-from ownvitals.auth.sessions import IssuedSession, SessionInfo, start_approved_session
+from ownvitals.auth.qrlogin_model import (  # noqa: F401 - re-exported
+    APPROVE_WINDOW,
+    CHANNEL,
+    COMPLETE_WINDOW,
+    ENDED,
+    FACTORS,
+    IP_MAX,
+    LIVE,
+    LONGEST,
+    NONCE_BYTES,
+    NONCE_TEXT,
+    SCAN_WINDOW,
+    Approval,
+    Completed,
+    Desktop,
+    Scanned,
+    State,
+    StreamState,
+    _desktop,
+    encode_nonce,
+    nonce_hash,
+)
+from ownvitals.auth.sessions import start_approved_session
 from ownvitals.auth.tables import mfa_totp, qr_logins, sessions, users
-from ownvitals.auth.totp_keys import TotpUnreadable
 from ownvitals.config import Settings
-from ownvitals.crypto.keks import KeyRing
-
-SCAN_WINDOW: Final = timedelta(seconds=60)
-APPROVE_WINDOW: Final = timedelta(seconds=120)
-COMPLETE_WINDOW: Final = timedelta(seconds=30)
-# The longest a request can live: scan, approve and complete windows end to end (3.5 minutes).
-LONGEST: Final = SCAN_WINDOW + APPROVE_WINDOW + COMPLETE_WINDOW
-NONCE_BYTES: Final = 32
-NONCE_TEXT: Final = 43  # base64url of 32 bytes, without padding
-CHANNEL: Final = "qr_logins"
-IP_MAX: Final = 64
-
-State = Literal["pending", "scanned", "approved", "completed", "denied", "expired"]
-LIVE: Final = ("pending", "scanned", "approved")
-ENDED: Final = frozenset({"approved", "completed", "denied", "expired"})  # the stream stops
-FACTORS: Final[dict[str, Literal["totp", "recovery_code"]]] = {
-    "totp": "totp",
-    "recovery": "recovery_code",
-}
 
 _NOTIFY = text("SELECT pg_notify('qr_logins', :row_id)")
-
-
-@dataclass(frozen=True, slots=True)
-class Desktop:
-    """What the phone is shown about the desktop: its IP, the browser and OS its
-    ``User-Agent`` claims (``useragent``), and its place (``geo``; ``None`` is unknown)."""
-
-    ip: str | None
-    browser: str
-    os: str
-    place: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class Scanned:
-    id: UUID
-    desktop: Desktop
-    requested_at: datetime
-    approve_deadline: datetime
-    now: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class Approval:
-    outcome: Literal["approved", "unavailable", "invalid_code"]
-    mail_failures: bool = False  # the fifth failed code in an hour: mail the user
-
-
-@dataclass(frozen=True, slots=True)
-class Completed:
-    issued: IssuedSession
-    user_id: UUID
-    email: str
-    role: str
-    desktop: Desktop
-
-
-@dataclass(frozen=True, slots=True)
-class StreamState:
-    state: State
-    seconds_left: float  # until the current state's deadline (0 once ended)
-
-
-def nonce_hash(nonce: bytes) -> bytes:
-    return hashlib.sha256(nonce).digest()
-
-
-def encode_nonce(nonce: bytes) -> str:
-    return base64.urlsafe_b64encode(nonce).rstrip(b"=").decode()
 
 
 def decode_nonce(value: str) -> bytes | None:
@@ -133,10 +83,6 @@ def qr_url(settings: Settings, nonce: bytes) -> str:
 
 async def _notify(db: AsyncSession, row_id: UUID) -> None:
     await db.execute(_NOTIFY, {"row_id": str(row_id)})
-
-
-def _desktop(row: Any) -> Desktop:
-    return Desktop(row.desktop_ip, row.desktop_browser, row.desktop_os, row.desktop_place)
 
 
 # --- expiry -------------------------------------------------------------------------------------
@@ -340,134 +286,6 @@ async def complete(
     )
     await _notify(db, row_id)
     return Completed(issued, approver, user.email, role, desktop)
-
-
-# --- the phone ----------------------------------------------------------------------------------
-
-
-async def scan(db: AsyncSession, nonce: bytes, session: SessionInfo) -> Scanned | None:
-    """The first scan wins: the row is taken for this session if it is pending, within its 60
-    seconds and still bound to a pre-session. ``None`` otherwise (the generic answer)."""
-    row = (
-        await db.execute(
-            update(qr_logins)
-            .where(
-                qr_logins.c.nonce_hash == nonce_hash(nonce),
-                qr_logins.c.state == "pending",
-                qr_logins.c.scan_deadline > func.now(),
-                qr_logins.c.presession_id.is_not(None),
-            )
-            .values(
-                state="scanned",
-                approver_user_id=session.user_id,
-                approver_session_id=session.id,
-                scanned_at=func.now(),
-                approve_deadline=func.now() + APPROVE_WINDOW,
-            )
-            .returning(
-                qr_logins.c.id,
-                qr_logins.c.created_at,
-                qr_logins.c.approve_deadline,
-                qr_logins.c.desktop_ip,
-                qr_logins.c.desktop_browser,
-                qr_logins.c.desktop_os,
-                qr_logins.c.desktop_place,
-                func.now().label("now"),
-            )
-        )
-    ).first()
-    if row is None:
-        return None
-    await _notify(db, row.id)
-    return Scanned(row.id, _desktop(row), row.created_at, row.approve_deadline, row.now)
-
-
-def _approvable(row_id: UUID, session: SessionInfo) -> tuple[Any, ...]:
-    return (
-        qr_logins.c.id == row_id,
-        qr_logins.c.state == "scanned",
-        qr_logins.c.approver_user_id == session.user_id,
-        qr_logins.c.approver_session_id == session.id,
-        qr_logins.c.approve_deadline > func.now(),
-    )
-
-
-async def approve(
-    db: AsyncSession,
-    keys: Keys,
-    ring: KeyRing,
-    row_id: UUID,
-    session: SessionInfo,
-    code: str,
-    ip: str | None,
-) -> Approval:
-    """Approve with a TOTP or recovery code entered for this approval (section 5, step 4): the
-    step-up verifier (a TOTP step once, a recovery code once, failures as ``mfa_failed``), but
-    an earlier step-up does not count and the phone's ``stepup_at`` is not set.
-
-    Order: the account row (``FOR SHARE``), then the row's state (no code is checked for a row
-    that can't be approved), then the code, then the conditional update. A code that passed for
-    a row that was taken meanwhile stays used."""
-    user = await lock_user(db, session.user_id, share=True)
-    if user is None or user.disabled_at is not None:
-        return Approval("unavailable")
-    if (
-        await db.execute(select(qr_logins.c.id).where(*_approvable(row_id, session)))
-    ).first() is None:
-        return Approval("unavailable")
-    try:
-        method = await mfa.check_second_factor(db, keys, ring, session.user_id, code)
-    except TotpUnreadable as unreadable:
-        # Fails closed with the generic error; not an mfa_failed (ADR 0004 section 2).
-        await record_event(db, unreadable.kind, user_id=session.user_id, ip=ip)
-        return Approval("invalid_code")
-    if method is None:
-        mail = await mfa.record_failure(db, session.user_id, ip, "qr_approve")
-        return Approval("invalid_code", mail_failures=mail)
-    factor = FACTORS[method]
-    row = (
-        await db.execute(
-            update(qr_logins)
-            .where(*_approvable(row_id, session))
-            .values(
-                state="approved",
-                approved_at=func.now(),
-                approved_factor=factor,
-                complete_deadline=func.now() + COMPLETE_WINDOW,
-            )
-            .returning(qr_logins.c.desktop_place)
-        )
-    ).first()
-    if row is None:
-        return Approval("unavailable")
-    await record_event(
-        db,
-        "qr_login_approved",
-        user_id=session.user_id,
-        ip=ip,
-        detail={"qr": str(row_id), "factor": factor, "place": row.desktop_place},
-    )
-    await _notify(db, row_id)
-    return Approval("approved")
-
-
-async def deny(db: AsyncSession, row_id: UUID, session: SessionInfo, ip: str | None) -> bool:
-    """End a scanned request; the desktop's stream says ``denied`` and closes."""
-    row = (
-        await db.execute(
-            update(qr_logins)
-            .where(*_approvable(row_id, session))
-            .values(state="denied")
-            .returning(qr_logins.c.id)
-        )
-    ).first()
-    if row is None:
-        return False
-    await record_event(
-        db, "qr_login_denied", user_id=session.user_id, ip=ip, detail={"qr": str(row_id)}
-    )
-    await _notify(db, row_id)
-    return True
 
 
 def last_deadline() -> Any:

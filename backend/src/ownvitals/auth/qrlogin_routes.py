@@ -34,7 +34,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException,
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from ownvitals.auth import geo, mails, presession, qrlogin, totp
+from ownvitals.auth import geo, mails, presession, qrlogin, qrlogin_phone, totp
 from ownvitals.auth.clientip import bucket_ip, same_network
 from ownvitals.auth.cookies import clear_pre_cookie, set_pre_cookie, set_session_cookie
 from ownvitals.auth.deps import current_session, request_ip, request_session_token, require_user
@@ -269,7 +269,7 @@ async def scan(
     scanned = None
     if nonce is not None:
         async with system_session(factory(request)) as db:
-            scanned = await qrlogin.scan(db, nonce, session)
+            scanned = await qrlogin_phone.scan(db, nonce, session)
             if scanned is not None:
                 await record_event(
                     db,
@@ -306,7 +306,7 @@ async def approve(
     await reserve(request, [Bucket(QR_APPROVE_ACCOUNT, str(ctx.user_id))])
     attempt = await reserve(request, mfa_buckets(str(ctx.user_id), ip))
     async with system_session(factory(request)) as db:
-        result = await qrlogin.approve(
+        result = await qrlogin_phone.approve(
             db,
             request.app.state.keys,
             request.app.state.keyring,
@@ -333,7 +333,7 @@ async def deny(
 ) -> Done:
     session = _phone(info)
     async with system_session(factory(request)) as db:
-        denied = await qrlogin.deny(db, qr_id, session, request_ip(request))
+        denied = await qrlogin_phone.deny(db, qr_id, session, request_ip(request))
     if not denied:
         await _refused(request, "deny", ctx.user_id, qr_id)
     return Done(status="denied")

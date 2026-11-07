@@ -10,7 +10,9 @@ sections 5 to 9. #179 adds the backend; the desktop's QR panel, the phone's appr
 | Path | What |
 |---|---|
 | `backend/migrations/versions/0015_qr_login.py` | the system table `qr_logins` (guard 8; `db/tables.py` lists it) and four columns on `sessions`: `origin`, `mfa_by_approval`, `approved_factor`, `approved_by_session_id` |
-| `backend/src/ownvitals/auth/qrlogin.py` | the rows and their state machine: start, scan, approve, deny, complete, expiry |
+| `backend/src/ownvitals/auth/qrlogin.py` | the rows and their state machine: start, complete, expiry (the desktop's side) |
+| `backend/src/ownvitals/auth/qrlogin_phone.py` | the phone's transitions: scan, approve, deny |
+| `backend/src/ownvitals/auth/qrlogin_model.py` | the windows, states and values (pure); `qrlogin` re-exports them |
 | `backend/src/ownvitals/auth/qrlogin_routes.py` | `/api/auth/qr`, and the router lifespan that runs the stream hub |
 | `backend/src/ownvitals/auth/qrlogin_stream.py` | the desktop's SSE stream and its limits |
 | `backend/src/ownvitals/auth/useragent.py` | the browser and OS families of section 7, from `User-Agent` |
@@ -93,7 +95,7 @@ pre-session's is the same 404 `qr_unavailable`. A wrong code is 400 `invalid_cod
 
 - **A code spent on a lost race stays spent.** If a concurrent approval or a deny takes the row
   between approve's code check and its update, the TOTP step or recovery code that passed stays
-  used (`qrlogin.approve`'s docstring). A recovery code lost that way must be replaced from the
+  used (`qrlogin_phone.approve`'s docstring). A recovery code lost that way must be replaced from the
   Security page like any used one.
 - **Switching `qr_login_enabled` off** hides start and refuses scans; `approve`, `deny`, the
   stream and `complete` of rows already in flight still finish (at most 3.5 minutes).
