@@ -15,6 +15,7 @@ from ownvitals.auth.email_routes import router as email_router
 from ownvitals.auth.identity_routes import router as identity_router
 from ownvitals.auth.keys import Keys
 from ownvitals.auth.mfa_routes import router as mfa_router
+from ownvitals.auth.mfa_verify_routes import router as mfa_verify_router
 from ownvitals.auth.middleware import AuthMiddleware
 from ownvitals.auth.notices import register_security_notifier
 from ownvitals.auth.notifier import MailNotifier
@@ -48,6 +49,7 @@ def install(app: FastAPI) -> None:
     for flow in (signup_router, signin_router, reset_router, email_router):
         app.include_router(flow)
     app.include_router(mfa_router)
+    app.include_router(mfa_verify_router)
     app.include_router(passkey_router)
     app.include_router(passkey_signin_router)
     app.include_router(qr_router)  # its lifespan runs the QR stream hub (ADR 0011 section 5)
