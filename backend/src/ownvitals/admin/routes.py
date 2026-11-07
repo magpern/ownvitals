@@ -22,10 +22,10 @@ An admin refused at 1 (``mfa_required``), 2 or 4 gets an ``admin.request`` audit
 ``outcome = 'refused'``, within the refusal limiter's 20 per admin and 100 per minute. So does an
 admin past the gate whose request is then refused for its input: FastAPI's own 422 (reason
 ``invalid_input``) or an ``AdminRefused`` raised before any ``admin_session``. A body FastAPI
-cannot read (400 ``body_unreadable``) or over ``MAX_BODY_BYTES`` (413 ``body_too_large``) is
-refused before any dependency runs; the gate then runs in the handler first, so a non-admin
-still gets the 403 and an admin's refusal still has its row. Every response carries
-``Cache-Control: no-store``.
+cannot read (400 ``body_unreadable``) or over ``MAX_BODY_BYTES`` (413 ``body_too_large``,
+``ownvitals.admin.body_limit``) is refused before any dependency runs; the gate then runs in
+the handler first, so a non-admin still gets the 403 and an admin's refusal still has its row.
+Every response carries ``Cache-Control: no-store``.
 """
 
 import hashlib
@@ -188,61 +188,6 @@ async def _gate_before_validation(request: Request) -> JSONResponse | None:
     return None
 
 
-# The largest admin request body. The largest valid one is a banner (280 characters, at most 12
-# bytes each once JSON-escaped); 16 KiB leaves room without letting a body matter.
-MAX_BODY_BYTES: Final = 16 * 1024
-BODY_TOO_LARGE: Final = "body_too_large"
-BODY_UNREADABLE: Final = "body_unreadable"
-# The two body refusals by exactly what raises them, so a 400 or 413 a route raises itself is
-# never taken for one: FastAPI's own body-parse failure and ``AdminBodyLimit``'s.
-_FASTAPI_BODY_ERROR = "There was an error parsing the body"
-_BODY_REFUSALS: dict[tuple[int, object], str] = {
-    (400, _FASTAPI_BODY_ERROR): BODY_UNREADABLE,
-    (413, repr({"reason": BODY_TOO_LARGE})): BODY_TOO_LARGE,
-}
-
-
-def _body_refusal(exc: object) -> str | None:
-    status, detail = getattr(exc, "status_code", None), getattr(exc, "detail", None)
-    key = detail if isinstance(detail, str) else repr(detail)
-    return _BODY_REFUSALS.get((status, key)) if isinstance(status, int) else None
-
-
-class AdminBodyLimit:
-    """ASGI middleware: an ``/api/admin`` request body over ``MAX_BODY_BYTES``, by its
-    ``Content-Length`` or as it streams in, is refused 413 when the route reads it. The refusal
-    is raised from ``receive``, so FastAPI's body parsing re-raises it before any dependency,
-    and the admin area's handler runs the gate first."""
-
-    def __init__(self, app: Any, max_bytes: int = MAX_BODY_BYTES) -> None:
-        self.app, self.max_bytes = app, max_bytes
-
-    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        if scope.get("type") != "http" or not str(scope.get("path", "")).startswith(ADMIN_PREFIX):
-            await self.app(scope, receive, send)
-            return
-        declared = next(
-            (v for k, v in scope.get("headers", []) if k.lower() == b"content-length"), None
-        )
-        too_large = declared is not None and (
-            not declared.isdigit() or int(declared) > self.max_bytes
-        )
-        seen = 0
-
-        async def limited() -> Any:
-            nonlocal seen
-            if too_large:
-                raise HTTPException(status_code=413, detail={"reason": BODY_TOO_LARGE})
-            message = await receive()
-            if message.get("type") == "http.request":
-                seen += len(message.get("body", b""))
-                if seen > self.max_bytes:
-                    raise HTTPException(status_code=413, detail={"reason": BODY_TOO_LARGE})
-            return message
-
-        await self.app(scope, limited, send)
-
-
 async def _http_error(_request: Request, exc: Exception) -> Response:
     """FastAPI's own answer to an ``HTTPException`` (``{"detail": ...}`` with its headers), for
     when no other handler was installed before this one."""
@@ -258,6 +203,7 @@ def install(app: Any) -> None:
     audit row of an admin request's 422, 400 or 413, and the body limit. Call it after
     ``ownvitals.auth.setup.install``: it wraps the handlers installed there."""
     from ownvitals.admin import audit_routes, jobs, settings, users  # they import this module
+    from ownvitals.admin.body_limit import AdminBodyLimit, _body_refusal  # it imports this one
 
     for feature in (audit_routes.router, jobs.router, settings.router, users.router):
         app.include_router(feature)
