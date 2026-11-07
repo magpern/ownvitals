@@ -13,6 +13,7 @@ issue. The rest of the account system is in [auth.md](auth.md).
 | `backend/src/ownvitals/auth/passkeys.py` | the shared core: failures and their reasons, the relying party, challenges, the account-row lock, list, rename, remove; no WebAuthn library, so the CLI and the reset flow load none |
 | `backend/src/ownvitals/auth/passkey_model.py` | the values, the failure reasons, the relying party and passkey types, name and client-data parsing (pure); `passkeys` re-exports them |
 | `backend/src/ownvitals/auth/passkey_ceremonies.py` | options, registration and authentication with the sign count; the only module that imports `webauthn` |
+| `backend/src/ownvitals/auth/passkey_credentials.py` | the account's user handle, the stored-credential lookup and the ceremony's input types; no WebAuthn library; `passkey_ceremonies` re-exports them |
 | `backend/src/ownvitals/auth/passkey_routes.py` | `/api/auth/passkeys`: list, rename, remove, register |
 | `backend/src/ownvitals/auth/passkey_signin_routes.py` | `/api/auth/passkeys`: sign-in and re-auth |
 | `backend/src/ownvitals/auth/presession.py` | the pre-session cookie `__Host-ownvitals_pre` (section 4), shared with the QR issue |
