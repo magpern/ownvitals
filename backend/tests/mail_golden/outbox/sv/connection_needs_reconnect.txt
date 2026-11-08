@@ -1,10 +1,10 @@
 Content-Language: sv
-Subject: ownvitals: something is waiting on the admin page
+Subject: ownvitals: något väntar på administrationssidan
 
-Something is waiting for an administrator in ownvitals.
+Något väntar på en administratör i ownvitals.
 
-Open the admin page here: https://ownvitals.example.test/admin
+Öppna administrationssidan här: https://ownvitals.example.test/admin
 
-This email says no more than that on purpose: what is waiting is shown only after you sign in.
+Det här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du har loggat in.
 
 - ownvitals

@@ -1,5 +1,5 @@
 Content-Language: sv
-Subject: Your ownvitals email address was changed
+Subject: E-postadressen för ditt ownvitals-konto har ändrats
 
-The email address of your ownvitals account was changed. This is the old address.
-If this wasn't you, contact the operator.
+E-postadressen för ditt ownvitals-konto har ändrats. Det här är den gamla adressen.
+Om det inte var du, kontakta operatören.

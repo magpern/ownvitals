@@ -1,5 +1,5 @@
 Content-Language: sv
-Subject: A passkey on your ownvitals account was refused and suspended
+Subject: En passkey på ditt ownvitals-konto nekades och har spärrats
 
-A sign-in with your passkey "Synthetic key" was refused and the passkey was suspended: its counter went backwards, which can mean it was copied.
-It can't be used any more. Remove it on the Security page and add it again. If you didn't just try to sign in with it, change your password.
+En inloggning med din passkey "Synthetic key" nekades och passkeyn har spärrats: dess räknare gick bakåt, vilket kan betyda att den har kopierats.
+Den kan inte användas längre. Ta bort den på säkerhetssidan och lägg till den igen. Om du inte just försökte logga in med den, byt ditt lösenord.

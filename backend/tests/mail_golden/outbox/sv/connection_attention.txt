@@ -1,10 +1,10 @@
 Content-Language: sv
-Subject: ownvitals: a connection needs your attention
+Subject: ownvitals: en anslutning behöver din uppmärksamhet
 
-One of your connections in ownvitals needs your attention.
+En av dina anslutningar i ownvitals behöver din uppmärksamhet.
 
-Open it here: https://ownvitals.example.test/
+Öppna den här: https://ownvitals.example.test/
 
-This email says no more than that on purpose: what is waiting is shown only after you sign in.
+Det här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du har loggat in.
 
 - ownvitals

@@ -1,5 +1,5 @@
 Content-Language: sv
-Subject: A sign-in method was added to your ownvitals account
+Subject: En inloggningsmetod har lagts till på ditt ownvitals-konto
 
-Google was linked to your ownvitals account as a way to sign in.
-If this wasn't you, sign in, remove it from your account page and change your password.
+Google har kopplats till ditt ownvitals-konto som ett sätt att logga in.
+Om det inte var du, logga in, ta bort den från din kontosida och byt lösenord.

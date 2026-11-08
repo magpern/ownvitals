@@ -1,7 +1,7 @@
 Content-Language: sv
-Subject: Confirm your new ownvitals email address
+Subject: Bekräfta din nya e-postadress för ownvitals
 
-To use this address for your ownvitals account, sign in and open this link (valid for 1 hour):
+För att använda den här adressen för ditt ownvitals-konto, logga in och öppna den här länken (giltig i 1 timme):
 https://ownvitals.example.test/email-change#token=synthetic-token
 
-If this wasn't you, ignore this mail.
+Om det inte var du kan du bortse från det här mejlet.
