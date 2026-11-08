@@ -14,97 +14,43 @@ Nothing here logs. Challenges, credential ids, public keys and user handles neve
 an ``auth_events`` row or an error message (section 9).
 """
 
-import base64
-import binascii
 import hashlib
-import json
 import secrets
-import unicodedata
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Any, Literal
+from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+# The values, the failure type and the parsing are in ``passkey_model`` (pure).
+from ownvitals.auth.passkey_model import (  # noqa: F401 - re-exported
+    CHALLENGE_BYTES,
+    CHALLENGE_LIFETIME,
+    COUNTER_MAX,
+    CREDENTIAL_ID_MAX,
+    DEFAULT_NAME,
+    HANDLE_BYTES,
+    NAME_MAX,
+    REASONS,
+    TIMEOUT_MS,
+    Passkey,
+    PasskeyFailure,
+    Purpose,
+    RelyingParty,
+    b64url_decode,
+    normalize_name,
+    read_client_data,
+)
 from ownvitals.auth.tables import users, webauthn_challenges, webauthn_credentials
 from ownvitals.config import Settings
 from ownvitals.db import system_session
-
-TIMEOUT_MS = 120_000
-CHALLENGE_BYTES = 32
-CHALLENGE_LIFETIME = timedelta(minutes=5)
-HANDLE_BYTES = 32
-CREDENTIAL_ID_MAX = 1023
-NAME_MAX = 64
-DEFAULT_NAME = "Passkey"
-COUNTER_MAX = 2**32 - 1
-
-Purpose = Literal["register", "signin", "reauth"]
-# The closed set of ``detail.reason`` values of ``passkey_signin_failed`` and friends.
-REASONS = frozenset(
-    {
-        "client_data",
-        "challenge",
-        "unknown_credential",
-        "user_handle",
-        "suspended",
-        "account",
-        "no_totp",
-        "verification",
-        "sign_count",
-        "race",
-        "duplicate",
-        "limit",
-        "session",
-    }
-)
-
-
-class PasskeyFailure(Exception):
-    """A refused ceremony. The route answers one generic failure whatever the ``reason``;
-    the reason goes only into ``auth_events``. ``suspended`` is ``(passkey name, account
-    email)`` when this failure suspended the credential, for the notice mail."""
-
-    def __init__(
-        self,
-        reason: str,
-        *,
-        user_id: UUID | None = None,
-        suspended: tuple[str, str] | None = None,
-    ) -> None:
-        if reason not in REASONS:
-            raise ValueError("unknown passkey failure reason")
-        super().__init__(reason)
-        self.reason = reason
-        self.user_id = user_id
-        self.suspended = suspended
-
-
-@dataclass(frozen=True, slots=True)
-class RelyingParty:
-    rp_id: str
-    origin: str
 
 
 def relying_party(settings: Settings) -> RelyingParty | None:
     """``None`` when the public host is an IP address (passkeys are off; ``config``)."""
     rp_id = settings.passkey_rp_id
     return None if rp_id is None else RelyingParty(rp_id, settings.public_base_url)
-
-
-@dataclass(frozen=True, slots=True)
-class Passkey:
-    """What the account page shows. Never the credential id, the key or the counter."""
-
-    id: UUID
-    name: str
-    created_at: datetime
-    last_used_at: datetime | None
-    backup_eligible: bool
-    backup_state: bool
-    suspended: bool
 
 
 PASSKEY_COLUMNS = (
@@ -130,57 +76,8 @@ def to_passkey(row: Any) -> Passkey:
     )
 
 
-def normalize_name(raw: str | None) -> str:
-    """NFKC, control and format characters removed, trimmed; 1 to 64 characters. An empty
-    or missing name is "Passkey". ``ValueError`` when it is longer."""
-    text = unicodedata.normalize("NFKC", raw or "")
-    text = "".join(ch for ch in text if unicodedata.category(ch) not in ("Cc", "Cf"))
-    text = " ".join(text.split())
-    if not text:
-        return DEFAULT_NAME
-    if len(text) > NAME_MAX:
-        raise ValueError("name too long")
-    return text
-
-
-def b64url_decode(value: str) -> bytes:
-    """Strict base64url (padding optional). ``ValueError`` on anything else."""
-    if any(ch not in _B64URL for ch in value.rstrip("=")):
-        raise ValueError("not base64url")
-    try:
-        return base64.urlsafe_b64decode(value.rstrip("=") + "=" * (-len(value.rstrip("=")) % 4))
-    except (binascii.Error, ValueError):
-        raise ValueError("not base64url") from None
-
-
-_B64URL = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
-
-
 def _challenge_hash(challenge: bytes) -> bytes:
     return hashlib.sha256(challenge).digest()
-
-
-def read_client_data(encoded: str, expected_type: str, rp: RelyingParty) -> bytes:
-    """The challenge of a ``clientDataJSON`` whose type and origin are the expected ones and
-    which was not made in a cross-origin frame. ``PasskeyFailure("client_data")`` otherwise."""
-    try:
-        data = json.loads(b64url_decode(encoded))
-        if not isinstance(data, dict):
-            raise ValueError("not an object")
-        challenge = data.get("challenge")
-        if (
-            data.get("type") != expected_type
-            or data.get("origin") != rp.origin
-            or data.get("crossOrigin") not in (None, False)
-            or not isinstance(challenge, str)
-        ):
-            raise ValueError("unexpected client data")
-        decoded = b64url_decode(challenge)
-    except (ValueError, UnicodeDecodeError):
-        raise PasskeyFailure("client_data") from None
-    if len(decoded) != CHALLENGE_BYTES:
-        raise PasskeyFailure("client_data")
-    return decoded
 
 
 # --- challenges ---------------------------------------------------------------------------------

@@ -140,8 +140,8 @@ def test_each_near_miss_stays_allowed(source: str) -> None:
 
 def test_the_placeholders_are_pinned_to_their_one_assignment() -> None:
     sql = "QUEUE_QUERY = 'SELECT 1 FROM t WHERE x IN (__NAMES__)'.replace('__NAMES__', n)\n"
-    assert scan_source(sql, "ownvitals/db/queue_check.py") == []
-    assert scan_source(sql.replace("QUEUE_QUERY", "OTHER"), "ownvitals/db/queue_check.py") != []
+    assert scan_source(sql, "ownvitals/db/queue_expected.py") == []
+    assert scan_source(sql.replace("QUEUE_QUERY", "OTHER"), "ownvitals/db/queue_expected.py") != []
 
 
 # V2: deleting an attribute is a write even where the name may be read.

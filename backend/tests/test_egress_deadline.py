@@ -27,8 +27,8 @@ from ownvitals.egress import (
     call_deadline,
     call_deadline_until,
     core,
+    deadline,
     install_worker_allowlist,
-    opener,
     tls_client_context,
     withings_async_client,
 )
@@ -205,8 +205,8 @@ def test_no_request_starts_after_the_call_deadline(
     bound is 25), so exactly three fit whatever the machine's speed. The watchdog is not armed
     (its real timer would mask a missing check): this proves the refusal before connecting."""
     now = [1000.0]
-    monkeypatch.setattr(opener, "time", SimpleNamespace(monotonic=lambda: now[0]))
-    monkeypatch.setattr(opener._Watchdog, "arm", lambda self, sock: None)  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(deadline, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    monkeypatch.setattr(deadline._Watchdog, "arm", lambda self, sock: None)  # pyright: ignore[reportPrivateUsage]
     drip.mode = "fast"
     with call_deadline(25), pytest.raises(RequestDeadline):  # noqa: PT012 - the loop is the call
         for _ in range(10):

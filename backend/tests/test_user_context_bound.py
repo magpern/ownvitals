@@ -24,7 +24,7 @@ HOOK = "ownvitals/egress/hook.py"
 # ``self.context.wrap_socket(...)`` in a method: allowed in ``mail.py`` only.
 WRAP_SOCKET = "class Mailer:\n    def send(self, s):\n        return self.context.wrap_socket(s)\n"
 LOG = "ownvitals/log.py"
-QUEUE = "ownvitals/db/queue_check.py"
+QUEUE = "ownvitals/db/queue_expected.py"
 AUDIT = "def _audit(event, args):\n    if event == 'socket.__new__':\n        return args\n"
 
 

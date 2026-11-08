@@ -1,0 +1,106 @@
+/* Design primitives, continued from primitives.css: tier and source marks and value styles. */
+
+/* Tier marks: Device (solid square), Trend (band), Experimental (dashed diamond), System (ring) */
+
+.ov-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.5rem;
+  padding: 0 0.5625rem;
+  border: 1px solid transparent;
+  border-radius: var(--ov-radius-tag);
+  font-size: var(--ov-text-xs);
+  font-weight: var(--ov-weight-semibold);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.ov-tier svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.ov-tier--device {
+  background: var(--ov-device-soft);
+  color: var(--ov-device);
+}
+
+.ov-tier--trend {
+  background: var(--ov-trend-soft);
+  color: var(--ov-trend);
+}
+
+.ov-tier--experimental {
+  border: 1px dashed var(--ov-exp);
+  background: var(--ov-exp-soft);
+  color: var(--ov-exp);
+}
+
+.ov-tier--system {
+  background: var(--ov-raised);
+  color: var(--ov-muted);
+}
+
+/* Source marks: who said it */
+
+.ov-src {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--ov-muted);
+  font-size: var(--ov-text-xs);
+}
+
+.ov-src svg {
+  width: 0.6875rem;
+  height: 0.6875rem;
+}
+
+.ov-src--estimate {
+  color: var(--ov-exp);
+}
+
+/* Value styles: number, unit, raw value in mono, and the estimate */
+
+.ov-value {
+  color: var(--ov-text);
+  font-size: var(--ov-text-value);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--ov-weight-semibold);
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.ov-value__unit {
+  margin-left: 3px;
+  color: var(--ov-muted);
+  font-size: var(--ov-text-base);
+  font-weight: var(--ov-weight-medium);
+  letter-spacing: 0;
+}
+
+.ov-value--large {
+  font-size: var(--ov-text-value-lg);
+}
+
+.ov-value--large .ov-value__unit {
+  margin-left: var(--ov-space-1);
+  font-size: var(--ov-text-unit-lg);
+}
+
+/* Estimated: italic, dotted underline and "est." in front. Never looks like a certified value. */
+.ov-value--estimate .ov-value__num {
+  font-style: italic;
+  font-weight: var(--ov-weight-medium);
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 5px;
+}
+
+.ov-value__est {
+  color: var(--ov-muted);
+  font-size: var(--ov-text-unit-lg);
+  font-weight: var(--ov-weight-regular);
+  letter-spacing: 0;
+}

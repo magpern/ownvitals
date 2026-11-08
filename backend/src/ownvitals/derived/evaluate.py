@@ -24,27 +24,20 @@ noon, #230), never by re-assigning it.
 ``fingerprint(inputs)`` is the provenance hash of everything ``evaluate`` reads.
 """
 
-import hashlib
-import json
-import math
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
 from datetime import date
 from functools import partial
-from typing import Any, Final
 
 from ownvitals.analysis.daily import DailyValue
 from ownvitals.analysis.policy import InsufficientData
 from ownvitals.analysis.quality import Reading
 from ownvitals.analysis.rules import body, heart, nerve, system
 from ownvitals.analysis.rules.core import (
-    ALGO_VERSION,
     SPECS,
     Band,
     Finding,
-    Provenance,
     RuleResult,
-    Tier,
 )
 from ownvitals.analysis.rules.episodes import (
     Episode,
@@ -55,144 +48,29 @@ from ownvitals.analysis.rules.episodes import (
     advance_simple,
     origin,
 )
-from ownvitals.analysis.rules.system import ConnectionState, DeviceState, StreamState
+from ownvitals.derived.evaluate_fingerprint import fingerprint
+from ownvitals.derived.evaluate_model import (
+    EXPERIMENTAL_RULES,
+    FOOT_PAIRS,
+    NERVE_KEYS,
+    OWNED_RULES,
+    Q1_RULES,
+    READING_KEYS,
+    REPLAYED_RULES,
+    RULES_VERSION,
+    SEGMENT_KEY,
+    SEGMENT_TYPE,
+    EpisodeRow,
+    Evaluation,
+    Inputs,
+    Q1Result,
+    Q1State,
+    canonical,
+    json_safe,
+    rule_version,
+    subject_ok,
+)
 from ownvitals.derived.metric_keys import position_name
-
-RULES_VERSION: Final = ALGO_VERSION  # "rules/1": the shared bands, confidence and episodes
-EXPERIMENTAL_RULES: Final = frozenset(
-    rule for rule, spec in SPECS.items() if spec.tier is Tier.EXPERIMENTAL
-)
-Q1_RULES: Final = tuple(sorted(rule for rule in SPECS if rule.startswith("Q1:")))
-REPLAYED_RULES: Final = tuple(sorted(rule for rule in SPECS if rule not in Q1_RULES))
-# Every rule this writer stores; another writer's rules (E1 to E6, M5) are never touched.
-OWNED_RULES: Final = tuple(sorted(SPECS))
-
-NERVE_KEYS: Final = nerve.NERVE_KEYS
-# N5's per-foot pairs (ADR 0010 §3): the normaliser keys 158, 159, 197 and 198 as meastype_<n>.
-FOOT_PAIRS: Final[Mapping[nerve.FootPair, tuple[str, str]]] = {
-    "158_159": ("meastype_158", "meastype_159"),
-    "197_198": ("meastype_197", "meastype_198"),
-}
-SEGMENT_TYPE: Final = 175  # segmental muscle mass: B6 reads it by position
-SEGMENT_KEY: Final = "segmental_muscle_mass"
-# The reading-level inputs besides the daily values: B3's water, N2's nerve readings (guided is
-# attrib 15), N5's foot types, Q1's weigh-ins.
-READING_KEYS: Final = tuple(
-    sorted(
-        {
-            "weight",
-            "extracellular_water",
-            "intracellular_water",
-            *NERVE_KEYS,
-            *(key for pair in FOOT_PAIRS.values() for key in pair),
-        }
-    )
-)
-_SUBJECT_OK = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:/-")
-
-
-def rule_version(rule_id: str) -> str:
-    """``findings.rule_version``: the shared rules version and the rule's own, ``rules/1.1``."""
-    return f"{RULES_VERSION}.{SPECS[rule_id].version}"
-
-
-@dataclass(frozen=True, slots=True)
-class Q1State:
-    """What Q1 reads now: the ``measures`` capability, the connection, the devices of the latest
-    ``getdevice`` and each stream's completeness (ADR 0010 §7)."""
-
-    weight_capability: str | None = None
-    connection: ConnectionState | None = None
-    devices: tuple[DeviceState, ...] = ()
-    streams: tuple[StreamState, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class Inputs:
-    """One owner's evaluation inputs. ``daily`` and ``provenance`` are per metric key (the stored
-    ``metric_daily`` rows and their source groups and ``jump`` flags); ``readings`` are the usable
-    readings of ``READING_KEYS`` (one per group, the zone already the day zone); ``segments`` are
-    the usable segmental muscle readings with their positions."""
-
-    today: date
-    experimental: bool
-    daily: Mapping[str, tuple[DailyValue, ...]] = field(default_factory=dict)
-    provenance: Mapping[str, Mapping[date, Provenance]] = field(default_factory=dict)
-    readings: Mapping[str, tuple[Reading, ...]] = field(default_factory=dict)
-    segments: tuple[body.Segment, ...] = ()
-    q1: Q1State = field(default_factory=Q1State)
-
-
-@dataclass(frozen=True, slots=True)
-class EpisodeRow:
-    """One episode as the writer stores it. ``first_day`` and ``last_day`` are the evaluation days
-    of its first and latest firing, ``ended_day`` the evaluation that ended it (``None``: still
-    active). ``origin`` is ``origin(window_end, today)``: the writer uses it only for an episode
-    it writes for the first time (§4: computed once, never changed)."""
-
-    rule_id: str
-    rule_version: str
-    tier: str
-    severity: str
-    confidence: str
-    subject: str
-    metric_keys: tuple[str, ...]
-    reference_day: date
-    window_start: date
-    window_end: date
-    first_day: date
-    last_day: date
-    ended_day: date | None
-    origin: str
-    evidence: dict[str, Any]
-    data_quality: dict[str, Any]
-
-    @property
-    def status(self) -> str:
-        return "active" if self.ended_day is None else "ended"
-
-    @property
-    def match_key(self) -> tuple[str, str, date]:
-        return (self.rule_id, self.subject, self.reference_day)
-
-
-@dataclass(frozen=True, slots=True)
-class Q1Result:
-    """Today's evaluation of one Q1 part and subject: ``finding`` when it fires."""
-
-    rule_id: str
-    subject: str
-    finding: Finding | None
-    metric_keys: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class Evaluation:
-    episodes: tuple[EpisodeRow, ...]
-    q1: tuple[Q1Result, ...]
-    evaluated: Mapping[str, int]  # evaluations per rule id (counts only)
-
-
-def json_safe(value: Any) -> Any:
-    """``value`` as JSON the database accepts: a non-finite float becomes ``None``."""
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, Mapping):
-        return {str(k): json_safe(v) for k, v in value.items()}
-    if isinstance(value, list | tuple):
-        return [json_safe(v) for v in value]
-    return value
-
-
-def canonical(value: Any) -> str:
-    """One text per JSON value, to compare a computed document with a stored one."""
-    return json.dumps(json_safe(value), sort_keys=True, separators=(",", ":"))
-
-
-def subject_ok(subject: str) -> bool:
-    """``findings.subject``'s check: 1 to 160 of letters, digits and ``_.:/-``."""
-    return 0 < len(subject) <= 160 and set(subject) <= _SUBJECT_OK
-
 
 # --- replay ------------------------------------------------------------------------------------
 
@@ -366,71 +244,16 @@ def evaluate(inputs: Inputs) -> Evaluation:
     return Evaluation(tuple(episodes), tuple(q1), counts)
 
 
-# --- provenance --------------------------------------------------------------------------------
-
-
-def _reading_line(key: str, r: Reading) -> str:
-    return "|".join(
-        (key, str(r.grpid), r.measured_at.isoformat(), r.source_tz, str(r.attrib), str(r.value))
-    )
-
-
-def fingerprint(inputs: Inputs) -> bytes:
-    """SHA-256 over the rule versions, ``today``, the switch and every input ``evaluate`` reads,
-    in a canonical order (PLAN §5). Any change to any of them changes it."""
-    lines: list[str] = [
-        RULES_VERSION,
-        ",".join(f"{rule}={spec.version}" for rule, spec in sorted(SPECS.items())),
-        f"today={inputs.today.isoformat()}",
-        f"experimental={inputs.experimental}",
-    ]
-    for key in sorted(inputs.daily):
-        for v in sorted(inputs.daily[key], key=lambda v: v.day):
-            prov = inputs.provenance.get(key, {}).get(v.day, Provenance())
-            lines.append(
-                "|".join(
-                    (
-                        "daily",
-                        key,
-                        v.day.isoformat(),
-                        v.method.value,
-                        str(v.value),
-                        str(v.n),
-                        str(v.minimum),
-                        str(v.maximum),
-                        str(v.mad),
-                        ",".join(str(g) for g in prov.groups),
-                        str(prov.jump),
-                    )
-                )
-            )
-    for key in sorted(inputs.readings):
-        lines.extend(sorted(_reading_line(key, r) for r in inputs.readings[key]))
-    lines.extend(sorted(_reading_line(f"segment:{s.position}", s.reading) for s in inputs.segments))
-    q1 = inputs.q1
-    lines.append(f"q1|capability|{q1.weight_capability}")
-    if q1.connection is not None:
-        lines.append(f"q1|connection|{q1.connection.status}")
-    lines.extend(sorted(f"q1|device|{d.hash_deviceid}|{d.battery}" for d in q1.devices))
-    lines.extend(
-        sorted(
-            f"q1|stream|{s.stream}|{s.capability}|{s.complete}|{s.importing}" for s in q1.streams
-        )
-    )
-    digest = hashlib.sha256()
-    for line in lines:
-        digest.update(line.encode())
-        digest.update(b"\n")
-    return digest.digest()
-
-
 __all__ = [
     "EXPERIMENTAL_RULES",
+    "FOOT_PAIRS",
+    "NERVE_KEYS",
     "OWNED_RULES",
     "Q1_RULES",
     "READING_KEYS",
     "REPLAYED_RULES",
     "RULES_VERSION",
+    "SEGMENT_TYPE",
     "EpisodeRow",
     "Evaluation",
     "Inputs",

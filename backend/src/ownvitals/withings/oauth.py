@@ -12,15 +12,11 @@ not see the state.
 On connect and reconnect the worker calls ``revoke_stale_subscriptions``. It lists subscriptions
 and revokes every callback under our base that is not the current one. Those URLs are not stored
 and not logged.
+
+The state store lives in ``oauth_state.py`` and is re-exported here.
 """
 
-import asyncio
-import hashlib
 import logging
-import secrets
-import time
-from collections import defaultdict
-from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
@@ -41,12 +37,11 @@ from ownvitals.egress import WITHINGS_ACCOUNT_HOST, exchange_withings_code
 from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.errors import WithingsError, interpret
 from ownvitals.withings.models import TokenResponse
+from ownvitals.withings.oauth_state import STATE_TTL_SECONDS as STATE_TTL_SECONDS
+from ownvitals.withings.oauth_state import StateStore
 
 logger = logging.getLogger(__name__)
 
-STATE_TTL_SECONDS = 10 * 60
-_STARTS = 30
-_START_WINDOW = 15 * 60
 _SCOPES = "user.info,user.metrics,user.activity,user.sleepevents"
 _AUTHORIZE_PATH = "/oauth2_user/authorize2"
 _AUTHORIZE_FIELDS = ("response_type", "client_id", "redirect_uri", "scope", "state")
@@ -93,61 +88,6 @@ class Started:
 
     def __repr__(self) -> str:
         return "Started redacted"
-
-
-@dataclass(slots=True)
-class _Pending:
-    session_id: UUID
-    user_id: UUID
-    app_id: int
-    redirect_uri: str
-    expires_at: float
-
-
-class StateStore:
-    """Hashed, single-use state for one web process."""
-
-    def __init__(self, clock: Callable[[], float] | None = None) -> None:
-        self._clock = clock or time.monotonic
-        self._rows: dict[bytes, _Pending] = {}
-        self._starts: dict[UUID, list[float]] = defaultdict(list)
-        self._lock = asyncio.Lock()
-
-    def _purge(self, now: float) -> None:
-        stale = [key for key, row in self._rows.items() if row.expires_at <= now]
-        for key in stale:
-            del self._rows[key]
-
-    async def issue(
-        self, *, session_id: UUID, user_id: UUID, app_id: int, redirect_uri: str
-    ) -> str | None:
-        """The state, or ``None`` when this user has started too often."""
-        now = self._clock()
-        async with self._lock:
-            self._purge(now)
-            recent = [stamp for stamp in self._starts[user_id] if now - stamp < _START_WINDOW]
-            if len(recent) >= _STARTS:
-                self._starts[user_id] = recent
-                return None
-            recent.append(now)
-            self._starts[user_id] = recent
-            state = secrets.token_urlsafe(32)
-            self._rows[hashlib.sha256(state.encode()).digest()] = _Pending(
-                session_id, user_id, app_id, redirect_uri, now + STATE_TTL_SECONDS
-            )
-        return state
-
-    async def take(self, state: str) -> _Pending | None:
-        """Consume the state. ``None`` when it is unknown, expired or already taken."""
-        if not isinstance(state, str) or not state:
-            return None
-        now = self._clock()
-        async with self._lock:
-            self._purge(now)
-            row = self._rows.pop(hashlib.sha256(state.encode()).digest(), None)
-        if row is None or row.expires_at <= now:
-            return None
-        return row
 
 
 def redirect_uri(callback_base: str) -> str:

@@ -5,161 +5,38 @@ caller's ``AsyncSession`` (a ``system_session``), so a sign-in can create its se
 same transaction as its other writes. All times are the database's ``now()``.
 """
 
-from collections.abc import Collection
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import case, delete, func, insert, or_, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.keys import new_token, token_hash
+from ownvitals.auth.session_manage import (  # noqa: F401 - re-exported
+    SessionSummary,
+    count_live_sessions,
+    list_sessions,
+    revoke_session,
+    revoke_user_sessions,
+)
+from ownvitals.auth.session_model import (  # noqa: F401 - re-exported
+    ADMIN_MFA_WINDOW,
+    ADMIN_STEPUP_WINDOW,
+    PENDING_WINDOW,
+    RECENT_AUTH_WINDOW,
+    STEPUP_WINDOW,
+    IssuedSession,
+    Resolution,
+    SessionGone,
+    SessionInfo,
+)
 from ownvitals.auth.tables import mfa_totp, sessions, users
 from ownvitals.config import Settings
 from ownvitals.db import system_session
 
 USER_AGENT_LIMIT = 200
 TOUCH_INTERVAL = timedelta(minutes=1)
-ADMIN_MFA_WINDOW = timedelta(hours=12)
-RECENT_AUTH_WINDOW = timedelta(minutes=10)
-# The step-up window is the setting ``stepup_window_minutes`` (PLAN section 6: 10 minutes at
-# most); admin writes use their own 5 minutes (ADR 0003 section 4).
-STEPUP_WINDOW = timedelta(minutes=10)
-ADMIN_STEPUP_WINDOW = timedelta(minutes=5)
-# A session that has not passed its second factor lives this long after its latest proof (the
-# sign-in, or the step-up that removed the factor), then it is deleted (ADR 0003 section 2).
-PENDING_WINDOW = RECENT_AUTH_WINDOW
-
-
-class SessionGone(Exception):
-    """The session to rotate no longer exists (revoked or rotated by a parallel request)."""
-
-
-@dataclass(frozen=True, slots=True)
-class SessionInfo:
-    """A valid session joined with its user, as of the database time ``now``."""
-
-    id: UUID
-    user_id: UUID
-    email: str
-    stored_role: Literal["user", "admin"]
-    created_at: datetime
-    last_seen_at: datetime
-    expires_at: datetime
-    reauth_at: datetime | None
-    mfa_at: datetime | None
-    stepup_at: datetime | None
-    now: datetime
-    totp_enabled: bool = False  # the account has a confirmed TOTP
-    stepup_window: timedelta = STEPUP_WINDOW
-    # ADR 0011 section 5: ``qr_approval`` for a session a phone approved (carried over every
-    # rotation), and whether ``mfa_at`` is still the code entered on that phone.
-    origin: Literal["signin", "qr_approval"] = "signin"
-    mfa_by_approval: bool = False
-
-    @property
-    def full(self) -> bool:
-        """The session passed its second factor (ownvitals ADR 0003 section 2): the account has
-        a confirmed TOTP and a TOTP or recovery code was verified in this session (or its first
-        enrolment was confirmed in it), or on its behalf for the one QR approval that created
-        it (ADR 0011 section 5, amending ADR 0003 section 2). Only a full session yields a
-        ``UserContext``."""
-        return self.totp_enabled and self.mfa_at is not None
-
-    @property
-    def second_factor(self) -> Literal["enrol", "verify"] | None:
-        """What a session that is not full still owes: ``enrol`` (no TOTP yet) or ``verify``."""
-        if self.full:
-            return None
-        return "verify" if self.totp_enabled else "enrol"
-
-    @property
-    def pending_expired(self) -> bool:
-        """A session that is not full and has no proof inside the ten-minute window.
-
-        Only a ``reauth_at`` or ``stepup_at`` whose age is inside ``[0, PENDING_WINDOW]``
-        counts. A timestamp after ``now`` is not a recent proof, so it cannot hold the
-        session open.
-        """
-        if self.full:
-            return False
-        return not (
-            _within(self.reauth_at, self.now, PENDING_WINDOW)
-            or _within(self.stepup_at, self.now, PENDING_WINDOW)
-        )
-
-    @property
-    def role(self) -> Literal["user", "admin"]:
-        """``admin`` only for an admin whose session passed TOTP in the last 12 hours, in this
-        session itself: a code entered on the approving phone for a QR login does not count
-        (ADR 0011 section 5, ADR 0003 section 7 read literally)."""
-        if (
-            self.stored_role == "admin"
-            and not self.mfa_by_approval
-            and _within(self.mfa_at, self.now, ADMIN_MFA_WINDOW)
-        ):
-            return "admin"
-        return "user"
-
-    @property
-    def may_approve_qr(self) -> bool:
-        """A full session that was not itself born from a QR approval (no chaining from a
-        hijacked desktop, ADR 0011 section 5)."""
-        return self.full and self.origin == "signin"
-
-    @property
-    def admin_pending_mfa(self) -> bool:
-        """An admin account whose TOTP check is missing or older than 12 hours (``role`` is
-        ``user`` meanwhile). False for every other account."""
-        return self.stored_role == "admin" and self.role != "admin"
-
-    @property
-    def recent_mfa(self) -> bool:
-        """TOTP passed within the 12-hour window (in this session: see ``role``)."""
-        return not self.mfa_by_approval and _within(self.mfa_at, self.now, ADMIN_MFA_WINDOW)
-
-    @property
-    def recent_auth(self) -> bool:
-        return _within(self.reauth_at, self.now, RECENT_AUTH_WINDOW)
-
-    @property
-    def recent_stepup(self) -> bool:
-        """A TOTP or recovery code within the step-up window (``stepup_window_minutes``)."""
-        return _within(self.stepup_at, self.now, self.stepup_window)
-
-    def stepup_within(self, window: timedelta) -> bool:
-        """A TOTP or recovery code within ``window`` and within the step-up window."""
-        return _within(self.stepup_at, self.now, min(window, self.stepup_window))
-
-
-def _within(moment: datetime | None, now: datetime, window: timedelta) -> bool:
-    """True when ``moment`` is present and its age is inside ``[0, window]``.
-
-    A moment after ``now`` (a future ``stepup_at`` or ``mfa_at``) is outside: the lower bound
-    is ``timedelta(0)``, so a negative age fails closed.
-    """
-    return moment is not None and timedelta(0) <= now - moment <= window
-
-
-@dataclass(frozen=True, slots=True)
-class Resolution:
-    """``anonymous``: no cookie or an unknown token (the cookie is left alone); ``refused``: a
-    known session that expired, idled out or whose user is disabled (deleted; clear the cookie);
-    ``ok``: ``info`` is set."""
-
-    outcome: Literal["anonymous", "refused", "ok"]
-    info: SessionInfo | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class IssuedSession:
-    """A new session. ``token`` goes into the cookie once and is never stored or logged."""
-
-    id: UUID
-    token: str
-    expires_at: datetime
-    max_age: int  # remaining absolute lifetime, in seconds
 
 
 def _truncate(user_agent: str | None) -> str | None:
@@ -423,107 +300,3 @@ async def rotate_session(
         )
     ).one()
     return IssuedSession(row.id, token, row.expires_at, max(int(row.remaining), 0))
-
-
-async def revoke_session(db: AsyncSession, user_id: UUID, session_id: UUID) -> bool:
-    """Delete one of the user's own sessions. False for an unknown id and for another user's,
-    which the caller answers with the same 404."""
-    result = await db.execute(
-        delete(sessions)
-        .where(sessions.c.id == session_id, sessions.c.user_id == user_id)
-        .returning(sessions.c.id)
-    )
-    return result.first() is not None
-
-
-async def revoke_user_sessions(
-    db: AsyncSession, user_id: UUID, *, except_id: UUID | None = None
-) -> int:
-    """Sign out everywhere (or everywhere but ``except_id``). Returns how many were deleted."""
-    statement = delete(sessions).where(sessions.c.user_id == user_id)
-    if except_id is not None:
-        statement = statement.where(sessions.c.id != except_id)
-    result = await db.execute(statement.returning(sessions.c.id))
-    return len(result.all())
-
-
-@dataclass(frozen=True, slots=True)
-class SessionSummary:
-    id: UUID
-    created_at: datetime
-    last_seen_at: datetime
-    expires_at: datetime
-    user_agent: str | None
-    ip: str | None
-
-
-def _proof_at_or_before(now: Any) -> Any:
-    """The later of ``reauth_at`` and ``stepup_at`` that is not after ``now``.
-
-    A timestamp after ``now`` is not a proof: the same fail-closed lower bound as
-    ``_within``. ``GREATEST`` ignores nulls, so a future value dropped by ``CASE`` leaves
-    the other timestamp, and both missing is null (the caller uses ``created_at``).
-    The same expression is in ``purge.purge_expired``.
-    """
-    return func.greatest(
-        case((sessions.c.reauth_at <= now, sessions.c.reauth_at)),
-        case((sessions.c.stepup_at <= now, sessions.c.stepup_at)),
-    )
-
-
-def _live_filters(settings: Settings) -> tuple[Any, ...]:
-    """Sessions that still count: the same rule as ``resolve_session``.
-
-    Absolute- and idle-expired rows, and rows that never passed their second factor and are past
-    their ten minutes, are left out. A ``reauth_at`` or ``stepup_at`` after now is not a proof.
-    """
-    idle = timedelta(hours=settings.session_idle_hours)
-    now = func.now()
-    return (
-        sessions.c.expires_at > now,
-        sessions.c.last_seen_at > now - idle,
-        # a session that never passed its second factor ends ten minutes after its proof
-        or_(
-            sessions.c.mfa_at.is_not(None),
-            # both proofs missing, or only after now, counts from the creation
-            func.coalesce(_proof_at_or_before(now), sessions.c.created_at) > now - PENDING_WINDOW,
-        ),
-    )
-
-
-async def list_sessions(
-    db: AsyncSession, settings: Settings, user_id: UUID
-) -> list[SessionSummary]:
-    """The user's own live sessions, newest first. Never the token or its hash."""
-    rows = await db.execute(
-        select(
-            sessions.c.id,
-            sessions.c.created_at,
-            sessions.c.last_seen_at,
-            sessions.c.expires_at,
-            sessions.c.user_agent,
-            sessions.c.ip,
-        )
-        .where(sessions.c.user_id == user_id, *_live_filters(settings))
-        .order_by(sessions.c.created_at.desc())
-    )
-    return [SessionSummary(*row) for row in rows.all()]
-
-
-async def count_live_sessions(
-    db: AsyncSession, settings: Settings, user_ids: Collection[UUID]
-) -> dict[UUID, int]:
-    """How many live sessions each id has. The same rows as ``list_sessions``, counted.
-
-    An id with none is absent. Never a token, a hash, an address or an agent string.
-    """
-    wanted = list(dict.fromkeys(user_ids))
-    if not wanted:
-        return {}
-    counted = func.count().label("n")
-    rows = await db.execute(
-        select(sessions.c.user_id, counted)
-        .where(sessions.c.user_id.in_(wanted), *_live_filters(settings))
-        .group_by(sessions.c.user_id)
-    )
-    return {row.user_id: int(row.n) for row in rows.all()}

@@ -6,9 +6,14 @@ import './styles/fonts.css'
 import './styles/tokens.css'
 import './styles/app.css'
 import './styles/primitives.css'
+import './styles/primitives-marks.css'
+import './styles/primitives-states.css'
 import './styles/charts.css'
 import './styles/shell.css'
+import './styles/shell-account.css'
+import './styles/shell-tabs.css'
 import './styles/auth.css'
+import './styles/auth-panels.css'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Missing #root element in index.html')
