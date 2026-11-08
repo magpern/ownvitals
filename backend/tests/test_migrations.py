@@ -25,6 +25,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0017_account_locale",
         "0016_findings_rule_ids",
         "0015_qr_login",
         "0014_passkeys",
