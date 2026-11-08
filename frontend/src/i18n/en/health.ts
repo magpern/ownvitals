@@ -20,7 +20,7 @@ export const health = {
   'rule.E3.name': 'Low or high heart rate during an ECG',
   'rule.E3.text': 'Withings marked an ECG recording with a low or high heart rate.',
   'rule.E4.name': 'ECG interval above the reference limit',
-  'rule.E4.text': 'An ECG interval measured by this app is above its reference limit (QTc, PR or QRS).',
+  'rule.E4.text': 'An ECG interval reported by your device (QTc, PR or QRS) is above its reference limit.',
   'rule.E6.name': 'ECG interval above your usual level',
   'rule.E6.text': 'Your QTc or QRS interval is above your own usual range of the last 90 days.',
   'rule.B1.name': 'Weight gain over three days',
