@@ -1,4 +1,5 @@
 import { useRef, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useT } from '../i18n'
 
 // The six boxes of an authenticator code (docs/design/mockups/src/Auth.dc.html and
 // Security.dc.html, `.otp`): one digit per box. Typing moves to the next box, Backspace on an
@@ -22,7 +23,8 @@ function digitsOf(text: string): string {
   return text.replace(/\D/g, '').slice(0, CODE_LENGTH)
 }
 
-export function CodeInput({ value, onChange, label = '6-digit code', id, autoFocus = false, disabled }: CodeInputProps) {
+export function CodeInput({ value, onChange, label, id, autoFocus = false, disabled }: CodeInputProps) {
+  const t = useT()
   const boxes = useRef<(HTMLInputElement | null)[]>([])
   const focus = (index: number) => {
     boxes.current[Math.max(0, Math.min(index, CODE_LENGTH - 1))]?.focus()
@@ -63,14 +65,14 @@ export function CodeInput({ value, onChange, label = '6-digit code', id, autoFoc
   }
 
   return (
-    <div className="ov-otp" role="group" aria-label={label} id={id}>
+    <div className="ov-otp" role="group" aria-label={label ?? t('auth.code.label')} id={id}>
       {Array.from({ length: CODE_LENGTH }, (_, index) => (
         <input
           key={index}
           ref={(element) => {
             boxes.current[index] = element
           }}
-          aria-label={`Digit ${String(index + 1)}`}
+          aria-label={t('auth.code.digit', { n: index + 1 })}
           inputMode="numeric"
           autoComplete={index === 0 ? 'one-time-code' : 'off'}
           // A whole code may arrive in the first box (autofill); the handler spreads it.

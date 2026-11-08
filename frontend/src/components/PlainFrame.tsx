@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { HOME_PATH } from '../auth/access'
 import { useSession } from '../auth/SessionContext'
 import { Link } from '../router/Router'
+import { LanguagePicker, useT } from '../i18n'
 import { Notice } from './forms'
 import { useSignOut } from './useSignOut'
 
@@ -12,6 +13,7 @@ import { useSignOut } from './useSignOut'
  * still leave). The signed-in app has the rail and top bar of `AppFrame` instead.
  */
 export function PlainFrame({ children }: { children: ReactNode }) {
+  const t = useT()
   const { status, session } = useSession()
   const { signOut, busy, error } = useSignOut()
   const email = session?.authenticated === true ? (session.user?.email ?? null) : null
@@ -24,16 +26,16 @@ export function PlainFrame({ children }: { children: ReactNode }) {
         </Link>
         {status === 'ready' ? (
           email !== null ? (
-            <nav className="nav" aria-label="Account">
+            <nav className="nav" aria-label={t('common.account')}>
               <span className="nav__who">{email}</span>
               <button className="button button--secondary" type="button" disabled={busy} onClick={signOut}>
-                Sign out
+                {t('common.signOut')}
               </button>
             </nav>
           ) : (
-            <nav className="nav" aria-label="Account">
-              <Link to="/signin">Sign in</Link>
-              <Link to="/signup">Sign up</Link>
+            <nav className="nav" aria-label={t('common.account')}>
+              <Link to="/signin">{t('common.signIn')}</Link>
+              <Link to="/signup">{t('common.signUp')}</Link>
             </nav>
           )
         ) : null}
@@ -42,6 +44,11 @@ export function PlainFrame({ children }: { children: ReactNode }) {
         {error ? <Notice kind="error">{error}</Notice> : null}
         {children}
       </main>
+      {email === null ? (
+        <footer className="shell__footer">
+          <LanguagePicker />
+        </footer>
+      ) : null}
     </div>
   )
 }

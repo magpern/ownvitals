@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { Resource } from '../../api/useResource'
+import { t, useT } from '../../i18n'
 import { Button } from './Button'
 
 // The data states: the vocabulary every view uses (docs/design/mockups/src/Main.dc.html, "Data
@@ -26,26 +27,25 @@ type Tone = 'neutral' | 'ok' | 'attn' | 'urgent' | 'info' | 'off'
 type Dot = 'ok' | 'attn' | 'urgent'
 
 interface Definition {
-  label: string
   tone: Tone
   /** A dot in front of the label (the states that say "fine", "look" and "broken"). */
   dot?: Dot
-  /** The name of the bar's measure, for the states that have one. */
-  bar?: string
+  /** The bar's measure, for the states that have one (a catalogue key). */
+  bar?: 'ui.bar.importing' | 'ui.bar.insufficient-data'
 }
 
 const STATES: Record<DataStateKind, Definition> = {
-  'up-to-date': { label: 'Up to date', tone: 'ok', dot: 'ok' },
-  stale: { label: 'Stale', tone: 'attn', dot: 'attn' },
+  'up-to-date': { tone: 'ok', dot: 'ok' },
+  stale: { tone: 'attn', dot: 'attn' },
   // The label carries the percentage: see `dataStateLabel`.
-  importing: { label: 'Importing', tone: 'neutral', bar: 'Import progress' },
-  'incomplete-import': { label: 'Incomplete import', tone: 'attn' },
-  'insufficient-data': { label: 'Insufficient data', tone: 'neutral', bar: 'Progress toward the minimum' },
-  'not-supported': { label: 'Not supported', tone: 'off' },
-  'not-shared': { label: 'Not shared', tone: 'off' },
-  'not-available': { label: 'Not available', tone: 'off' },
-  'needs-reconnect': { label: 'Needs reconnect', tone: 'urgent', dot: 'urgent' },
-  'withings-plus': { label: 'Withings+ needed', tone: 'info' },
+  importing: { tone: 'neutral', bar: 'ui.bar.importing' },
+  'incomplete-import': { tone: 'attn' },
+  'insufficient-data': { tone: 'neutral', bar: 'ui.bar.insufficient-data' },
+  'not-supported': { tone: 'off' },
+  'not-shared': { tone: 'off' },
+  'not-available': { tone: 'off' },
+  'needs-reconnect': { tone: 'urgent', dot: 'urgent' },
+  'withings-plus': { tone: 'info' },
 }
 
 export const DATA_STATE_KINDS = Object.keys(STATES) as DataStateKind[]
@@ -57,8 +57,9 @@ function percent(progress: number): number {
 
 /** The wording of a state: "Up to date", "Importing 64%", "Withings+ needed". */
 export function dataStateLabel(kind: DataStateKind, progress?: number): string {
-  const { label } = STATES[kind]
-  return kind === 'importing' && progress !== undefined ? `${label} ${String(percent(progress))}%` : label
+  return kind === 'importing' && progress !== undefined
+    ? t('ui.state.importingPercent', { percent: percent(progress) })
+    : t(`ui.state.${kind}`)
 }
 
 /** A pill: the shape of every state, and of the "Coming later" marker of a screen not built yet. */
@@ -78,6 +79,7 @@ export type DataStateProps = { children?: ReactNode } & (
 )
 
 export function DataState({ kind, progress, children }: DataStateProps) {
+  const t = useT()
   const { tone, dot, bar } = STATES[kind]
   const pill = (
     <StatePill tone={tone} dot={dot}>
@@ -89,7 +91,7 @@ export function DataState({ kind, progress, children }: DataStateProps) {
   return (
     <div className="ov-data-state" data-state={kind}>
       {pill}
-      {hasBar ? <progress className="ov-bar" max={100} value={percent(progress)} aria-label={bar} /> : null}
+      {hasBar ? <progress className="ov-bar" max={100} value={percent(progress)} aria-label={t(bar)} /> : null}
       {children === undefined ? null : <p className="ov-data-state__detail">{children}</p>}
     </div>
   )
@@ -108,18 +110,19 @@ export function ResourceView<T>({
   resource: Resource<T>
   children: (data: T) => ReactNode
 }) {
+  const t = useT()
   if (resource.data !== null) return <>{children(resource.data)}</>
   if (resource.status === 'error' && resource.error !== null) {
     return (
       <div className="ov-resource" role="alert" data-kind={resource.error.kind}>
         <p className="ov-resource__message">{resource.error.message}</p>
-        <Button onClick={resource.reload}>Try again</Button>
+        <Button onClick={resource.reload}>{t('common.tryAgain')}</Button>
       </div>
     )
   }
   return (
     <p className="ov-resource" role="status" aria-busy="true">
-      Loading…
+      {t('common.loadingDots')}
     </p>
   )
 }
