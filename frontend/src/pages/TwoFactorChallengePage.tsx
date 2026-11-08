@@ -6,6 +6,7 @@ import { Notice, useAction } from '../components/forms'
 import { NO_CODE, SecondFactorField, complete, type SecondFactor } from '../components/SecondFactorField'
 import { Button } from '../components/ui/Button'
 import { useSignOut } from '../components/useSignOut'
+import { useT } from '../i18n'
 
 /**
  * The second step after sign-in (docs/design/mockups/src/Auth.dc.html, "Second factor"): a code
@@ -22,6 +23,7 @@ export function TwoFactorChallengePage() {
 }
 
 function Challenge() {
+  const t = useT()
   const titleId = useId()
   const { session, refresh } = useSession()
   const { signOut, busy: leaving } = useSignOut()
@@ -39,23 +41,25 @@ function Challenge() {
   return (
     <section className="ov-auth" aria-labelledby={titleId}>
       <form className="ov-auth__form" onSubmit={submit}>
-        <span className="ov-eyebrow">Step 2 of 2</span>
+        <span className="ov-eyebrow">{t('auth.challenge.step')}</span>
         <h1 id={titleId} className="ov-auth__title">
-          Enter your code
+          {t('auth.challenge.title')}
         </h1>
-        <p className="ov-muted">Open your authenticator app and enter the 6-digit code for ownvitals.</p>
+        <p className="ov-muted">{t('auth.challenge.prompt')}</p>
         {action.error ? <Notice kind="error">{action.error}</Notice> : null}
         <SecondFactorField value={factor} onChange={setFactor} autoFocus disabled={action.busy} />
         <Button variant="primary" wide type="submit" disabled={action.busy || !complete(factor)}>
-          Verify
+          {t('auth.challenge.verify')}
         </Button>
       </form>
       <div className="ov-auth__foot ov-small ov-muted">
         <span>
-          Signed in as {session?.user?.email ?? 'you'}. This step expires in 10 minutes.
+          {session?.user?.email === undefined
+            ? t('auth.challenge.signedInAsYou')
+            : t('auth.challenge.signedInAs', { email: session.user.email })}
         </span>
         <button className="ov-linkbutton" type="button" disabled={leaving} onClick={signOut}>
-          Not you? Sign out
+          {t('auth.challenge.notYou')}
         </button>
       </div>
     </section>

@@ -8,6 +8,7 @@ import {
 import { errorMessage, providerName } from '../api/messages'
 import { useSession } from '../auth/SessionContext'
 import { Card, Field, Notice, useAction } from '../components/forms'
+import { useT } from '../i18n'
 import { Link, useMailToken } from '../router/Router'
 
 /** `/reset`: ask for a link. `/reset#token=...`: choose a new password. */
@@ -17,6 +18,7 @@ export function ResetPage() {
 }
 
 function RequestReset() {
+  const t = useT()
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
   const action = useAction()
@@ -31,25 +33,22 @@ function RequestReset() {
 
   if (sent) {
     return (
-      <Card title="Check your inbox">
-        <Notice kind="success">
-          If an account uses that address, a link to choose a new password is on its way. It works
-          for 30 minutes.
-        </Notice>
+      <Card title={t('auth.checkInbox')}>
+        <Notice kind="success">{t('auth.reset.sent')}</Notice>
         <p className="card__links">
-          <Link to="/signin">Back to sign in</Link>
+          <Link to="/signin">{t('auth.backToSignIn')}</Link>
         </p>
       </Card>
     )
   }
 
   return (
-    <Card title="Reset your password">
-      <p>Enter your email address and we will mail you a link.</p>
+    <Card title={t('auth.reset.title')}>
+      <p>{t('auth.reset.prompt')}</p>
       {action.error ? <Notice kind="error">{action.error}</Notice> : null}
       <form onSubmit={submit}>
         <Field
-          label="Email"
+          label={t('common.email')}
           type="email"
           autoComplete="email"
           value={email}
@@ -59,11 +58,11 @@ function RequestReset() {
           required
         />
         <button className="button" type="submit" disabled={action.busy}>
-          Send reset link
+          {t('auth.reset.submit')}
         </button>
       </form>
       <p className="card__links">
-        <Link to="/signin">Back to sign in</Link>
+        <Link to="/signin">{t('auth.backToSignIn')}</Link>
       </p>
     </Card>
   )
@@ -72,6 +71,7 @@ function RequestReset() {
 type Methods = { state: 'loading' } | { state: 'bad'; message: string } | { state: 'ok'; list: LinkedMethod[] }
 
 function ChoosePassword({ token }: { token: string }) {
+  const t = useT()
   const [methods, setMethods] = useState<Methods>({ state: 'loading' })
   const [remove, setRemove] = useState<Set<string>>(new Set())
   const [password, setPassword] = useState('')
@@ -115,13 +115,11 @@ function ChoosePassword({ token }: { token: string }) {
 
   if (done) {
     return (
-      <Card title="Password changed">
-        <Notice kind="success">
-          Your password is changed and you are signed out everywhere. Sign in with the new one.
-        </Notice>
+      <Card title={t('auth.reset.doneTitle')}>
+        <Notice kind="success">{t('auth.reset.done')}</Notice>
         <p>
           <Link className="button" to="/signin">
-            Sign in
+            {t('common.signIn')}
           </Link>
         </p>
       </Card>
@@ -129,31 +127,31 @@ function ChoosePassword({ token }: { token: string }) {
   }
   if (methods.state === 'loading') {
     return (
-      <Card title="Choose a new password">
-        <p>Checking your link</p>
+      <Card title={t('auth.reset.chooseTitle')}>
+        <p>{t('auth.reset.checking')}</p>
       </Card>
     )
   }
   if (methods.state === 'bad') {
     return (
-      <Card title="Choose a new password">
+      <Card title={t('auth.reset.chooseTitle')}>
         <Notice kind="error">{methods.message}</Notice>
         <p className="card__links">
-          <Link to="/reset">Get a new link</Link>
+          <Link to="/reset">{t('auth.reset.newLink')}</Link>
         </p>
       </Card>
     )
   }
 
   return (
-    <Card title="Choose a new password">
+    <Card title={t('auth.reset.chooseTitle')}>
       {action.error ? <Notice kind="error">{action.error}</Notice> : null}
       <form onSubmit={submit}>
         <Field
-          label="New password"
+          label={t('auth.reset.newPassword')}
           type="password"
           autoComplete="new-password"
-          hint="12 to 128 characters."
+          hint={t('auth.reset.passwordHint')}
           value={password}
           onChange={(e) => {
             setPassword(e.target.value)
@@ -162,11 +160,8 @@ function ChoosePassword({ token }: { token: string }) {
         />
         {methods.list.length > 0 ? (
           <fieldset className="fieldset">
-            <legend>Linked sign-in methods</legend>
-            <p className="field__hint">
-              These can also sign in to your account. Remove any you do not recognise or no longer
-              use.
-            </p>
+            <legend>{t('auth.reset.linked')}</legend>
+            <p className="field__hint">{t('auth.reset.linkedHint')}</p>
             {methods.list.map((method) => (
               <label key={method.id} className="check">
                 <input
@@ -176,13 +171,13 @@ function ChoosePassword({ token }: { token: string }) {
                     toggle(method.id)
                   }}
                 />
-                Remove {providerName(method.provider)}
+                {t('auth.reset.remove', { provider: providerName(method.provider) })}
               </label>
             ))}
           </fieldset>
         ) : null}
         <button className="button" type="submit" disabled={action.busy}>
-          Change password
+          {t('auth.reset.change')}
         </button>
       </form>
     </Card>

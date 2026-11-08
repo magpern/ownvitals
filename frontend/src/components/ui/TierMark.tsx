@@ -4,13 +4,17 @@
 // Withings value is the Device square, a calculated value the Trend band, an estimate the
 // Experimental diamond.
 
+import type { MessageKey } from '../../i18n/en'
+import { useT } from '../../i18n'
+
 export type Tier = 'device' | 'trend' | 'experimental' | 'system'
 
-export const TIER_LABELS: Record<Tier, string> = {
-  device: 'Device',
-  trend: 'Trend',
-  experimental: 'Experimental',
-  system: 'System',
+/** The catalogue key of each tier's name. */
+export const TIER_LABELS: Record<Tier, MessageKey> = {
+  device: 'ui.tier.device',
+  trend: 'ui.tier.trend',
+  experimental: 'ui.tier.experimental',
+  system: 'ui.tier.system',
 }
 
 /** The small shape in front of a tier name or a source line. Decorative. */
@@ -32,20 +36,21 @@ export function TierGlyph({ tier }: { tier: Tier }) {
 
 /** The badge of a finding's tier: the glyph and the tier's name. */
 export function TierMark({ tier }: { tier: Tier }) {
+  const t = useT()
   return (
     <span className={`ov-tier ov-tier--${tier}`}>
       <TierGlyph tier={tier} />
-      {TIER_LABELS[tier]}
+      {t(TIER_LABELS[tier])}
     </span>
   )
 }
 
 export type Source = 'withings' | 'ownvitals' | 'estimate'
 
-const SOURCES: Record<Source, { tier: Tier; label: string }> = {
-  withings: { tier: 'device', label: 'Reported by Withings' },
-  ownvitals: { tier: 'trend', label: 'Calculated by ownvitals' },
-  estimate: { tier: 'experimental', label: 'Estimated by ownvitals' },
+const SOURCES: Record<Source, { tier: Tier; label: MessageKey }> = {
+  withings: { tier: 'device', label: 'ui.source.withings' },
+  ownvitals: { tier: 'trend', label: 'ui.source.ownvitals' },
+  estimate: { tier: 'experimental', label: 'ui.source.estimate' },
 }
 
 /**
@@ -53,11 +58,12 @@ const SOURCES: Record<Source, { tier: Tier; label: string }> = {
  * "Calculated by ownvitals · analysis 1.2". `detail` is what follows the dot (device, version).
  */
 export function SourceMark({ source, detail }: { source: Source; detail?: string }) {
+  const t = useT()
   const { tier, label } = SOURCES[source]
   return (
     <span className={source === 'estimate' ? 'ov-src ov-src--estimate' : 'ov-src'}>
       <TierGlyph tier={tier} />
-      {detail === undefined ? label : `${label} · ${detail}`}
+      {detail === undefined ? t(label) : `${t(label)} · ${detail}`}
     </span>
   )
 }

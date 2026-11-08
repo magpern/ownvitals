@@ -264,3 +264,19 @@ code {
   margin-bottom: var(--ov-space-3);
   background: var(--ov-qr-paper);
 }
+
+/* Language picker (the signed-out footer) */
+
+.shell__footer {
+  display: flex;
+  justify-content: center;
+  padding: var(--ov-space-4);
+  padding-bottom: calc(var(--ov-space-4) + env(safe-area-inset-bottom));
+}
+
+.picker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ov-space-2);
+  font-size: var(--ov-text-sm);
+}

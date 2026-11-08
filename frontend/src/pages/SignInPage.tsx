@@ -4,6 +4,7 @@ import { oauthOutcomeMessage } from '../api/messages'
 import { useSession } from '../auth/SessionContext'
 import { Card, Field, Notice, useAction } from '../components/forms'
 import { ProviderButtons } from '../components/ProviderButtons'
+import { useT } from '../i18n'
 import { Link, safeReturnTo, useQuery, useRouter } from '../router/Router'
 
 /**
@@ -12,6 +13,7 @@ import { Link, safeReturnTo, useQuery, useRouter } from '../router/Router'
  * enrolment or to the code prompt.
  */
 export function SignInPage() {
+  const t = useT()
   const { navigate } = useRouter()
   const { refresh } = useSession()
   const query = useQuery()
@@ -35,14 +37,14 @@ export function SignInPage() {
   }
 
   return (
-    <Card title="Sign in">
+    <Card title={t('common.signIn')}>
       {outcome && outcome !== 'email_needed' ? (
         <Notice kind="error">{oauthOutcomeMessage(outcome)}</Notice>
       ) : null}
       {action.error ? <Notice kind="error">{action.error}</Notice> : null}
       <form onSubmit={submit}>
         <Field
-          label="Email"
+          label={t('common.email')}
           type="email"
           autoComplete="username"
           value={email}
@@ -52,7 +54,7 @@ export function SignInPage() {
           required
         />
         <Field
-          label="Password"
+          label={t('common.password')}
           type="password"
           autoComplete="current-password"
           value={password}
@@ -62,13 +64,13 @@ export function SignInPage() {
           required
         />
         <button className="button" type="submit" disabled={action.busy}>
-          Sign in
+          {t('common.signIn')}
         </button>
       </form>
       <ProviderButtons returnTo={returnTo} />
       <p className="card__links">
-        <Link to="/reset">Forgot your password?</Link>
-        <Link to="/signup">Create an account</Link>
+        <Link to="/reset">{t('auth.signIn.forgot')}</Link>
+        <Link to="/signup">{t('auth.signIn.create')}</Link>
       </p>
     </Card>
   )

@@ -54,7 +54,10 @@ describe('the production build under the content security policy', () => {
     expect(rest.some((path) => path.endsWith('.js'))).toBe(true)
     expect(rest.some((path) => path.endsWith('.css'))).toBe(true)
     // Fonts are the only addition, and only these two kinds: any other file still fails here.
-    expect(rest.every((path) => /^assets\/[^/]+\.(?:js|css|woff2?)$/.test(path))).toBe(true)
+    // The one file outside assets/ is the language script (public/locale-init.js).
+    expect(rest.every((path) => path === 'locale-init.js' || /^assets\/[^/]+\.(?:js|css|woff2?)$/.test(path))).toBe(true)
+    // Swedish is its own chunk, loaded when it is chosen.
+    expect(rest.filter((path) => /^assets\/sv-[^/]+\.js$/.test(path))).toHaveLength(1)
   })
 
   it('carries the Plex font files, from its own origin', () => {
@@ -93,8 +96,9 @@ describe('the production build under the content security policy', () => {
     expect(cspViolations('dist/index.html', html)).toEqual([])
     expect(remoteUrls(html)).toEqual([])
     const scripts = html.match(/<script\b[^>]*>/g) ?? []
-    expect(scripts).toHaveLength(1)
-    expect(scripts[0]).toMatch(/type="module"[^>]*src="\/assets\/[^"]+\.js"/)
+    expect(scripts).toHaveLength(2)
+    expect(scripts[0]).toBe('<script src="/locale-init.js">')
+    expect(scripts[1]).toMatch(/type="module"[^>]*src="\/assets\/[^"]+\.js"/)
   })
 
   it('has no data: URL in any file: no asset is inlined into the stylesheet or the bundle', () => {

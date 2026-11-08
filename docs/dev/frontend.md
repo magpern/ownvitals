@@ -39,6 +39,8 @@ src/pages/      sign in, sign up, mail-link and reset pages, the two second-fact
                 appPages.tsx (the screens of the app, or "Coming later")
 src/components/ forms and the plain page frame, the QR code, the Google button;
                 ui/ (the design primitives), shell/ (the app frame: rail, phone tabs, account menu)
+src/i18n/       the translation runtime and the catalogue (en/ and sv/, one file per area), locales.json,
+                the language picker; ../lib/format.ts formats numbers, days, times and durations
 src/theme/      the System, Light or Dark choice: theme.ts, and the useThemePreference hook
 src/styles/     tokens.css (the only place with colours), fonts.css, app.css, primitives.css, shell.css, charts.css
 src/test/       fake API (fakeApi.ts), render helper, the network guard (networkGuard.ts, installed by
@@ -332,3 +334,70 @@ in the wrong theme, but on a cold load a visitor whose choice differs from their
 page background in the device's theme for a moment. A classic same-origin `<script src>` in `<head>`
 would close it; `sources.test.ts` keeps its rule of one script in `index.html` and nothing was
 loosened. The Settings issue decides whether a second pinned same-origin script is worth it.
+
+## Languages (i18n)
+
+ADR 0015 (sections 1, 3, 4 and 9). English is the source and the fallback; Swedish (`sv`) is added.
+No library: a typed catalogue in `src/i18n/`.
+
+### Using it
+
+```tsx
+const t = useT()                                   // re-renders when the language changes
+t('auth.signIn.forgot')                            // a key is checked by the type checker
+t('auth.reset.remove', { provider: 'Google' })     // {provider} in the text
+plural('security.ago.minutes', 5)                  // security.ago.minutes.one / .other, {count} filled in
+<Trans k="auth.provider.sent" slots={{ email: <strong>{email}</strong> }} />  // a part that is not text
+```
+
+- A key is `<area>.<key>`. `t`, `plural` and `useT` come from `src/i18n`. Outside React (a plain
+  function) `t` and `plural` read the language in use when they are called.
+- Placeholders are bare names in braces (`{name}`): no format spec, no index, no markup. A number
+  is formatted by the caller (`useFormat().number(n, 1)`) and passed in as text.
+- A message holds no markup and nothing is ever inserted as HTML. A link or emphasis is a slot of
+  `Trans`: the message names the part (`{email}`) and the caller supplies the element.
+- The admin area stays English (the guard allowlists `pages/AdminPage.tsx`).
+
+### Adding a key, or an area
+
+1. Add the key to the English file of its area, `src/i18n/en/<area>.ts`.
+2. Add the same key to `src/i18n/sv/<area>.ts` with the English text, and list it in
+   `src/i18n/untranslated.ts` (a whole area, or `area.key`). A missing or extra `sv` key fails
+   `npm run typecheck` (`satisfies Record<keyof typeof en, string>`); the catalogue test fails
+   when a key is English in `sv` and not on the list, and when a translated key is still on it.
+3. A new area is two files (`en/<area>.ts`, `sv/<area>.ts`, the `sv` one starting with
+   `import type { <area> as en } from '../en/<area>'`) and one line each in `en/index.ts` and
+   `sv/index.ts` (the import, the entry in `EN_AREAS`/`SV_AREAS`, the `prefixed(...)` spread).
+   Parallel issues use separate area files and touch only those lines.
+4. A plural is a family: `<base>.one` and `<base>.other` (every category the language needs).
+   `plural('<base>', n)` picks the form with `Intl.PluralRules`.
+
+The untranslated list is the keys whose Swedish is still English. A screen PR adds English keys
+only and lists them; the translation PR (G6) writes the Swedish and empties the list. Swedish text
+is written in no other PR.
+
+### Choosing the language
+
+`src/i18n/resolve.ts`: `localStorage` `ov-locale` (read in try/catch), then `navigator.languages`
+(`sv-SE` is `sv`), then `en`. The picker in the signed-out footer (`LanguagePicker`, a select with
+each language's own name) sets it, without a reload. `public/locale-init.js` sets `<html lang>`
+before the first paint; it is a same-origin file, not an inline script (CSP `script-src 'self'`),
+writes only a code from the manifest, and `localeInit.test.ts` keeps its list equal to
+`locales.json`. Swedish is its own chunk (`assets/sv-*.js`), loaded when chosen; `main.tsx` waits
+for it before the first render, so a page is never painted half in one language.
+
+### Formatting (`src/lib/format.ts`)
+
+All on `Intl`, with the locale passed in (or `useFormat()` bound to the current one): `formatNumber`
+(decimal comma in Swedish), `formatDay` (a day as the API sent it, never re-zoned), `formatTime` and
+`formatDateTime` (an instant in a zone you pass: the day setting's zone for a reading, `browserZone()`
+only for times that belong to no reading), `formatDuration`. Units stay SI and are never converted.
+English is formatted as en-GB (day first, 24 hours); see `INTL_TAG` in `src/i18n/locale.ts`.
+
+### Guards (vitest)
+
+- `src/i18n/hardcoded.test.ts` scans every shipped `.tsx` for JSX text and for string literals in
+  `aria-label`, `title`, `placeholder`, `alt`, `label` and `hint`. Its allowlist only shrinks
+  (the admin page, the product name) and the test pins its size.
+- `src/i18n/catalogue.test.ts`: same keys per area, placeholder names equal to English and bare,
+  no markup, plural categories present for each language, the untranslated list exact.

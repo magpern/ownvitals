@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { t } from '../i18n'
 import { APP_ROUTES, matchAppRoute, type RouteId } from './appRoutes'
 
 // The screens of the signed-in app, by address: the information architecture of
@@ -34,7 +35,10 @@ describe('the routes of the app', () => {
   it('give Settings its four tabs, and /settings shows the first', () => {
     // docs/design/README.md: /settings/profile, /settings/security, /settings/notifications, /settings/data.
     const tabs = ['/settings/profile', '/settings/security', '/settings/notifications', '/settings/data']
-    expect(tabs.map((path) => matchAppRoute(path)?.route.label)).toEqual([
+    expect(tabs.map((path) => (() => {
+      const label = matchAppRoute(path)?.route.label
+      return label === undefined ? undefined : t(label)
+    })())).toEqual([
       'Profile and display',
       'Sign-in and security',
       'Notifications',
@@ -54,14 +58,15 @@ describe('the routes of the app', () => {
 
   it('give every screen a page header, a "Coming later" line and a navigation item', () => {
     for (const route of APP_ROUTES) {
-      expect(route.title, route.id).not.toBe('')
-      expect(route.later, route.id).toMatch(/\.$/)
+      expect(t(route.title), route.id).not.toBe('')
+      expect(t(route.later), route.id).toMatch(/\.$/)
       expect(route.nav, route.id).toBeTruthy()
     }
   })
 
   it('keep the sentence the first placeholder had, for the dashboard', () => {
-    expect(APP_ROUTES.find((route) => route.id === 'overview')?.later).toBe('The dashboard comes in M6.')
+    expect(APP_ROUTES.find((route) => route.id === 'overview')?.later).toBe('shell.route.overview.later')
+    expect(t('shell.route.overview.later')).toBe('The dashboard comes in M6.')
   })
 
   it('mark only the admin area as admin-only', () => {

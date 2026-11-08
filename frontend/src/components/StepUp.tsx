@@ -13,6 +13,7 @@ import {
 import { getLinkedProviders, reauthenticate, startOAuthReauth, stepUp } from '../api/auth'
 import { ApiError } from '../api/client'
 import { errorMessage } from '../api/messages'
+import { useT } from '../i18n'
 import { useRouter } from '../router/Router'
 import { Field, Notice, useAction } from './forms'
 import { NO_CODE, SecondFactorField, complete, type SecondFactor } from './SecondFactorField'
@@ -118,6 +119,7 @@ export function useProtected(): Protect {
 }
 
 function StepUpDialog({ request }: { request: Request }) {
+  const t = useT()
   const titleId = useId()
   const textId = useId()
   const action = useAction()
@@ -179,23 +181,22 @@ function StepUpDialog({ request }: { request: Request }) {
           <Icon name="lock" size={40} />
         </span>
         <h2 id={titleId} className="ov-dialog__title">
-          Confirm it&apos;s you
+          {t('security.stepUp.title')}
         </h2>
         {request.step === 'password' ? (
           <p id={textId} className="ov-small ov-muted">
-            {request.purpose} needs your password, then a fresh code from your authenticator app.
+            {t('security.stepUp.password', { purpose: request.purpose })}
           </p>
         ) : (
           <p id={textId} className="ov-small ov-muted">
-            {request.purpose} needs a fresh code from your authenticator app. It also covers other
-            protected actions for the next 10 minutes.
+            {t('security.stepUp.code', { purpose: request.purpose })}
           </p>
         )}
         {action.error ? <Notice kind="error">{action.error}</Notice> : null}
         {request.step === 'password' ? (
           <>
             <Field
-              label="Password"
+              label={t('common.password')}
               type="password"
               autoComplete="current-password"
               autoFocus
@@ -206,7 +207,7 @@ function StepUpDialog({ request }: { request: Request }) {
             />
             {google ? (
               <button className="ov-linkbutton" type="button" disabled={action.busy} onClick={reauthWithGoogle}>
-                Use Google instead
+                {t('security.stepUp.google')}
               </button>
             ) : null}
           </>
@@ -215,10 +216,10 @@ function StepUpDialog({ request }: { request: Request }) {
         )}
         <div className="ov-dialog__actions">
           <Button variant="ghost" onClick={request.cancel}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" type="submit" disabled={action.busy || !ready}>
-            Confirm
+            {t('common.confirm')}
           </Button>
         </div>
       </form>
