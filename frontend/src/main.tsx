@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { initLocale } from './i18n'
 import { initTheme } from './theme/theme'
 import './styles/fonts.css'
 import './styles/tokens.css'
@@ -22,8 +23,16 @@ if (!root) throw new Error('Missing #root element in index.html')
 // one. It is a module, not an inline script: the CSP allows 'self' only.
 initTheme()
 
-createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+const start = () => {
+  createRoot(root).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  )
+}
+
+// The language too is chosen before the first render. English is ready at once; another language
+// waits for its catalogue chunk, so the page is never painted half in one language.
+const pending = initLocale()
+if (pending === null) start()
+else void pending.then(start, start)

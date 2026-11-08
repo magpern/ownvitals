@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useT } from '../../i18n'
 import { Link } from '../../router/Router'
 import { Icon } from '../ui/Icon'
 
@@ -15,6 +16,7 @@ interface AccountMenuProps {
 }
 
 export function AccountMenu({ email, admin, onSignOut }: AccountMenuProps) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -117,19 +119,19 @@ export function AccountMenu({ email, admin, onSignOut }: AccountMenuProps) {
       {open ? (
         <div className="ov-menu" id={menuId}>
           <p className="ov-menu__who">{email}</p>
-          <div role="menu" aria-label="Account" ref={menu} onKeyDown={onMenuKey}>
+          <div role="menu" aria-label={t('common.account')} ref={menu} onKeyDown={onMenuKey}>
             <Link role="menuitem" to="/settings" onClick={closeQuietly}>
               <Icon name="settings" />
-              Settings
+              {t('shell.nav.settings')}
             </Link>
             <Link role="menuitem" to="/settings/security" onClick={closeQuietly}>
               <Icon name="security" />
-              Security and devices
+              {t('shell.menu.security')}
             </Link>
             {admin ? (
               <Link role="menuitem" to="/admin" onClick={closeQuietly}>
                 <Icon name="admin" />
-                Admin
+                {t('shell.nav.admin')}
               </Link>
             ) : null}
             <hr className="ov-menu__rule" />
@@ -142,7 +144,7 @@ export function AccountMenu({ email, admin, onSignOut }: AccountMenuProps) {
               }}
             >
               <Icon name="signout" />
-              Sign out
+              {t('common.signOut')}
             </button>
           </div>
         </div>

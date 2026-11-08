@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { useT } from '../../i18n'
 import { Link } from '../../router/Router'
 import type { NavId } from '../../router/appRoutes'
 import { Icon, Logo } from '../ui/Icon'
@@ -47,8 +48,9 @@ interface RailProps {
 
 export function Rail({ active, path, admin, status = {} }: RailProps) {
   const id = useId()
+  const t = useT()
   return (
-    <nav className="ov-rail" aria-label="Main">
+    <nav className="ov-rail" aria-label={t('shell.nav.main')}>
       <Link className="ov-brand" to="/">
         <Logo />
         ownvitals
@@ -58,7 +60,7 @@ export function Rail({ active, path, admin, status = {} }: RailProps) {
         return (
           <div className="ov-navgroup" role="group" aria-labelledby={labelId} key={group.label}>
             <span className="ov-eyebrow" id={labelId}>
-              {group.label}
+              {t(group.label)}
             </span>
             <ul className="ov-navlist">
               {group.items.map((item) => {
@@ -71,7 +73,7 @@ export function Rail({ active, path, admin, status = {} }: RailProps) {
                       aria-current={current(item, active, path)}
                     >
                       <Icon name={item.icon} />
-                      <span>{item.label}</span>
+                      <span>{t(item.label)}</span>
                       {itemStatus?.badge ? <Badge badge={itemStatus.badge} /> : null}
                     </Link>
                   </li>
@@ -87,12 +89,13 @@ export function Rail({ active, path, admin, status = {} }: RailProps) {
 
 /** The four tabs at the bottom of a phone. `active` is the tab of the current page. */
 export function PhoneTabs({ active, path }: { active: NavId | null; path: string }) {
+  const t = useT()
   return (
-    <nav className="ov-phone-tabs" aria-label="Main tabs">
+    <nav className="ov-phone-tabs" aria-label={t('shell.nav.tabs')}>
       {PHONE_TABS.map((item) => (
         <Link key={item.id} to={item.to} aria-current={current(item, active, path)}>
           <Icon name={item.icon} />
-          {item.label}
+          {t(item.label)}
         </Link>
       ))}
     </nav>

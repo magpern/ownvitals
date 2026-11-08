@@ -6,6 +6,8 @@
 // The signed-out pages, the second-factor pages and the mail-link pages are not here: they sit
 // outside the app frame (src/App.tsx).
 
+import type { MessageKey } from '../i18n/en'
+
 /** The item of the navigation that a screen belongs to. */
 export type NavId =
   | 'overview'
@@ -45,12 +47,12 @@ export interface AppRoute {
   pattern: string
   /** Other paths of the same screen (`/settings` shows the first tab, `/settings/profile`). */
   also?: readonly string[]
-  /** The page header (the h1 of the top bar, and the start of the document title). */
-  title: string
+  /** The catalogue key of the page header (the h1 of the top bar, and the start of the document title). */
+  title: MessageKey
   /** What the placeholder card calls the screen, where that differs from the title. */
-  label?: string
+  label?: MessageKey
   /** What the "Coming later" placeholder says. */
-  later: string
+  later: MessageKey
   /** The navigation item that is current on this screen. */
   nav: NavId
   /** The Admin area is shown to admins only (the server enforces it as well). */
@@ -58,22 +60,22 @@ export interface AppRoute {
 }
 
 export const APP_ROUTES: readonly AppRoute[] = [
-  { id: 'overview', pattern: '/', title: 'Overview', later: 'The dashboard comes in M6.', nav: 'overview' },
-  { id: 'body', pattern: '/body', title: 'Body', later: 'The body page comes in M6.', nav: 'body' },
-  { id: 'heart', pattern: '/heart', title: 'Heart', later: 'The heart page comes in M6.', nav: 'heart' },
-  { id: 'nerve', pattern: '/nerve', title: 'Nerve health', later: 'The nerve health page comes in M6.', nav: 'nerve' },
-  { id: 'sleep', pattern: '/sleep', title: 'Sleep', later: 'The sleep page comes in M6.', nav: 'sleep' },
-  { id: 'activity', pattern: '/activity', title: 'Activity', later: 'The activity page comes in M6.', nav: 'activity' },
-  { id: 'metric', pattern: '/m/:metric', title: 'Metric', later: 'The metric page comes in M6.', nav: 'body' },
-  { id: 'day', pattern: '/m/:metric/:day', title: 'Day', later: 'The day page comes in M6.', nav: 'body' },
-  { id: 'ecg-list', pattern: '/heart/ecg', title: 'ECG recordings', later: 'The ECG list comes in M6.', nav: 'heart' },
-  { id: 'ecg', pattern: '/heart/ecg/:id', title: 'ECG recording', later: 'The ECG viewer comes in M6.', nav: 'heart' },
-  { id: 'findings', pattern: '/findings', title: 'Findings', later: 'The findings page comes in M6.', nav: 'findings' },
+  { id: 'overview', pattern: '/', title: 'shell.route.overview.title', later: 'shell.route.overview.later', nav: 'overview' },
+  { id: 'body', pattern: '/body', title: 'shell.route.body.title', later: 'shell.route.body.later', nav: 'body' },
+  { id: 'heart', pattern: '/heart', title: 'shell.route.heart.title', later: 'shell.route.heart.later', nav: 'heart' },
+  { id: 'nerve', pattern: '/nerve', title: 'shell.route.nerve.title', later: 'shell.route.nerve.later', nav: 'nerve' },
+  { id: 'sleep', pattern: '/sleep', title: 'shell.route.sleep.title', later: 'shell.route.sleep.later', nav: 'sleep' },
+  { id: 'activity', pattern: '/activity', title: 'shell.route.activity.title', later: 'shell.route.activity.later', nav: 'activity' },
+  { id: 'metric', pattern: '/m/:metric', title: 'shell.route.metric.title', later: 'shell.route.metric.later', nav: 'body' },
+  { id: 'day', pattern: '/m/:metric/:day', title: 'shell.route.day.title', later: 'shell.route.day.later', nav: 'body' },
+  { id: 'ecg-list', pattern: '/heart/ecg', title: 'shell.route.ecg-list.title', later: 'shell.route.ecg-list.later', nav: 'heart' },
+  { id: 'ecg', pattern: '/heart/ecg/:id', title: 'shell.route.ecg.title', later: 'shell.route.ecg.later', nav: 'heart' },
+  { id: 'findings', pattern: '/findings', title: 'shell.route.findings.title', later: 'shell.route.findings.later', nav: 'findings' },
   {
     id: 'connections',
     pattern: '/connections',
-    title: 'Connections',
-    later: 'The connections page comes in M6.',
+    title: 'shell.route.connections.title',
+    later: 'shell.route.connections.later',
     nav: 'connections',
   },
   // The tabs of Settings: /settings/profile, /settings/security, /settings/notifications and
@@ -82,40 +84,40 @@ export const APP_ROUTES: readonly AppRoute[] = [
     id: 'settings',
     pattern: '/settings',
     also: ['/settings/profile'],
-    title: 'Settings',
-    label: 'Profile and display',
-    later: 'The settings page comes in M6.',
+    title: 'shell.route.settings.title',
+    label: 'shell.route.settings.label',
+    later: 'shell.route.settings.later',
     nav: 'settings',
   },
   {
     id: 'security',
     pattern: '/settings/security',
-    title: 'Settings',
-    label: 'Sign-in and security',
-    later: 'The sign-in and security page comes in M6.',
+    title: 'shell.route.security.title',
+    label: 'shell.route.security.label',
+    later: 'shell.route.security.later',
     nav: 'security',
   },
   {
     id: 'notifications',
     pattern: '/settings/notifications',
-    title: 'Settings',
-    label: 'Notifications',
-    later: 'The notifications settings come in M6.',
+    title: 'shell.route.notifications.title',
+    label: 'shell.route.notifications.label',
+    later: 'shell.route.notifications.later',
     nav: 'settings',
   },
   {
     id: 'data',
     pattern: '/settings/data',
-    title: 'Settings',
-    label: 'Your data',
-    later: 'Export and delete come in M6.',
+    title: 'shell.route.data.title',
+    label: 'shell.route.data.label',
+    later: 'shell.route.data.later',
     nav: 'settings',
   },
   {
     id: 'admin',
     pattern: '/admin',
-    title: 'Admin',
-    later: 'The admin pages come later.',
+    title: 'shell.route.admin.title',
+    later: 'shell.route.admin.later',
     nav: 'admin',
     adminOnly: true,
   },

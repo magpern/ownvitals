@@ -5,11 +5,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // has one script, a module, and sources.test.ts keeps it so).
 
 const rendered = vi.hoisted(() => [] as (string | null)[])
+const languages = vi.hoisted(() => [] as string[])
 
 vi.mock('react-dom/client', () => ({
   createRoot: () => ({
     render: () => {
       rendered.push(document.documentElement.getAttribute('data-theme'))
+      languages.push(document.documentElement.lang)
     },
   }),
 }))
@@ -22,6 +24,7 @@ async function start() {
 
 beforeEach(() => {
   rendered.length = 0
+  languages.length = 0
   window.localStorage.clear()
   document.documentElement.removeAttribute('data-theme')
   document.body.innerHTML = '<div id="root"></div>'
@@ -43,6 +46,19 @@ describe('main.tsx', () => {
   it('sets no attribute for System before the first render', async () => {
     await start()
     expect(rendered).toEqual([null])
+  })
+
+  it('renders at once in English', async () => {
+    await start()
+    expect(languages).toEqual(['en'])
+  })
+
+  it('waits for the stored language, and renders in it', async () => {
+    window.localStorage.setItem('ov-locale', 'sv')
+    await start()
+    await vi.waitFor(() => {
+      expect(languages).toEqual(['sv'])
+    })
   })
 
   it('adds no inline script or style to the page', async () => {

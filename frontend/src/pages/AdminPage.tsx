@@ -93,7 +93,7 @@ function Accounts() {
                     <DataState kind="not-available" />
                   </td>
                   <td className={account.lastSignIn === null ? 'ov-muted' : 'ov-num'}>
-                    {account.lastSignIn === null ? 'Never' : signedInAt(account.lastSignIn)}
+                    {account.lastSignIn === null ? 'Never' : signedInAt(account.lastSignIn, new Date(), 'en')}
                   </td>
                   <td className="ov-r ov-num">{account.sessions}</td>
                 </tr>

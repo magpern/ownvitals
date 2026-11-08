@@ -7,6 +7,7 @@ import { CODE_LENGTH, CodeInput } from '../components/CodeInput'
 import { Notice, useAction } from '../components/forms'
 import { QrCode } from '../components/QrCode'
 import { Button } from '../components/ui/Button'
+import { useT } from '../i18n'
 import { safeReturnTo, useQuery, useRouter } from '../router/Router'
 
 // Enrolment (docs/design/mockups/src/Auth.dc.html, "Set up the authenticator" and "Recovery
@@ -46,6 +47,7 @@ function grouped(secret: string): string {
 }
 
 function Setup({ onConfirmed }: { onConfirmed: (saved: Saved) => void }) {
+  const t = useT()
   const titleId = useId()
   const codeId = useId()
   const { refresh } = useSession()
@@ -77,29 +79,27 @@ function Setup({ onConfirmed }: { onConfirmed: (saved: Saved) => void }) {
   return (
     <section className="ov-auth" aria-labelledby={titleId}>
       <form className="ov-auth__form" onSubmit={confirm}>
-        <span className="ov-eyebrow">Step 1 of 3 · Account</span>
+        <span className="ov-eyebrow">{t('auth.setup.step')}</span>
         <h1 id={titleId} className="ov-auth__title">
-          Set up your authenticator app
+          {t('auth.setup.title')}
         </h1>
-        <p className="ov-small ov-muted">
-          Scan the code with an authenticator app, then enter the 6 digits it shows.
-        </p>
+        <p className="ov-small ov-muted">{t('auth.setup.scan')}</p>
         {action.error ? <Notice kind="error">{action.error}</Notice> : null}
         {enrollment === null ? (
-          <p className="ov-muted">{action.busy ? 'Loading' : null}</p>
+          <p className="ov-muted">{action.busy ? t('common.loading') : null}</p>
         ) : (
           <div className="ov-auth__qr">
-            <QrCode svg={enrollment.qrSvg} label="QR code for your authenticator app" />
+            <QrCode svg={enrollment.qrSvg} label={t('auth.setup.qrLabel')} />
             <div className="ov-stack ov-small" data-gap="sm">
-              <span className="ov-muted">Can&apos;t scan it? Enter this key:</span>
+              <span className="ov-muted">{t('auth.setup.cantScan')}</span>
               <span className="ov-mono break-all">{grouped(enrollment.secret)}</span>
-              <span className="ov-muted">Time-based, 6 digits</span>
+              <span className="ov-muted">{t('auth.setup.timeBased')}</span>
             </div>
           </div>
         )}
         <div className="field">
-          <label htmlFor={codeId}>Code from the app</label>
-          <CodeInput id={codeId} label="Code from the app" value={code} onChange={setCode} />
+          <label htmlFor={codeId}>{t('auth.setup.codeLabel')}</label>
+          <CodeInput id={codeId} label={t('auth.setup.codeLabel')} value={code} onChange={setCode} />
         </div>
         <Button
           variant="primary"
@@ -107,7 +107,7 @@ function Setup({ onConfirmed }: { onConfirmed: (saved: Saved) => void }) {
           type="submit"
           disabled={action.busy || enrollment === null || code.length !== CODE_LENGTH}
         >
-          Confirm
+          {t('common.confirm')}
         </Button>
       </form>
     </section>
@@ -115,6 +115,7 @@ function Setup({ onConfirmed }: { onConfirmed: (saved: Saved) => void }) {
 }
 
 function RecoveryCodes({ saved, onDone }: { saved: Saved; onDone: () => void }) {
+  const t = useT()
   const titleId = useId()
   const { refresh } = useSession()
   const { navigate } = useRouter()
@@ -157,32 +158,26 @@ function RecoveryCodes({ saved, onDone }: { saved: Saved; onDone: () => void }) 
   return (
     <section className="ov-auth" aria-labelledby={titleId}>
       <h1 id={titleId} className="ov-auth__title">
-        Save your recovery codes
+        {t('auth.recovery.title')}
       </h1>
-      <p className="ov-small ov-muted">
-        If you lose your phone, each code signs you in once. Keep them somewhere other than your
-        phone.
-      </p>
+      <p className="ov-small ov-muted">{t('auth.recovery.intro')}</p>
       {saved.signedOut ? (
-        <Notice kind="info">
-          Your authenticator is set up, but you were signed out meanwhile. Save the codes, then
-          sign in again.
-        </Notice>
+        <Notice kind="info">{t('auth.recovery.signedOut')}</Notice>
       ) : null}
-      <ol className="ov-codes ov-mono" aria-label="Recovery codes">
+      <ol className="ov-codes ov-mono" aria-label={t('auth.recovery.listLabel')}>
         {saved.codes.map((code) => (
           <li key={code}>{code}</li>
         ))}
       </ol>
       <div className="ov-row">
-        <Button onClick={download}>Download</Button>
-        <Button onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
+        <Button onClick={download}>{t('auth.recovery.download')}</Button>
+        <Button onClick={copy}>{copied ? t('auth.recovery.copied') : t('auth.recovery.copy')}</Button>
         <Button
           onClick={() => {
             window.print()
           }}
         >
-          Print
+          {t('auth.recovery.print')}
         </Button>
       </div>
       <label className="ov-check">
@@ -193,10 +188,10 @@ function RecoveryCodes({ saved, onDone }: { saved: Saved; onDone: () => void }) 
             setKept(event.target.checked)
           }}
         />
-        I&apos;ve saved them somewhere safe
+        {t('auth.recovery.saved')}
       </label>
       <Button variant="primary" wide disabled={!kept} onClick={go}>
-        {saved.signedOut ? 'Sign in again' : 'Continue to Connect Withings'}
+        {saved.signedOut ? t('auth.recovery.signInAgain') : t('auth.recovery.continue')}
       </Button>
     </section>
   )

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useT } from '../../i18n'
 import { Card } from './Card'
 import { SourceMark, type Source } from './TierMark'
 
@@ -27,12 +28,13 @@ interface ValueProps {
 }
 
 export function Value({ value, unit, size = 'default', estimated = false }: ValueProps) {
+  const t = useT()
   const classes = ['ov-value']
   if (size === 'large') classes.push('ov-value--large')
   if (estimated) classes.push('ov-value--estimate')
   return (
     <span className={classes.join(' ')}>
-      {estimated ? <span className="ov-value__est">est. </span> : null}
+      {estimated ? <span className="ov-value__est">{t('ui.estimate')} </span> : null}
       <span className="ov-value__num">{value}</span>
       {unit === undefined ? null : <span className="ov-value__unit">{unit}</span>}
     </span>

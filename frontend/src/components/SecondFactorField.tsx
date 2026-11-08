@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { useT } from '../i18n'
 import { CodeInput, CODE_LENGTH } from './CodeInput'
 
 // What the user types as a second factor: the six boxes of an authenticator code, or, behind
@@ -29,11 +30,12 @@ export function SecondFactorField({
   disabled?: boolean
 }) {
   const id = useId()
+  const t = useT()
   return (
     <>
       {value.recovery ? (
         <div className="field">
-          <label htmlFor={id}>Recovery code</label>
+          <label htmlFor={id}>{t('auth.factor.recoveryCode')}</label>
           <input
             id={id}
             className="ov-input"
@@ -64,7 +66,7 @@ export function SecondFactorField({
           onChange({ recovery: !value.recovery, code: '' })
         }}
       >
-        {value.recovery ? 'Use the authenticator app instead' : 'Use a recovery code instead'}
+        {value.recovery ? t('auth.factor.useApp') : t('auth.factor.useRecovery')}
       </button>
     </>
   )

@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { Card, Notice } from '../components/forms'
 import { safeReturnTo, useQuery, useRouter } from '../router/Router'
+import { useT } from '../i18n'
 import { HOME_PATH, accessOf, pathFor, withReturnTo, type Access } from './access'
 import { useSession } from './SessionContext'
 
@@ -18,11 +19,12 @@ function Redirect({ to }: { to: string }) {
 
 /** What to show until the session is known: nothing guarded is shown before that. */
 function Waiting() {
+  const t = useT()
   const { status, refresh } = useSession()
   if (status === 'error') {
     return (
-      <Card title="Cannot reach the server">
-        <Notice kind="error">Try again in a moment.</Notice>
+      <Card title={t('auth.guard.unreachable')}>
+        <Notice kind="error">{t('auth.guard.retry')}</Notice>
         <button
           className="button"
           type="button"
@@ -30,14 +32,14 @@ function Waiting() {
             void refresh()
           }}
         >
-          Try again
+          {t('common.tryAgain')}
         </button>
       </Card>
     )
   }
   return (
-    <Card title="One moment">
-      <p>Loading</p>
+    <Card title={t('auth.guard.waiting')}>
+      <p>{t('common.loading')}</p>
     </Card>
   )
 }

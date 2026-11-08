@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react'
+import { useT } from '../../i18n'
 import { StatePill } from './DataState'
 
 // The card and the stack of the design (docs/design/mockups/src/ov.css: `.card`, `.stack`), and
@@ -51,13 +52,14 @@ export function Stack({ gap, children }: { gap?: 'sm' | 'lg'; children: ReactNod
 
 /** What a screen is, and the "Coming later" marker: the pattern of every screen not built yet. */
 export function ComingLater({ label, children }: { label: string; children: ReactNode }) {
+  const t = useT()
   return (
     <div className="ov-setting">
       <div className="ov-setting__what">
         <span className="ov-setting__label">{label}</span>
         <p>{children}</p>
       </div>
-      <StatePill tone="off">Coming later</StatePill>
+      <StatePill tone="off">{t('ui.comingLater')}</StatePill>
     </div>
   )
 }
