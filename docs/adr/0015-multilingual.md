@@ -44,19 +44,22 @@ A new account stores the language in effect at sign-up:
   carries no body.
 
 `NULL` means "follow this browser". It holds for existing accounts and for accounts made by the CLI
-or an admin, and such accounts get English mail. The column is an allowlisted enum
+or an admin. Which language such an account's mail uses is set out in §7. The column is an allowlisted enum
 (`CHECK (locale IN (...))`, widened in the migration that adds a language), never free text.
 
 **3. Frontend runtime.** An in-house typed catalogue, with no new dependency:
 
-- `en.ts` is the source, and `sv.ts` `satisfies` its shape, so a missing key fails `typecheck`;
+- the catalogue is split by area (`en/<area>.ts`, for example `auth`, `account`, `codes`, `health`,
+  one per M6 screen), so parallel issues own separate files. `en/` is the source, and each
+  `sv/<area>.ts` `satisfies` its English file's shape, so a missing key fails `typecheck`;
 - `t(key, params)` takes named placeholders;
 - `plural()` uses `Intl.PluralRules`;
 - a `Trans` component has named slots for links and emphasis: no markup in strings and no
   `dangerouslySetInnerHTML`;
 - `sv` loads as a separate chunk through a static import map. The CSP is unchanged.
 
-A pre-paint step sets `<html lang>`, only to a manifest code. The admin area stays English and is
+A pre-paint script sets `<html lang>`, only to a manifest code. It is a same-origin static file
+(`public/locale-init.js`), never an inline script, because the CSP is `script-src 'self'`. The admin area stays English and is
 exempt from the guard.
 
 **4. Formatting.** One `format.ts` on `Intl` with the resolved locale. Numbers use the locale's
@@ -84,17 +87,27 @@ text does not give.
 (numbers, dates as ISO strings, allowlisted enums). The frontend words the code and shows the English
 fallback for an unknown code. Log lines, admin-only output and the CLI stay English.
 
-**7. Mail (G5).** The outbox row and the auth mail calls carry `locale`, an allowlisted code that
-only selects among fixed templates. T59 holds: nothing from a row or an account reaches the text
-except that choice.
+**7. Mail (G5).** The outbox row does not change: it holds exactly kind, recipient and link
+(ADR 0007 §1, threat model T59). Web's sender looks up the locale when it sends, the same way it
+looks up the address (ADR 0007 §2): through `ownvitals.auth` (guard 8), from the recipient's
+`users.locale`. The value is an allowlisted code. Its only use is to pick one of the fixed template
+tables, so nothing else from a row or an account reaches the text, and T59 holds unamended. Which
+locale applies:
+
+- **outbox mail to a user:** the stored `users.locale`; `NULL` means `en`;
+- **owner notices** (to the admins, from a system row): `en`, like the admin area;
+- **auth mail sent inside a request** (sign-up confirmation, "account exists", reset): the
+  recipient's stored locale if an account exists and has one, otherwise the request locale (§2).
+  Pre-account mail always uses the request locale;
+- **anything else:** `en`.
+
+The rest:
 
 - `notify/templates` becomes one fixed template table per locale, with identical keys and the
   `{link}` placeholder exactly once.
 - `Content-Language` comes from the allowlisted code.
 - Month and date words come from the catalogue, never `strftime("%B")` or `setlocale`.
 - Golden files exist per kind and locale.
-- A mail whose recipient has no stored locale uses the request locale where a request exists,
-  otherwise `en`.
 
 **8. Translation process (G6 and later).** Swedish text is written only in translation PRs: a
 Sonnet translator as Developer and an independent Opus-class Reviewer who checks meaning, tone,
@@ -144,7 +157,7 @@ translation PR empties.
 | Dates in the browser's time zone | Days and reading times follow the account's day setting, so a chart day is the analysis day |
 | Legal and consent text translated with no owner sign-off | Health wording and legal text go to the owner's M8 reviews (§5, P3) |
 | Language-prefixed URLs (ADR 0027) | None |
-| Mail locale chosen inside the mail catalogue | An allowlisted code picks a fixed template (T59) |
+| Mail locale chosen inside the mail catalogue | The sender looks up the locale at send time, like the address; the outbox row is unchanged (T59) |
 
 ## Owner questions (defaults apply until answered)
 

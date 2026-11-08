@@ -23,15 +23,17 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 
 ### Start order (Amendment 7, from 2026-11-09)
 
-Waves keep the file sets disjoint. A wave starts its issues in parallel, within the
-five-Developer limit beside the open M1, M4 and M3 work.
+Waves keep the file sets disjoint: no file is in two locks of the same wave. A wave starts its
+issues in parallel within the Developer limit of AGENTS.md (about three). Wave 1 has four, so H2 or
+H1 starts when G1, a short move, merges. The catalogue is split by area (`frontend/src/i18n/<locale>/<area>.ts`,
+G2), and each issue owns its own area file.
 
-| Wave | Issues | Locks taken | Notes |
+| Wave | Issues | Locks taken (all under `backend/src/ownvitals/` or `frontend/` unless a path says otherwise) | Notes |
 |---|---|---|---|
-| 1 | **G1** #245 (Sonnet), **G2** #246 (Sonnet), **H1** #247 (Opus), **H2** #248 (Opus) | G1: `config.py` and the new `config_*` modules. G2: `frontend/src/i18n/**`, `frontend/src/pages/**`, `frontend/src/main.tsx`. H1: `auth/oauth_*.py`. H2: `auth/sessions.py`, `auth/reset_routes.py`, `auth/accounts.py`, `auth/admin_accounts.py`, `auth/routes.py` | G1 is a behaviour-neutral move; merge it first so the others add settings to small modules. If H1 needs `start_session`, it waits for H2's merge. H1's user-facing sentence is a code, and G2 words it. |
-| 2 | **G3** #249 (Opus), **G4** #250 (Sonnet), **H3** #251 (Opus) | G3: the next migration number, `auth/*` sign-up and OAuth flow rows, `config_*`. G4: `views/**`, `jobs/**` sentence sites, `frontend/src/api/**`. H3: `auth/events.py`, the session routes | After G1, G2 and H2 |
-| 3 | **G5** #253 (Opus), **H4** #252 (Opus), #180 (with H4's e2e and hardening) | G5: `notify/**`, `auth/mails.py`, the outbox migration | After G3 |
-| 4 | **G6** #254 (Sonnet translator, Opus Reviewer), then **G7** #255 (Sonnet) | the catalogues | After G4 and G5. M6 screen issues may start once G2 and G3 have merged. |
+| 1 | **G1** #245 (Sonnet, Opus first review), **G2** #246 (Sonnet), **H1** #247 (Opus), **H2** #248 (Opus) | G1: `config.py`, the new `config_*.py`, the config tests, `docs/dev/backend.md`. G2: `src/i18n/**`, `src/lib/format.ts`, `src/pages/**`, `src/components/**`, `src/api/messages.ts`, `src/main.tsx`, `index.html`, `public/locale-init.js`, `docs/dev/frontend.md`. H1: `auth/oauth_outcomes.py`, `auth/oauth_client.py`, `auth/oauth_routes.py`, `auth/oauth_idtoken.py`, the fake-oidc test support, the ADR 0003 amendment, the new `docs/dev/auth-reauth.md`. H2: `auth/sessions.py` and its extracted module, `auth/reset_routes.py`, `auth/accounts.py`, `auth/admin_accounts.py`, `auth/routes.py`, `auth/oauth_store.py`, `docs/dev/auth.md` | G1 merges first so the others add settings to small modules. H1 is backend only: its new reason code is worded by G4. If H1 needs `start_session` or `oauth_store.py`, it waits for H2's merge. |
+| 2 | **G3** #249 (Opus), **G4** #250 (Sonnet, Opus first review) | G3: the next migration number, `auth/accounts.py` (sign-up paths), `auth/oauth_store.py`, `auth/routes.py` (session payload), the G1 module that holds the locale settings, `src/i18n/resolve*`, `src/i18n/*/account.ts`, `src/api/auth.ts` (session type), `src/auth/SessionContext.tsx`, `src/pages/SecurityPage.tsx`, `docs/dev/auth.md`. G4: the text fields of `views/**`, the user-facing sentence sites in `jobs/` (never lease, fencing or queue SQL) and `connections/`, `src/api/**` except `src/api/auth.ts`, `src/i18n/*/codes.ts` and `*/health.ts`, `docs/dev/i18n.md` | After G1, G2 and H2 (G4 also after H1, for its code) |
+| 3 | **G5** #253 (Opus), **H3** #251 (Opus), **H4** #252 (Opus); #180 takes H4's e2e | G5: `notify/**`, `auth/mails.py`, `auth/notices.py`, the `Content-Language` header in `mail.py`, the mail tests and golden files. H3: `auth/events.py`, the logout paths in `auth/routes.py`, the new `auth/activity_routes.py`, `docs/dev/auth.md` (it calls the existing notice functions without editing them). H4: `auth/passkey*.py`, `auth/sessions.py` if needed, the ADR 0011 amendment, `docs/dev/auth-passkeys.md` | After G3 (H3 also after H2) |
+| 4 | **G6** #254 (Sonnet translator, Opus Reviewer), then **G7** #255 (Sonnet) | G6: `src/i18n/sv/**`, the `sv` mail tables and golden files, the glossary in `docs/dev/i18n.md`. G7: the new guard tests, `e2e/specs/i18n.spec.ts`, the checklist section of `docs/dev/i18n.md` | After G4 and G5. M6 screen issues may start once G2 and G3 have merged. |
 | later | P1–P3 (Amendment 7) | — | After M6, before M8; never enabled without the owner |
 
 ## Active
