@@ -3,8 +3,11 @@
 An httpx ``MockTransport`` with its own RSA signing keys and JWKS. ``complete(url, ...)`` plays
 the user's browser at the provider: it reads the authorization URL our start endpoint returned
 (checking state, nonce, PKCE and response_mode are present), registers a code and returns the
-callback path. Google only includes ``auth_time`` when the request asked for it with the OIDC
-``claims`` parameter. It can issue every bad token: wrong signature, ``none`` and HS256, wrong
+callback path. Like the live Google (classbeat #522 and #687, the owner's live check), it sends
+no ``auth_time``: Google ignores ``max_age=0`` and the OIDC ``claims`` request. A test that wants
+a fresh ``auth_time`` (a user who just signed in to Google again) passes it as a claim override,
+or sets ``honours_claims_request`` to model a provider that answers the ``claims`` request. It can
+issue every bad token: wrong signature, ``none`` and HS256, wrong
 ``aud``/``iss``, ``nonce``, ``auth_time``, expiry and
 ``iat``, and unverified or missing emails. Nothing here touches a network.
 """
@@ -55,6 +58,8 @@ class FakeProviders:
         self.jwks_cache_control: str | None = None  # header the JWKS endpoints send
         self.jwks_status = 200
         self.token_requests = 0
+        # False like the live Google: no auth_time even when the claims parameter asks for it.
+        self.honours_claims_request = False
         self.transport = httpx.MockTransport(self._handle)
         self._counter = 0
 
@@ -127,8 +132,9 @@ class FakeProviders:
             "auth_time": now,
             "sub": "sub-1",
         }
-        # Like the real Google: no auth_time unless the request asked for it (OIDC "claims").
-        if not _asks_for_auth_time(query):
+        # The live Google sends no auth_time, asked or not; a provider that honours the OIDC
+        # "claims" request sends it only when asked.
+        if not (self.honours_claims_request and _asks_for_auth_time(query)):
             claims.pop("auth_time")
         claims |= {
             "iss": "https://accounts.google.com",

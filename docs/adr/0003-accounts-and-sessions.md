@@ -1,6 +1,7 @@
 # ADR 0003: Accounts, sessions, mandatory TOTP and step-up
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 and #72 (see "Amendments"). Its
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 and #72 and 2026-11-08 by #247 (see
+"Amendments"). Its
 two open questions were decided by the Architect on 2026-10-31 (§3 session lifetimes, §4
 step-up readings). Post-port review (#16, 2026-11-03): no decision changed; `fake-oidc` runs from
 the e2e overlay `compose.e2e.yaml` rather than a compose profile, still only with
@@ -273,3 +274,86 @@ accepted risk.
   which web's outbound connections now name. In M1, PLAN §4.3's owner notice is in-app only;
   mail through the outbox starts with the notifications issue (M6/M7). The earlier text had the
   M1 notice mailed through the outbox (Architect decisions).
+
+### 2026-11-08 (#247): Google re-authentication without `auth_time`; every refused callback logged
+
+Roadmap Amendment 7, wave 1 (H1). It replaces "re-auth with `max_age=0` and `auth_time` within 5
+minutes" in the §1 table (Google OIDC) and "by password or a Google `reauth` flow" in the
+recent-authentication row, for Google.
+
+**Context.** ownvitals ported classbeat at `d806051`, before classbeat fixed this (classbeat ADR
+0003 §5, amendments of 2026-11-03, #522, and 2026-11-06, #687). On classbeat's live stack every
+Google re-authentication ended `reauth_failed` `{"why": "auth_time"}`: Google ignores `max_age=0`
+and the OIDC `claims` request and returns an ID token without a fresh `auth_time` from a live
+Google session. Its discovery document lists no `auth_time` in `claims_supported` and does not
+advertise `claims_parameter_supported`. In ownvitals the same rule makes every Google
+re-authentication fail, so an account without a password cannot pass `require_sensitive` (§4)
+through Google at all. The reproduction is `tests/test_auth_oauth_reauth.py`'s first test: its fake
+now behaves like the live Google (`FakeProviders.honours_claims_request = False`).
+
+**Options classbeat weighed (#522)**, and why (a) is not a proof:
+- (a) `prompt=login` plus an `iat` within seconds, bound to the flow's nonce and PKCE. Google does
+  not document `prompt=login` (only `none`, `consent`, `select_account`), and nothing in its answer
+  shows a provider honoured it. A fresh `iat` shows only that the token was minted now, which
+  Google does silently from any live Google session: exactly what the walk-up case has. State,
+  nonce and PKCE bind the answer to this browser, which is that same browser.
+- (b) Google re-authentication only with a fresh `auth_time`, else the password: with Google never
+  sending one, a Google-only account would have no way through but a password reset.
+- (c) An email code or link: not built; it would need its own decision.
+
+**Decision** (classbeat's #687 split by account kind, adopted unchanged in substance):
+- **An account with a password never re-authenticates through Google.** `POST
+  /api/auth/oauth/google/start` with `purpose=reauth` answers 403 `reauth_use_password` and
+  creates no flow; the callback refuses it again under the user row lock (`reauth_use_password`,
+  `why` `has_password`, a `reauth_failed` event), whatever `auth_time` Google sends, so a password
+  set between the start and the callback gains nothing. Such an account confirms with its password
+  (or a passkey, ADR 0011).
+- **An account without a password** is re-authenticated by Google's answer **without a fresh
+  `auth_time`**, as the answer to this flow only: a `reauth` flow of this session's user, single
+  use (taken before the code exchange), state, PKCE and nonce verified, the ID token checked as for
+  any sign-in (`iss`, `aud`/`azp`, `exp`, `iat`), its `sub` the Google identity linked to this
+  user, `email_verified` true (else `invalid`, `why` `email_unverified`), and the callback at most
+  **5 minutes** after the start by the database clock (else `reauth_expired`, `why` `flow_old`; the
+  flow itself still lives 10 minutes). An `auth_time` that is present must not lie more than 60 s
+  in the future (`reauth_stale`, `auth_time_future`); a present but old one is accepted.
+  `prompt=login` is not sent and plays no part.
+- **Unchanged:** Google's authorization request keeps `max_age=0` and the `claims` request
+  (harmless; a fresh `auth_time` is still accepted). The numbers (300 s, 60 s) are not widened.
+  **Step-up is untouched:** a recent authentication never sets `stepup_at`, every action that needs
+  recent authentication also needs a TOTP or recovery code within the 10-minute step-up window
+  (§4, `require_sensitive`), and TOTP stays mandatory (§2).
+- The rule is the pure module `auth/oauth_reauth_policy.py`; `oauth_outcomes._reauth` locks the
+  user row, checks the identity and applies it.
+
+**Does mandatory TOTP change the answer?** It makes classbeat's accepted residual risk smaller, not
+larger, so the decision stands without a new owner question. In classbeat a walk-up attacker
+(someone at an unlocked device with the victim's classbeat and Google sessions) could pass recent
+authentication through Google and, while TOTP was unconfirmed, enrol their own TOTP. In ownvitals:
+- a Google `reauth` flow starts only from a **full** session (`require_user`), which has already
+  passed a confirmed TOTP (§2); a session still owing enrolment or a code cannot start one;
+- every action that needs recent authentication also needs a fresh second factor (§4), which
+  Google never gives;
+- a first 2FA activation never sits behind a Google re-authentication: it follows the sign-in
+  itself (§2, §4 "First TOTP enrolment"), and after a Google sign-in Google's missing `auth_time`
+  plays no part (the e2e `google-reauth` spec runs it with fake-oidc sending none).
+
+So the walk-up attacker gains recent authentication and nothing it unlocks without the victim's
+authenticator. That residual is accepted on the same terms as classbeat's owner decision of
+2026-11-06; accounts with a password are not exposed to it at all.
+
+**Logging.** Every callback that does not end `ok` writes one `WARNING` line
+`oauth callback refused: provider=… purpose=… outcome=… why=…` (`ownvitals.auth.oauth_routes`).
+`why` is a fixed word (`no_flow`, `provider_mismatch`, `state_mismatch`,
+`provider_error=<an RFC 6749 or OIDC error code, else unrecognized>`, `no_code`, `no_session`,
+`other_user`, `provider: <the failed check>`, `has_password`, `flow_old`, `email_unverified`,
+`auth_time_future`, `not_linked_to_this_user`, `no_invite`, …). It never holds a code, state,
+nonce, token, query string, email or claim value; claim names only. The outcome code stays the
+page's reason (`/account?oauth=reauth_use_password`, `reauth_expired`, `reauth_stale`); wording it
+is the frontend's (G4, #250).
+
+**Consequences.** `tests/test_auth_oauth_reauth.py` (the rule end to end), `test_oauth_reauth_policy.py`
+(the table), `test_auth_oauth_logging.py` (one line per refusal, nothing secret) and the e2e
+`google-reauth` spec. Commands and codes: [docs/dev/auth-reauth.md](../dev/auth-reauth.md). The
+frontend still offers "Use Google instead" to a password account until G4 words
+`reauth_use_password`; the start refuses it, so nothing is weakened meanwhile.
+

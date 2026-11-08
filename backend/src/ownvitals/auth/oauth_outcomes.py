@@ -22,6 +22,7 @@ from ownvitals.auth.devices import remember_device
 from ownvitals.auth.events import record_event
 from ownvitals.auth.keys import Keys, token_hash
 from ownvitals.auth.oauth_client import ProviderIdentity
+from ownvitals.auth.oauth_reauth_policy import ReauthAnswer, refusal
 from ownvitals.auth.oauth_store import Flow, add_identity, identity_owner
 from ownvitals.auth.sessions import (
     IssuedSession,
@@ -30,14 +31,12 @@ from ownvitals.auth.sessions import (
     rotate_session,
     start_session,
 )
-from ownvitals.auth.tables import identities, invites, pending_signups
+from ownvitals.auth.tables import identities, invites, pending_signups, users
 from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
 from ownvitals.flags import effective as flags
 from ownvitals.mail import MailMessage
 
-REAUTH_MAX_AGE = 300  # seconds: auth_time must be within the last 5 minutes
-AUTH_TIME_SKEW = 60
 HANDOFF_LIFETIME = timedelta(minutes=15)
 
 
@@ -56,6 +55,7 @@ class Request:
     ip: str
     user_agent: str | None
     now: float | None = None
+    flow_age: float | None = None  # seconds since the flow's start, by the database clock
 
 
 @dataclass(slots=True)
@@ -68,6 +68,7 @@ class Outcome:
     new_pending_token: str | None = None
     mail: MailMessage | None = None
     next: str = ""  # "signed_in", "linked", "reauthed" or "email_needed"
+    why: str = ""  # a refusal's fixed word for the log line, never a claim value
 
 
 class Refused(Exception):
@@ -76,8 +77,8 @@ class Refused(Exception):
         self.code = code
 
 
-def _fail(code: str) -> Outcome:
-    return Outcome(code)
+def _fail(code: str, why: str = "") -> Outcome:
+    return Outcome(code, why=why or code)
 
 
 async def apply(db: AsyncSession, req: Request) -> Outcome:
@@ -98,7 +99,7 @@ def _own_session(req: Request) -> SessionInfo | None:
 async def _link(db: AsyncSession, req: Request) -> Outcome:
     info = _own_session(req)
     if info is None:
-        return _fail("session_mismatch")
+        return _fail("session_mismatch", "not_the_flows_user")
     ident, user_id = req.identity, info.user_id
     try:
         linked = await add_identity(
@@ -124,29 +125,52 @@ async def _link(db: AsyncSession, req: Request) -> Outcome:
     owner = await identity_owner(db, req.flow.provider, ident.subject)
     if owner is not None and owner[0] == user_id:
         return Outcome("ok", next="linked")  # already linked to this very account
-    return _fail("identity_taken")  # on another user: refused
+    return _fail("identity_taken", "linked_to_another_user")
+
+
+async def has_password(db: AsyncSession, user_id: UUID, *, lock: bool = False) -> bool | None:
+    """``None`` when the account is gone. ``lock``: ``FOR UPDATE``, which a password change's
+    ``UPDATE`` waits for, so a password set between the start and the callback is seen."""
+    statement = select(users.c.password_hash.is_not(None)).where(users.c.id == user_id)
+    if lock:
+        statement = statement.with_for_update()
+    return (await db.execute(statement)).scalar_one_or_none()
 
 
 async def _reauth(db: AsyncSession, req: Request) -> Outcome:
     info = _own_session(req)
     if info is None:
-        return _fail("session_mismatch")
+        return _fail("session_mismatch", "not_the_flows_user")
+    password = await has_password(db, info.user_id, lock=True)  # first: see a change meanwhile
+    if password is None:
+        return _fail("session_mismatch", "account_gone")
     owner = await identity_owner(db, req.flow.provider, req.identity.subject)
     if owner is None or owner[0] != info.user_id:
-        return _fail("identity_mismatch")
-    # A missing, old or future auth_time fails closed (the provider may ignore max_age=0 or
-    # leave the claim out).
-    now = time.time() if req.now is None else req.now
-    auth_time = req.identity.auth_time
-    if auth_time is None or now - auth_time > REAUTH_MAX_AGE or auth_time - now > AUTH_TIME_SKEW:
-        await record_event(
-            db, "reauth_failed", user_id=info.user_id, ip=req.ip, detail={"why": "auth_time"}
+        return _fail("identity_mismatch", "not_linked_to_this_user")
+    refused = refusal(
+        ReauthAnswer(
+            provider=req.flow.provider,
+            has_password=password,
+            flow_age=req.flow_age,
+            email_verified=req.identity.email_verified,
+            auth_time=req.identity.auth_time,
+            now=time.time() if req.now is None else req.now,
         )
-        return _fail("reauth_stale")
+    )
+    if refused is not None:
+        code, why = refused
+        await record_event(
+            db,
+            "reauth_failed",
+            user_id=info.user_id,
+            ip=req.ip,
+            detail={"why": why, "provider": req.flow.provider},
+        )
+        return _fail(code, why)
     try:
         issued = await rotate_session(db, info, reauth=True, user_agent=req.user_agent, ip=req.ip)
     except SessionGone:
-        return _fail("session_mismatch")
+        return _fail("session_mismatch", "session_gone")
     await record_event(
         db, "reauth", user_id=info.user_id, ip=req.ip, detail={"provider": req.flow.provider}
     )
@@ -179,16 +203,16 @@ async def _sign_in(db: AsyncSession, req: Request) -> Outcome:
             return _fail("invalid")
         if locked.disabled:
             await record_event(db, "sign_in_failed", user_id=user_id, ip=req.ip)
-            return _fail("invalid")  # the generic failure
+            return _fail("invalid", "user_disabled")  # the generic failure
         return await _session_for(db, req, user_id)
     if ident.email_verified and ident.email and await find_user(db, ident.email) is not None:
-        return _fail("account_exists")  # nothing is created or linked
+        return _fail("account_exists", "email_taken")  # nothing is created or linked
     # ``invite`` or ``closed``: ``open`` is refused until the M8 gate (ADR 0003 section 6).
     mode = await flags.signup_mode(db, settings.signup_mode)
     if mode == "closed" or req.flow.invite_id is None:
-        return _fail("invite_required")
+        return _fail("invite_required", "signup_closed" if mode == "closed" else "no_invite")
     if not await _invite_valid(db, req.flow.invite_id):
-        return _fail("invite_invalid")
+        return _fail("invite_invalid", "invite_gone")
     if ident.email_verified and ident.email:
         return await _create_account(db, req, ident.email)
     return await _hand_off(db, req)
