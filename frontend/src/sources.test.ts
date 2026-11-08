@@ -413,9 +413,12 @@ describe('nothing the content security policy would block', () => {
     expect(cspViolations(path, text)).toEqual([])
   })
 
-  it('index.html loads its one script as a module from our own origin', () => {
+  it('index.html loads its two scripts from our own origin: the language, then the app as a module', () => {
     const html = sources.find((source) => source.path === 'index.html')?.text ?? ''
-    expect(html.match(/<script\b[^>]*>/g)).toEqual(['<script type="module" src="/src/main.tsx">'])
+    expect(html.match(/<script\b[^>]*>/g)).toEqual([
+      '<script src="/locale-init.js">',
+      '<script type="module" src="/src/main.tsx">',
+    ])
     expect(html).not.toMatch(/<link\b[^>]*rel=["']?(?:stylesheet|preload)/i)
   })
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getOAuthProviders, startOAuth } from '../api/auth'
 import { providerName } from '../api/messages'
+import { useT } from '../i18n'
 import { goToProvider } from '../lib/navigation'
 import { Field, Notice, useAction } from './forms'
 import { GoogleLogo } from './GoogleLogo'
@@ -11,6 +12,7 @@ import { GoogleLogo } from './GoogleLogo'
  * branding guidelines: its "G" mark (GoogleLogo, from this origin) and an approved label.
  */
 export function ProviderButtons({ returnTo }: { returnTo: string | null }) {
+  const t = useT()
   const [providers, setProviders] = useState<string[]>([])
   const [invite, setInvite] = useState('')
   const action = useAction()
@@ -37,10 +39,10 @@ export function ProviderButtons({ returnTo }: { returnTo: string | null }) {
 
   return (
     <div className="providers">
-      <p className="divider">or</p>
+      <p className="divider">{t('auth.providers.or')}</p>
       {action.error ? <Notice kind="error">{action.error}</Notice> : null}
       <Field
-        label="Invite code (only for your first sign-in with Google)"
+        label={t('auth.providers.invite')}
         autoComplete="off"
         value={invite}
         onChange={(e) => {
@@ -58,7 +60,7 @@ export function ProviderButtons({ returnTo }: { returnTo: string | null }) {
           }}
         >
           {provider === 'google' ? <GoogleLogo /> : null}
-          <span>Continue with {providerName(provider)}</span>
+          <span>{t('auth.providers.continue', { provider: providerName(provider) })}</span>
         </button>
       ))}
     </div>

@@ -1,0 +1,46 @@
+import type { errors as en } from '../en/errors'
+
+// Swedish for the errors area. Until the translation PR (G6) the values are English copies and the
+// keys are listed in ../untranslated.ts. `satisfies` makes a missing or extra key a type error.
+export const errors = {
+  'reason.invalid_invite': 'That invite code is not valid, or it has already been used.',
+  'reason.invite_invalid': 'The invite for this sign-up is no longer valid. Ask for a new one.',
+  'reason.signups_closed': 'Sign-ups are closed right now.',
+  'reason.password_rule': 'Choose a password of 12 to 128 characters.',
+  'reason.invalid_credentials': 'The email or password is not right.',
+  'reason.wrong_password': 'That is not the password you chose when you signed up.',
+  'reason.invalid_token': 'This link is not valid any more. It may have expired or been used already.',
+  'reason.wrong_browser':
+    'Finish on the device and browser where you started the sign-in. This link will not work here.',
+  'reason.account_exists': 'An account with this address already exists. Sign in to it instead.',
+  'reason.invalid_code': 'That code is not right. Check the app and try again.',
+  'reason.totp_changed': 'Your two-factor setup changed meanwhile. Start again.',
+  'reason.totp_not_enabled': 'Two-factor authentication is not set up.',
+  'reason.not_authenticated': 'You are signed out. Sign in and try again.',
+  'reason.no_pending_signup': 'No sign-in is waiting for an address. Start the Google sign-in again.',
+  'reason.provider_disabled': 'That sign-in method is not available.',
+  'reason.forbidden': 'Your account is not allowed to do that.',
+  'reason.two_factor_required': 'Enter a code from your authenticator app to continue.',
+  'reason.step_up_required': 'This needs a fresh code from your authenticator app.',
+  'reason.reauth_required': 'This needs your password again.',
+  'reason.reauth_stale': 'The sign-in at Google was not recent enough. Try again.',
+  'reason.busy': 'The server is busy. Try again in a few seconds.',
+  'oauth.invalid': 'The sign-in could not be completed. Try again.',
+  'oauth.denied': 'The sign-in was cancelled at Google.',
+  'oauth.session_mismatch': 'You were signed out or switched account while signing in. Sign in again.',
+  'oauth.account_exists':
+    'An account with that email already exists. Sign in to it with your password instead.',
+  'oauth.invite_required':
+    'You need an invite to create an account. Enter your invite code below and try again.',
+  'oauth.invite_invalid': 'That invite is no longer valid. Ask for a new one.',
+  tooMany: 'Too many attempts. Wait a little and try again.',
+  tooManyWait: 'Too many attempts. Try again in {wait}.',
+  'minutes.one': '{count} minute',
+  'minutes.other': '{count} minutes',
+  'seconds.one': '{count} second',
+  'seconds.other': '{count} seconds',
+  fields: 'Check the fields and try again.',
+  server: 'Something went wrong on the server. Try again in a moment.',
+  network: 'The server could not be reached. Check your connection.',
+  generic: 'That did not work. Try again.',
+} satisfies Record<keyof typeof en, string>

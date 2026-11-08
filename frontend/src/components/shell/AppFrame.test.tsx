@@ -1,5 +1,6 @@
 import { fireEvent, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { t } from '../../i18n'
 import { APP_ROUTES } from '../../router/appRoutes'
 import { SIGNED_IN, SIGNED_IN_NO_TOTP, fakeApi } from '../../test/fakeApi'
 import { renderAt } from '../../test/render'
@@ -37,10 +38,10 @@ describe('the app frame', () => {
     async (_id, route) => {
       fakeApi({ 'GET /api/auth/session': ADMIN })
       renderAt(concrete(route.pattern))
-      expect(await screen.findByRole('heading', { level: 1, name: route.title })).toBeInTheDocument()
+      expect(await screen.findByRole('heading', { level: 1, name: t(route.title) })).toBeInTheDocument()
       const main = screen.getByRole('main')
-      expect(within(main).getByText(route.later)).toBeInTheDocument()
-      expect(within(main).getByText(route.label ?? route.title)).toBeInTheDocument()
+      expect(within(main).getByText(t(route.later))).toBeInTheDocument()
+      expect(within(main).getByText(t(route.label ?? route.title))).toBeInTheDocument()
       expect(within(main).getByText('Coming later')).toBeInTheDocument()
       expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument()
     },

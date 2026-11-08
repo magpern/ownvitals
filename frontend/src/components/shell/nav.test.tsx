@@ -2,6 +2,7 @@ import { render } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { t } from '../../i18n'
 import { ROOT } from '../../test/sourceScan'
 import { Icon } from '../ui/Icon'
 import { PHONE_TABS, phoneTabOf, railGroups } from './nav'
@@ -33,14 +34,14 @@ describe('the rail', () => {
 
   it('has the groups of the mock-up, in its order', () => {
     const mockGroups = [...railSource.matchAll(/<span class="eyebrow">([^<]+)<\/span>/g)].map((m) => m[1])
-    expect(groups.map((group) => group.label)).toEqual(mockGroups)
+    expect(groups.map((group) => t(group.label))).toEqual(mockGroups)
     expect(mockGroups).toEqual(['Analyse', 'Your data', 'Account'])
   })
 
   it('has the items of the mock-up, with its labels, in its order', () => {
     expect(mockItems).toHaveLength(10)
     const items = groups.flatMap((group) => group.items)
-    expect(items.map((item) => [item.id, item.label])).toEqual(mockItems.map((item) => [item.id, item.label]))
+    expect(items.map((item) => [item.id, t(item.label)])).toEqual(mockItems.map((item) => [item.id, item.label]))
   })
 
   it('has the icons of the mock-up', () => {
@@ -52,8 +53,8 @@ describe('the rail', () => {
 
   it('puts Admin last in Account, for an admin only, with the mock-up\'s icon', () => {
     expect(groups.flatMap((group) => group.items).some((item) => item.id === 'admin')).toBe(false)
-    const account = railGroups(true).find((group) => group.label === 'Account')
-    expect(account?.items.map((item) => item.label)).toEqual(['Settings', 'Security', 'Admin'])
+    const account = railGroups(true).find((group) => group.label === 'shell.nav.account')
+    expect(account?.items.map((item) => t(item.label))).toEqual(['Settings', 'Security', 'Admin'])
     const adminIcon = /<path d="(M12 3l7 3v5[^"]*)"/.exec(railSource)?.[1]
     expect(pathOf('admin')).toBe(adminIcon)
   })
@@ -82,7 +83,7 @@ describe('the phone tabs', () => {
 
   it('are the four of the Onboarding board: Overview, Findings, Data and Settings', () => {
     expect(mockTabs.map((tab) => tab.label)).toEqual(['Overview', 'Findings', 'Data', 'Settings'])
-    expect(PHONE_TABS.map((tab) => tab.label)).toEqual(mockTabs.map((tab) => tab.label))
+    expect(PHONE_TABS.map((tab) => t(tab.label))).toEqual(mockTabs.map((tab) => tab.label))
     expect(PHONE_TABS.map((tab) => pathOf(tab.icon))).toEqual(mockTabs.map((tab) => tab.icon))
   })
 

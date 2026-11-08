@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { t } from '../../i18n'
 import { ROOT } from '../../test/sourceScan'
 import { SourceMark, TIER_LABELS, TierGlyph, TierMark, type Source, type Tier } from './TierMark'
 
@@ -12,15 +13,15 @@ const TIERS: Tier[] = ['device', 'trend', 'experimental', 'system']
 
 describe('TierMark', () => {
   it('names the four tiers as the design does', () => {
-    expect(TIER_LABELS).toEqual({ device: 'Device', trend: 'Trend', experimental: 'Experimental', system: 'System' })
+    expect(Object.values(TIER_LABELS).map((key) => t(key))).toEqual(['Device', 'Trend', 'Experimental', 'System'])
     const mockup = readFileSync(join(ROOT, '..', 'docs/design/mockups/src/Main.dc.html'), 'utf8')
-    for (const label of Object.values(TIER_LABELS)) expect(mockup, label).toContain(`</svg>${label}</span>`)
+    for (const label of Object.values(TIER_LABELS).map((key) => t(key))) expect(mockup, label).toContain(`</svg>${label}</span>`)
   })
 
   it.each(TIERS)('shows the %s badge: its name, its own class and a glyph that is not read out', (tier) => {
     const { container } = render(<TierMark tier={tier} />)
     expect(container.firstElementChild).toHaveClass('ov-tier', `ov-tier--${tier}`)
-    expect(screen.getByText(TIER_LABELS[tier])).toBeInTheDocument()
+    expect(screen.getByText(t(TIER_LABELS[tier]))).toBeInTheDocument()
     const glyph = container.querySelector('svg')
     expect(glyph).toHaveAttribute('aria-hidden', 'true')
     expect(glyph).toHaveAttribute('viewBox', '0 0 12 12')
