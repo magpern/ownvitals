@@ -40,7 +40,8 @@ G2), and each issue owns its own area file.
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| (docs) | This reconcile | Architect | #219 | open; docs only |
+| (docs) | Status after #242, #243 and #256 | Architect | #258 | open; docs only |
+| G1, G2, H1, H2 | Wave 1 of Amendment 7 (#245, #246, #247, #248) | Developers | — | planned for 2026-11-09; none started |
 
 Backlog: #257 (hardening from the #242 review: stale guard entries, guard 8's list, three files over the caps), #167 (metrics listener, wiring, definer aggregates), #165 (hardening umbrella: non-blocking findings from the Cursor PRs #149–#162 and the Claude PRs #166–#232; the Architect splits it before the M2 real-data gate; it also holds the threat-model gaps G1 to G5 from #223), #30 (e2e/M1 done-when), #188 (scores job), #180 (M3 UI), #191–#192 (M5), #195–#203 (M6), #206–#211 (M7). Labels are not authoritative, this table is.
 
