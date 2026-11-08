@@ -17,7 +17,24 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | M5 | ECG & nerve health | ADR 0006 (#46) and its follow-ups (#88, #97) merged; #40 (#114, the signal-processing core, with its ADR 0006 amendments) and its follow-ups #119 (#120) merged; #47 (#162, the owner `validate` command) merged; backlog #191, #192 | — |
 | M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (#105: shell, tokens, theme, fonts and primitives; pulled forward) merged; #193 (#217, chart primitives, value styles and the data layer) and #194 (#220, mail outbox) merged; backlog #195–#203 | — |
 | M7 | AI & reports | ADR 0013 (reports and export) and ADR 0014 (AI insights) (#204; #214) merged as Proposed; #205 (#224, the per-user monthly AI cost cap that holds under concurrency) merged; backlog #206–#211 | — |
-| M8 | Beyond-household gate | owner-gated | — |
+| M8 | Beyond-household gate | owner-gated; prerequisites P1–P3 (roadmap Amendment 7) | — |
+| G | Groundwork (Amendment 7, ADR 0015): `config.py` split, multilingual en/sv | planned 2026-11-08 (#244): G1 #245, G2 #246, G3 #249, G4 #250, G5 #253, G6 #254, G7 #255; G2 and G3 gate the M6 screen issues | — |
+| H | Hardening from classbeat (Amendment 7) | planned 2026-11-08 (#244): H1 #247, H2 #248, H3 #251, H4 #252; all security-critical | — |
+
+### Start order (Amendment 7, from 2026-11-09)
+
+Waves keep the file sets disjoint: no file is in two locks of the same wave. A wave starts its
+issues in parallel within the Developer limit of AGENTS.md (about three). Wave 1 has four, so H2 or
+H1 starts when G1, a short move, merges. The catalogue is split by area (`frontend/src/i18n/<locale>/<area>.ts`,
+G2), and each issue owns its own area file.
+
+| Wave | Issues | Locks taken (all under `backend/src/ownvitals/` or `frontend/` unless a path says otherwise) | Notes |
+|---|---|---|---|
+| 1 | **G1** #245 (Sonnet, Opus first review), **G2** #246 (Sonnet), **H1** #247 (Opus), **H2** #248 (Opus) | G1: `config.py`, the new `config_*.py`, the config tests, `docs/dev/backend.md`. G2: `src/i18n/**`, `src/lib/format.ts`, `src/pages/**`, `src/components/**`, `src/api/messages.ts`, `src/main.tsx`, `index.html`, `public/locale-init.js`, `docs/dev/frontend.md`. H1: `auth/oauth_outcomes.py`, `auth/oauth_client.py`, `auth/oauth_routes.py`, `auth/oauth_idtoken.py`, the fake-oidc test support, the ADR 0003 amendment, the new `docs/dev/auth-reauth.md`. H2: `auth/sessions.py` and its extracted module, `auth/reset_routes.py`, `auth/accounts.py`, `auth/admin_accounts.py`, `auth/routes.py`, `auth/oauth_store.py`, `docs/dev/auth.md` | G1 merges first so the others add settings to small modules. H1 is backend only: its new reason code is worded by G4. If H1 needs `start_session` or `oauth_store.py`, it waits for H2's merge. |
+| 2 | **G3** #249 (Opus), **G4** #250 (Sonnet, Opus first review) | G3: the next migration number, `auth/accounts.py` (sign-up paths), `auth/oauth_store.py`, `auth/routes.py` (session payload), the G1 module that holds the locale settings, `src/i18n/resolve*`, `src/i18n/*/account.ts`, `src/api/auth.ts` (session type), `src/auth/SessionContext.tsx`, `src/pages/SecurityPage.tsx`, `docs/dev/auth.md`, `docs/dev/frontend.md` (free once G2 has merged). G4: the text fields of `views/**`, the user-facing sentence sites in `jobs/` (never lease, fencing or queue SQL) and `connections/`, `src/api/**` except `src/api/auth.ts`, `src/i18n/*/codes.ts` and `*/health.ts`, `docs/dev/i18n.md` | After G1, G2 and H2 (G4 also after H1, for its code) |
+| 3 | **G5** #253 (Opus), **H3** #251 (Opus), **H4** #252 (Opus); #180 takes H4's e2e | G5: `notify/**`, `auth/recipients.py` (the send-time locale lookup, inside guard 8), `auth/mails.py`, `auth/notices.py`, the `Content-Language` header in `mail.py`, the mail tests and golden files. H3: `auth/events.py`, the logout paths in `auth/routes.py`, the new `auth/activity_routes.py`, `docs/dev/auth.md` (it calls the existing notice functions without editing them). H4: `auth/passkey*.py`, `auth/sessions.py` if needed, the ADR 0011 amendment, `docs/dev/auth-passkeys.md` | After G3 (H3 also after H2) |
+| 4 | **G6** #254 (Sonnet translator, Opus Reviewer), then **G7** #255 (Sonnet) | G6: `src/i18n/sv/**`, the `sv` mail tables and golden files, the glossary in `docs/dev/i18n.md`. G7: the new guard tests, `e2e/specs/i18n.spec.ts`, the checklist section of `docs/dev/i18n.md` | After G4 and G5. M6 screen issues may start once G2 and G3 have merged. |
+| later | P1–P3 (Amendment 7) | — | After M6, before M8; never enabled without the owner |
 
 ## Active
 
@@ -84,6 +101,7 @@ Nothing blocks M0 or any open issue. These are needed later (live Withings, the 
 | ADR 0014 (AI insights): the provider data-handling and retention review (default not recorded, so AI is off); the per-user and global monthly cost caps (default 0); the model; whether experimental content may go to the model for flagged accounts (default no); retention of conversations (90 days) and audit rows (12 months); the eval run and its reference `ai_eval_ref` (default unset) | M7 | Answer before AI is enabled; defaults keep every call refused |
 | The loading state of the UI (design has none; plain "Loading…" line used) and tick formats | M6 | Say if you want a skeleton design when the dashboard screens land |
 | ADR 0010 open items: the C2 score-card band, the HIS table, Readiness and Body Path | M4 wiring, M6 | Decide when the wiring issue or the screen reaches them |
+| ADR 0015 (multilingual, Amendment 7): languages (default en and sv); whether you proofread the Swedish health wording before M8 (default: the agent translator plus an Opus-class Reviewer, with the health wording listed for the M8 medical-claims review); admin area language (default English); AI output and doctor PDF language (default the user's language); placement of the language picker, which the mock-ups don't have (default: signed-out page footer plus Settings → Profile) | G, M6, M7 | Answer before G6; the defaults let G1–G5 start |
 
 ## Assumptions (unverified; each needs the probe or the owner)
 
@@ -129,6 +147,8 @@ Backend only (IMPLEMENTED, synthetic); the desktop panel, the phone screen and `
 - SWAG: the owner's location for `/api/auth/qr/` must not buffer (threat model O6).
 
 ## Decisions since the last reconcile
+
+2026-11-08 (owner, roadmap Amendment 7): groundwork before the M6 screens: G (`config.py` split, multilingual en/sv, ADR 0015) and H (auth fixes from classbeat after the pinned port: Google re-auth `auth_time`, reset race windows and row locks, sign-out events and security activity, passkey follow-ups). P1–P3 (Turnstile, session anomaly signal and abuse view, privacy, terms and cookie notice) are required before M8. Not adopted: language in the URL, plan quotas, the image-only install.
 
 The dated rows are in [status/decisions-log.md](status/decisions-log.md) (2026-11-03): household rule is the switch alone until M8; a `grpid` repeated across connections links both; the Withings OAuth state lives in the web process; the AI caps come from settings; the mail outbox and AI ledger survive "delete imported data"; passkey attestation is `none` only; advisory-lock namespace 6 belongs to the normaliser.
 
