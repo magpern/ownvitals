@@ -23,6 +23,7 @@ from ownvitals.auth.sessions import (
     revoke_session,
     revoke_user_sessions,
 )
+from ownvitals.auth.userlock import lock_user_row
 from ownvitals.context import UserContext
 from ownvitals.db import system_session
 
@@ -175,6 +176,7 @@ async def logout_all(
 ) -> None:
     """Sign out everywhere, this browser included (step-up first, ownvitals ADR 0003 section 3)."""
     async with system_session(_factory(request)) as db:
+        await lock_user_row(db, ctx.user_id)  # first (``userlock``): no sign-in slips past
         count = await revoke_user_sessions(db, ctx.user_id)
         await record_event(
             db,

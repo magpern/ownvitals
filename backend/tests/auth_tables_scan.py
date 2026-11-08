@@ -194,6 +194,7 @@ SUBMODULES = frozenset(
         "qrlogin_routes",
         "qrlogin_stream",
         "useragent",
+        "userlock",
         "geo",
         "purge",
         "ratelimit",

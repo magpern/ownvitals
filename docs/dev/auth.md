@@ -16,6 +16,7 @@ say ownvitals. The "Ported unchanged" table of ownvitals' ADR 0003 §1 maps them
 | `backend/src/ownvitals/auth/tables.py` | the same tables in SQLAlchemy Core; `test_auth_schema.py` holds the migration to it |
 | `backend/src/ownvitals/auth/setup.py` | `install` (routers, the Origin/CSRF middleware, error handlers) and `attach_state`/`detach_state` (keys, hasher, OAuth runtime, mail hooks), called by `ownvitals.web` |
 | `backend/src/ownvitals/auth/deps.py` | the only web issuer of a `UserContext` (`require_user` and the others), `request_ip`, and `session_probe` for the jobs event stream |
+| `backend/src/ownvitals/auth/userlock.py` | the user-row lock every sign-in, link, reset and revoke takes first ("Lock order" below) |
 | `backend/src/ownvitals/auth/owners.py` | `ACCOUNTS`: the jobs issuer's `owner_active` check, for the worker |
 | `backend/src/ownvitals/auth/purge.py` | `purge_expired`, which the worker runs every `purge_interval_seconds` |
 | `backend/src/ownvitals/auth/disconnect_job.py` | the `withings_disconnect` job kind and its step-up check; `purge` re-exports its names |
@@ -124,6 +125,43 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   password first when re-authentication is wanted, "Use Google instead" when Google is linked,
   then the code), then tries again. `pages/SecurityPage.tsx` is the Security tab's "Where you're
   signed in" with "Sign out everywhere…".
+
+## Lock order (#248)
+
+One order everywhere, so the pairs below serialise instead of racing or deadlocking:
+
+1. **the `users` row**, `FOR NO KEY UPDATE` (`auth/userlock.py: lock_user_row`; the admin
+   helpers' `_locked` takes the same mode without reading `password_hash`; a passkey or QR
+   sign-in takes `FOR SHARE` through `passkeys.lock_user`, which conflicts with it);
+2. then sessions, identities, passkeys, TOTP and recovery codes, known devices and tokens.
+
+The paths that take it first: password sign-in (`/login`) and password re-auth (`/reauth`),
+linking a Google identity (`oauth_store.add_identity`) and unlinking one, the reset request
+(`reset_mail`) and completion (before it consumes the token), the password change,
+sign-out-everywhere (`/logout-all`), `admin mfa-reset` (`accounts.reset_mfa`) and the admin
+disable, enable and delete. A plain `UPDATE users` as the first statement takes the same lock.
+
+The rules that make it hold:
+
+- **Never check a password under the lock.** The finish re-checks what it proved instead: the
+  sign-in compares the locked row's `password_hash` with the one it verified and refuses (401,
+  `invalid_credentials`) when a reset or change replaced it or the account was disabled or
+  deleted; a link re-checks its session (`userlock.session_alive`) and answers
+  `session_mismatch` when a reset or revoke deleted it.
+- **Why `NO KEY UPDATE`, not `FOR UPDATE`:** inserting a session, an identity or an
+  `auth_events` row takes `FOR KEY SHARE` on `users` (the foreign key). `FOR UPDATE` would block
+  it, so a rotation holding a session row and inserting its new one would wait on a reset that
+  waits for that session row: a deadlock. `NO KEY UPDATE` conflicts with itself and with
+  `FOR SHARE`, which is all the ordering needs.
+- **A reset keeps only what its page could show.** Identities linked at or after the reset
+  link's `created_at` are removed with the ones the user chose (`remove_methods`). A link stamps
+  `created_at` with `clock_timestamp()` under the lock, and `reset_mail` takes the lock before
+  it issues the token, so an identity is either committed before the token exists (and listed by
+  `reset/info`) or counted as linked after it.
+
+`tests/test_auth_reset_races.py` holds each pair on the real database: sign-in vs reset, link vs
+reset, sign-out-everywhere vs sign-in and admin disable vs sign-in, each in both orders, and the
+pairs at once with no deadlock or serialization error reaching the user.
 
 ## Passkeys
 

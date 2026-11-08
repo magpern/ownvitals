@@ -19,7 +19,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth.keys import new_token, token_hash
+from ownvitals.auth.session_model import SessionGone
 from ownvitals.auth.tables import identities, oauth_flows, users
+from ownvitals.auth.userlock import lock_user_row, session_alive
 
 FLOW_LIFETIME = timedelta(minutes=10)
 RETURN_TO_MAX = 512
@@ -155,14 +157,33 @@ async def identity_owner(db: AsyncSession, provider: str, subject: str) -> tuple
 
 
 async def add_identity(
-    db: AsyncSession, user_id: UUID, provider: str, subject: str, email: str | None
+    db: AsyncSession,
+    user_id: UUID,
+    provider: str,
+    subject: str,
+    email: str | None,
+    *,
+    session_id: UUID,
 ) -> bool:
-    """Link the identity. False when ``(provider, subject)`` already exists (nothing changes)."""
+    """Link the identity. False when ``(provider, subject)`` already exists (nothing changes).
+
+    The user row is locked first (``userlock``) and the linking session re-checked under it:
+    ``SessionGone`` when a reset, a revoke or a disable committed meanwhile, and nothing is
+    linked. ``created_at`` is the time under the lock, which ``reset_routes.complete_reset``
+    compares with the reset link's issue time (an identity linked after it was never shown).
+    """
+    locked = await lock_user_row(db, user_id)
+    if locked is None or locked.disabled or not await session_alive(db, user_id, session_id):
+        raise SessionGone
     try:
         async with db.begin_nested():
             await db.execute(
                 insert(identities).values(
-                    user_id=user_id, provider=provider, subject=subject, email_at_link=email
+                    user_id=user_id,
+                    provider=provider,
+                    subject=subject,
+                    email_at_link=email,
+                    created_at=func.clock_timestamp(),
                 )
             )
     except IntegrityError:
@@ -174,7 +195,7 @@ async def remove_identity(db: AsyncSession, user_id: UUID, identity_id: UUID) ->
     """Unlink one of the user's own identities. ``"gone"`` for an unknown id and for another
     user's (the caller answers 404), ``"last"`` when it is the user's only sign-in method,
     else ``"removed"``. The user row is locked, so two parallel unlinks cannot remove both."""
-    await db.execute(select(users.c.id).where(users.c.id == user_id).with_for_update())
+    await lock_user_row(db, user_id)  # first (``userlock``)
     own = (
         (await db.execute(select(identities.c.id).where(identities.c.user_id == user_id)))
         .scalars()

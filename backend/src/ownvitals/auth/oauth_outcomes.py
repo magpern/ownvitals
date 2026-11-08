@@ -99,13 +99,18 @@ async def _link(db: AsyncSession, req: Request) -> Outcome:
     if info is None:
         return _fail("session_mismatch")
     ident, user_id = req.identity, info.user_id
-    if await add_identity(
-        db,
-        user_id,
-        req.flow.provider,
-        ident.subject,
-        ident.email if ident.email_verified else None,
-    ):
+    try:
+        linked = await add_identity(
+            db,
+            user_id,
+            req.flow.provider,
+            ident.subject,
+            ident.email if ident.email_verified else None,
+            session_id=info.id,
+        )
+    except SessionGone:  # a reset or revoke committed since the session was read (#248)
+        return _fail("session_mismatch")
+    if linked:
         await record_event(
             db,
             "identity_linked",

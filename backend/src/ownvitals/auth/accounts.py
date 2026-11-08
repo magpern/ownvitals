@@ -17,10 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ownvitals.auth.devices import forget_devices
 from ownvitals.auth.events import record_event
 from ownvitals.auth.mails import ResetRemoved
-from ownvitals.auth.passkeys import lock_user, remove_all_passkeys
+from ownvitals.auth.passkeys import remove_all_passkeys
 from ownvitals.auth.qrlogin import expire_for_account
 from ownvitals.auth.sessions import revoke_user_sessions
 from ownvitals.auth.tables import identities, invites, mfa_recovery_codes, mfa_totp, users
+from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
 from ownvitals.emailnorm import normalize_email
 
@@ -162,7 +163,7 @@ async def remove_sign_in_methods(db: AsyncSession, user_id: UUID) -> ResetRemove
     """Every passkey and every linked Google identity of the account (ADR 0011 section 3):
     neither may survive a reset of the second factor and win the first enrolment of ADR 0003
     section 2. Every live QR approve-login it scanned or approved is expired too (ADR 0011
-    section 3). The caller holds the account row (``passkeys.lock_user``)."""
+    section 3). The caller holds the account row (``userlock.lock_user_row``)."""
     await expire_for_account(db, user_id)
     passkeys = await remove_all_passkeys(db, user_id)
     unlinked = await db.execute(
@@ -179,12 +180,12 @@ async def reset_mfa(db: AsyncSession, email: str) -> tuple[UserRow, ResetRemoved
     ADR 0011 section 3 (amended 2026-11-03, which amends ADR 0003 section 2): after a reset the
     only way in is the password set through the mailed link. A passkey or a Google identity that
     someone added while holding the account, or a password they learned, must not survive the
-    reset and win the first enrolment. The account row is locked ``FOR UPDATE`` first; a
-    passkey sign-in or registration locks it too (``passkeys.lock_user``), so neither can commit
-    a session or a passkey after this transaction removed them.
+    reset and win the first enrolment. The account row is locked first (``userlock``,
+    ``FOR NO KEY UPDATE``); a password or passkey sign-in, a link or a registration locks it
+    too, so none can commit a session, an identity or a passkey after this removed them.
     """
     user = await _require_user(db, email)
-    await lock_user(db, user.id)
+    await lock_user_row(db, user.id)
     await db.execute(delete(mfa_totp).where(mfa_totp.c.user_id == user.id))
     await db.execute(delete(mfa_recovery_codes).where(mfa_recovery_codes.c.user_id == user.id))
     removed = await remove_sign_in_methods(db, user.id)

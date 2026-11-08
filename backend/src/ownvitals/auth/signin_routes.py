@@ -33,6 +33,7 @@ from ownvitals.auth.sessions import (
     start_session,
 )
 from ownvitals.auth.tables import users
+from ownvitals.auth.userlock import lock_user_row
 from ownvitals.context import UserContext
 from ownvitals.db import system_session
 from ownvitals.emailnorm import normalize_email
@@ -113,6 +114,11 @@ async def sign_in(body: LoginIn, request: Request, response: Response) -> Signed
         else None
     )
     async with system_session(factory(request)) as db:
+        # The user row first (``userlock``): a reset, disable or delete that committed after the
+        # password check above changed what was proved, and nothing is written.
+        locked = await lock_user_row(db, user.id)
+        if locked is None or locked.disabled or locked.password_hash != user.password_hash:
+            raise HTTPException(status_code=401, detail=INVALID)
         await grant_admin_if_listed(db, settings, user.id)  # may revoke every session
         issued = await start_session(
             db,
@@ -162,6 +168,10 @@ async def reauthenticate(
     await attempt.succeed()
     try:
         async with system_session(factory(request)) as db:
+            locked = await lock_user_row(db, ctx.user_id)  # first, as at sign-in (``userlock``)
+            if locked is None or locked.password_hash != stored:
+                # a reset or change committed after the check above: what was proved is gone
+                raise HTTPException(status_code=401, detail=INVALID)
             issued = await rotate_session(
                 db, info, reauth=True, user_agent=user_agent(request), ip=ip
             )
