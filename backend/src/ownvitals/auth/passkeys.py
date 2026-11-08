@@ -158,7 +158,9 @@ async def take_challenge(
 async def lock_user(db: AsyncSession, user_id: UUID, *, share: bool = False) -> Any:
     """Lock the account row (``FOR SHARE``, or ``FOR NO KEY UPDATE`` as ``userlock``); returns
     it or ``None``. Every path that adds or uses a sign-in method locks it before it re-checks
-    its state, and ``reset_mfa`` locks it (``userlock``) before it removes them."""
+    its state, and ``reset_mfa`` locks it (``userlock``) before it removes them. A passkey
+    re-auth takes the exclusive mode at once: it rotates its session, which takes ``FOR NO KEY
+    UPDATE``, and two ``FOR SHARE`` holders that both upgrade deadlock."""
     statement = select(users.c.id, users.c.email, users.c.disabled_at).where(users.c.id == user_id)
     statement = statement.with_for_update(read=share, key_share=not share)
     return (await db.execute(statement)).first()

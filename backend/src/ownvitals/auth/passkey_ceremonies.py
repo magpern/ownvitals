@@ -356,8 +356,6 @@ async def authenticate[T](
             suspended=(stored.name, stored.email) if suspended else None,
         )
     async with system_session(factory) as db:
-        # A re-auth rotates its session, which takes ``FOR NO KEY UPDATE``: take that mode now
-        # rather than upgrade a ``FOR SHARE`` (two upgraders of one row deadlock).
         user = await lock_user(db, stored.user_id, share=purpose == "signin")
         if user is None or user.disabled_at is not None:
             raise PasskeyFailure("account", user_id=stored.user_id)

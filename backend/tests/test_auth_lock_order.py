@@ -4,6 +4,8 @@ the re-checks rest on. Each test fails if the lock or re-check it names is remov
 accounts only, on the real database."""
 
 import asyncio
+import contextlib
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -19,6 +21,7 @@ from ownvitals.auth import (
     email_routes,
     mfa,
     oauth_outcomes,
+    passkey_ceremonies,
     reset_routes,
     signin_routes,
 )
@@ -27,6 +30,7 @@ from ownvitals.auth.oauth_store import add_identity
 from ownvitals.auth.session_model import SessionGone
 from ownvitals.auth.sessions import resolve_session, rotate_session
 from ownvitals.auth.tokens import EMAIL_CHANGE_LIFETIME, issue_token
+from passkeytools import SoftAuthenticator, reauth, register
 from racetools import EMAIL, NEW, WAIT, Held, after, complete_reset, reset_token, sessions
 from smtpfake import SmtpFake
 
@@ -336,3 +340,34 @@ async def test_an_email_change_and_a_reset_serialise_without_a_deadlock(
     # does, invalidated the user's other tokens, so the reset link is gone (400, not a 500).
     assert await resetting == 400
     assert await sessions(env) == 1  # the confirming session stays, as after any email change
+
+
+async def test_two_passkey_reauths_of_one_user_never_deadlock(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A passkey re-auth rotates its session, so it locks the account row in the exclusive mode
+    at once. Two re-auths that each held ``FOR SHARE`` and then upgraded would deadlock; here
+    each one, once it holds the row, waits up to a second for the other to get there too."""
+    first = await signed_in(env, EMAIL)
+    second = Browser(env)
+    assert (await second.sign_in(EMAIL)).status_code == 200
+    await env.run("UPDATE sessions SET mfa_at = now(), stepup_at = now()")  # both full
+    keys = [SoftAuthenticator(), SoftAuthenticator()]
+    for browser, auth in zip((first, second), keys, strict=True):
+        assert (await register(browser, auth)).status_code == 201
+    arrived = [asyncio.Event(), asyncio.Event()]
+    real = passkey_ceremonies.lock_user
+    calls: list[int] = []
+
+    async def lock_then_wait(*args: Any, **kwargs: Any) -> Any:
+        me = len(calls)
+        calls.append(me)
+        row = await real(*args, **kwargs)
+        arrived[me % 2].set()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(arrived[(me + 1) % 2].wait(), 1)
+        return row
+
+    monkeypatch.setattr(passkey_ceremonies, "lock_user", lock_then_wait)
+    answers = await asyncio.gather(reauth(first, keys[0]), reauth(second, keys[1]))
+    assert [a.status_code for a in answers] == [200, 200], [a.text for a in answers]
