@@ -29,8 +29,17 @@ export function createInvite(): string {
  * the way the backend tests age a session; the app is not changed.
  */
 export function ageStepUp(email: string): void {
+  ageSessions(email, "stepup_at = stepup_at - interval '1 hour'")
+}
+
+/** Makes both the recent authentication and the step-up of the account's sessions stale. */
+export function ageRecentAuthAndStepUp(email: string): void {
+  ageSessions(email, "reauth_at = now() - interval '1 hour', stepup_at = now() - interval '1 hour'")
+}
+
+function ageSessions(email: string, assignments: string): void {
   if (!/^[\w.+-]+@[\w.-]+$/.test(email)) throw new Error('unexpected address')
-  const sql = `UPDATE sessions SET stepup_at = stepup_at - interval '1 hour' WHERE user_id = (SELECT id FROM users WHERE email_normalized = '${email.toLowerCase()}')`
+  const sql = `UPDATE sessions SET ${assignments} WHERE user_id = (SELECT id FROM users WHERE email_normalized = '${email.toLowerCase()}')`
   const out = execFileSync(
     'docker',
     [

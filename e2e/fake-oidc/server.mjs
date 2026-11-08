@@ -12,7 +12,11 @@
 // intercepts it and asks the control port (plain http, published on 127.0.0.1 only) for the
 // redirect back to the callback:
 //
-//   POST /__test/authorize    { authorizeUrl, identity: { sub, email, email_verified } }
+//   POST /__test/authorize    { authorizeUrl, identity: { sub, email, email_verified, auth_time } }
+//
+// Like the live Google (ADR 0003 §1, amendment of 2026-11-08), the ID token carries no auth_time,
+// whatever the request asked for (max_age=0, the claims parameter): Google ignores both. An
+// identity with `auth_time: 'now'` gets the current time, as after a real sign-in at Google.
 //
 // It refuses to start unless OWNVITALS_ENVIRONMENT=test. Every identity is synthetic. It logs
 // method and path only: no code, token, secret or address.
@@ -47,7 +51,7 @@ const kid = randomBytes(8).toString('hex')
 const jwks = { keys: [{ ...publicKey.export({ format: 'jwk' }), kid, alg: 'RS256', use: 'sig' }] }
 
 const b64url = (input) => Buffer.from(input).toString('base64url')
-const codes = new Map() // code -> { identity, nonce, challenge, redirectUri, authTime }
+const codes = new Map() // code -> { identity, nonce, challenge, redirectUri, authTime? }
 
 function idToken(entry) {
   const now = Math.floor(Date.now() / 1000)
@@ -60,7 +64,7 @@ function idToken(entry) {
     email: entry.identity.email,
     email_verified: entry.identity.email_verified ?? true,
     nonce: entry.nonce,
-    auth_time: entry.authTime,
+    ...(entry.authTime === undefined ? {} : { auth_time: entry.authTime }),
     iat: now,
     exp: now + 600,
   }
@@ -142,7 +146,7 @@ async function authorize(req, res) {
     nonce: query.get('nonce'),
     challenge: query.get('code_challenge'),
     redirectUri,
-    authTime: Math.floor(Date.now() / 1000),
+    authTime: identity.auth_time === 'now' ? Math.floor(Date.now() / 1000) : undefined,
   })
   const location = new URL(redirectUri)
   location.searchParams.set('code', code)

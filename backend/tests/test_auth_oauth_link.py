@@ -1,9 +1,6 @@
-"""Linking, unlinking and OAuth re-authentication (ADR 0003 sections 5 and 6)."""
+"""Linking and unlinking (ADR 0003 sections 5 and 6); re-authentication: test_auth_oauth_reauth."""
 
 import asyncio
-import json
-import time
-from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 import pytest
@@ -11,7 +8,7 @@ import pytest
 from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture, smtp_fixture  # noqa: F401 - fixtures
 from flows import PASSWORD, Browser, age_reauth, pass_second_factor, reason, signed_in
 from oauthtools import fake_fixture, location, make_invite, oenv_fixture, sign_in_with, start  # noqa: F401 - fixtures
-from oidcfake import DROP, FakeProviders
+from oidcfake import FakeProviders
 from ownvitals.auth.cookies import OAUTH_COOKIE, SESSION_COOKIE
 from smtpfake import SmtpFake
 
@@ -196,88 +193,3 @@ async def test_unlinking_another_users_or_an_unknown_identity_is_a_404(
     assert response.status_code == 404
     assert await oenv.scalar("SELECT count(*) FROM identities") == 2
     assert mine  # untouched
-
-
-# ---- re-authentication -------------------------------------------------------------------------
-
-
-async def linked_browser(env: Env, fake: FakeProviders, provider: str = "google"):
-    browser = await signed_in(env, "me@example.com")
-    assert location(await link(browser, fake, provider)) == LINKED
-    return browser
-
-
-async def test_oidc_reauth_sets_reauth_at_and_rotates_the_session(
-    oenv: Env, fake: FakeProviders
-) -> None:
-    browser = await linked_browser(oenv, fake)
-    await age_reauth(oenv)
-    old = browser.cookies[SESSION_COOKIE]
-    started = await start(browser, "google", "reauth")
-    query = parse_qs(urlsplit(started.json()["authorization_url"]).query)
-    assert query["max_age"] == ["0"]
-    assert "prompt" not in query  # Google does not document prompt=login
-    # auth_time is requested explicitly: Google only adds it to the ID token when asked.
-    assert json.loads(query["claims"][0]) == {"id_token": {"auth_time": {"essential": True}}}
-    callback = fake.complete(started.json()["authorization_url"])
-    assert location(await browser.get(callback)) == "/account?oauth=reauthed"
-    assert browser.cookies[SESSION_COOKIE] != old
-    assert await oenv.scalar("SELECT count(*) FROM sessions") == 1
-    assert await oenv.scalar("SELECT reauth_at > now() - interval '1 minute' FROM sessions") is True
-    info = (await browser.get("/api/auth/session")).json()["session"]
-    assert info["recent_auth"] is True
-
-
-async def test_google_without_the_claims_request_sends_no_auth_time_and_reauth_fails_closed(
-    oenv: Env, fake: FakeProviders
-) -> None:
-    """The fake behaves like Google: no auth_time unless the claims parameter asks for it."""
-    browser = await linked_browser(oenv, fake)
-    await age_reauth(oenv)
-    started = await start(browser, "google", "reauth")
-    url = started.json()["authorization_url"]
-    without = url.replace("claims=", "unrelated=")
-    callback = fake.complete(without)
-    assert location(await browser.get(callback)) == "/account?oauth=reauth_stale"
-    assert await oenv.scalar("SELECT reauth_at < now() - interval '5 minutes' FROM sessions")
-
-
-async def test_google_sign_in_and_link_do_not_ask_for_auth_time(
-    oenv: Env, fake: FakeProviders
-) -> None:
-    browser = await signed_in(oenv, "me@example.com")
-    started = await start(browser, "google", "link")
-    assert "claims" not in parse_qs(urlsplit(started.json()["authorization_url"]).query)
-
-
-@pytest.mark.parametrize(
-    "auth_time",
-    [DROP, int(time.time()) - 3600, int(time.time()) - 301, int(time.time()) + 3600],
-    ids=["missing", "an hour old", "just too old", "in the future"],
-)
-async def test_reauth_fails_closed_without_a_fresh_auth_time(
-    oenv: Env, fake: FakeProviders, auth_time: object
-) -> None:
-    browser = await linked_browser(oenv, fake)
-    await age_reauth(oenv)
-    old = browser.cookies[SESSION_COOKIE]
-    response = await sign_in_with(browser, fake, "google", purpose="reauth", auth_time=auth_time)
-    assert location(response) == "/account?oauth=reauth_stale"
-    assert browser.cookies[SESSION_COOKIE] == old
-    assert await oenv.scalar("SELECT reauth_at < now() - interval '5 minutes' FROM sessions")
-
-
-async def test_reauth_with_an_identity_of_another_user_is_refused(
-    oenv: Env, fake: FakeProviders
-) -> None:
-    browser = await linked_browser(oenv, fake)
-    await age_reauth(oenv)
-    response = await sign_in_with(browser, fake, "google", purpose="reauth", sub="someone-else")
-    assert location(response) == "/account?oauth=identity_mismatch"
-    assert await oenv.scalar("SELECT reauth_at < now() - interval '5 minutes' FROM sessions")
-
-
-async def test_reauth_needs_a_session_and_a_flow_of_that_user(
-    oenv: Env, fake: FakeProviders
-) -> None:
-    assert (await start(Browser(oenv), "google", "reauth")).status_code == 401
