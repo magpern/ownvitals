@@ -70,8 +70,9 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   no verifier or no nonce is refused, and the table's checks make such a row impossible.
 - The ID token is checked by `oauth_idtoken.py` (RS256, `iss`, `aud`/`azp`, `exp`, `iat`,
   `nonce`), with JWKS through the cache. The identity is `(google, sub)`, never the email.
-- Re-authentication sends `max_age=0` and asks for `auth_time` through the OIDC `claims`
-  parameter. Google adds `auth_time` only when asked, and it must be within 5 minutes.
+- Re-authentication: Google ignores `max_age=0` and the `auth_time` claims request, so the rule
+  (password accounts refused, a 300-second flow age, a verified email, no future `auth_time`) is
+  in [auth-reauth.md](auth-reauth.md), which is current.
 - An unverified or missing Google email goes to the hand-off (`/signin?oauth=email_needed`):
   the account is created only after a mail link proves an address, in the same browser.
 - The frontend button follows Google's branding guidelines (owner, 2026-11-01):

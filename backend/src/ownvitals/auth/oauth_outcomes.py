@@ -128,11 +128,11 @@ async def _link(db: AsyncSession, req: Request) -> Outcome:
 
 
 async def has_password(db: AsyncSession, user_id: UUID, *, lock: bool = False) -> bool | None:
-    """``None`` when the account is gone. ``lock``: ``FOR UPDATE``, which a password change's
-    ``UPDATE`` waits for, so a password set between the start and the callback is seen."""
+    """``None`` when the account is gone. ``lock``: the user-row lock (``FOR NO KEY UPDATE``, as
+    ``userlock``), which a password change waits for, so a password set meanwhile is seen."""
     statement = select(users.c.password_hash.is_not(None)).where(users.c.id == user_id)
     if lock:
-        statement = statement.with_for_update()
+        statement = statement.with_for_update(key_share=True)
     return (await db.execute(statement)).scalar_one_or_none()
 
 
