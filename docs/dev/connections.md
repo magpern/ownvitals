@@ -61,8 +61,8 @@ revoke-first path of ADR 0004 section 7. Web makes no Withings call (roadmap Ame
    (`auth.purge.delete_account`).
 
 Both answer 200: `{"status": "disconnected", "revoke_failed", "removal", "imported_deleted"}`
-and `{"status": "deleted", "revoke_failed", "removal"}`. `removal` is the instruction to remove
-access in the Withings account, set exactly when `revoke_failed` is; `GET /api/connections`
+and `{"status": "deleted", "revoke_failed", "removal"}`. `removal` is the code `revoke_incomplete` (the page words it: remove
+access in the Withings account), set exactly when `revoke_failed` is; `GET /api/connections`
 shows the same as `last_error: "revoke_failed"`. No live Withings row: 409 `not_connected`.
 The worker registers the kind (`worker.kinds.worker_registry` calls
 `auth.purge.register_disconnect_kind`, a guard 8 entry point); the API's registry stays empty.

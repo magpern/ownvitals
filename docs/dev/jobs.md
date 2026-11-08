@@ -138,7 +138,7 @@ A kind's handler gets a `JobRun`: `checkpoint()`, `progress(done, total)`, `fenc
 writes and `provider_call(deadline)` around a provider call (the lease is extended to the call's
 deadline plus 30 s and committed before the call; no transaction is open across it). It ends with
 `Complete(store)`; `store` runs in the final fenced transaction. It fails a run by raising
-`JobFailure(category)`; only the category is ever kept (`jobs/errors.py`, `jobs/sentences.py`).
+`JobFailure(category)`; only the category is ever kept (`jobs/errors.py`). `GET /api/jobs/{id}` shows that category as a code (`error_category`, the `job_failures` family of `response_codes.py`) and no sentence; the page words it from `src/i18n/*/codes.ts`.
 The heartbeat extends the lease every lease/3 with `GREATEST`.
 
 ## The worker

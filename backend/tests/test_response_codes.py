@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from ownvitals.analysis.rules.core import SPECS, Severity, Tier
 from ownvitals.jobs.errors import CATEGORIES
 from ownvitals.response_codes import (
     CONNECTIONS,
@@ -21,7 +22,11 @@ from ownvitals.response_codes import (
 from ownvitals.withings.disconnect import REMOVAL
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "ownvitals"
-CODES_JSON = Path(__file__).resolve().parents[2] / "frontend" / "src" / "api" / "codes.json"
+API_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "api"
+CODES_JSON = API_DIR / "codes.json"
+RULES_JSON = API_DIR / "rules.json"
+# The ECG rules live in ``ecg/`` (ADR 0006 section 11); E5 is deferred (ADR 0010).
+ECG_RULES = {"E1", "E2", "E3", "E4", "E6"}
 
 # The route files of the families whose sites this module lists; auth has its own owner.
 ROUTE_FILES = {
@@ -102,3 +107,14 @@ def test_the_codes_that_replaced_sentences_are_listed() -> None:
 def test_the_frontend_code_list_is_this_list() -> None:
     """Regenerate with the one-liner in ``docs/dev/i18n.md`` after adding a code."""
     assert json.loads(CODES_JSON.read_text()) == all_codes()
+
+
+def test_the_frontend_rule_list_covers_every_rule_id_of_the_specs() -> None:
+    """The health-wording catalogue (``i18n/*/health.ts``) is keyed by these ids."""
+    listed = json.loads(RULES_JSON.read_text())
+    assert listed == sorted(set(SPECS) | ECG_RULES)
+
+
+def test_the_tiers_and_severities_the_frontend_words_are_the_ones_the_rules_use() -> None:
+    assert {t.value for t in Tier} == {"device", "trend", "experimental", "system"}
+    assert {s.value for s in Severity} == {"urgent", "attention", "info"}
