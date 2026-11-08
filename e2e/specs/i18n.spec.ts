@@ -48,9 +48,11 @@ test('switch language signed out, sign in, change it in Settings, reload, get Sw
   await page.getByRole('button', { name: account.email }).click()
   await page.getByRole('menuitem', { name: 'Logga ut' }).click()
   await expect(page.getByRole('heading', { name: 'Logga in', exact: true })).toBeVisible()
+  // The reload shows this browser's own choice (English, set with the picker above), so the
+  // request's language is English: the Swedish mail comes from the account's stored language.
   await page.goto('/reset')
-  await page.getByLabel('E-post').fill(account.email)
-  await page.getByRole('button', { name: 'Skicka återställningslänk' }).click()
+  await page.getByLabel('Email').fill(account.email)
+  await page.getByRole('button', { name: 'Send reset link' }).click()
   const language = await waitForMailHeader(
     account.email,
     'Återställ ditt ownvitals-lösenord',
