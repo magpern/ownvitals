@@ -26,6 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth import totp
+from ownvitals.auth.events import record_event
 from ownvitals.auth.keys import NONCE_LENGTH, Keys, hmac_digest
 from ownvitals.auth.tables import auth_events, mfa_recovery_codes, mfa_totp
 from ownvitals.auth.totp_keys import open_totp_secret, seal_totp_secret
@@ -243,11 +244,7 @@ async def record_failure(db: AsyncSession, user_id: UUID, ip: str | None, purpos
     await db.execute(
         select(func.pg_advisory_xact_lock(MFA_FAILURES, func.hashtext(cast(user_id, Text))))
     )
-    await db.execute(
-        insert(auth_events).values(
-            kind="mfa_failed", user_id=user_id, ip=ip, detail={"purpose": purpose}
-        )
-    )
+    await record_event(db, "mfa_failed", user_id=user_id, ip=ip, detail={"purpose": purpose})
     count = (
         await db.execute(
             select(func.count())
