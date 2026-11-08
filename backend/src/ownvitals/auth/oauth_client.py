@@ -8,7 +8,8 @@ network library: the guard refuses ``authlib.integrations`` and ``httpx`` outsid
 The authorization URL carries ``response_mode=query`` (a POST callback would not carry the Lax
 flow cookie), the nonce and the PKCE challenge of the flow's own ``code_verifier``. A
 re-authentication also sends ``max_age=0`` and asks for ``auth_time`` explicitly with the OIDC
-``claims`` parameter (ADR 0003 section 1, "Google OIDC"). The code exchange sends the same
+``claims`` parameter (ADR 0003 section 1, "Google OIDC"). Google ignores both, so the answer counts
+by ``oauth_reauth_policy`` without a fresh ``auth_time`` (amendment of 2026-11-08). The code exchange sends the same
 ``code_verifier``, read back from the flow row, so PKCE binds the code to this flow (#55's N15).
 ``OAuthRuntime.transport`` replaces the network transport in tests (the clients' ``inner``; every
 egress check still runs); no code path here logs a code, token, secret or query string.

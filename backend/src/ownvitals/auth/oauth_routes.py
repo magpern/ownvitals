@@ -4,7 +4,13 @@
 the authorization URL. ``GET /oauth/{provider}/callback`` takes the flow atomically *before* the
 code is exchanged, checks provider and state, and answers with a redirect: the outcome is a short
 code in the query of an SPA page, never anything the provider sent. This route is registered
-before the SPA catch-all; its query string (code, state) is never logged.
+before the SPA catch-all; its query string (code, state) is never logged. Every callback that
+does not end ``ok`` writes one ``WARNING`` line with the provider, the purpose, the outcome code
+and a fixed ``why`` word (#247): never a code, state, nonce, token, email or claim value.
+
+A Google ``reauth`` of an account with a password is refused at the start (403
+``reauth_use_password``, no flow) and again at the callback under the row lock
+(``oauth_reauth_policy``, ADR 0003 section 1, amendment of 2026-11-08).
 """
 
 import logging
@@ -14,6 +20,8 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth.clientip import bucket_ip
 from ownvitals.auth.cookies import (
@@ -36,13 +44,15 @@ from ownvitals.auth.deps import (
 )
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import factory, mailer, reserve, user_agent
+from ownvitals.auth.keys import token_hash
 from ownvitals.auth.oauth_client import OAuthRuntime, ProviderError, authorization_url, identify
-from ownvitals.auth.oauth_outcomes import Outcome, apply
+from ownvitals.auth.oauth_outcomes import Outcome, apply, has_password
 from ownvitals.auth.oauth_outcomes import Request as OutcomeRequest
 from ownvitals.auth.oauth_store import Flow, create_flow, safe_return_to, take_flow
 from ownvitals.auth.ratelimit import OAUTH_IP, Bucket
 from ownvitals.auth.sessions import SessionInfo
 from ownvitals.auth.signup_routes import valid_invite
+from ownvitals.auth.tables import oauth_flows
 from ownvitals.db import system_session
 from ownvitals.flags import effective as flags
 from ownvitals.mail import send_logged
@@ -51,6 +61,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
 
 FIELD_MAX = 1024
+# RFC 6749 4.1.2.1 and OIDC Core 3.1.2.6: the ``error`` values logged by name; any other is
+# logged as ``unrecognized`` (the query is the browser's, so its text is never logged).
+OAUTH_ERRORS = frozenset(
+    {
+        "invalid_request",
+        "unauthorized_client",
+        "access_denied",
+        "unsupported_response_type",
+        "invalid_scope",
+        "server_error",
+        "temporarily_unavailable",
+        "interaction_required",
+        "login_required",
+        "account_selection_required",
+        "consent_required",
+        "invalid_request_uri",
+        "invalid_request_object",
+        "request_not_supported",
+        "request_uri_not_supported",
+        "registration_not_supported",
+    }
+)
 
 
 class StartIn(BaseModel):
@@ -101,6 +133,9 @@ async def start(
     elif body.purpose == "reauth":
         ctx = await require_user(await current_context(request, info), info)
         user_id = ctx.user_id
+        async with system_session(factory(request)) as db:
+            if await has_password(db, user_id) is not False:  # a password, or the account gone
+                raise HTTPException(status_code=403, detail={"reason": "reauth_use_password"})
     invite_id: UUID | None = None
     settings = request.app.state.settings
     if body.purpose == "sign_in" and body.invite_code:
@@ -149,17 +184,41 @@ def _target(flow: Flow | None, outcome: Outcome) -> str:
             return "/signin?oauth=email_needed"
 
 
+async def _flow_age(db: AsyncSession, cookie: str) -> float | None:
+    """Seconds since the flow's start by the database clock, read in the transaction that takes
+    the flow (#247: a Google re-authentication must end within 5 minutes of its start)."""
+    age = await db.execute(
+        select(func.extract("epoch", func.now() - oauth_flows.c.created_at)).where(
+            oauth_flows.c.flow_hash == token_hash(cookie)
+        )
+    )
+    value = age.scalar_one_or_none()
+    return None if value is None else float(value)
+
+
 async def _handle(
-    request: Request, provider: str, flow: Flow | None, info: SessionInfo | None
+    request: Request,
+    provider: str,
+    flow: Flow | None,
+    info: SessionInfo | None,
+    flow_age: float | None = None,
 ) -> Outcome:
     query = request.query_params
     state, code = query.get("state", ""), query.get("code")
-    if flow is None or flow.provider != provider or not flow.state_matches(state):
-        return Outcome("invalid")
-    if query.get("error") or not code:
-        return Outcome("denied")
+    if flow is None:
+        return Outcome("invalid", why="no_flow")  # no cookie, expired, or already used
+    if flow.provider != provider:
+        return Outcome("invalid", why="provider_mismatch")
+    if not flow.state_matches(state):
+        return Outcome("invalid", why="state_mismatch")
+    if error := query.get("error"):
+        return Outcome(
+            "denied", why=f"provider_error={error if error in OAUTH_ERRORS else 'unrecognized'}"
+        )
+    if not code:
+        return Outcome("denied", why="no_code")
     if flow.purpose in ("link", "reauth") and (info is None or info.user_id != flow.user_id):
-        return Outcome("session_mismatch")
+        return Outcome("session_mismatch", why="no_session" if info is None else "other_user")
     runtime = _runtime(request)
     try:
         identity = await identify(
@@ -171,7 +230,7 @@ async def _handle(
             nonce=flow.nonce,
         )
     except ProviderError as exc:
-        logger.warning("oauth callback refused (%s): %s", provider, exc)
+        # ``ProviderError`` names the failed check (fixed text), never a token or body.
         async with system_session(factory(request)) as db:
             await record_event(
                 db,
@@ -180,7 +239,7 @@ async def _handle(
                 ip=request_ip(request),
                 detail={"provider": provider},
             )
-        return Outcome("invalid")
+        return Outcome("invalid", why=f"provider: {exc}")
     async with system_session(factory(request)) as db:
         return await apply(
             db,
@@ -195,6 +254,7 @@ async def _handle(
                 pending_token=request.cookies.get(PENDING_COOKIE),
                 ip=request_ip(request),
                 user_agent=user_agent(request),
+                flow_age=flow_age,
             ),
         )
 
@@ -210,11 +270,20 @@ async def callback(
         raise HTTPException(status_code=404)
     await reserve(request, [Bucket(OAUTH_IP, bucket_ip(request_ip(request)))])
     cookie = request.cookies.get(OAUTH_COOKIE)
-    flow = None
+    flow, flow_age = None, None
     if cookie:
         async with system_session(factory(request)) as db:
+            flow_age = await _flow_age(db, cookie)
             flow = await take_flow(db, cookie)  # before the code is exchanged: single use
-    outcome = await _handle(request, provider, flow, info)
+    outcome = await _handle(request, provider, flow, info, flow_age)
+    if outcome.code != "ok":
+        logger.warning(
+            "oauth callback refused: provider=%s purpose=%s outcome=%s why=%s",
+            provider,
+            flow.purpose if flow else "unknown",
+            outcome.code,
+            outcome.why or outcome.code,
+        )
     response = RedirectResponse(_target(flow, outcome), status_code=303)
     clear_oauth_cookie(response)
     response.headers["Cache-Control"] = "no-store"
