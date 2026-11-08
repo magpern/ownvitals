@@ -37,6 +37,7 @@ question open says so in an **Open questions** section and names who answers it.
 | [0012](0012-scores.md) | Scores: Health Improvement Score, Body Path and Readiness; its [test specification](0012-scores-tests.md) is part of it | Proposed |
 | [0013](0013-reports-and-export.md) | Reports and export: JSON/CSV/FIT export, the doctor PDF, step-up and single-use download | Proposed |
 | [0014](0014-ai-insights.md) | AI insights: provider review, consent, minimal tools, worker-only client, cost cap, prompt-injection evals | Proposed |
+| [0015](0015-multilingual.md) | Multilingual support: English and Swedish, typed catalogue, locale preference, codes not sentences, mail per locale, health-wording review | Proposed |
 
 The health-data threat model that these ADRs feed is
 [docs/security/threat-model.md](../security/threat-model.md).
