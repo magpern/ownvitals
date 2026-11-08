@@ -12,13 +12,17 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
+from pydantic import SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
 # The secret files and the host and network helpers live in their own modules; re-exported here.
+from ownvitals.config_ai import AiSettings
+from ownvitals.config_auth import AuthSettings
+from ownvitals.config_jobs import JobSettings
+from ownvitals.config_mail import DEFAULT_SMTP_TOTAL_SECONDS, MailSettings  # noqa: F401
 from ownvitals.config_net import (  # noqa: F401 (re-exported)
     PLAIN_SMTP_HOSTS,
     _is_ip,
@@ -56,7 +60,6 @@ PROD_QUERY_PARAMETERS = frozenset(
     }
 )
 MIN_APP_SECRET_BYTES = 32
-DEFAULT_SMTP_TOTAL_SECONDS = 20.0
 # The id of the current KEK (the ``connection_kek`` secret file, read by the crypto package).
 CONNECTION_KEK_ID = re.compile(r"kek-[a-z0-9-]{1,28}")
 # The ids of the current webhook-secret seed and pepper (the ``webhook_seed`` and
@@ -93,7 +96,7 @@ class WithoutSecretsSource(PydanticBaseSettingsSource):
         return {k: v for k, v in self._inner().items() if k not in SECRET_FILE_FIELDS}
 
 
-class Settings(BaseSettings):
+class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings):
     """All configuration of the web app and the worker.
 
     Everything that can carry a credential is a ``SecretStr``: it is masked in ``repr``,
@@ -136,53 +139,9 @@ class Settings(BaseSettings):
     # From the file ``app_secret_key`` (at least 32 bytes); the web app refuses to start without
     # it once accounts exist. All auth keys are derived from it.
     app_secret_key: SecretStr | None = None
-    # The one public origin, for the Origin check and for links in mail.
-    public_base_url: str = "http://127.0.0.1:8000"
-    # Comma-separated addresses that become admin at their next sign-in.
-    admin_emails: str = ""
-    # Comma-separated addresses or CIDR ranges of reverse proxies whose X-Forwarded-For is
-    # believed (ADR 0003 section 8): on the home server, SWAG. Default: loopback only. Empty: the
-    # peer address is always the client.
-    trusted_proxies: str = "127.0.0.0/8,::1"
-    # Those of the trusted proxies whose ``CF-Connecting-IP`` header is believed: SWAG, which sets
-    # or overwrites it only for connections from Cloudflare's ranges (the owner's SWAG
-    # configuration). The header counts only on a request whose peer is in both lists. Default:
-    # none, so the header is never believed.
-    cf_connecting_ip_proxies: str = ""
-    # A session ends after this long without a request, and after ``session_absolute_days`` at
-    # most (ADR 0003 section 3: 72 hours idle, 30 days absolute).
-    session_idle_hours: int = 72
-    session_absolute_days: int = 30
-    password_hash_workers: int = 4
-    # Who may create an account: ``invite`` (default) or ``closed``. ``open`` is refused until
-    # the M8 gate (D7, ADR 0003 section 6).
-    signup_mode: Literal["invite", "closed"] = "invite"
-    # How long a fresh TOTP check authorises a sensitive action (step-up, PLAN §6: within 10
-    # minutes). The environment can shorten the window, never lengthen it.
-    stepup_window_minutes: int = Field(default=10, ge=1, le=10)
-    # Passkeys (ADR 0011 sections 1 to 3). The WebAuthn relying-party id: unset means the host
-    # of ``public_base_url``; set, it must be that host or a parent domain of it. The only
-    # accepted origin is ``public_base_url``. An IP-address host has no relying-party id (browsers
-    # refuse one), so passkeys are off there; local development uses ``http://localhost:<port>``.
-    webauthn_rp_id: str | None = None
-    # At most this many passkeys per account (ADR 0011 section 2: 10).
-    passkeys_per_account: int = Field(default=10, ge=1, le=10)
     # ADR 0011 open question 1. Refused true until the owner answers it: a passkey replaces the
     # password only, and every sign-in still completes TOTP. No code path reads it as true.
     passkey_satisfies_second_factor: bool = False
-    # QR approve-login (ADR 0011 sections 5 to 7). ``qr_login_enabled`` is open question 3's
-    # safe-off: false hides the start route and refuses scans. ``geo_source`` is where the
-    # desktop's place comes from (open question 2): ``none`` (default, "Place unknown") or
-    # ``cloudflare`` (the visitor-location headers, from a ``cf_connecting_ip_proxies`` peer
-    # only); ``geoip_file`` is refused until the owner answers and a reviewed PR adds a reader.
-    # The SSE streams of the desktop: at most this many per IP (IPv6 by /64) and per web process.
-    qr_login_enabled: bool = True
-    geo_source: Literal["none", "cloudflare", "geoip_file"] = "none"
-    qr_streams_per_ip: int = Field(default=5, ge=1, le=5)
-    qr_streams_per_process: int = Field(default=100, ge=1, le=100)
-    # How often the worker purges expired auth rows.
-    purge_interval_seconds: float = 3600.0
-
     # The id of the current key-encryption key. The key itself is the secret file
     # ``connection_kek`` (read by the crypto package, never the environment); retired keys are
     # ``connection_kek_<id>``.
@@ -194,50 +153,12 @@ class Settings(BaseSettings):
     webhook_seed_id: str = "seed-1"
     webhook_pepper_id: str = "pep-1"
 
-    # Mail. Unset ``smtp_host``: no mail is sent (a warning is logged instead).
-    smtp_host: str | None = None
-    smtp_port: int = 587
-    smtp_sender: str = "ownvitals@localhost"
-    smtp_tls: Literal["starttls", "tls", "none"] = "starttls"
-    smtp_username: str | None = None
     # From the file ``smtp_password`` (never the environment).
     smtp_password: SecretStr | None = None
-    # The total deadline of one delivery, every SMTP step included (mail runs inside web
-    # requests; ``ownvitals.mail``). Positive and finite.
-    smtp_total_seconds: float = DEFAULT_SMTP_TOTAL_SECONDS
 
     # Google sign-in, the only OAuth provider. It is on only when the client id and the secret
     # file ``oauth_google_client_secret`` (never the environment) both exist.
-    oauth_google_client_id: str | None = None
     oauth_google_client_secret: SecretStr | None = None
-
-    # Jobs and the worker.
-    # The worker's claim poll when no ``jobs_queued`` notification arrives.
-    worker_poll_seconds: float = 2.0
-    job_lease_seconds: int = Field(default=120, ge=30, le=600)
-    # The worker's engine pool follows it.
-    worker_concurrency: int = Field(default=2, ge=1, le=16)
-    # Reap, expire and settle every this many seconds.
-    worker_maintenance_seconds: float = Field(default=30.0, gt=0)
-    # On SIGTERM, how long runs may take to reach a checkpoint or return from a call before their
-    # leases are handed back (inside compose's 30 s stop_grace_period).
-    worker_shutdown_wait_seconds: float = Field(default=25.0, ge=0, le=25)
-    # Queued and running jobs per user; creation above it is a 429.
-    jobs_per_user: int = Field(default=2, ge=1, le=100)
-    # ``operation_busy`` requeues per phase that cost no attempt; after that each one counts.
-    job_busy_requeue_limit: int = Field(default=5, ge=0, le=100)
-
-    # The environment side of the stored feature flags (the stricter of the two wins): both are
-    # off by default and a stored flag can only keep them off. ``ai_insights`` also gates the
-    # model host on the worker's egress allowlist.
-    experimental_findings: bool = False
-    ai_insights: bool = False
-    # The AI cost cap (D11, ADR 0014 section 7), integer micro-USD per calendar month in UTC: per
-    # user, and for all users together (the owner's total exposure). Both 0 until the owner sets
-    # them (ADR 0014 open question 2): no request can be reserved. These settings are the
-    # authoritative caps; the worker passes them on every reservation and nothing stores them.
-    ai_user_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
-    ai_global_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
 
     @classmethod
     def settings_customise_sources(

@@ -57,6 +57,10 @@ FORBIDDEN = (
     "ownvitals.config",  # reads the environment and secret files
     "ownvitals.config_secrets",  # config's secret files and the environment
     "ownvitals.config_net",  # config's host and network helpers
+    "ownvitals.config_mail",  # config's mail and OAuth fields
+    "ownvitals.config_jobs",  # config's worker and job fields
+    "ownvitals.config_ai",  # config's feature-flag and AI cap fields
+    "ownvitals.config_auth",  # config's session, proxy and passkey fields
     "ownvitals.log",
     "ownvitals.headers",
     "ownvitals.__main__",  # the entry point: uvicorn, the web app, configuration and logging
