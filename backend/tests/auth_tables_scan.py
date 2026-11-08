@@ -184,6 +184,7 @@ SUBMODULES = frozenset(
         "oauth_outcomes",
         "oauth_providers",
         "oauth_routes",
+        "oauth_signup",
         "oauth_store",
         "passwords",
         "presession",

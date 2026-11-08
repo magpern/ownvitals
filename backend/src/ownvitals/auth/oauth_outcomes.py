@@ -12,17 +12,22 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, func, insert, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth import mails
-from ownvitals.auth.accounts import create_user, find_user, grant_admin_if_listed, use_invite
+from ownvitals.auth.accounts import find_user, grant_admin_if_listed
 from ownvitals.auth.devices import remember_device
 from ownvitals.auth.events import record_event
 from ownvitals.auth.keys import Keys, token_hash
 from ownvitals.auth.oauth_client import ProviderIdentity
 from ownvitals.auth.oauth_reauth_policy import ReauthAnswer, refusal
+from ownvitals.auth.oauth_signup import (  # noqa: F401 - re-exported
+    Refused,
+    consume_invite,
+    create_provider_account,
+    invite_valid,
+)
 from ownvitals.auth.oauth_store import Flow, add_identity, identity_owner
 from ownvitals.auth.sessions import (
     IssuedSession,
@@ -31,7 +36,7 @@ from ownvitals.auth.sessions import (
     rotate_session,
     start_session,
 )
-from ownvitals.auth.tables import identities, invites, pending_signups, users
+from ownvitals.auth.tables import pending_signups, users
 from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
 from ownvitals.flags import effective as flags
@@ -69,12 +74,6 @@ class Outcome:
     mail: MailMessage | None = None
     next: str = ""  # "signed_in", "linked", "reauthed" or "email_needed"
     why: str = ""  # a refusal's fixed word for the log line, never a claim value
-
-
-class Refused(Exception):
-    def __init__(self, code: str) -> None:
-        super().__init__(code)
-        self.code = code
 
 
 def _fail(code: str, why: str = "") -> Outcome:
@@ -177,19 +176,6 @@ async def _reauth(db: AsyncSession, req: Request) -> Outcome:
     return Outcome("ok", issued=issued, next="reauthed")
 
 
-async def _invite_valid(db: AsyncSession, invite_id: UUID | None) -> bool:
-    if invite_id is None:
-        return False
-    found = await db.execute(
-        select(invites.c.id).where(
-            invites.c.id == invite_id,
-            invites.c.used_at.is_(None),
-            invites.c.expires_at > func.now(),
-        )
-    )
-    return found.first() is not None
-
-
 async def _sign_in(db: AsyncSession, req: Request) -> Outcome:
     provider, ident, settings = req.flow.provider, req.identity, req.settings
     owner = await identity_owner(db, provider, ident.subject)
@@ -211,7 +197,7 @@ async def _sign_in(db: AsyncSession, req: Request) -> Outcome:
     mode = await flags.signup_mode(db, settings.signup_mode)
     if mode == "closed" or req.flow.invite_id is None:
         return _fail("invite_required", "signup_closed" if mode == "closed" else "no_invite")
-    if not await _invite_valid(db, req.flow.invite_id):
+    if not await invite_valid(db, req.flow.invite_id):
         return _fail("invite_invalid", "invite_gone")
     if ident.email_verified and ident.email:
         return await _create_account(db, req, ident.email)
@@ -233,46 +219,6 @@ async def _session_for(db: AsyncSession, req: Request, user_id: UUID) -> Outcome
         db, "sign_in", user_id=user_id, ip=req.ip, detail={"provider": req.flow.provider}
     )
     return Outcome("ok", issued=issued, device_token=device, next="signed_in")
-
-
-async def consume_invite(db: AsyncSession, invite_id: UUID | None) -> None:
-    """The conditional ``UPDATE`` of a provider sign-up. An invite the flow or hand-off carried
-    is consumed whatever the sign-up mode is by then, so it cannot be used again. Raises
-    ``Refused('invite_invalid')`` when the invite is gone; the caller's savepoint rolls
-    everything back."""
-    if invite_id is None:
-        return
-    if not await use_invite(db, invite_id):
-        raise Refused("invite_invalid")
-
-
-async def create_provider_account(
-    db: AsyncSession,
-    settings: Settings,
-    *,
-    invite_id: UUID | None,
-    email: str,
-    provider: str,
-    subject: str,
-) -> UUID:
-    """One savepoint: consume the invite, create the user (verified) and the identity.
-    Raises ``Refused`` with ``invite_invalid`` or ``account_exists``; nothing is left behind."""
-    try:
-        async with db.begin_nested():
-            await consume_invite(db, invite_id)
-            user_id = await create_user(db, email)
-            await db.execute(
-                insert(identities).values(
-                    user_id=user_id, provider=provider, subject=subject, email_at_link=email
-                )
-            )
-            if invite_id is not None:
-                await db.execute(
-                    update(invites).where(invites.c.id == invite_id).values(used_by=user_id)
-                )
-    except IntegrityError:
-        raise Refused("account_exists") from None  # never chained: DETAIL holds the address
-    return user_id
 
 
 async def _create_account(db: AsyncSession, req: Request, email: str) -> Outcome:
