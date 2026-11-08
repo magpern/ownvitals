@@ -60,9 +60,12 @@ FIELDS = frozenset(
     }
 )
 
+# Fields added after the split, each with its issue.
+ADDED = frozenset({"locales"})  # issue 249: OWNVITALS_LOCALES (ADR 0015 section 1)
+
 
 def test_the_field_set_is_unchanged_by_the_split() -> None:
-    assert set(Settings.model_fields) == FIELDS
+    assert set(Settings.model_fields) == FIELDS | ADDED
 
 
 def test_every_field_reads_its_prefixed_environment_variable() -> None:
