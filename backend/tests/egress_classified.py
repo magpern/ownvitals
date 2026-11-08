@@ -360,8 +360,9 @@ CODE_STRINGS: frozenset[tuple[str, str]] = frozenset(
         ("ownvitals.mail", "MailMessage(...)"),  # MailMessage.__repr__: never evaluated
         ("ownvitals.mail", "Mailer(...)"),  # Mailer.__repr__: never evaluated
         ("ownvitals.auth.keys", "Keys(...)"),  # Keys.__repr__: never evaluated
-        ("ownvitals.auth.tables", "gen_random_uuid()"),  # a SQL server default, sent to Postgres
-        ("ownvitals.auth.tables", "now()"),  # a SQL server default, sent to Postgres
+        # SQL server defaults, sent to Postgres (moved from ``auth.tables`` in #249).
+        ("ownvitals.auth.table_base", "gen_random_uuid()"),
+        ("ownvitals.auth.table_base", "now()"),
         # The ECG record's key for its module versions (``ecg/pipeline.py`` writes it), read
         # with ``Mapping.get`` by the overlay's gate check (#190): a JSON key, never evaluated.
         ("ownvitals.ecg.overlay", "modules"),

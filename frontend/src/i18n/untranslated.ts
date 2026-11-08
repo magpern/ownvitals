@@ -2,4 +2,14 @@
 // ("auth.signIn.forgot"). A screen PR that adds English keys lists them here; the translation
 // PR (G6) empties the list. catalogue.test.ts fails when a listed key is already translated, and
 // when an unlisted key is not.
-export const UNTRANSLATED: readonly string[] = ['common', 'errors', 'codes', 'health', 'auth', 'security', 'shell', 'ui']
+export const UNTRANSLATED: readonly string[] = [
+  'common',
+  'errors',
+  'codes',
+  'health',
+  'auth',
+  'account',
+  'security',
+  'shell',
+  'ui',
+]

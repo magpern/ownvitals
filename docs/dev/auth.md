@@ -13,7 +13,7 @@ say ownvitals. The "Ported unchanged" table of ownvitals' ADR 0003 §1 maps them
 | Path | What |
 |---|---|
 | `backend/migrations/versions/0005_auth.py` | the twelve account tables (system tables, ADR 0002 §3) and the owner foreign keys of `jobs` and `job_events` to `users` (`ON DELETE CASCADE`) |
-| `backend/src/ownvitals/auth/tables.py` | the same tables in SQLAlchemy Core; `test_auth_schema.py` holds the migration to it |
+| `backend/src/ownvitals/auth/tables.py` | the same tables in SQLAlchemy Core (the passkey and QR tables in `tables_passkeys.py`, the `MetaData` and column helpers in `table_base.py`, #249); `test_auth_schema.py` holds the migration to it |
 | `backend/src/ownvitals/auth/setup.py` | `install` (routers, the Origin/CSRF middleware, error handlers) and `attach_state`/`detach_state` (keys, hasher, OAuth runtime, mail hooks), called by `ownvitals.web` |
 | `backend/src/ownvitals/auth/deps.py` | the only web issuer of a `UserContext` (`require_user` and the others), `request_ip`, and `session_probe` for the jobs event stream |
 | `backend/src/ownvitals/auth/userlock.py` | the user-row lock every sign-in, link, reset and revoke takes first ("Lock order" below) |
@@ -58,6 +58,9 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   `purge_interval_seconds`, `smtp_total_seconds`.
 - `oauth_google_client_id`, and the secret file `oauth_google_client_secret`. Google is on only
   when both exist.
+- `locales` (`OWNVITALS_LOCALES`, default `en,sv`; `config_auth.py`): the languages the operator
+  enables. `en` is always on; a code that is not in the manifest is dropped, so the setting can
+  switch a supported language off and never add one ("Language" below).
 - The secret file `app_secret_key` (at least 32 bytes). Web refuses to start without it; the
   keys of ADR 0003 §1 ("Derived keys") come from it.
 
@@ -126,6 +129,38 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   password first when re-authentication is wanted, "Use Google instead" when Google is linked,
   then the code), then tries again. `pages/SecurityPage.tsx` is the Security tab's "Where you're
   signed in" with "Sign out everywhere…".
+
+## Language (#249)
+
+The account's language (ADR 0015 §1 and §2). `users.locale`, `pending_signups.locale` and
+`oauth_flows.locale` (migration `0017_account_locale`) are `NULL` or a code of the
+`CHECK (locale IN ('en', 'sv'))` allowlist (`tables.LOCALE_CHECK`); the migration that adds a
+language widens all three. `NULL` means "follow this browser": existing accounts and those made
+by the CLI or an admin (`accounts.create_user` without `locale`). The outbox is not changed (§7).
+
+- **Supported and offered.** `ownvitals/locales.py` reads `frontend/src/i18n/locales.json` as
+  `SUPPORTED_LOCALES` (the image carries it at `/app/locales.json`, `Dockerfile`). A language is
+  offered when it is supported and enabled (`locales` setting above). The decisions are pure,
+  in `ownvitals/locale_policy.py`; `auth/locale.py` binds them to a request.
+- **Request locale:** the body's optional `locale` field if offered, else `Accept-Language`
+  (only its first 256 bytes and 8 entries; matched by primary subtag, `sv-SE` is `sv`; `q=0` or a
+  malformed `q` drops an entry; malformed input falls back and never errors), else `en`.
+- **`PUT /api/account/locale`** (`auth/locale_routes.py`): `{"locale": "sv" | "en" | null}`,
+  behind `require_user` (a full session; the gate and the middleware's Origin and CSRF checks like
+  every other write). Not a step-up action. A value that is not offered, or not a string, is
+  `400 locale_not_offered` and is never echoed. It writes only the caller's own row: one
+  `UPDATE users ... WHERE id = <ctx.user_id> AND disabled_at IS NULL`, the transaction's only
+  statement, so it takes the user row first as the lock order requires.
+- **Session:** `GET /api/auth/session` returns `user.locale`, the stored value while it is still
+  offered, else `null`.
+- **Sign-up** stores the language in effect, through `for_new_account` (`NULL` while only one
+  language is offered, so those accounts are not pinned to it): email sign-up through the pending
+  row into `users.locale` at the confirmation; Google through the OAuth flow row at `start` (only
+  for `sign_in`; `link` and `reauth` flows store `NULL`), then into `users.locale` at the callback
+  (`oauth_outcomes._create_account`) or through the hand-off's pending row
+  (`oauth_handoff.confirm_provider_signup`). A stored value is re-checked against the offered set
+  when the account is created. The flow's state, nonce and PKCE handling are unchanged.
+- **Tests:** `tests/test_account_locale.py`.
 
 ## Lock order (#248)
 

@@ -34,6 +34,7 @@ AUTH: Final = frozenset(
         "invalid_token",
         "invite_invalid",
         "last_sign_in_method",
+        "locale_not_offered",
         "mfa_required",
         "name_invalid",
         "no_passkeys",

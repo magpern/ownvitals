@@ -14,6 +14,7 @@ from ownvitals.auth.admin_routes import router as admin_router
 from ownvitals.auth.email_routes import router as email_router
 from ownvitals.auth.identity_routes import router as identity_router
 from ownvitals.auth.keys import Keys
+from ownvitals.auth.locale_routes import router as locale_router
 from ownvitals.auth.mfa_routes import router as mfa_router
 from ownvitals.auth.mfa_verify_routes import router as mfa_verify_router
 from ownvitals.auth.middleware import AuthMiddleware
@@ -48,6 +49,7 @@ SECRET_INPUT_PATHS = ("/api/auth/", "/api/connections", "/api/jobs")
 def install(app: FastAPI) -> None:
     """Routes, the Origin/CSRF middleware and the 429 and 503 handlers."""
     app.include_router(router)
+    app.include_router(locale_router)  # PUT /api/account/locale (#249)
     for flow in (signup_router, signin_router, reset_router, email_router):
         app.include_router(flow)
     app.include_router(mfa_router)

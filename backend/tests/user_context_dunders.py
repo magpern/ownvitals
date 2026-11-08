@@ -174,6 +174,12 @@ ALLOWED: dict[str, Allowed] = {
     "__version__": Allowed(
         "the package version", _forms("define", "import", "name"), _modules("__init__.py", "web.py")
     ),
+    "__file__": Allowed(
+        "the locale manifest's path, found from the package's own location (ADR 0015 section 1, "
+        "issue 249)",
+        _forms("name"),
+        _modules("locales.py"),
+    ),
     "__code__": Allowed(
         "the egress hook recognises `socket.socketpair`'s own code",
         _forms("getattr:getattr(socket.socketpair, '__code__', None)"),

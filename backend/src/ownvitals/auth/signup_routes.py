@@ -25,10 +25,12 @@ from ownvitals.auth.deps import request_ip
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import EmailAddress, factory, mailer, reserve
 from ownvitals.auth.keys import new_token, token_hash
+from ownvitals.auth.locale import for_new_account, still_offered
 from ownvitals.auth.oauth_handoff import confirm_provider_signup
 from ownvitals.auth.passwords import PasswordRuleError, normalize_password
 from ownvitals.auth.ratelimit import SIGN_IN_IP, SIGNUP_ADDRESS, SIGNUP_IP, Bucket, password_buckets
 from ownvitals.auth.tables import invites, pending_signups
+from ownvitals.config import Settings
 from ownvitals.db import system_session
 from ownvitals.emailnorm import normalize_email
 from ownvitals.flags import effective as flags
@@ -44,6 +46,7 @@ class SignUpIn(BaseModel):
     email: EmailAddress
     password: str = Field(max_length=FIELD_MAX)
     invite_code: str | None = Field(default=None, max_length=FIELD_MAX)
+    locale: str | None = Field(default=None, max_length=FIELD_MAX)  # the page's (ADR 0015 §2)
 
 
 class ConfirmIn(BaseModel):
@@ -115,6 +118,7 @@ async def sign_up(body: SignUpIn, request: Request, background: BackgroundTasks)
                     email_normalized=normalized,
                     password_hash=password_hash,
                     invite_id=invite_id,
+                    locale=for_new_account(request, body.locale),
                     expires_at=func.now() + CONFIRMATION_LIFETIME,
                 )
             )
@@ -176,14 +180,15 @@ async def confirm_sign_up(
     await attempt.succeed()
     try:
         async with system_session(factory(request)) as db:
-            await _create_account(db, digest, ip)
+            await _create_account(db, request.app.state.settings, digest, ip)
     except _Refused as exc:
         raise refuse(exc.status, exc.reason) from None
     return Created()
 
 
-async def _create_account(db: AsyncSession, digest: bytes, ip: str) -> None:
-    """One transaction: consume the pending row, consume the invite, create the user."""
+async def _create_account(db: AsyncSession, settings: Settings, digest: bytes, ip: str) -> None:
+    """One transaction: consume the pending row, consume the invite, create the user (with the
+    sign-up's language while it is still offered)."""
     pending = (
         await db.execute(
             delete(pending_signups)
@@ -195,6 +200,7 @@ async def _create_account(db: AsyncSession, digest: bytes, ip: str) -> None:
                 pending_signups.c.email_normalized,
                 pending_signups.c.password_hash,
                 pending_signups.c.invite_id,
+                pending_signups.c.locale,
             )
         )
     ).first()
@@ -205,7 +211,12 @@ async def _create_account(db: AsyncSession, digest: bytes, ip: str) -> None:
     created = None
     try:
         async with db.begin_nested():
-            created = await create_user(db, pending.email, password_hash=pending.password_hash)
+            created = await create_user(
+                db,
+                pending.email,
+                password_hash=pending.password_hash,
+                locale=still_offered(settings, pending.locale),
+            )
     except IntegrityError:
         pass  # never logged or chained: its DETAIL can hold the address
     if created is None:

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ownvitals.auth.cookies import CSRF_COOKIE, clear_session_cookie, set_csrf_cookie
 from ownvitals.auth.deps import current_session, request_ip, require_stepup, require_user
 from ownvitals.auth.events import record_event
+from ownvitals.auth.locale import user_locale
 from ownvitals.auth.middleware import csrf_token_for_session
 from ownvitals.auth.sessions import (
     SessionInfo,
@@ -36,6 +37,9 @@ class UserOut(BaseModel):
     id: UUID
     email: str
     role: str
+    # The account's language while the operator offers it; null follows the browser (ADR 0015
+    # section 2). Only the caller's own row is read.
+    locale: str | None = None
 
 
 class SessionOut(BaseModel):
@@ -89,10 +93,12 @@ async def get_session(
     value of the anonymous ``__Host-ownvitals_csrf`` cookie, which is set here if missing.
     """
     if info is not None:
+        async with system_session(_factory(request)) as db:
+            locale = await user_locale(db, request.app.state.settings, info.user_id)
         return SessionState(
             authenticated=True,
             csrf_token=csrf_token_for_session(request.app.state.keys, info.id),
-            user=UserOut(id=info.user_id, email=info.email, role=info.role),
+            user=UserOut(id=info.user_id, email=info.email, role=info.role, locale=locale),
             session=SessionOut(
                 id=info.id,
                 expires_at=info.expires_at,

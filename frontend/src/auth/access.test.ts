@@ -5,7 +5,7 @@ import { accessOf, isAdmin, pathFor, withReturnTo } from './access'
 function state(overrides: Partial<SessionState> = {}, mfa = true): SessionState {
   return {
     authenticated: true,
-    user: { id: 'u1', email: 'ann@example.test', role: 'user' },
+    user: { id: 'u1', email: 'ann@example.test', role: 'user', locale: null },
     session: { id: 's1', expiresAt: '2030-01-01T00:00:00Z', recentAuth: true, mfa, stepup: mfa },
     totpEnabled: true,
     ...overrides,
@@ -48,7 +48,7 @@ describe('pathFor and withReturnTo', () => {
 })
 
 describe('isAdmin', () => {
-  const as = (role: string) => state({ user: { id: 'u1', email: 'ann@example.test', role } })
+  const as = (role: string) => state({ user: { id: 'u1', email: 'ann@example.test', role, locale: null } })
 
   it('is true for the admin role only', () => {
     expect(isAdmin(as('admin'))).toBe(true)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from 'react'
-import { listSessions, logoutEverywhere, revokeSession, type SessionItem } from '../api/auth'
+import { listSessions, logoutEverywhere, revokeSession, setAccountLocale, type SessionItem } from '../api/auth'
 import { errorMessage } from '../api/messages'
 import { SIGN_IN_PATH } from '../auth/access'
 import { useSession } from '../auth/SessionContext'
@@ -10,14 +10,15 @@ import { Card, ComingLater } from '../components/ui/Card'
 import { StatePill } from '../components/ui/DataState'
 import { Icon } from '../components/ui/Icon'
 import { getLocale, plural, t as translate, useT } from '../i18n'
-import type { Locale } from '../i18n/locale'
+import { LOCALES, LOCALE_NAMES, isLocale, type Locale } from '../i18n/locale'
 import { browserZone, formatDateOfInstant, formatTime } from '../lib/format'
 import { useRouter } from '../router/Router'
 
 // "Sign-in and security" (/settings/security; docs/design/mockups/src/Security.dc.html). #11
 // builds the lock band, "Where you're signed in" (with "Sign out everywhere…" behind the shared
 // "Confirm it's you" dialog) and nothing else: the other cards of the mock-up stay "Coming later"
-// until their issue (Architect, #11).
+// until their issue (Architect, #11). The account's language (ADR 0015 section 2, issue 249) is a
+// row of the first card until Settings → Profile exists (issue 203).
 
 /** "Firefox on Windows", from the browser's user agent (shown only to its own user). */
 export function deviceName(userAgent: string | null): string {
@@ -74,9 +75,63 @@ export function SecurityPage() {
         {t('security.band')}
       </p>
       <Card>
+        <AccountLanguage />
         <ComingLater label={t('security.laterLabel')}>{t('security.later')}</ComingLater>
       </Card>
       <SignedInSessions />
+    </div>
+  )
+}
+
+/** The account's language: "This browser's language" (null) or a code; applied at once. */
+function AccountLanguage() {
+  const t = useT()
+  const id = useId()
+  const { session, refresh } = useSession()
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+
+  const choose = (raw: string) => {
+    setBusy(true)
+    setNote(null)
+    setAccountLocale(isLocale(raw) ? raw : null)
+      .then(async () => {
+        await refresh() // the session carries the value, and the page follows it
+        setNote({ kind: 'success', text: translate('account.language.saved') })
+      })
+      .catch((caught: unknown) => {
+        setNote({ kind: 'error', text: errorMessage(caught) })
+      })
+      .finally(() => {
+        setBusy(false)
+      })
+  }
+
+  return (
+    <div className="ov-setting">
+      <div className="ov-setting__what">
+        <label className="ov-setting__label" htmlFor={id}>
+          {t('account.language.label')}
+        </label>
+        <p>{t('account.language.help')}</p>
+        {note !== null ? <Notice kind={note.kind}>{note.text}</Notice> : null}
+      </div>
+      <select
+        id={id}
+        className="ov-input"
+        value={session?.user?.locale ?? ''}
+        disabled={busy}
+        onChange={(event) => {
+          choose(event.target.value)
+        }}
+      >
+        <option value="">{t('account.language.followBrowser')}</option>
+        {LOCALES.map((code) => (
+          <option key={code} value={code} lang={code}>
+            {LOCALE_NAMES[code]}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }

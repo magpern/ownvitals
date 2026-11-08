@@ -22,6 +22,7 @@
   "key_unavailable",
   "last_sign_in_method",
   "lease_lost",
+  "locale_not_offered",
   "mfa_required",
   "name_invalid",
   "needs_reconnect",

@@ -130,6 +130,7 @@ describe('Continue with Google', () => {
       purpose: 'sign_in',
       invite_code: 'abc',
       return_to: '/metrics',
+      locale: 'en', // the language in effect, kept on the flow (#249)
     })
   })
 
@@ -192,6 +193,7 @@ describe('sign-up and the email verification notice', () => {
       email: 'ann@example.test',
       password: 'correct horse battery',
       invite_code: 'abc',
+      locale: 'en', // the language in effect becomes the account's (#249)
     })
   })
 

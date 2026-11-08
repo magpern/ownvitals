@@ -45,7 +45,9 @@ from ownvitals.auth.deps import (
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import factory, mailer, reserve, user_agent
 from ownvitals.auth.keys import token_hash
+from ownvitals.auth.locale import for_new_account
 from ownvitals.auth.oauth_client import OAuthRuntime, ProviderError, authorization_url, identify
+from ownvitals.auth.oauth_errors import OAUTH_ERRORS
 from ownvitals.auth.oauth_outcomes import Outcome, apply, has_password
 from ownvitals.auth.oauth_outcomes import Request as OutcomeRequest
 from ownvitals.auth.oauth_store import Flow, create_flow, safe_return_to, take_flow
@@ -61,34 +63,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["auth"])
 
 FIELD_MAX = 1024
-# RFC 6749 4.1.2.1 and OIDC Core 3.1.2.6: the ``error`` values logged by name; any other is
-# logged as ``unrecognized`` (the query is the browser's, so its text is never logged).
-OAUTH_ERRORS = frozenset(
-    {
-        "invalid_request",
-        "unauthorized_client",
-        "access_denied",
-        "unsupported_response_type",
-        "invalid_scope",
-        "server_error",
-        "temporarily_unavailable",
-        "interaction_required",
-        "login_required",
-        "account_selection_required",
-        "consent_required",
-        "invalid_request_uri",
-        "invalid_request_object",
-        "request_not_supported",
-        "request_uri_not_supported",
-        "registration_not_supported",
-    }
-)
 
 
 class StartIn(BaseModel):
     purpose: Literal["sign_in", "link", "reauth"] = "sign_in"
     invite_code: str | None = Field(default=None, max_length=FIELD_MAX)
     return_to: str | None = Field(default=None, max_length=FIELD_MAX)
+    locale: str | None = Field(default=None, max_length=FIELD_MAX)  # the page's (ADR 0015 §2)
 
 
 class StartOut(BaseModel):
@@ -153,6 +134,7 @@ async def start(
             user_id=user_id,
             invite_id=invite_id,
             return_to=safe_return_to(body.return_to),
+            locale=for_new_account(request, body.locale) if body.purpose == "sign_in" else None,
         )
     set_oauth_cookie(response, flow.cookie)
     return StartOut(

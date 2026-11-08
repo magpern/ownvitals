@@ -47,6 +47,8 @@ COPY backend/migrations ./migrations
 COPY backend/src ./src
 # The built single-page app, owned by root: web serves it, the app user cannot change it.
 COPY --from=spa /spa/dist ./static
+# The locale manifest the backend reads as SUPPORTED_LOCALES (ADR 0015 section 1; ownvitals.locales).
+COPY --from=spa /spa/src/i18n/locales.json ./locales.json
 # The database functions and their runner script (compose's db-functions one-shot): installed from
 # the release image, never from the host, so a rollback re-installs the previous release's
 # functions (docs/dev/deploy.md, "Database functions"). 30-maint.sql, then 40-withings.sql, then

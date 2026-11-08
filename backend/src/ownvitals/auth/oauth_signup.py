@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth.accounts import create_user, use_invite
+from ownvitals.auth.locale import still_offered
 from ownvitals.auth.tables import identities, invites
 from ownvitals.config import Settings
 
@@ -52,13 +53,15 @@ async def create_provider_account(
     email: str,
     provider: str,
     subject: str,
+    locale: str | None = None,
 ) -> UUID:
-    """One savepoint: consume the invite, create the user (verified) and the identity.
+    """One savepoint: consume the invite, create the user (verified, with the sign-up's
+    ``locale`` if it is still offered) and the identity.
     Raises ``Refused`` with ``invite_invalid`` or ``account_exists``; nothing is left behind."""
     try:
         async with db.begin_nested():
             await consume_invite(db, invite_id)
-            user_id = await create_user(db, email)
+            user_id = await create_user(db, email, locale=still_offered(settings, locale))
             await db.execute(
                 insert(identities).values(
                     user_id=user_id, provider=provider, subject=subject, email_at_link=email

@@ -61,6 +61,7 @@ class Flow:
     user_id: UUID | None
     invite_id: UUID | None
     return_to: str | None
+    locale: str | None  # a sign-in's language at the start (ADR 0015 section 2), else None
 
     def state_matches(self, state: str) -> bool:
         return hmac.compare_digest(self.state_hash, token_hash(state))
@@ -74,6 +75,7 @@ async def create_flow(
     user_id: UUID | None,
     invite_id: UUID | None,
     return_to: str | None,
+    locale: str | None = None,
 ) -> NewFlow:
     flow = NewFlow(
         cookie=new_token(),
@@ -92,6 +94,7 @@ async def create_flow(
             user_id=user_id,
             invite_id=invite_id,
             return_to=return_to,
+            locale=locale,
             expires_at=func.now() + FLOW_LIFETIME,
         )
     )
@@ -116,6 +119,7 @@ async def take_flow(db: AsyncSession, cookie: str) -> Flow | None:
                 oauth_flows.c.user_id,
                 oauth_flows.c.invite_id,
                 oauth_flows.c.return_to,
+                oauth_flows.c.locale,
             )
         )
     ).first()
