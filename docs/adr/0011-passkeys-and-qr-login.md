@@ -515,3 +515,52 @@ stand except where this section says otherwise; status stays Proposed.
   refusal. Neither holds a nonce, a code, a cookie or a token.
 - **Test names.** The proofs named `test_qr_login*.py` and `test_geo_source.py` are
   `test_auth_qrlogin*.py` (the auth suites' naming).
+
+## Amendment (2026-11-08): a shorter session after a cross-device passkey sign-in (#252)
+
+Roadmap Amendment 7, wave 3; ports classbeat #776 (its ADR 0019, owner question 4). Amends
+section 3 and, for the session limits, ADR 0003 §3. Status stays Proposed.
+
+- **The rule.** A passkey sign-in whose authenticator is not this device's own (a phone over
+  the hybrid transport, "Use a phone"; a security key) may be on a shared or borrowed computer.
+  Its session gets **24 hours absolute** (from the sign-in) and **1 hour idle**, or the settings'
+  `session_absolute_days` and `session_idle_hours` where those are shorter, instead of 30 days
+  and 72 hours. A same-device sign-in is unchanged.
+- **Detection** (`passkey_model.is_cross_device`, pure). An assertion carries the browser's
+  `authenticatorAttachment` but no transports, so the transports are those the browser listed
+  when the credential was registered (`webauthn_credentials.transports`). A sign-in is
+  same-device only when the attachment is exactly `platform` **and** the registered transports
+  include `internal`. Everything else is cross-device: `cross-platform`, a missing attachment,
+  and a `platform` claim the transports contradict (registered without `internal`, or with no
+  transports at all). Both inputs are client-reported and unsigned, so they only ever make the
+  session stricter, never looser: a client that lies `platform` for a credential registered with
+  `internal` gets what a same-device sign-in gets, nothing more. A browser that reports no
+  transports at registration gets the short session for that passkey; that is the fail-closed
+  cost.
+- **Mechanism.** The session is marked `sessions.origin = 'passkey_cross_device'` (migration
+  `0018_cross_device_session` widens the `origin` check; no new column) and its `expires_at` is
+  capped with `least(expires_at, now() + 24 h)` in the sign-in's own transaction
+  (`session_cross_device.mark_cross_device`), so a shorter expiry inherited from the browser's
+  previous session of the same user is kept. Every rotation (TOTP, re-auth, step-up) carries
+  `origin` and `expires_at` over, so the limits last for the life of the session. The idle rule
+  is read per row in `session_resolve`, the session list and the purge
+  (`session_model.idle_limit`, `session_cross_device.idle_cutoff`). A later same-device sign-in
+  in that browser starts an ordinary session (it inherits the shorter `expires_at`, never a
+  longer one).
+- **No known device.** A cross-device sign-in does not make the browser a known device and sets
+  no device cookie (classbeat #776), so the per-account rate-limit bucket keeps treating it as
+  unknown.
+- **No QR approval.** `may_approve_qr` stays `origin = 'signin'`, so a cross-device session can't
+  approve a QR login (section 5): a possibly shared computer doesn't vouch for another device.
+- **Unchanged.** Mandatory TOTP: a cross-device passkey session still owes its TOTP and is full
+  only after it (section 3; a passkey is not the second factor). A passkey re-auth on an
+  existing session doesn't change its limits (classbeat left the cross-platform re-auth cap
+  open too).
+- **Audit.** `passkey_signin` carries `detail.cross_device: true` for such a sign-in (classbeat
+  #795, W9).
+
+Proved by: `test_auth_cross_device_model.py` (the detection table, the limits, the idle limit
+per origin, no QR approval), `test_auth_passkeys_cross_device.py` (same-device vs hybrid
+limits, a contradicted claim, missing attachment and empty transports fail closed, no device
+cookie, a rotation keeps the limits, the one-hour idle in resolve, list and purge, an inherited
+shorter expiry kept).

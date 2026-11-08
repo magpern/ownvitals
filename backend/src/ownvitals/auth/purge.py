@@ -36,6 +36,7 @@ from ownvitals.auth.disconnect_job import (  # noqa: F401 - re-exported
     session_stepped_up,
 )
 from ownvitals.auth.qrlogin import expire_overdue, last_deadline
+from ownvitals.auth.session_cross_device import idle_cutoff
 from ownvitals.auth.tables import (
     auth_events,
     auth_tokens,
@@ -112,13 +113,12 @@ async def purge_expired(
     - ``known_devices``: unused for 90 days;
     - ``auth_events``: older than 30 days.
     """
-    idle = timedelta(hours=settings.session_idle_hours)
     now = func.now()
     statements = {
         "sessions": delete(sessions).where(
             or_(
                 sessions.c.expires_at <= now,
-                sessions.c.last_seen_at <= now - idle,
+                sessions.c.last_seen_at <= idle_cutoff(settings),  # per origin (#252)
                 # never passed its second factor, ten minutes after its latest proof.
                 # A timestamp after now does not count.
                 and_(

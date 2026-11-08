@@ -8,6 +8,7 @@ import base64
 import binascii
 import json
 import unicodedata
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
@@ -129,3 +130,18 @@ def read_client_data(encoded: str, expected_type: str, rp: RelyingParty) -> byte
     if len(decoded) != CHALLENGE_BYTES:
         raise PasskeyFailure("client_data")
     return decoded
+
+
+def is_cross_device(attachment: str | None, transports: Collection[str]) -> bool:
+    """Whether a sign-in gets the shorter cross-device session (ADR 0011 section 3, amendment
+    of 2026-11-08). ``attachment`` is the assertion's ``authenticatorAttachment``; an
+    assertion carries no transports, so ``transports`` are those the browser listed when the
+    credential was registered.
+
+    Both are client-reported and unsigned, so they only ever make the session stricter. It is a
+    same-device sign-in only when the browser says ``platform`` **and** the credential was
+    registered with the ``internal`` transport (this device's own authenticator). Anything else
+    is cross-device: ``cross-platform`` (a phone over the hybrid transport, a security key), a
+    missing attachment, or a ``platform`` claim the transports contradict (a credential
+    registered without ``internal``, or with no transports at all)."""
+    return not (attachment == "platform" and "internal" in transports)

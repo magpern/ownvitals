@@ -17,6 +17,8 @@ issue. The rest of the account system is in [auth.md](auth.md).
 | `backend/src/ownvitals/auth/passkey_routes.py` | `/api/auth/passkeys`: list, rename, remove, register |
 | `backend/src/ownvitals/auth/passkey_signin_routes.py` | `/api/auth/passkeys`: sign-in |
 | `backend/src/ownvitals/auth/passkey_reauth_routes.py` | `/api/auth/passkeys`: re-auth |
+| `backend/src/ownvitals/auth/session_cross_device.py` | marks a cross-device sign-in's session and caps it; the per-origin idle rule in SQL for the session list and the purge |
+| `backend/migrations/versions/0018_cross_device_session.py` | adds `passkey_cross_device` to the `sessions.origin` check |
 | `backend/src/ownvitals/auth/presession.py` | the pre-session cookie `__Host-ownvitals_pre` (section 4), shared with the QR issue |
 | `backend/tests/passkeytools.py` | `SoftAuthenticator`: a software authenticator with synthetic keys (ES256, Ed25519, and ES384 for the refusal test) that can break each part of a response |
 
@@ -77,6 +79,13 @@ answers 404 `passkeys_unavailable`; locally, use `http://localhost:<port>`.
   public suffix can only be configured as `webauthn_rp_id` if `public_base_url`'s host is under
   it, and browsers refuse a public-suffix rp id, so such a setting fails closed: no passkey can
   be registered or used.
+- **Cross-device sign-in** (ADR 0011, amendment of 2026-11-08, #252). Unless the assertion
+  says `authenticatorAttachment: "platform"` and the credential was registered with the
+  `internal` transport, the sign-in is cross-device (`passkey_model.is_cross_device`): its
+  session has `origin = 'passkey_cross_device'`, at most 24 hours absolute and 1 hour idle
+  (`session_model.CROSS_DEVICE_*`, or the settings if shorter), kept over every rotation
+  (`session_cross_device`); no known device or device cookie is made, the `passkey_signin`
+  event has `cross_device: true`, and the session can't approve a QR login.
 - **A password reset** keeps passkeys; its link mail lists them with a link to the Security page.
   A password change sends no mail today, so it lists nothing.
 
@@ -106,7 +115,8 @@ BSD-3-Clause). No network code of it runs: attestation is `none`, and it builds 
 ## Tests
 
 `tests/test_auth_passkeys_*.py` (options and settings, registration, sign-in, sign count,
-management and isolation, recovery and races, pre-session, schema, logging), and the two rows
+management and isolation, recovery and races, pre-session, schema, logging, cross-device,
+hardening), `tests/test_auth_cross_device_model.py` (pure), and the two rows
 of `test_auth_stepup.py`. The hybrid transport ("Use a phone") is not exercised in CI: the
 options test proves nothing restricts it, and the owner checks it on real devices (ADR 0011
 Consequences).

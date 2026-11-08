@@ -16,6 +16,19 @@ ADMIN_STEPUP_WINDOW = timedelta(minutes=5)
 # A session that has not passed its second factor lives this long after its latest proof (the
 # sign-in, or the step-up that removed the factor), then it is deleted (ADR 0003 section 2).
 PENDING_WINDOW = RECENT_AUTH_WINDOW
+# A passkey sign-in from another device (ADR 0011 section 3, amendment of 2026-11-08, #252): a
+# session that may sit on a shared computer. Its absolute and idle limits are these, or the
+# settings' if those are shorter; ``origin`` marks it for its whole life (every rotation).
+CROSS_DEVICE = "passkey_cross_device"
+CROSS_DEVICE_ABSOLUTE = timedelta(hours=24)
+CROSS_DEVICE_IDLE = timedelta(hours=1)
+Origin = Literal["signin", "qr_approval", "passkey_cross_device"]
+
+
+def idle_limit(configured: timedelta, origin: str) -> timedelta:
+    """The idle limit of a session born as ``origin``: ``configured`` (the setting), or at most
+    ``CROSS_DEVICE_IDLE`` for a cross-device passkey session."""
+    return min(configured, CROSS_DEVICE_IDLE) if origin == CROSS_DEVICE else configured
 
 
 class SessionGone(Exception):
@@ -40,8 +53,9 @@ class SessionInfo:
     totp_enabled: bool = False  # the account has a confirmed TOTP
     stepup_window: timedelta = STEPUP_WINDOW
     # ADR 0011 section 5: ``qr_approval`` for a session a phone approved (carried over every
-    # rotation), and whether ``mfa_at`` is still the code entered on that phone.
-    origin: Literal["signin", "qr_approval"] = "signin"
+    # rotation), and whether ``mfa_at`` is still the code entered on that phone. Section 3's
+    # 2026-11-08 amendment adds ``passkey_cross_device`` (``CROSS_DEVICE``).
+    origin: Origin = "signin"
     mfa_by_approval: bool = False
 
     @property
@@ -91,7 +105,8 @@ class SessionInfo:
     @property
     def may_approve_qr(self) -> bool:
         """A full session that was not itself born from a QR approval (no chaining from a
-        hijacked desktop, ADR 0011 section 5)."""
+        hijacked desktop, ADR 0011 section 5) nor from a cross-device passkey sign-in (a
+        possibly shared computer, section 3's 2026-11-08 amendment)."""
         return self.full and self.origin == "signin"
 
     @property

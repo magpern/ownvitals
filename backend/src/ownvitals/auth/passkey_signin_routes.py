@@ -4,7 +4,11 @@
   cookie (section 4) and are limited to 20 per 10 minutes per IP; a failed assertion counts in
   the sign-in buckets per IP and, once the credential names an account, per account. Every
   failure answers the same 401 ``passkey_failed`` (T9, T86). A passkey sign-in gives a session
-  that still owes its TOTP, like a password sign-in (section 3).
+  that still owes its TOTP, like a password sign-in (section 3). A cross-device one
+  (``passkeys.is_cross_device``: a phone over the hybrid transport, a security key, or a claim
+  that doesn't fit the registered transports) gets the shorter session of
+  ``session_cross_device``, no known-device cookie, and ``cross_device: true`` in its event
+  (section 3, amendment of 2026-11-08).
 - Re-authentication (``reauth/options``, ``reauth``, in ``passkey_reauth_routes``) sets
   ``reauth_at`` and rotates the session; it never counts as a step-up.
 - Every success and failure writes an ``auth_events`` row (section 9) holding kinds, row ids and
@@ -53,7 +57,7 @@ from ownvitals.auth.passkey_routes import (
     Short,
     rp_or_404,
 )
-from ownvitals.auth.passkeys import PasskeyFailure, b64url_decode
+from ownvitals.auth.passkeys import PasskeyFailure, b64url_decode, is_cross_device
 from ownvitals.auth.ratelimit import (
     PASSKEY_OPTIONS_IP,
     SIGN_IN_IP,
@@ -61,6 +65,7 @@ from ownvitals.auth.ratelimit import (
     Bucket,
     password_buckets,
 )
+from ownvitals.auth.session_cross_device import mark_cross_device
 from ownvitals.auth.sessions import (
     IssuedSession,
     start_session,
@@ -185,11 +190,17 @@ async def signin_finish(
             ip=ip,
             replacing_token=request_session_token(request),
         )
-        device = await remember_device(db, keys, stored.user_id, device_token)
+        detail: dict[str, Any] = {"passkey": str(stored.id)}
+        device = ""
+        if is_cross_device(body.credential.authenticatorAttachment, stored.transports):
+            # Client-reported, so it only ever makes the session stricter: 24 hours absolute,
+            # 1 hour idle, and the browser is not made a known device (ADR 0011 section 3).
+            issued = await mark_cross_device(db, issued)
+            detail["cross_device"] = True
+        else:
+            device = await remember_device(db, keys, stored.user_id, device_token)
         await presession.end(db, pre_token)
-        await record_event(
-            db, "passkey_signin", user_id=stored.user_id, ip=ip, detail={"passkey": str(stored.id)}
-        )
+        await record_event(db, "passkey_signin", user_id=stored.user_id, ip=ip, detail=detail)
         role = (
             await db.execute(select(users.c.role).where(users.c.id == stored.user_id))
         ).scalar_one()
@@ -215,6 +226,7 @@ async def signin_finish(
         return await _refused(request, background, exc, "passkey_signin_failed")
     await attempts[0].succeed()
     set_session_cookie(response, issued)
-    set_device_cookie(response, device)
+    if device:  # none after a cross-device sign-in
+        set_device_cookie(response, device)
     clear_pre_cookie(response)
     return signed_in
