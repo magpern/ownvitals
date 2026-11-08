@@ -1,7 +1,7 @@
 Content-Language: sv
-Subject: A new sign-in to ownvitals was approved from your phone
+Subject: En ny inloggning på ownvitals godkändes från din telefon
 
-A new sign-in to your ownvitals account was approved from your phone:
-Firefox on Linux (Synthetic place), as reported by that browser.
+En ny inloggning på ditt ownvitals-konto godkändes från din telefon:
+Firefox på Linux (Synthetic place), enligt den webbläsaren.
 
-If this wasn't you, sign that device out and change your password: https://ownvitals.example.test/settings/security
+Om det inte var du, logga ut den enheten och byt ditt lösenord: https://ownvitals.example.test/settings/security

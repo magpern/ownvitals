@@ -1,5 +1,5 @@
 Content-Language: sv
-Subject: Two-factor authentication was set up on your ownvitals account
+Subject: Tvåfaktorsautentisering har ställts in på ditt ownvitals-konto
 
-An authenticator app was enrolled (or replaced) on your ownvitals account.
-If this wasn't you, reset your password and contact the operator.
+En autentiseringsapp har registrerats (eller bytts ut) på ditt ownvitals-konto.
+Om det inte var du, återställ ditt lösenord och kontakta operatören.

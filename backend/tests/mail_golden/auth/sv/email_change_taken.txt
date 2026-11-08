@@ -1,8 +1,8 @@
 Content-Language: sv
-Subject: An ownvitals account already uses this address
+Subject: Ett ownvitals-konto använder redan den här adressen
 
-Someone asked to move an ownvitals account to this address, which already belongs to an account.
+Någon har bett om att flytta ett ownvitals-konto till den här adressen, som redan tillhör ett konto.
 
-Sign in: https://ownvitals.example.test/signin
+Logga in: https://ownvitals.example.test/signin
 
-If this wasn't you, ignore this mail.
+Om det inte var du kan du bortse från det här mejlet.

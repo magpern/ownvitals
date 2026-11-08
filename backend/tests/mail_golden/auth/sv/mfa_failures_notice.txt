@@ -1,5 +1,5 @@
 Content-Language: sv
-Subject: Failed two-factor attempts on your ownvitals account
+Subject: Misslyckade tvåfaktorsförsök på ditt ownvitals-konto
 
-There were five failed two-factor attempts on your ownvitals account within an hour.
-If this wasn't you, change your password.
+Det har gjorts fem misslyckade tvåfaktorsförsök på ditt ownvitals-konto inom en timme.
+Om det inte var du, byt ditt lösenord.

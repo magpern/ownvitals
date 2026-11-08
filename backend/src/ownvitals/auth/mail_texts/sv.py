@@ -1,115 +1,119 @@
 """The Swedish texts of the account mails (ADR 0015 section 7). Same keys and placeholders as
-``en``. Until the translation PR of G6 they are English copies, each listed in
-``untranslated.py``."""
+``en``; a test checks both. The glossary is in ``docs/dev/i18n.md``."""
 
 from types import MappingProxyType
 from typing import Final
 
 TEXTS: Final = MappingProxyType(
     {
-        "signup.subject": "Confirm your ownvitals account",
+        "signup.subject": "Bekräfta ditt ownvitals-konto",
         "signup.body": (
-            "Someone asked to create an ownvitals account with this address.\n\n"
-            "To finish, open this link (valid for 24 hours) and type the password you chose:\n"
+            "Någon har bett om att skapa ett ownvitals-konto med den här adressen.\n\n"
+            "För att slutföra, öppna den här länken (giltig i 24 timmar) och skriv det "
+            "lösenord du valde:\n"
             "{link}\n\n"
-            "If this wasn't you, ignore this mail. No account is created.\n"
+            "Om det inte var du kan du bortse från det här mejlet. Inget konto skapas.\n"
         ),
-        "provider_signup.subject": "Confirm your ownvitals account",
+        "provider_signup.subject": "Bekräfta ditt ownvitals-konto",
         "provider_signup.body": (
-            "Someone signed in with {provider} and asked to create an ownvitals account "
-            "with this address.\n\n"
-            "To finish, open this link in the same browser (valid for 24 hours):\n"
+            "Någon loggade in med {provider} och bad om att skapa ett ownvitals-konto "
+            "med den här adressen.\n\n"
+            "För att slutföra, öppna den här länken i samma webbläsare (giltig i 24 timmar):\n"
             "{link}\n\n"
-            "If this wasn't you, ignore this mail. No account is created.\n"
+            "Om det inte var du kan du bortse från det här mejlet. Inget konto skapas.\n"
         ),
-        "exists.subject": "You already have an ownvitals account",
+        "exists.subject": "Du har redan ett ownvitals-konto",
         "exists.body": (
-            "Someone asked to create an ownvitals account with this address, which already has "
-            "one.\n\n"
-            "Sign in: {signin}\n"
-            "Forgot your password? {reset}\n\n"
-            "If this wasn't you, ignore this mail.\n"
+            "Någon har bett om att skapa ett ownvitals-konto med den här adressen, som redan "
+            "har ett.\n\n"
+            "Logga in: {signin}\n"
+            "Glömt lösenordet? {reset}\n\n"
+            "Om det inte var du kan du bortse från det här mejlet.\n"
         ),
-        "reset.subject": "Reset your ownvitals password",
+        "reset.subject": "Återställ ditt ownvitals-lösenord",
         "reset.body": (
-            "{intro}To choose a new password, open this link (valid for 30 minutes):\n"
+            "{intro}För att välja ett nytt lösenord, öppna den här länken (giltig i 30 "
+            "minuter):\n"
             "{link}\n\n"
-            "Resetting signs you out everywhere. If this wasn't you, ignore this mail.\n"
+            "Återställningen loggar ut dig överallt. Om det inte var du kan du bortse från "
+            "det här mejlet.\n"
             "{passkeys}"
         ),
         "reset.after_mfa_reset": (
-            "The operator reset the two-factor authentication of your ownvitals account: "
-            "{removed}. Choose a new password with the link below, then set up two-factor "
-            "authentication again.\n\n"
+            "Operatören har återställt tvåfaktorsautentiseringen för ditt ownvitals-konto: "
+            "{removed}. Välj ett nytt lösenord med länken nedan och ställ sedan in "
+            "tvåfaktorsautentisering igen.\n\n"
         ),
-        "reset.removed.mfa": "your authenticator app and recovery codes were removed",
-        "reset.removed.passkey": "your passkey was removed",
-        "reset.removed.passkeys": "your passkeys were removed",
-        "reset.removed.google": "Google sign-in was unlinked",
-        "reset.removed.password": "your password was cleared",
-        "reset.removed.sessions": "you were signed out everywhere",
+        "reset.removed.mfa": "din autentiseringsapp och dina återställningskoder togs bort",
+        "reset.removed.passkey": "din passkey togs bort",
+        "reset.removed.passkeys": "dina passkeys togs bort",
+        "reset.removed.google": "inloggningen med Google kopplades bort",
+        "reset.removed.password": "ditt lösenord rensades",
+        "reset.removed.sessions": "du loggades ut överallt",
         "reset.passkeys_kept": (
-            "\nResetting the password keeps these passkeys on your account:\n"
+            "\nNär lösenordet återställs finns de här passkeys kvar på ditt konto:\n"
             "{names}"
-            "Review them on the Security page: {security}\n"
+            "Granska dem på säkerhetssidan: {security}\n"
         ),
-        "reset.passkey_line": "- {name} (added {date})\n",
+        "reset.passkey_line": "- {name} (tillagd {date})\n",
         "list.separator": ", ",
-        "list.last": " and ",
-        "email_change.subject": "Confirm your new ownvitals email address",
+        "list.last": " och ",
+        "email_change.subject": "Bekräfta din nya e-postadress för ownvitals",
         "email_change.body": (
-            "To use this address for your ownvitals account, sign in and open this link "
-            "(valid for 1 hour):\n{link}\n\n"
-            "If this wasn't you, ignore this mail.\n"
+            "För att använda den här adressen för ditt ownvitals-konto, logga in och öppna "
+            "den här länken (giltig i 1 timme):\n{link}\n\n"
+            "Om det inte var du kan du bortse från det här mejlet.\n"
         ),
-        "email_taken.subject": "An ownvitals account already uses this address",
+        "email_taken.subject": "Ett ownvitals-konto använder redan den här adressen",
         "email_taken.body": (
-            "Someone asked to move an ownvitals account to this address, which already belongs "
-            "to an account.\n\nSign in: {signin}\n\n"
-            "If this wasn't you, ignore this mail.\n"
+            "Någon har bett om att flytta ett ownvitals-konto till den här adressen, som "
+            "redan tillhör ett konto.\n\nLogga in: {signin}\n\n"
+            "Om det inte var du kan du bortse från det här mejlet.\n"
         ),
-        "email_changed.subject": "Your ownvitals email address was changed",
+        "email_changed.subject": "E-postadressen för ditt ownvitals-konto har ändrats",
         "email_changed.body": (
-            "The email address of your ownvitals account was changed. This is the old address.\n"
-            "If this wasn't you, contact the operator.\n"
+            "E-postadressen för ditt ownvitals-konto har ändrats. Det här är den gamla "
+            "adressen.\n"
+            "Om det inte var du, kontakta operatören.\n"
         ),
-        "totp_enrolled.subject": "Two-factor authentication was set up on your ownvitals account",
+        "totp_enrolled.subject": "Tvåfaktorsautentisering har ställts in på ditt ownvitals-konto",
         "totp_enrolled.body": (
-            "An authenticator app was enrolled (or replaced) on your ownvitals account.\n"
-            "If this wasn't you, reset your password and contact the operator.\n"
+            "En autentiseringsapp har registrerats (eller bytts ut) på ditt ownvitals-konto.\n"
+            "Om det inte var du, återställ ditt lösenord och kontakta operatören.\n"
         ),
-        "mfa_failures.subject": "Failed two-factor attempts on your ownvitals account",
+        "mfa_failures.subject": "Misslyckade tvåfaktorsförsök på ditt ownvitals-konto",
         "mfa_failures.body": (
-            "There were five failed two-factor attempts on your ownvitals account within an "
-            "hour.\n"
-            "If this wasn't you, change your password.\n"
+            "Det har gjorts fem misslyckade tvåfaktorsförsök på ditt ownvitals-konto inom en "
+            "timme.\n"
+            "Om det inte var du, byt ditt lösenord.\n"
         ),
-        "identity_linked.subject": "A sign-in method was added to your ownvitals account",
+        "identity_linked.subject": "En inloggningsmetod har lagts till på ditt ownvitals-konto",
         "identity_linked.body": (
-            "{provider} was linked to your ownvitals account as a way to sign in.\n"
-            "If this wasn't you, sign in, remove it from your account page and change your "
-            "password.\n"
+            "{provider} har kopplats till ditt ownvitals-konto som ett sätt att logga in.\n"
+            "Om det inte var du, logga in, ta bort den från din kontosida och byt "
+            "lösenord.\n"
         ),
-        "passkey_added.subject": "A passkey was added to your ownvitals account",
+        "passkey_added.subject": "En passkey har lagts till på ditt ownvitals-konto",
         "passkey_added.body": (
-            'A passkey named "{name}" was added to your ownvitals account as a way to sign in.\n'
-            "If this wasn't you, sign in, remove it on the Security page and change your "
-            "password.\n"
+            'En passkey med namnet "{name}" har lagts till på ditt ownvitals-konto som ett '
+            "sätt att logga in.\n"
+            "Om det inte var du, logga in, ta bort den på säkerhetssidan och byt "
+            "lösenord.\n"
         ),
         "passkey_suspended.subject": (
-            "A passkey on your ownvitals account was refused and suspended"
+            "En passkey på ditt ownvitals-konto nekades och har spärrats"
         ),
         "passkey_suspended.body": (
-            'A sign-in with your passkey "{name}" was refused and the passkey was suspended: its '
-            "counter went backwards, which can mean it was copied.\n"
-            "It can't be used any more. Remove it on the Security page and add it again. If you "
-            "didn't just try to sign in with it, change your password.\n"
+            'En inloggning med din passkey "{name}" nekades och passkeyn har spärrats: dess '
+            "räknare gick bakåt, vilket kan betyda att den har kopierats.\n"
+            "Den kan inte användas längre. Ta bort den på säkerhetssidan och lägg till den "
+            "igen. Om du inte just försökte logga in med den, byt ditt lösenord.\n"
         ),
-        "qr_approved.subject": "A new sign-in to ownvitals was approved from your phone",
+        "qr_approved.subject": "En ny inloggning på ownvitals godkändes från din telefon",
         "qr_approved.body": (
-            "A new sign-in to your ownvitals account was approved from your phone:\n"
-            "{browser} on {system} ({place}), as reported by that browser.\n\n"
-            "If this wasn't you, sign that device out and change your password: "
+            "En ny inloggning på ditt ownvitals-konto godkändes från din telefon:\n"
+            "{browser} på {system} ({place}), enligt den webbläsaren.\n\n"
+            "Om det inte var du, logga ut den enheten och byt ditt lösenord: "
             "{security}\n"
         ),
     }

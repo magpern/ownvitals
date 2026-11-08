@@ -1,9 +1,9 @@
 Content-Language: sv
-Subject: You already have an ownvitals account
+Subject: Du har redan ett ownvitals-konto
 
-Someone asked to create an ownvitals account with this address, which already has one.
+Någon har bett om att skapa ett ownvitals-konto med den här adressen, som redan har ett.
 
-Sign in: https://ownvitals.example.test/signin
-Forgot your password? https://ownvitals.example.test/reset
+Logga in: https://ownvitals.example.test/signin
+Glömt lösenordet? https://ownvitals.example.test/reset
 
-If this wasn't you, ignore this mail.
+Om det inte var du kan du bortse från det här mejlet.

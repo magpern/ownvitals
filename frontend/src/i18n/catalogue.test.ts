@@ -3,7 +3,7 @@ import { EN_AREAS } from './en'
 import { INTL_TAG, LOCALES, type Locale } from './locale'
 import { pluralCategories } from './translate'
 import { SV_AREAS } from './sv'
-import { UNTRANSLATED } from './untranslated'
+import { SAME_IN_SV, UNTRANSLATED } from './untranslated'
 
 // The catalogue guards (ADR 0015 section 9). Types already fail on a missing or extra key
 // (`satisfies`); these tests keep the rest: the same keys at run time, the same placeholders,
@@ -19,7 +19,7 @@ function entries(locale: Locale): [string, string, string][] {
 }
 
 function listed(area: string, key: string): boolean {
-  return UNTRANSLATED.includes(area) || UNTRANSLATED.includes(`${area}.${key}`)
+  return UNTRANSLATED.includes(area) || UNTRANSLATED.includes(`${area}.${key}`) || `${area}.${key}` in SAME_IN_SV
 }
 
 describe('the manifest', () => {
@@ -63,6 +63,27 @@ describe('the untranslated list', () => {
       expect(same, `${area}.${key} ${same ? 'is English: list it or translate it' : 'is translated: take it off the list'}`).toBe(
         listed(area, key),
       )
+    }
+  })
+})
+
+describe('the same-in-Swedish list', () => {
+  it('names only keys that exist, each with a reason', () => {
+    for (const [entry, reason] of Object.entries(SAME_IN_SV)) {
+      const [area = '', ...rest] = entry.split('.')
+      expect(Object.keys(EN_AREAS[area as keyof typeof EN_AREAS] ?? {}), entry).toContain(rest.join('.'))
+      expect(reason.trim(), entry).not.toBe('')
+    }
+  })
+
+  it('lists a key only while it equals the English text, and not an untranslated one twice', () => {
+    for (const entry of Object.keys(SAME_IN_SV)) {
+      const [area = '', ...rest] = entry.split('.')
+      const key = rest.join('.')
+      const en = (EN_AREAS[area as keyof typeof EN_AREAS] as Record<string, string>)[key]
+      const sv = (SV_AREAS[area as keyof typeof SV_AREAS] as Record<string, string>)[key]
+      expect(sv, `${entry} differs from English: take it off SAME_IN_SV`).toBe(en)
+      expect(UNTRANSLATED.includes(area) || UNTRANSLATED.includes(entry), entry).toBe(false)
     }
   })
 })
