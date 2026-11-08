@@ -27,6 +27,7 @@ export const codes = {
   'code.not_cancellable': 'That job has already finished and cannot be cancelled.',
   'code.not_connected': 'Connect your Withings account first.',
   'code.not_found': 'That does not exist, or it is not yours.',
+  'code.locale_not_offered': 'That language is not available.',
   'code.outbound_blocked': 'The job tried to reach a service it may not use.',
   'code.passkey_failed': 'The passkey could not be used. Try again.',
   'code.passkey_limit': 'You have reached the number of passkeys an account can hold.',
