@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
 import {
+  answerGoogleAs,
+  continueWithGoogle,
   enrolAuthenticator,
-  newAccount,
-  signInWithPassword,
-  signUpAndConfirm,
+  newGoogleIdentity,
 } from '../helpers/flows.ts'
 import { createInvite } from '../helpers/invite.ts'
 import { waitForMailHeader } from '../helpers/mailpit.ts'
@@ -13,8 +13,10 @@ import { waitForMailHeader } from '../helpers/mailpit.ts'
 test('switch language signed out, sign in, change it in Settings, reload, get Swedish mail', async ({
   page,
 }) => {
-  const account = newAccount('i18n')
-  await signUpAndConfirm(page, account, createInvite())
+  // A Google account: the password sign-ups of the other specs use up the sign-up budget of the
+  // shared stack (5 an hour), and the reset mail below needs no password.
+  const account = newGoogleIdentity('i18n')
+  await answerGoogleAs(page, account)
 
   // Signed out: the picker changes the page at once.
   await page.goto('/signin')
@@ -23,7 +25,7 @@ test('switch language signed out, sign in, change it in Settings, reload, get Sw
   await page.getByLabel('Språk').selectOption('en')
   await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
 
-  await signInWithPassword(page, account)
+  await continueWithGoogle(page, createInvite())
   await enrolAuthenticator(page)
 
   // Settings: the account's language, applied at once.
@@ -39,12 +41,13 @@ test('switch language signed out, sign in, change it in Settings, reload, get Sw
 
   // The activity page, in Swedish.
   await page.goto('/activity')
-  await expect(page.getByRole('heading', { name: 'Aktivitet' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Aktivitet', level: 1 })).toBeVisible()
   await expect(page.getByText('Aktivitetssidan kommer i M6.')).toBeVisible()
 
   // Mail goes out in the account's language: the reset mail for this address.
   await page.getByRole('button', { name: account.email }).click()
   await page.getByRole('menuitem', { name: 'Logga ut' }).click()
+  await expect(page.getByRole('heading', { name: 'Logga in', exact: true })).toBeVisible()
   await page.goto('/reset')
   await page.getByLabel('E-post').fill(account.email)
   await page.getByRole('button', { name: 'Skicka återställningslänk' }).click()
