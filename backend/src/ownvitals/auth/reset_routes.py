@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth import mails
@@ -35,7 +35,7 @@ from ownvitals.auth.ratelimit import (
 )
 from ownvitals.auth.sessions import SessionInfo, revoke_user_sessions
 from ownvitals.auth.signup_routes import Accepted, refuse
-from ownvitals.auth.tables import identities, users
+from ownvitals.auth.tables import auth_tokens, identities, users
 from ownvitals.auth.tokens import (
     RESET_LIFETIME,
     consume_token,
@@ -43,6 +43,7 @@ from ownvitals.auth.tokens import (
     issue_token,
     peek_token,
 )
+from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
 from ownvitals.context import UserContext
 from ownvitals.db import system_session
@@ -98,7 +99,10 @@ async def reset_mail(
     after_mfa_reset: mails.ResetRemoved | None = None,
 ):
     """Issue a reset token for the user and build the mail. A reset keeps the account's
-    passkeys, so the mail lists them (ADR 0011 section 3)."""
+    passkeys, so the mail lists them (ADR 0011 section 3). The user row is locked first
+    (``userlock``), so a link still in flight commits before the token exists or is removed by
+    the reset as linked after it (``complete_reset``)."""
+    await lock_user_row(db, user_id)
     token = await issue_token(db, PURPOSE, user_id, RESET_LIFETIME)
     passkeys = await passkeys_for_mail(db, user_id)
     return mails.password_reset(
@@ -206,7 +210,12 @@ async def complete_reset(body: ResetCompleteIn, request: Request) -> Done:
         raise HTTPException(status_code=404)  # before hashing; the token stays unused
     password_hash = await request.app.state.password_hasher.hash(password)
     async with system_session(factory(request)) as db:
+        # The user row first, then the token (``userlock``): a sign-in or link holding it
+        # commits first and is undone below; one that waits finds the new hash or its session
+        # gone. The token's user never changes, so ``live.user_id`` is the row to lock.
+        await lock_user_row(db, live.user_id)
         token = await consume_token(db, PURPOSE, body.token)
+        removed = 0
         if token is not None:
             owned = set(
                 (
@@ -223,10 +232,25 @@ async def complete_reset(body: ResetCompleteIn, request: Request) -> Done:
             await db.execute(
                 update(users).where(users.c.id == token.user_id).values(password_hash=password_hash)
             )
-            await db.execute(
-                delete(identities).where(
-                    identities.c.user_id == token.user_id, identities.c.id.in_(wanted)
-                )
+            # What is kept is what the page could show: identities linked before the reset
+            # link was issued, minus the ones the user chose. One linked after it (between
+            # ``info`` and here, or in flight) was never shown, and goes (#248).
+            issued_at = (
+                select(auth_tokens.c.created_at)
+                .where(auth_tokens.c.id == token.id)
+                .scalar_subquery()
+            )
+            removed = len(
+                (
+                    await db.execute(
+                        delete(identities)
+                        .where(
+                            identities.c.user_id == token.user_id,
+                            or_(identities.c.id.in_(wanted), identities.c.created_at >= issued_at),
+                        )
+                        .returning(identities.c.id)
+                    )
+                ).all()
             )
             await revoke_user_sessions(db, token.user_id)
             await forget_devices(db, token.user_id)
@@ -236,7 +260,7 @@ async def complete_reset(body: ResetCompleteIn, request: Request) -> Done:
                 "password_reset",
                 user_id=token.user_id,
                 ip=ip,
-                detail={"methods_removed": len(wanted)},
+                detail={"methods_removed": removed},
             )
     if token is None:
         raise refuse(400, "invalid_token")  # a parallel request consumed it
@@ -261,6 +285,7 @@ async def change_password(
     await reserve(request, [Bucket(PASSWORD_CHANGE, str(ctx.user_id))])
     password_hash = await request.app.state.password_hasher.hash(password)
     async with system_session(factory(request)) as db:
+        await lock_user_row(db, ctx.user_id)  # first (``userlock``)
         await db.execute(
             update(users).where(users.c.id == ctx.user_id).values(password_hash=password_hash)
         )

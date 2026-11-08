@@ -33,6 +33,7 @@ from ownvitals.auth.tokens import (
     delete_outstanding_tokens,
     issue_token,
 )
+from ownvitals.auth.userlock import lock_user_row
 from ownvitals.connections.repository import list_connections
 from ownvitals.connections.routes import WITHINGS, revoke_withings
 from ownvitals.context import UserContext
@@ -129,6 +130,7 @@ async def confirm_email_change(
         raise HTTPException(status_code=401, detail={"reason": "not_authenticated"})
     try:
         async with system_session(factory(request)) as db:
+            await lock_user_row(db, ctx.user_id)  # first (``userlock``), then the token
             token = await consume_token(db, PURPOSE, body.token, user_id=ctx.user_id)
             if token is None or token.new_email is None:
                 raise _Refused(400, "invalid_token")

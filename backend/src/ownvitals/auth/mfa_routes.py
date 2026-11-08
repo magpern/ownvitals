@@ -39,6 +39,7 @@ from ownvitals.auth.sessions import (
     revoke_user_sessions,
     rotate_session,
 )
+from ownvitals.auth.userlock import lock_user_row
 from ownvitals.context import UserContext
 from ownvitals.crypto.keks import KeyRing
 from ownvitals.db import system_session
@@ -242,6 +243,7 @@ async def remove_totp(
     session = _session(info)
     _need_totp(session)
     async with system_session(_factory(request)) as db:
+        await lock_user_row(db, ctx.user_id)  # first (``userlock``), then the TOTP row
         await mfa.remove_totp(db, ctx.user_id)
         await revoke_user_sessions(db, ctx.user_id, except_id=session.id)
         await record_event(db, "totp_removed", user_id=ctx.user_id, ip=request_ip(request))

@@ -86,12 +86,14 @@ async def delete_user_account(db: AsyncSession, user_id: UUID, *, ip: str | None
 
 
 async def _locked(db: AsyncSession, user_id: UUID) -> tuple[str, str] | None:
-    """``(role, email_normalized)`` with the row locked, or ``None``."""
+    """``(role, email_normalized)`` with the row locked, or ``None``. The same lock and mode as
+    ``userlock.lock_user_row`` (first, ``FOR NO KEY UPDATE``), which this cannot call: it reads
+    ``password_hash``. A sign-in that waits for it finds the account disabled or gone."""
     row = (
         await db.execute(
             select(users.c.role, users.c.email_normalized)
             .where(users.c.id == user_id)
-            .with_for_update()
+            .with_for_update(key_share=True)
         )
     ).one_or_none()
     return None if row is None else (row.role, row.email_normalized)

@@ -356,7 +356,7 @@ async def authenticate[T](
             suspended=(stored.name, stored.email) if suspended else None,
         )
     async with system_session(factory) as db:
-        user = await lock_user(db, stored.user_id, share=True)
+        user = await lock_user(db, stored.user_id, share=purpose == "signin")
         if user is None or user.disabled_at is not None:
             raise PasskeyFailure("account", user_id=stored.user_id)
         if (
