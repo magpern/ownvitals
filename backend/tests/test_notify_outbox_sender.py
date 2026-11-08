@@ -9,6 +9,10 @@ in-process SMTP fake. Synthetic accounts (``example.test``) and text only; no he
   (``test_a_disabled_account_s_mail_is_failed_not_sent``, ``test_a_failed_delivery_is_retried``);
 - the worker cannot send: the sender refuses before it claims anything and no SMTP connection is
   made (``test_the_sender_refuses_in_the_worker_before_claiming``);
+- a user's mail uses the table of the account's stored language and says so in
+  ``Content-Language``; ``NULL``, a code switched off or one outside the manifest is ``en``, and
+  owner notices are ``en`` whatever the admins' languages (ADR 0015 section 7, #253;
+  ``test_*language*``);
 - the needs-reconnect path of PLAN section 4.3 queues the owner notice in its own transaction
   (``test_giving_up_a_refresh_queues_the_owner_notice``).
 """
@@ -26,12 +30,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from ctx import make_context
 from dbtools import migrated
 from jobtools import admin_url
+from ownvitals import locales
+from ownvitals.auth import recipients
 from ownvitals.config import Settings
 from ownvitals.connections.providers.withings import give_up
 from ownvitals.egress import OutboundBlocked, core, install_worker_allowlist
 from ownvitals.mail import Mailer
 from ownvitals.notify import sender as sender_module
 from ownvitals.notify.sender import OutboxSender, Report
+from ownvitals.notify.templates import LINK, TABLES
 from smtpfake import SmtpFake
 
 BASE = "https://ownvitals.example.test"
@@ -84,16 +91,17 @@ def _mailer(port: int, total_seconds: float | None = None) -> Mailer:
 
 
 def _account(
-    su: Connection, *, role: str = "user", disabled: bool = False
+    su: Connection, *, role: str = "user", disabled: bool = False, locale: str | None = None
 ) -> tuple[uuid.UUID, str]:
     user = uuid.uuid4()
     email = f"synthetic-{user.hex[:12]}@example.test"
     su.execute(
         text(
-            "INSERT INTO users (id, email, email_normalized, email_verified_at, role, disabled_at) "
-            "VALUES (:id, :e, :e, now(), :r, CASE WHEN :d THEN now() END)"
+            "INSERT INTO users "
+            "(id, email, email_normalized, email_verified_at, role, disabled_at, locale) "
+            "VALUES (:id, :e, :e, now(), :r, CASE WHEN :d THEN now() END, :l)"
         ),
-        {"id": user, "e": email, "r": role, "d": disabled},
+        {"id": user, "e": email, "r": role, "d": disabled, "l": locale},
     )
     return user, email
 
@@ -253,3 +261,72 @@ async def test_giving_up_a_refresh_queues_the_owner_notice(
     assert _states(su) == [("connection_needs_reconnect", "pending", 0)]
     route = su.execute(text("SELECT route FROM owner_notices")).scalar_one()
     assert route == "admin"
+
+
+# --- the recipient's language (ADR 0015 section 7, #253) ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("stored", "enabled", "expected"),
+    [("sv", ("en", "sv"), "sv"), (None, ("en", "sv"), "en"), ("sv", ("en",), "en")],
+)
+async def test_a_user_mail_is_in_the_account_s_language(
+    su: Connection, factory: Factory, stored: str | None, enabled: tuple[str, ...], expected: str
+) -> None:
+    alice, address = _account(su, locale=stored)
+    _mail_for(su, alice)
+    async with SmtpFake() as smtp:
+        sender = OutboxSender(factory, _mailer(smtp.port), BASE, enabled_locales=enabled)
+        assert await sender.run_once() == Report(sent=1)
+    [mail] = smtp.to(address)
+    assert mail.message["Content-Language"] == expected
+    template = TABLES[expected]["findings_waiting"]
+    assert mail.subject == template.subject
+    expected_body = template.body.replace(LINK, f"{BASE}/findings")
+    assert mail.text.replace("\r\n", "\n").rstrip("\n") == expected_body.rstrip("\n")
+
+
+async def test_owner_notices_are_english_whatever_the_admins_languages(
+    su: Connection, factory: Factory
+) -> None:
+    _, first = _account(su, role="admin", locale="sv")
+    _, second = _account(su, role="admin", locale="sv")
+    su.execute(text("SELECT owner_notice_queue('connection_needs_reconnect')"))
+    async with SmtpFake() as smtp:
+        assert await OutboxSender(factory, _mailer(smtp.port), BASE).run_once() == Report(sent=1)
+    assert sorted(m.to for m in smtp.messages) == sorted([first, second])
+    for mail in smtp.messages:
+        assert mail.message["Content-Language"] == "en"
+        assert mail.subject == TABLES["en"]["connection_needs_reconnect"].subject
+
+
+async def test_the_language_lookup_returns_only_a_manifest_code(
+    su: Connection, factory: Factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stored value the manifest does not list gives ``en`` (guard 8's lookup never echoes it):
+    with ``sv`` taken out of the manifest, an account storing ``sv`` is mailed in English."""
+    alice, _ = _account(su, locale="sv")
+    assert await recipients.user_locale(factory, alice) == "sv"
+    monkeypatch.setattr(locales, "SUPPORTED_LOCALES", ("en",))
+    assert await recipients.user_locale(factory, alice) == "en"
+    assert await recipients.user_locale(factory, alice, ("en", "sv")) == "en"
+    assert await recipients.user_locale(factory, uuid.uuid4()) == "en"  # no account
+
+
+async def test_the_sender_passes_render_only_the_code(
+    su: Connection, factory: Factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing from the row or the account but the code reaches ``render``."""
+    alice, _ = _account(su, locale="sv")
+    _mail_for(su, alice)
+    seen: list[tuple[object, ...]] = []
+    real = sender_module.render
+
+    def spy(*args: object, **kwargs: object) -> object:
+        seen.append((*args, *kwargs.values()))
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(sender_module, "render", spy)
+    async with SmtpFake() as smtp:
+        assert await OutboxSender(factory, _mailer(smtp.port), BASE).run_once() == Report(sent=1)
+    assert seen == [("findings_waiting", "findings", BASE, "sv")]

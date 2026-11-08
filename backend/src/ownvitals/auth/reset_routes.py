@@ -33,6 +33,7 @@ from ownvitals.auth.ratelimit import (
     SIGN_IN_IP,
     Bucket,
 )
+from ownvitals.auth.recipients import request_mail_locale, user_locale
 from ownvitals.auth.sessions import SessionInfo, revoke_user_sessions
 from ownvitals.auth.signup_routes import Accepted, refuse
 from ownvitals.auth.tables import auth_tokens, identities, users
@@ -97,16 +98,17 @@ async def reset_mail(
     email: str,
     *,
     after_mfa_reset: mails.ResetRemoved | None = None,
+    locale: str,
 ):
-    """Issue a reset token for the user and build the mail. A reset keeps the account's
-    passkeys, so the mail lists them (ADR 0011 section 3). The user row is locked first
+    """Issue a reset token for the user and build the mail in ``locale``. A reset keeps the
+    account's passkeys, so the mail lists them (ADR 0011 section 3). The user row is locked first
     (``userlock``), so a link still in flight commits before the token exists or is removed by
     the reset as linked after it (``complete_reset``)."""
     await lock_user_row(db, user_id)
     token = await issue_token(db, PURPOSE, user_id, RESET_LIFETIME)
     passkeys = await passkeys_for_mail(db, user_id)
     return mails.password_reset(
-        settings, email, token, passkeys=passkeys, after_mfa_reset=after_mfa_reset
+        settings, email, token, passkeys=passkeys, after_mfa_reset=after_mfa_reset, locale=locale
     )
 
 
@@ -119,12 +121,13 @@ def make_reset_link_sender(
 ) -> ResetLinkSender:
     """The sender ``auth.register_reset_link_sender`` takes: ``admin mfa-reset`` mails the
     user a reset link (awaited: the CLI has no response to send first), saying what the reset
-    removed when ``after_mfa_reset`` is given."""
+    removed when ``after_mfa_reset`` is given, in the stored language or else ``en``."""
 
     async def send(user_id: UUID, email: str) -> None:
+        locale = await user_locale(session_factory, user_id, settings.enabled_locales)
         async with system_session(session_factory) as db:
             message = await reset_mail(
-                settings, db, user_id, email, after_mfa_reset=after_mfa_reset
+                settings, db, user_id, email, after_mfa_reset=after_mfa_reset, locale=locale
             )
         await mail.send(message)
 
@@ -148,7 +151,9 @@ async def request_reset(
         user = await find_user(db, body.email)
         message = None
         if user is not None and not user.disabled:
-            message = await reset_mail(request.app.state.settings, db, user.id, user.email)
+            locale = await request_mail_locale(db, request, user.id)  # stored, else the request's
+            settings = request.app.state.settings
+            message = await reset_mail(settings, db, user.id, user.email, locale=locale)
     if message is not None:
         background.add_task(send_logged, mailer(request), message)
     return Accepted()

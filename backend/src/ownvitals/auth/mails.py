@@ -1,38 +1,46 @@
-"""The texts of the mails we send (ADR 0003 section 5). Plain text; links come from
-``OWNVITALS_PUBLIC_BASE_URL`` with the token in the URL fragment, never from the Host header."""
+"""The mails we send (ADR 0003 section 5), in the recipient's language (ADR 0015 section 7). Plain
+text; links come from ``OWNVITALS_PUBLIC_BASE_URL`` with the token in the URL fragment, never from
+the Host header.
+
+Each mail takes ``locale``, an allowlisted code: it picks the table of ``auth.mail_texts`` and is
+the message's ``Content-Language``, and nothing else. The caller decides it
+(``auth.recipients``): the account's stored language or the request's for the mails sent inside a
+request, ``en`` for everything else (the default).
+"""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
+from ownvitals.auth.mail_texts import table
 from ownvitals.config import Settings
 from ownvitals.mail import MailMessage
+from ownvitals.notify.locale_policy import DEFAULT_LOCALE
 
 
 def link(settings: Settings, path: str, token: str) -> str:
     return f"{settings.public_base_url}{path}#token={token}"
 
 
-def signup_confirmation(settings: Settings, to: str, token: str) -> MailMessage:
+def _mail(to: str, locale: str, kind: str, **values: str) -> MailMessage:
+    texts = table(locale)
     return MailMessage(
         to,
-        "Confirm your ownvitals account",
-        "Someone asked to create an ownvitals account with this address.\n\n"
-        "To finish, open this link (valid for 24 hours) and type the password you chose:\n"
-        f"{link(settings, '/signup/confirm', token)}\n\n"
-        "If this wasn't you, ignore this mail. No account is created.\n",
+        texts[f"{kind}.subject"],
+        texts[f"{kind}.body"].format_map(values),
+        locale,
     )
 
 
-def account_exists(settings: Settings, to: str) -> MailMessage:
-    return MailMessage(
-        to,
-        "You already have an ownvitals account",
-        "Someone asked to create an ownvitals account with this address, which already has one.\n\n"
-        f"Sign in: {settings.public_base_url}/signin\n"
-        f"Forgot your password? {settings.public_base_url}/reset\n\n"
-        "If this wasn't you, ignore this mail.\n",
-    )
+def signup_confirmation(
+    settings: Settings, to: str, token: str, *, locale: str = DEFAULT_LOCALE
+) -> MailMessage:
+    return _mail(to, locale, "signup", link=link(settings, "/signup/confirm", token))
+
+
+def account_exists(settings: Settings, to: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
+    base = settings.public_base_url
+    return _mail(to, locale, "exists", signin=f"{base}/signin", reset=f"{base}/reset")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,16 +51,16 @@ class ResetRemoved:
     identities: int = 0
 
 
-def _removed_text(removed: ResetRemoved) -> str:
-    parts = ["your authenticator app and recovery codes were removed"]
+def _removed_text(removed: ResetRemoved, locale: str) -> str:
+    texts = table(locale)
+    parts = [texts["reset.removed.mfa"]]
     if removed.passkeys:
-        parts.append(
-            "your passkey was removed" if removed.passkeys == 1 else "your passkeys were removed"
-        )
+        one = removed.passkeys == 1
+        parts.append(texts["reset.removed.passkey" if one else "reset.removed.passkeys"])
     if removed.identities:
-        parts.append("Google sign-in was unlinked")
-    parts += ["your password was cleared", "you were signed out everywhere"]
-    return ", ".join(parts[:-1]) + " and " + parts[-1]
+        parts.append(texts["reset.removed.google"])
+    parts += [texts["reset.removed.password"], texts["reset.removed.sessions"]]
+    return texts["list.separator"].join(parts[:-1]) + texts["list.last"] + parts[-1]
 
 
 def password_reset(
@@ -62,136 +70,96 @@ def password_reset(
     *,
     passkeys: Sequence[tuple[str, datetime]] = (),
     after_mfa_reset: ResetRemoved | None = None,
+    locale: str = DEFAULT_LOCALE,
 ) -> MailMessage:
     """The reset link. A plain reset lists the account's passkeys, which it keeps (ADR 0011
     section 3); after ``admin mfa-reset`` the mail says what the reset removed, naming only
-    what the account had."""
+    what the account had. A passkey's date is ISO, the same in every language."""
+    texts = table(locale)
     intro = ""
     if after_mfa_reset is not None:
-        intro = (
-            "The operator reset the two-factor authentication of your ownvitals account: "
-            f"{_removed_text(after_mfa_reset)}. Choose a new password with the link below, then "
-            "set up two-factor authentication again.\n\n"
+        intro = texts["reset.after_mfa_reset"].format_map(
+            {"removed": _removed_text(after_mfa_reset, locale)}
         )
     listed = ""
     if passkeys and after_mfa_reset is None:
-        names = "".join(f"- {name} (added {created:%Y-%m-%d})\n" for name, created in passkeys)
-        listed = (
-            "\nResetting the password keeps these passkeys on your account:\n"
-            f"{names}"
-            f"Review them on the Security page: {settings.public_base_url}/settings/security\n"
+        names = "".join(
+            texts["reset.passkey_line"].format_map(
+                {"name": name, "date": created.date().isoformat()}
+            )
+            for name, created in passkeys
         )
-    return MailMessage(
-        to,
-        "Reset your ownvitals password",
-        f"{intro}To choose a new password, open this link (valid for 30 minutes):\n"
-        f"{link(settings, '/reset', token)}\n\n"
-        "Resetting signs you out everywhere. If this wasn't you, ignore this mail.\n"
-        f"{listed}",
+        listed = texts["reset.passkeys_kept"].format_map(
+            {"names": names, "security": f"{settings.public_base_url}/settings/security"}
+        )
+    return _mail(
+        to, locale, "reset", intro=intro, link=link(settings, "/reset", token), passkeys=listed
     )
 
 
-def email_change_confirmation(settings: Settings, to: str, token: str) -> MailMessage:
-    return MailMessage(
-        to,
-        "Confirm your new ownvitals email address",
-        "To use this address for your ownvitals account, sign in and open this link "
-        f"(valid for 1 hour):\n{link(settings, '/email-change', token)}\n\n"
-        "If this wasn't you, ignore this mail.\n",
-    )
+def email_change_confirmation(
+    settings: Settings, to: str, token: str, *, locale: str = DEFAULT_LOCALE
+) -> MailMessage:
+    return _mail(to, locale, "email_change", link=link(settings, "/email-change", token))
 
 
-def email_change_taken(settings: Settings, to: str) -> MailMessage:
-    return MailMessage(
-        to,
-        "An ownvitals account already uses this address",
-        "Someone asked to move an ownvitals account to this address, which already belongs "
-        f"to an account.\n\nSign in: {settings.public_base_url}/signin\n\n"
-        "If this wasn't you, ignore this mail.\n",
-    )
+def email_change_taken(settings: Settings, to: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
+    return _mail(to, locale, "email_taken", signin=f"{settings.public_base_url}/signin")
 
 
-def email_changed_notice(to: str) -> MailMessage:
-    return MailMessage(
-        to,
-        "Your ownvitals email address was changed",
-        "The email address of your ownvitals account was changed. This is the old address.\n"
-        "If this wasn't you, contact the operator.\n",
-    )
+def email_changed_notice(to: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
+    return _mail(to, locale, "email_changed")
 
 
-def totp_enrolled_notice(to: str) -> MailMessage:
-    return MailMessage(
-        to,
-        "Two-factor authentication was set up on your ownvitals account",
-        "An authenticator app was enrolled (or replaced) on your ownvitals account.\n"
-        "If this wasn't you, reset your password and contact the operator.\n",
-    )
+def totp_enrolled_notice(to: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
+    return _mail(to, locale, "totp_enrolled")
 
 
-def mfa_failures_notice(to: str) -> MailMessage:
-    return MailMessage(
-        to,
-        "Failed two-factor attempts on your ownvitals account",
-        "There were five failed two-factor attempts on your ownvitals account within an hour.\n"
-        "If this wasn't you, change your password.\n",
-    )
+def mfa_failures_notice(to: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
+    return _mail(to, locale, "mfa_failures")
 
 
 def provider_signup_confirmation(
-    settings: Settings, to: str, provider: str, token: str
+    settings: Settings, to: str, provider: str, token: str, *, locale: str = DEFAULT_LOCALE
 ) -> MailMessage:
-    return MailMessage(
+    return _mail(
         to,
-        "Confirm your ownvitals account",
-        f"Someone signed in with {provider.title()} and asked to create an ownvitals account "
-        "with this address.\n\n"
-        "To finish, open this link in the same browser (valid for 24 hours):\n"
-        f"{link(settings, '/signup/confirm', token)}\n\n"
-        "If this wasn't you, ignore this mail. No account is created.\n",
+        locale,
+        "provider_signup",
+        provider=provider.title(),
+        link=link(settings, "/signup/confirm", token),
     )
 
 
-def identity_linked_notice(to: str, provider: str) -> MailMessage:
-    return MailMessage(
-        to,
-        "A sign-in method was added to your ownvitals account",
-        f"{provider.title()} was linked to your ownvitals account as a way to sign in.\n"
-        "If this wasn't you, sign in, remove it from your account page and change your "
-        "password.\n",
-    )
+def identity_linked_notice(to: str, provider: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
+    return _mail(to, locale, "identity_linked", provider=provider.title())
 
 
-def passkey_added_notice(to: str, name: str) -> MailMessage:
-    return MailMessage(
-        to,
-        "A passkey was added to your ownvitals account",
-        f'A passkey named "{name}" was added to your ownvitals account as a way to sign in.\n'
-        "If this wasn't you, sign in, remove it on the Security page and change your password.\n",
-    )
+def passkey_added_notice(to: str, name: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
+    return _mail(to, locale, "passkey_added", name=name)
 
 
-def passkey_suspended_notice(to: str, name: str) -> MailMessage:
-    return MailMessage(
-        to,
-        "A passkey on your ownvitals account was refused and suspended",
-        f'A sign-in with your passkey "{name}" was refused and the passkey was suspended: its '
-        "counter went backwards, which can mean it was copied.\n"
-        "It can't be used any more. Remove it on the Security page and add it again. If you "
-        "didn't just try to sign in with it, change your password.\n",
-    )
+def passkey_suspended_notice(to: str, name: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
+    return _mail(to, locale, "passkey_suspended", name=name)
 
 
 def qr_login_approved_notice(
-    settings: Settings, to: str, browser: str, system: str, place: str
+    settings: Settings,
+    to: str,
+    browser: str,
+    system: str,
+    place: str,
+    *,
+    locale: str = DEFAULT_LOCALE,
 ) -> MailMessage:
     """ADR 0011 section 7: every completed QR approval is mailed. The new device as its browser
     reported it, never a code, nonce, token or health data (T59)."""
-    return MailMessage(
+    return _mail(
         to,
-        "A new sign-in to ownvitals was approved from your phone",
-        "A new sign-in to your ownvitals account was approved from your phone:\n"
-        f"{browser} on {system} ({place}), as reported by that browser.\n\n"
-        "If this wasn't you, sign that device out and change your password: "
-        f"{settings.public_base_url}/settings/security\n",
+        locale,
+        "qr_approved",
+        browser=browser,
+        system=system,
+        place=place,
+        security=f"{settings.public_base_url}/settings/security",
     )

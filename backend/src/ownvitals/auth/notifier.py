@@ -14,8 +14,8 @@ class MailNotifier:
     def __init__(self, mailer: Mailer) -> None:
         self._mailer = mailer
 
-    async def totp_enrolled(self, user_id: UUID, email: str) -> None:
-        await self._mailer.send(mails.totp_enrolled_notice(email))
+    async def totp_enrolled(self, user_id: UUID, email: str, locale: str) -> None:
+        await self._mailer.send(mails.totp_enrolled_notice(email, locale=locale))
 
-    async def mfa_failures(self, user_id: UUID, email: str) -> None:
-        await self._mailer.send(mails.mfa_failures_notice(email))
+    async def mfa_failures(self, user_id: UUID, email: str, locale: str) -> None:
+        await self._mailer.send(mails.mfa_failures_notice(email, locale=locale))

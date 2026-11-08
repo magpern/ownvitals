@@ -23,6 +23,7 @@ from ownvitals.auth.flowtools import EmailAddress, factory, mailer, reserve
 from ownvitals.auth.keys import new_token, token_hash
 from ownvitals.auth.oauth_outcomes import Refused, create_provider_account
 from ownvitals.auth.ratelimit import SIGNUP_ADDRESS, SIGNUP_IP, Bucket, password_buckets
+from ownvitals.auth.recipients import request_locale, request_mail_locale
 from ownvitals.auth.tables import pending_signups
 from ownvitals.db import system_session
 from ownvitals.emailnorm import normalize_email
@@ -61,6 +62,7 @@ def _browser_row(cookie: str | None):
         pending_signups.c.id,
         pending_signups.c.provider,
         pending_signups.c.email,
+        pending_signups.c.locale,
     ).where(
         pending_signups.c.browser_hash == token_hash(cookie),
         pending_signups.c.provider.is_not(None),
@@ -99,9 +101,11 @@ async def submit_email(
             raise _refuse(400, "no_pending_signup")
         if row.email is not None:
             pass  # already filled in: same answer, nothing changes
-        elif await find_user(db, body.email) is not None:
-            # The row keeps no email or token and simply expires at its 15 minutes.
-            message = mails.account_exists(settings, body.email)
+        elif (existing := await find_user(db, body.email)) is not None:
+            # The row keeps no email or token and simply expires at its 15 minutes. The
+            # account's language, else the one in effect when the sign-up started.
+            locale = await request_mail_locale(db, request, existing.id, row.locale)
+            message = mails.account_exists(settings, body.email, locale=locale)
         else:
             token = new_token()
             filled = await db.execute(
@@ -116,8 +120,12 @@ async def submit_email(
                 .returning(pending_signups.c.id)
             )
             if filled.first() is not None:
-                message = mails.provider_signup_confirmation(
-                    settings, body.email, row.provider, token
+                message = mails.provider_signup_confirmation(  # no account yet
+                    settings,
+                    body.email,
+                    row.provider,
+                    token,
+                    locale=request_locale(request, row.locale),
                 )
     if message is not None:
         background.add_task(send_logged, mailer(request), message)

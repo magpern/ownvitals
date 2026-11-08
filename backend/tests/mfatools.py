@@ -28,10 +28,10 @@ class FakeNotifier:
         self.enrolled: list[UUID] = []
         self.failures: list[UUID] = []
 
-    async def totp_enrolled(self, user_id: UUID, email: str) -> None:
+    async def totp_enrolled(self, user_id: UUID, email: str, locale: str = "en") -> None:
         self.enrolled.append(user_id)
 
-    async def mfa_failures(self, user_id: UUID, email: str) -> None:
+    async def mfa_failures(self, user_id: UUID, email: str, locale: str = "en") -> None:
         self.failures.append(user_id)
 
 

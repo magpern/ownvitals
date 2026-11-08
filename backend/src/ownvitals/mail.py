@@ -52,6 +52,7 @@ from ownvitals.egress import (
     smtp_session,
     tls_client_context,
 )
+from ownvitals.locales import SUPPORTED_LOCALES
 
 if TYPE_CHECKING:  # annotations only: the guard lets mail import smtplib alone at run time
     import socket
@@ -81,9 +82,17 @@ class MailError(Exception):
 
 @dataclass(frozen=True, slots=True, repr=False)
 class MailMessage:
+    """``locale`` is the mail's language, a manifest code (ADR 0015 section 7): it becomes the
+    ``Content-Language`` header and nothing else, and any other value is refused here."""
+
     to: str
     subject: str
     body: str
+    locale: str = "en"
+
+    def __post_init__(self) -> None:
+        if self.locale not in SUPPORTED_LOCALES:
+            raise ValueError("the mail's locale is not a supported code")
 
     def __repr__(self) -> str:
         return "MailMessage(...)"
@@ -221,7 +230,8 @@ class Mailer:
         built["From"] = self._sender
         built["To"] = message.to
         built["Subject"] = message.subject
-        built.set_content(message.body)
+        built.set_content(message.body)  # this clears any Content-* header, so it comes first
+        built["Content-Language"] = message.locale  # a manifest code (``MailMessage``)
         return built
 
     def _send_blocking(self, message: MailMessage, at: float | None = None) -> None:

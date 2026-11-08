@@ -1,8 +1,9 @@
 """The outbox's templates and its worker boundary (ADR 0007 section 2, T59, O8; #194). No database.
 
-- every email body says only that something is waiting and links to the app: no health value,
-  finding text, token or number, and nothing from a row or an account can reach it
-  (``test_*template*``, ``test_render_*``);
+- every email body, in every locale's table, says only that something is waiting and links to
+  the app: no health value, finding text, token or number, and nothing from a row or an account
+  can reach it; the locale is an allowlisted code that only picks a table (``test_*template*``,
+  ``test_render_*``, ``test_the_locale_only_selects_a_table``; ADR 0015 section 7, #253);
 - the worker cannot open SMTP for the outbox: no worker module imports the sender, the worker
   process never loads the mail module through the outbox, and the sender refuses in the worker
   (the extended guard of ``tests/egress_worker.py``; ``test_notify_outbox_sender.py`` runs the
@@ -17,6 +18,7 @@ import pytest
 
 from egress_scan import imported_modules, sources
 from egress_worker import WORKER_ENTRYPOINTS, WORKER_PACKAGES, loaded_watched_modules
+from ownvitals.locales import SUPPORTED_LOCALES
 from ownvitals.notify import outbox, sender
 from ownvitals.notify.outbox import (
     OWNER_NOTICE_KINDS,
@@ -25,48 +27,78 @@ from ownvitals.notify.outbox import (
     USER_KINDS,
     USER_ROUTES,
 )
-from ownvitals.notify.templates import LINK, TEMPLATES, render, route_allowed
+from ownvitals.notify.templates import LINK, TABLES, render, route_allowed
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 BASE = "https://ownvitals.example.test"
 # What a mail may never carry (T59): numbers (a value, a date, a count), units, finding or ECG
-# words, credentials, and placeholders a later edit could fill from a row.
+# words, credentials, and placeholders a later edit could fill from a row. Swedish words are
+# listed beside the English ones so the translation of G6 is held to the same rule.
 FORBIDDEN = re.compile(
-    r"[0-9]|%|\{(?!link\})|\$|kg|bpm|mmhg|ecg|afib|fibrillation|weight|pressure|pulse|heart rate"
-    r"|sleep|finding|token|password|secret|code|\bkey\b",
+    r"[0-9]|%|\{(?!link\})|\$|kg|bpm|mmhg|ecg|ekg|afib|fibrillation|flimmer|weight|vikt|pressure"
+    r"|blodtryck|pulse|puls|heart rate|hjärt|sleep|sömn|finding|fynd|token|password|lösenord|secret"
+    r"|hemlig|code|kod|\bkey\b|nyckel",
     re.IGNORECASE,
 )
+CASES = [(locale, kind) for locale in sorted(TABLES) for kind in sorted(TABLES[locale])]
 
 
-def test_every_kind_has_exactly_one_template() -> None:
-    assert set(TEMPLATES) == {*USER_KINDS, *OWNER_NOTICE_KINDS}
+def test_every_locale_has_exactly_one_template_per_kind() -> None:
+    assert set(TABLES) == set(SUPPORTED_LOCALES)
+    for table in TABLES.values():
+        assert set(table) == {*USER_KINDS, *OWNER_NOTICE_KINDS}
 
 
-@pytest.mark.parametrize("kind", sorted(TEMPLATES))
-def test_a_template_says_only_that_something_is_waiting(kind: str) -> None:
-    template = TEMPLATES[kind]
+@pytest.mark.parametrize(("locale", "kind"), CASES)
+def test_a_template_says_only_that_something_is_waiting(locale: str, kind: str) -> None:
+    template = TABLES[locale][kind]
     assert template.body.count(LINK) == 1
     assert LINK not in template.subject
     for text in (template.subject, template.body.replace(LINK, "")):
-        assert FORBIDDEN.search(text) is None, (kind, FORBIDDEN.search(text))
-    assert "waiting" in template.subject or "attention" in template.subject
-    assert "sign in" in template.body
+        assert FORBIDDEN.search(text) is None, (locale, kind, FORBIDDEN.search(text))
+    if locale == "en":
+        assert "waiting" in template.subject or "attention" in template.subject
+        assert "sign in" in template.body
 
 
-@pytest.mark.parametrize("kind", sorted(TEMPLATES))
-def test_render_fills_in_the_link_and_nothing_else(kind: str) -> None:
+@pytest.mark.parametrize(("locale", "kind"), CASES)
+def test_render_fills_in_the_link_and_nothing_else(locale: str, kind: str) -> None:
     route = OWNER_NOTICE_ROUTES.get(kind) or USER_ROUTES[0]
-    mail = render(kind, route, BASE + "/")
+    mail = render(kind, route, BASE + "/", locale)
     link = BASE + ROUTE_PATHS[route]
-    assert mail.subject == TEMPLATES[kind].subject
-    assert mail.body == TEMPLATES[kind].body.replace(LINK, link)
+    assert mail.subject == TABLES[locale][kind].subject
+    assert mail.body == TABLES[locale][kind].body.replace(LINK, link)
+    assert mail.locale == locale
     assert repr(mail) == "<Rendered mail>"  # never the text in a log line
 
 
 def test_render_takes_no_data_from_a_row_or_an_account() -> None:
-    """Its inputs are the kind, the route key and the public base URL: no owner, no address, no
-    value can reach the text."""
-    assert list(inspect.signature(render).parameters) == ["kind", "route", "public_base_url"]
+    """Its inputs are the kind, the route key, the public base URL and the locale code: no owner,
+    no address, no value can reach the text."""
+    assert list(inspect.signature(render).parameters) == [
+        "kind",
+        "route",
+        "public_base_url",
+        "locale",
+    ]
+
+
+@pytest.mark.parametrize(
+    "locale", ["de", "EN", "en-GB", " sv", "", "../en", "{link}", None, 1, ("en",)]
+)
+def test_render_refuses_a_locale_outside_the_allowlist(locale: object) -> None:
+    with pytest.raises(ValueError, match="no template table"):
+        render("findings_waiting", "findings", BASE, locale)  # type: ignore[arg-type]
+
+
+def test_the_locale_only_selects_a_table() -> None:
+    """The code never reaches the text: every rendering equals its table's template, whichever
+    locale, and a table's text does not change with the code passed."""
+    for locale, kind in CASES:
+        route = OWNER_NOTICE_ROUTES.get(kind) or USER_ROUTES[0]
+        mail = render(kind, route, BASE, locale)
+        assert locale not in {mail.subject, mail.body}
+        assert mail.body == TABLES[locale][kind].body.replace(LINK, BASE + ROUTE_PATHS[route])
 
 
 @pytest.mark.parametrize(
@@ -81,8 +113,9 @@ def test_render_takes_no_data_from_a_row_or_an_account() -> None:
 )
 def test_render_refuses_a_kind_or_route_outside_the_lists(kind: str, route: str) -> None:
     assert not route_allowed(kind, route)
-    with pytest.raises(ValueError, match="no template"):
-        render(kind, route, BASE)
+    for locale in TABLES:
+        with pytest.raises(ValueError, match="no template"):
+            render(kind, route, BASE, locale)
 
 
 def test_every_user_route_and_owner_route_has_a_path() -> None:

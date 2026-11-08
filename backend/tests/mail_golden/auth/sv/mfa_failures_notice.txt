@@ -1,0 +1,5 @@
+Content-Language: sv
+Subject: Failed two-factor attempts on your ownvitals account
+
+There were five failed two-factor attempts on your ownvitals account within an hour.
+If this wasn't you, change your password.

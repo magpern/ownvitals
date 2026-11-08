@@ -1,0 +1,5 @@
+Content-Language: en
+Subject: A passkey on your ownvitals account was refused and suspended
+
+A sign-in with your passkey "Synthetic key" was refused and the passkey was suspended: its counter went backwards, which can mean it was copied.
+It can't be used any more. Remove it on the Security page and add it again. If you didn't just try to sign in with it, change your password.
