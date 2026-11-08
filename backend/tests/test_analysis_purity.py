@@ -55,6 +55,8 @@ FORBIDDEN = (
     "ownvitals.flags",
     "ownvitals.cli",
     "ownvitals.config",  # reads the environment and secret files
+    "ownvitals.config_secrets",  # config's secret files and the environment
+    "ownvitals.config_net",  # config's host and network helpers
     "ownvitals.log",
     "ownvitals.headers",
     "ownvitals.__main__",  # the entry point: uvicorn, the web app, configuration and logging

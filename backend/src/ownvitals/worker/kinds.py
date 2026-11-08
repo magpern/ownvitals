@@ -42,7 +42,7 @@ from ownvitals.jobs.withings import ConnectInput, SecretTargets
 from ownvitals.withings.client import WithingsClient
 from ownvitals.withings.reconcile import execute_nightly
 from ownvitals.withings.subscriptions import callback_url, derive_secret
-from ownvitals.withings.sync import open_materials, register_sync_kinds
+from ownvitals.withings.sync_kinds import open_materials, register_sync_kinds
 from ownvitals.withings.tokens import recover_refresh
 from ownvitals.withings.webhooks import WebhookTargets
 

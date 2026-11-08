@@ -21,6 +21,8 @@ step-up, in a slot of its own (other jobs of the owner never block it), and wait
 disconnected row (``connections.purge.purge_connection``). The answer is ``DisconnectOut``; with
 ``revoke_failed`` it carries the instruction to remove access in the Withings account. The
 account deletion route (``auth.email_routes``) uses ``revoke_withings`` the same way.
+
+The request and answer bodies live in ``schemas.py``.
 """
 
 import asyncio
@@ -29,13 +31,12 @@ import json
 import logging
 import secrets
 import time
-from datetime import datetime
 from typing import Annotated, Any, Protocol
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, SecretStr, ValidationError
+from pydantic import ValidationError
 from sqlalchemy import text
 
 from ownvitals.auth.deps import current_session, require_sensitive, require_user
@@ -47,12 +48,13 @@ from ownvitals.connections.repository import (
     disconnect,
     list_connections,
 )
+from ownvitals.connections.schemas import ConnectionOut, ConnectionsOut, DisconnectOut, TestConnect
 from ownvitals.connections.tables import PROVIDER_NAME, TEST_PROVIDER, live_providers
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
 from ownvitals.jobs import service
 from ownvitals.jobs.user import NewJob
-from ownvitals.withings.disconnect import DISCONNECT_KIND, REMOVAL, DisconnectInput
+from ownvitals.withings.disconnect import DISCONNECT_KIND, DisconnectInput
 
 router = APIRouter(prefix="/api/connections", tags=["connections"])
 logger = logging.getLogger(__name__)
@@ -85,54 +87,6 @@ _STATUS = {
     "revoke_failed": 502,
     "unknown": 502,
 }
-
-
-class TestConnect(BaseModel):
-    access_token: SecretStr = Field(min_length=8, max_length=256)
-    refresh_token: SecretStr = Field(min_length=8, max_length=256)
-
-
-class ConnectionOut(BaseModel):
-    id: UUID
-    provider: str
-    status: str
-    last_error: str | None
-    connected_at: datetime
-    last_used_at: datetime | None
-    expires_at: datetime | None
-
-    @classmethod
-    def of(cls, info: ConnectionInfo) -> "ConnectionOut":
-        return cls(
-            id=info.id,
-            provider=info.provider,
-            status=info.status,
-            last_error=info.last_error,
-            connected_at=info.connected_at,
-            last_used_at=info.last_used_at,
-            expires_at=info.expires_at,
-        )
-
-
-class ConnectionsOut(BaseModel):
-    connections: list[ConnectionOut]
-
-
-class DisconnectOut(BaseModel):
-    """What a disconnect did. ``removal`` is set exactly when ``revoke_failed`` is."""
-
-    status: str = "disconnected"
-    revoke_failed: bool
-    removal: str | None
-    imported_deleted: bool
-
-    @classmethod
-    def of(cls, revoke_failed: bool, imported_deleted: bool) -> "DisconnectOut":
-        return cls(
-            revoke_failed=revoke_failed,
-            removal=REMOVAL if revoke_failed else None,
-            imported_deleted=imported_deleted,
-        )
 
 
 def _unknown() -> HTTPException:

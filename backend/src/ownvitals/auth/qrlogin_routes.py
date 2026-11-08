@@ -22,36 +22,32 @@ Every refusal of a code that is unknown, expired, used, another session's or ano
 pre-session's is the same 404 ``qr_unavailable`` ("this code has expired or was already used").
 With ``qr_login_enabled`` false the start and scan routes answer 404 ``not_found``. Each step
 writes an ``auth_events`` row; none holds a nonce, a cookie or a token (section 9).
+
+The phone's routes are in ``qrlogin_phone_routes``.
 """
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import Annotated, Any, NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ownvitals.auth import geo, mails, presession, qrlogin, totp
-from ownvitals.auth.clientip import bucket_ip, same_network
+from ownvitals.auth.clientip import bucket_ip
 from ownvitals.auth.cookies import clear_pre_cookie, set_pre_cookie, set_session_cookie
-from ownvitals.auth.deps import current_session, request_ip, request_session_token, require_user
+from ownvitals.auth.deps import current_session, request_ip, request_session_token
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import factory, mailer, reserve, user_agent
-from ownvitals.auth.notices import notify_mfa_failures
 from ownvitals.auth.qrlogin_stream import StreamSlots, qr_stream
 from ownvitals.auth.ratelimit import (
-    QR_APPROVE_ACCOUNT,
-    QR_SCAN_ACCOUNT,
     QR_START_IP,
     Bucket,
-    mfa_buckets,
 )
 from ownvitals.auth.sessions import SessionInfo
 from ownvitals.auth.useragent import describe
-from ownvitals.context import UserContext
 from ownvitals.db import system_session
 from ownvitals.jobs.hub import EventHub
 from ownvitals.mail import send_logged
@@ -86,36 +82,6 @@ class QrStarted(BaseModel):
     expires_in: int
 
 
-class NonceIn(BaseModel):
-    nonce: str = Field(min_length=1, max_length=128)
-
-
-class CodeIn(BaseModel):
-    code: str = Field(min_length=1, max_length=64)
-
-
-class DesktopOut(BaseModel):
-    """The desktop as its browser reports it (section 7); ``place`` is "Place unknown" when
-    there is no source."""
-
-    browser: str
-    os: str
-    ip: str | None
-    place: str
-
-
-class ScanOut(BaseModel):
-    id: UUID
-    desktop: DesktopOut
-    requested_at: datetime
-    different_network: bool
-    expires_in: int
-
-
-class Done(BaseModel):
-    status: str
-
-
 class SignedIn(BaseModel):
     id: UUID
     email: str
@@ -129,15 +95,6 @@ def _refuse(status: int, reason: str) -> NoReturn:
 def _enabled(request: Request) -> None:
     if not request.app.state.settings.qr_login_enabled:
         _refuse(404, "not_found")
-
-
-def _phone(info: SessionInfo | None) -> SessionInfo:
-    """A full session that may approve: never one born from a QR approval (no chaining)."""
-    if info is None:  # unreachable behind require_user
-        _refuse(401, "not_authenticated")
-    if not info.may_approve_qr:
-        _refuse(403, "qr_approval_not_allowed")
-    return info
 
 
 async def _refused(
@@ -252,88 +209,3 @@ async def complete(
         ),
     )
     return SignedIn(id=done.user_id, email=done.email, role=done.role)
-
-
-# --- the phone ----------------------------------------------------------------------------------
-
-
-@router.post("/scan")
-async def scan(
-    body: NonceIn, request: Request, ctx: Annotated[UserContext, Depends(require_user)], info: Info
-) -> ScanOut:
-    _enabled(request)
-    session = _phone(info)
-    await reserve(request, [Bucket(QR_SCAN_ACCOUNT, str(ctx.user_id))])
-    nonce = qrlogin.decode_nonce(body.nonce)
-    ip = request_ip(request)
-    scanned = None
-    if nonce is not None:
-        async with system_session(factory(request)) as db:
-            scanned = await qrlogin.scan(db, nonce, session)
-            if scanned is not None:
-                await record_event(
-                    db,
-                    "qr_login_scanned",
-                    user_id=ctx.user_id,
-                    ip=ip,
-                    detail={"qr": str(scanned.id), "place": scanned.desktop.place},
-                )
-    if scanned is None:
-        await _refused(request, "scan", ctx.user_id, None)
-    desktop = scanned.desktop
-    return ScanOut(
-        id=scanned.id,
-        desktop=DesktopOut(
-            browser=desktop.browser, os=desktop.os, ip=desktop.ip, place=geo.shown(desktop.place)
-        ),
-        requested_at=scanned.requested_at,
-        different_network=not same_network(desktop.ip, ip),
-        expires_in=max(int((scanned.approve_deadline - scanned.now).total_seconds()), 0),
-    )
-
-
-@router.post("/{qr_id}/approve", response_model=None)
-async def approve(
-    qr_id: UUID,
-    body: CodeIn,
-    request: Request,
-    background: BackgroundTasks,
-    ctx: Annotated[UserContext, Depends(require_user)],
-    info: Info,
-) -> Done | JSONResponse:
-    session = _phone(info)
-    ip = request_ip(request)
-    await reserve(request, [Bucket(QR_APPROVE_ACCOUNT, str(ctx.user_id))])
-    attempt = await reserve(request, mfa_buckets(str(ctx.user_id), ip))
-    async with system_session(factory(request)) as db:
-        result = await qrlogin.approve(
-            db,
-            request.app.state.keys,
-            request.app.state.keyring,
-            qr_id,
-            session,
-            body.code,
-            ip,
-        )
-    if result.outcome == "invalid_code":
-        if result.mail_failures:
-            background.add_task(notify_mfa_failures, ctx.user_id, session.email)
-        return JSONResponse(
-            {"detail": {"reason": "invalid_code"}}, status_code=400, background=background
-        )
-    await attempt.succeed()  # no code failed: the MFA slots go back
-    if result.outcome == "unavailable":
-        await _refused(request, "approve", ctx.user_id, qr_id)
-    return Done(status="approved")
-
-
-@router.post("/{qr_id}/deny")
-async def deny(
-    qr_id: UUID, request: Request, ctx: Annotated[UserContext, Depends(require_user)], info: Info
-) -> Done:
-    session = _phone(info)
-    async with system_session(factory(request)) as db:
-        denied = await qrlogin.deny(db, qr_id, session, request_ip(request))
-    if not denied:
-        await _refused(request, "deny", ctx.user_id, qr_id)
-    return Done(status="denied")

@@ -18,6 +18,7 @@ say ownvitals. The "Ported unchanged" table of ownvitals' ADR 0003 §1 maps them
 | `backend/src/ownvitals/auth/deps.py` | the only web issuer of a `UserContext` (`require_user` and the others), `request_ip`, and `session_probe` for the jobs event stream |
 | `backend/src/ownvitals/auth/owners.py` | `ACCOUNTS`: the jobs issuer's `owner_active` check, for the worker |
 | `backend/src/ownvitals/auth/purge.py` | `purge_expired`, which the worker runs every `purge_interval_seconds` |
+| `backend/src/ownvitals/auth/disconnect_job.py` | the `withings_disconnect` job kind and its step-up check; `purge` re-exports its names |
 | `backend/src/ownvitals/auth/operator.py` | what the operator CLI calls (below) |
 | `backend/src/ownvitals/flags/` | the sign-up mode only (`invite` or `closed`); #12 adds the stored flags |
 

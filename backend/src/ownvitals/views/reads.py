@@ -13,9 +13,7 @@ connection id stay in this module's SQL.
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -26,6 +24,7 @@ from ownvitals.connections.repository import list_connections
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
 from ownvitals.views.catalog import STATUS_STREAMS
+from ownvitals.views.read_records import DailyRecord, DayReading, ReadingDetail, StatusFacts
 from ownvitals.views.states import ConnectionFacts, StreamFacts
 from ownvitals.withings.streams import stream_named, windows
 
@@ -78,59 +77,6 @@ _READING = text(
     "AND d.hash_deviceid = g.hash_deviceid "
     "WHERE o.owner_id = :o AND o.id = :id"
 )
-
-
-@dataclass(frozen=True, slots=True)
-class DailyRecord:
-    metric_key: str
-    day: date
-    value: Decimal
-    method: str
-    n: int
-    minimum: Decimal
-    maximum: Decimal
-    mad: Decimal
-    algo_version: str
-    input_revision: int
-
-
-@dataclass(frozen=True, slots=True)
-class DayReading:
-    id: UUID
-    ts: datetime
-    source_tz: str
-    value: Decimal
-    quality_flags: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ReadingDetail:
-    id: UUID
-    metric_key: str
-    ts: datetime
-    source_ts: datetime
-    source_tz: str
-    value: Decimal
-    value_raw: int
-    unit_exponent: int
-    conversion: str
-    quality_flags: tuple[str, ...]
-    algo_version: str
-    input_revision: int
-    input_fingerprint: bytes
-    attrib: int | None
-    category: int | None
-    device_model: int | None
-    device_type: str | None
-    device_firmware: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class StatusFacts:
-    connection: ConnectionFacts | None
-    streams: dict[str, StreamFacts] = field(default_factory=dict)
-    last_reading_at: datetime | None = None
-    last_sync_at: datetime | None = None
 
 
 def _state(value: Any) -> dict[str, Any]:

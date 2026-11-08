@@ -18,7 +18,7 @@ from ownvitals.withings.capabilities import (
     shown_count,
 )
 from ownvitals.withings.streams import stream_named
-from ownvitals.withings.sync import register_sync_kinds
+from ownvitals.withings.sync_kinds import register_sync_kinds
 
 SIGNAL = [12, -40, 0, 300, -1]
 

@@ -9,6 +9,7 @@ How ownvitals encrypts stored secrets and holds its keys: [ADR 0004](../adr/0004
 | Path | What |
 |---|---|
 | `backend/src/ownvitals/crypto/envelope.py` | pure (no database, files or logging): AES-256-GCM `seal`/`open_sealed`/`wrap`/`unwrap`/`rewrap`, the AAD builders, `canonical_json`, the key classes and `check_value` |
+| `backend/src/ownvitals/crypto/aad.py` | pure: the AAD builders (`connection_aad`, `totp_aad` and their wrap forms), re-exported by `envelope` |
 | `backend/src/ownvitals/crypto/keks.py` | the key ring: key files, the `connection_keks` check, `load_keyring(factory, settings, role=...)`, `KeyRing` |
 | `backend/migrations/versions/0004_connection_keks.py` | the check table; the app role gets `SELECT, INSERT` only; the downgrade refuses while it holds a row |
 | `backend/tests/crypto_scan.py` | the crypto guard (below) |

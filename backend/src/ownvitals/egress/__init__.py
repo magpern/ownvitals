@@ -31,9 +31,9 @@ the control for what the static guard cannot see, such as a library's lazy URL f
 event loop must be the standard library's selector loop (``require_standard_event_loop``).
 
 Modules: ``core`` (lists, refusal, process roles, request budget, TLS context), ``opener`` (the
-worker's urllib opener and the total deadline of a urllib request), ``clients`` (the httpx
-transport and clients), ``code_exchange`` (the web process's one Withings call), ``hook`` (the
-audit hook).
+worker's urllib opener), ``deadline`` (the total deadline of a urllib request), ``clients`` (the
+httpx clients), ``transport`` (their allowlist transport), ``code_exchange`` (the web
+process's one Withings call), ``hook`` (the audit hook).
 
 The hook sees only Python's ``socket`` module (not C extensions such as libpq, nor ``ctypes``);
 a network-level egress rule stays the deployment's.
@@ -92,6 +92,14 @@ from ownvitals.egress.core import (
     worker_allowlist_installed,
     worker_hosts,
 )
+from ownvitals.egress.deadline import (
+    REQUEST_FALLBACK_SECONDS,
+    DeadlineHTTPSConnection,
+    DeadlineHTTPSHandler,
+    call_deadline,
+    call_deadline_until,
+    request_deadline,
+)
 from ownvitals.egress.hook import (
     EgressRefused,
     install_egress_hook,
@@ -100,16 +108,10 @@ from ownvitals.egress.hook import (
     smtp_session,
 )
 from ownvitals.egress.opener import (
-    REQUEST_FALLBACK_SECONDS,
     WEB_URLLIB_ALLOWLIST,
-    DeadlineHTTPSConnection,
-    DeadlineHTTPSHandler,
     build_allowlist_opener,
-    call_deadline,
-    call_deadline_until,
     install_web_opener,
     install_worker_allowlist,
-    request_deadline,
 )
 
 __all__ = [

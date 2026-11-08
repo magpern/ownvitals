@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from ownvitals.analysis.quality import METRICS
 from ownvitals.auth.deps import require_user
 from ownvitals.context import UserContext
-from ownvitals.views import assemble
+from ownvitals.views import assemble, assemble_detail
 from ownvitals.views.catalog import DEFAULT_RANGE, RANGES, STREAM_OF
 from ownvitals.views.deps import Now, settle
 from ownvitals.views.reads import reading
@@ -67,9 +67,9 @@ async def get_metric(
         revision = await r.measures_revision()
         values = assemble.to_daily(records)
         anchor = assemble.anchor_day(values, now.date())
-        start, days = assemble.window_for(range, values, anchor)
+        start, days = assemble_detail.window_for(range, values, anchor)
         unconfirmed = await r.unconfirmed_days(key, start, anchor)
-    return assemble.detail(
+    return assemble_detail.detail(
         key,
         records,
         settle(facts, STREAM_OF[key], now),

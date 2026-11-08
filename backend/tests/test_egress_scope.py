@@ -74,7 +74,7 @@ def test_the_scopes_are_where_the_check_looks() -> None:
         if isinstance(node, ast.Call) and _name(node.func) in SCOPES
     }
     assert opened == {
-        "ownvitals.egress.clients",
+        "ownvitals.egress.transport",
         "ownvitals.egress.opener",
         "ownvitals.egress.hook",
         "ownvitals.mail",

@@ -20,7 +20,7 @@ from authtools import (  # noqa: F401 - fixtures
     env_fixture,
     running_env,
 )
-from ownvitals.auth import qrlogin, qrlogin_stream
+from ownvitals.auth import qrlogin, qrlogin_phone, qrlogin_stream
 from ownvitals.auth.cookies import PRE_COOKIE
 from ownvitals.auth.qrlogin_stream import StreamSlots
 from qrtools import (
@@ -137,6 +137,7 @@ async def test_it_works_with_notifications_suppressed(
         return None
 
     monkeypatch.setattr(qrlogin, "_notify", silent)
+    monkeypatch.setattr(qrlogin_phone, "_notify", silent)
     monkeypatch.setattr(qrlogin_stream, "POLL_SECONDS", 0.2)
     mobile = await phone(env)
     desktop = QrBrowser(env)
