@@ -14,6 +14,7 @@ import socket
 import ssl
 from dataclasses import dataclass, field
 from email import message_from_bytes
+from email.header import decode_header, make_header
 from email.message import Message
 from pathlib import Path
 from typing import Self
@@ -69,7 +70,8 @@ class Received:
 
     @property
     def subject(self) -> str:
-        return str(self.message["Subject"])
+        # A non-ASCII subject (Swedish) arrives RFC 2047 encoded; compare the decoded text.
+        return str(make_header(decode_header(str(self.message["Subject"]))))
 
     @property
     def text(self) -> str:
