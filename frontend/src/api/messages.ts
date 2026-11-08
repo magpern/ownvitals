@@ -1,5 +1,6 @@
 import { isMessageKey, plural, t } from '../i18n/store'
 import { ApiError } from './client'
+import { codeText } from './codes'
 
 // Plain-language texts for the `reason` codes of the auth API, worded by the catalogue
 // (i18n/en/errors.ts). Unknown codes get a generic message; the raw code is never shown.
@@ -26,7 +27,7 @@ export function errorMessage(error: unknown): string {
         ? t('errors.tooMany')
         : t('errors.tooManyWait', { wait: waitText(error.retryAfter) })
     }
-    const text = known('reason', error.reason)
+    const text = known('reason', error.reason) ?? codeText(error.reason)
     if (text !== undefined) return text
     if (error.status === 422) return t('errors.fields')
     if (error.status >= 500) return t('errors.server')

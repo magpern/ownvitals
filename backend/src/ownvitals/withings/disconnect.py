@@ -30,6 +30,7 @@ from ownvitals.connections.providers.withings import open_withings
 from ownvitals.connections.repository import disconnect, list_connections
 from ownvitals.context import UserContext
 from ownvitals.crypto.keks import KeyRing
+from ownvitals.response_codes import REMOVAL_REVOKE_INCOMPLETE
 from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.errors import RetryBudget, Transient, WithingsError
 
@@ -39,9 +40,9 @@ _PROVIDER = "withings"
 # The job kind a disconnect or an account deletion enqueues. Its handler is in
 # ``ownvitals.auth.purge``; ``ownvitals.worker.kinds`` registers it.
 DISCONNECT_KIND = "withings_disconnect"
-REMOVAL = (
-    "The upstream revoke did not finish. Remove this application's access in the Withings account."
-)
+# The code of the note a disconnect or an account deletion carries when the upstream revoke did not
+# finish; the frontend words it (ADR 0015 section 6).
+REMOVAL = REMOVAL_REVOKE_INCOMPLETE
 _REMOVAL = REMOVAL
 _REASONS = frozenset({"step_up_required", "not_connected"})
 # Jitter for the OAuth revoke retries. Not a secret.
