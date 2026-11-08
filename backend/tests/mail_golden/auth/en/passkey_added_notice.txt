@@ -1,0 +1,5 @@
+Content-Language: en
+Subject: A passkey was added to your ownvitals account
+
+A passkey named "Synthetic key" was added to your ownvitals account as a way to sign in.
+If this wasn't you, sign in, remove it on the Security page and change your password.

@@ -293,10 +293,10 @@ async def test_totp_material_never_reaches_the_logs(
     configure_logging("DEBUG", stream)
 
     class Leaky:
-        async def totp_enrolled(self, user_id: Any, email: str) -> None:
+        async def totp_enrolled(self, user_id: Any, email: str, locale: str = "en") -> None:
             raise RuntimeError(f"smtp failure for {email}")
 
-        async def mfa_failures(self, user_id: Any, email: str) -> None:
+        async def mfa_failures(self, user_id: Any, email: str, locale: str = "en") -> None:
             raise RuntimeError(f"smtp failure for {email}")
 
     register_security_notifier(Leaky())
