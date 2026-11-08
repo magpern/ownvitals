@@ -37,7 +37,6 @@ from ownvitals.derived.evaluate import (
 from ownvitals.flags import effective
 
 STREAM: Final = "measures"
-CHUNK: Final = 500
 SUPPORTED: Final = "supported"
 # The extra measure types read as readings, not daily values: B6's segmental muscle, N5's feet.
 EXTRA_TYPES: Final = (
