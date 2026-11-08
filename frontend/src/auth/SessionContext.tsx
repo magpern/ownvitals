@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { getSession, type SessionState } from '../api/auth'
 import { setTwoFactorRequiredHandler } from '../api/client'
+import { followAccountLocale } from '../i18n/store'
 
 type Status = 'loading' | 'ready' | 'error'
 
@@ -21,6 +22,11 @@ interface SessionValue {
 }
 
 const SessionContext = createContext<SessionValue | null>(null)
+
+/** A signed-in account's language goes first (ADR 0015 section 2); signed out, nothing changes. */
+function adoptLocale(next: SessionState): void {
+  if (next.authenticated && next.user !== null) void followAccountLocale(next.user.locale)
+}
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>('loading')
@@ -42,6 +48,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const next = await read()
       setSession(next)
       setStatus('ready')
+      adoptLocale(next)
       return next
     } catch {
       setStatus('error')
@@ -56,6 +63,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!current) return
         setSession(next)
         setStatus('ready')
+        adoptLocale(next)
       },
       () => {
         if (current) setStatus('error')

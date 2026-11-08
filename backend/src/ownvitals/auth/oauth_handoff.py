@@ -160,6 +160,7 @@ async def confirm_provider_signup(
                         pending_signups.c.provider,
                         pending_signups.c.subject,
                         pending_signups.c.invite_id,
+                        pending_signups.c.locale,
                     )
                 )
             ).first()
@@ -172,6 +173,7 @@ async def confirm_provider_signup(
                 email=pending.email,
                 provider=pending.provider,
                 subject=pending.subject,
+                locale=pending.locale,
             )
             await db.execute(
                 delete(pending_signups).where(

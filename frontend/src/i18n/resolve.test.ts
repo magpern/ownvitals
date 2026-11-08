@@ -10,7 +10,18 @@ describe('resolveLocale', () => {
     ['xx', ['sv'], 'sv'],
     ['', [], 'en'],
   ])('stored %j and browser %j give %s', (stored, languages, expected) => {
-    expect(resolveLocale(stored, languages)).toBe(expected)
+    expect(resolveLocale(null, stored, languages)).toBe(expected)
+  })
+
+  it.each([
+    ['sv', 'en', ['en'], 'sv'],
+    ['en', 'sv', ['sv'], 'en'],
+    [null, 'sv', ['en'], 'sv'],
+    [null, null, ['sv-SE'], 'sv'],
+    ['xx', null, ['sv'], 'sv'],
+    ['', 'en', ['sv'], 'en'],
+  ])('the account %j comes before stored %j and browser %j: %s', (account, stored, languages, expected) => {
+    expect(resolveLocale(account, stored, languages)).toBe(expected)
   })
 
   it('matches a language tag by its first part, ignoring case', () => {

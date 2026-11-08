@@ -16,7 +16,7 @@ from dbtools import (
     ready_to_downgrade,
 )
 
-HEAD = "0016_findings_rule_ids"
+HEAD = "0017_account_locale"
 
 
 def test_the_revisions_form_one_line() -> None:

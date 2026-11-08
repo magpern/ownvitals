@@ -230,6 +230,7 @@ async def _create_account(db: AsyncSession, req: Request, email: str) -> Outcome
             email=email,
             provider=req.flow.provider,
             subject=req.identity.subject,
+            locale=req.flow.locale,
         )
     except Refused as exc:
         return _fail(exc.code)
@@ -256,6 +257,7 @@ async def _hand_off(db: AsyncSession, req: Request) -> Outcome:
             subject=req.identity.subject,
             browser_hash=token_hash(browser),
             invite_id=req.flow.invite_id,
+            locale=req.flow.locale,
             expires_at=func.now() + HANDOFF_LIFETIME,
         )
     )

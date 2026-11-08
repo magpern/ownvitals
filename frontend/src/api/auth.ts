@@ -1,4 +1,7 @@
-import { ApiError, del, fetchSessionJson, get, post } from './client'
+import { getLocale } from '../i18n/store'
+import type { Locale } from '../i18n/locale'
+import { asLocale } from '../i18n/resolve'
+import { ApiError, del, fetchSessionJson, get, post, request } from './client'
 import { DecodeError, count, flag, list, object, optionalText, strings, text } from './decode'
 
 // The auth endpoints (backend/src/ownvitals/auth/*_routes.py, ported from classbeat). Every
@@ -8,6 +11,8 @@ export interface SessionUser {
   id: string
   email: string
   role: string
+  /** The account's language (ADR 0015 section 2); null follows this browser. */
+  locale: Locale | null
 }
 
 export interface SessionDetails {
@@ -48,7 +53,12 @@ export async function getSession(signal?: AbortSignal): Promise<SessionState> {
   const session = object(body.session, 'session')
   return {
     authenticated,
-    user: { id: text(user, 'id'), email: text(user, 'email'), role: text(user, 'role') },
+    user: {
+      id: text(user, 'id'),
+      email: text(user, 'email'),
+      role: text(user, 'role'),
+      locale: asLocale(user.locale),
+    },
     session: {
       id: text(session, 'id'),
       expiresAt: text(session, 'expires_at'),
@@ -62,6 +72,11 @@ export async function getSession(signal?: AbortSignal): Promise<SessionState> {
   }
 }
 
+/** Sets the account's language (ADR 0015 section 2); null follows this browser. */
+export async function setAccountLocale(locale: Locale | null): Promise<Locale | null> {
+  return asLocale(object(await request('PUT', '/api/account/locale', { body: { locale } }), 'locale').locale)
+}
+
 // --- sign-up, sign-in, sign-out ----------------------------------------------------------
 
 export async function signUp(input: {
@@ -73,6 +88,7 @@ export async function signUp(input: {
     email: input.email,
     password: input.password,
     invite_code: input.inviteCode === '' ? null : input.inviteCode,
+    locale: getLocale(), // the language in effect becomes the account's (ADR 0015 section 2)
   })
 }
 
@@ -136,6 +152,7 @@ export async function startOAuth(
       purpose: 'sign_in',
       invite_code: extra.inviteCode ? extra.inviteCode : null,
       return_to: extra.returnTo ?? null,
+      locale: getLocale(), // kept on the flow: the callback has no body
     }),
     'oauth start',
   )

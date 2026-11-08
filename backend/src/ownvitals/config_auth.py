@@ -1,4 +1,5 @@
-"""The account, session, passkey and QR-login settings of ``ownvitals.config`` (fields only)."""
+"""The account, session, passkey, QR-login and language settings of ``ownvitals.config`` (fields
+and derived properties; the refusing validators stay in ``Settings``)."""
 
 from typing import Literal
 
@@ -52,3 +53,14 @@ class AuthSettings(BaseSettings):
     qr_streams_per_process: int = Field(default=100, ge=1, le=100)
     # How often the worker purges expired auth rows.
     purge_interval_seconds: float = 3600.0
+    # The languages the operator enables (ADR 0015 section 1), comma-separated bare codes. ``en``
+    # is always on. A language is offered when it is enabled and in the manifest
+    # (``locales.SUPPORTED_LOCALES``): this can switch a supported language off, never add one.
+    locales: str = "en,sv"
+
+    @property
+    def enabled_locales(self) -> frozenset[str]:
+        """``locales`` as a set of codes, with ``en`` always in. Anything that is not a
+        two-letter lower-case code is dropped (an operator's typo never becomes a code)."""
+        codes = {code.strip().lower() for code in self.locales.split(",")}
+        return frozenset({c for c in codes if len(c) == 2 and c.isascii() and c.isalpha()} | {"en"})

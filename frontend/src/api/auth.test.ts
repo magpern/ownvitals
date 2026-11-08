@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, fakeApi, json, reason } from '../test/fakeApi'
 import { DecodeError } from './decode'
-import { confirmTotp, getPendingSignup, getSession, startOAuth, startTotp } from './auth'
+import { confirmTotp, getPendingSignup, getSession, setAccountLocale, startOAuth, startTotp } from './auth'
 
 describe('getSession', () => {
   it('reads a signed-out answer without asking about two-factor', async () => {
@@ -14,7 +14,7 @@ describe('getSession', () => {
     const api = fakeApi({ 'GET /api/auth/session': SIGNED_IN_NO_CODE })
     expect(await getSession()).toEqual({
       authenticated: true,
-      user: { id: 'u1', email: 'ann@example.test', role: 'user' },
+      user: { id: 'u1', email: 'ann@example.test', role: 'user', locale: null },
       session: { id: 's1', expiresAt: '2030-01-01T00:00:00Z', recentAuth: true, mfa: false, stepup: false },
       totpEnabled: true,
     })
@@ -36,6 +36,23 @@ describe('getSession', () => {
     delete withoutTotp.totp_enabled
     fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, session: withoutTotp } })
     await expect(getSession()).rejects.toBeInstanceOf(DecodeError)
+  })
+})
+
+describe("the account's language", () => {
+  it('reads a known code from the session and drops any other value', async () => {
+    for (const [sent, read] of [['sv', 'sv'], ['xx', null], [3, null], [null, null]] as const) {
+      fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, user: { ...SIGNED_IN.user, locale: sent } } })
+      expect((await getSession()).user?.locale).toBe(read)
+    }
+  })
+
+  it('is written with PUT and the CSRF token', async () => {
+    const api = fakeApi({ 'PUT /api/account/locale': { locale: 'sv' } })
+    expect(await setAccountLocale('sv')).toBe('sv')
+    const [call] = api.to('PUT', '/api/account/locale')
+    expect(call?.body).toEqual({ locale: 'sv' })
+    expect(call?.headers.get('X-CSRF-Token')).toBeTruthy()
   })
 })
 
@@ -69,7 +86,7 @@ describe('the OAuth calls', () => {
   it('starts a sign-in for a provider named in the path, encoded', async () => {
     const api = fakeApi({ 'POST /api/auth/oauth/a%2Fb/start': { authorization_url: 'https://idp.example.test/auth' } })
     expect(await startOAuth('a/b')).toBe('https://idp.example.test/auth')
-    expect(api.calls.at(-1)?.body).toEqual({ purpose: 'sign_in', invite_code: null, return_to: null })
+    expect(api.calls.at(-1)?.body).toEqual({ purpose: 'sign_in', invite_code: null, return_to: null, locale: 'en' })
   })
 
   it('reads a pending sign-up, with the optional fields missing', async () => {

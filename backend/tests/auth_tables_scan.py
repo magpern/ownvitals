@@ -162,6 +162,8 @@ SUBMODULES = frozenset(
         "hooks",
         "identity_routes",
         "keys",
+        "locale",
+        "locale_routes",
         "mails",
         "mfa",
         "mfa_routes",

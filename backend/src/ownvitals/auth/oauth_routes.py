@@ -45,6 +45,7 @@ from ownvitals.auth.deps import (
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import factory, mailer, reserve, user_agent
 from ownvitals.auth.keys import token_hash
+from ownvitals.auth.locale import for_new_account
 from ownvitals.auth.oauth_client import OAuthRuntime, ProviderError, authorization_url, identify
 from ownvitals.auth.oauth_errors import OAUTH_ERRORS
 from ownvitals.auth.oauth_outcomes import Outcome, apply, has_password
@@ -68,6 +69,7 @@ class StartIn(BaseModel):
     purpose: Literal["sign_in", "link", "reauth"] = "sign_in"
     invite_code: str | None = Field(default=None, max_length=FIELD_MAX)
     return_to: str | None = Field(default=None, max_length=FIELD_MAX)
+    locale: str | None = Field(default=None, max_length=FIELD_MAX)  # the page's (ADR 0015 §2)
 
 
 class StartOut(BaseModel):
@@ -132,6 +134,7 @@ async def start(
             user_id=user_id,
             invite_id=invite_id,
             return_to=safe_return_to(body.return_to),
+            locale=for_new_account(request, body.locale) if body.purpose == "sign_in" else None,
         )
     set_oauth_cookie(response, flow.cookie)
     return StartOut(

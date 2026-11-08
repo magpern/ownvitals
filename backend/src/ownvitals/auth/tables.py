@@ -36,6 +36,10 @@ from ownvitals.auth.tables_passkeys import (  # noqa: F401 - re-exported
     webauthn_credentials,
 )
 
+# The allowlist of the three ``locale`` columns: every code of ``frontend/src/i18n/locales.json``
+# (tests/test_account_locale.py). The migration that adds a language widens it.
+LOCALE_CHECK = "locale IN ('en', 'sv')"
+
 users = Table(
     "users",
     metadata,
@@ -50,6 +54,9 @@ users = Table(
     # The random WebAuthn user handle (ADR 0011 section 1), set at the first registration.
     Column("webauthn_handle", LargeBinary, unique=True),
     CheckConstraint("role IN ('user', 'admin')", name="users_role_check"),
+    # The account's language (ADR 0015 section 2); NULL follows the browser. Migration 0017.
+    Column("locale", Text),
+    CheckConstraint(LOCALE_CHECK, name="users_locale"),
 )
 
 identities = Table(
@@ -135,6 +142,8 @@ pending_signups = Table(
         "(email IS NULL) = (email_normalized IS NULL)", name="pending_signups_email_together"
     ),
     Index("pending_signups_email_normalized_idx", "email_normalized"),
+    Column("locale", Text),  # the language in effect at sign-up, for ``users.locale``
+    CheckConstraint(LOCALE_CHECK, name="pending_signups_locale"),
 )
 
 auth_tokens = Table(
@@ -171,6 +180,8 @@ oauth_flows = Table(
     _ts("expires_at", nullable=False),
     CheckConstraint("provider = 'google'", name="oauth_flows_provider"),
     CheckConstraint("purpose IN ('sign_in', 'link', 'reauth')", name="oauth_flows_purpose"),
+    Column("locale", Text),  # a sign-in's language in effect at the start (no body at callback)
+    CheckConstraint(LOCALE_CHECK, name="oauth_flows_locale"),
 )
 
 mfa_totp = Table(

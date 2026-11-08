@@ -1,8 +1,9 @@
 import { DEFAULT_LOCALE, isLocale, type Locale } from './locale'
 
-// Which language the browser uses (ADR 0015 section 2), for now: the stored choice, then the
-// browser's languages, then English. The account's own value goes on top in a later issue. The
-// decision is pure; the two storage helpers are the only place the choice touches localStorage.
+// Which language the browser uses (ADR 0015 section 2): the signed-in account's own value
+// (`users.locale`, from the session), then the choice stored in this browser, then the browser's
+// languages, then English. The decision is pure; the two storage helpers are the only place the
+// choice touches localStorage.
 
 export const STORAGE_KEY = 'ov-locale'
 
@@ -12,7 +13,17 @@ export function matchLanguage(tag: string): Locale | null {
   return isLocale(primary) ? primary : null
 }
 
-export function resolveLocale(stored: string | null, languages: readonly string[]): Locale {
+/** A code this build knows, else null (an account value the build lacks follows the browser). */
+export function asLocale(value: unknown): Locale | null {
+  return isLocale(value) ? value : null
+}
+
+export function resolveLocale(
+  account: string | null,
+  stored: string | null,
+  languages: readonly string[],
+): Locale {
+  if (isLocale(account)) return account
   if (isLocale(stored)) return stored
   for (const tag of languages) {
     const match = matchLanguage(tag)

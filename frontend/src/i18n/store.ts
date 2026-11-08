@@ -58,10 +58,21 @@ function switchTo(locale: Locale, persist: boolean): Promise<void> | null {
   return pending.then(finish)
 }
 
+function browserLanguages(): readonly string[] {
+  return typeof navigator === 'undefined' ? [] : navigator.languages
+}
+
 /** Picks the language at start-up. Null when it is ready at once; else a promise to wait for. */
 export function initLocale(): Promise<void> | null {
-  const languages = typeof navigator === 'undefined' ? [] : navigator.languages
-  return switchTo(resolveLocale(readStoredLocale(), languages), false)
+  return switchTo(resolveLocale(null, readStoredLocale(), browserLanguages()), false)
+}
+
+/**
+ * The signed-in account's language (null: follow this browser) goes first (ADR 0015 section 2).
+ * It is applied without being stored in this browser: signed out, the browser's own choice holds.
+ */
+export function followAccountLocale(account: string | null): Promise<void> {
+  return switchTo(resolveLocale(account, readStoredLocale(), browserLanguages()), false) ?? Promise.resolve()
 }
 
 /** The user's choice: stored for the next visit and applied without a reload. */

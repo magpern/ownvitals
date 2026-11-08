@@ -378,8 +378,17 @@ is written in no other PR.
 
 ### Choosing the language
 
-`src/i18n/resolve.ts`: `localStorage` `ov-locale` (read in try/catch), then `navigator.languages`
-(`sv-SE` is `sv`), then `en`. The picker in the signed-out footer (`LanguagePicker`, a select with
+`src/i18n/resolve.ts` (ADR 0015 §2): the signed-in account's own value (`user.locale` of
+`GET /api/auth/session`; `null`, or a code this build lacks, follows the browser), then
+`localStorage` `ov-locale` (read in try/catch), then `navigator.languages` (`sv-SE` is `sv`), then
+`en`. `SessionContext` applies the account's value after every session read
+(`followAccountLocale`), without writing it to `ov-locale`, so a signed-out page keeps this
+browser's own choice. The "Language" row of the security page (`AccountLanguage` in
+`SecurityPage.tsx`, until Settings → Profile exists, #203) writes it with
+`PUT /api/account/locale` (`setAccountLocale`; "This browser's language" sends `null`) and reads the
+session again. Its strings are the `account` area (`src/i18n/*/account.ts`). Sign-up
+(`signUp`) and the Google start (`startOAuth`) send the language in effect as `locale`, which a
+new account keeps. The picker in the signed-out footer (`LanguagePicker`, a select with
 each language's own name) sets it, without a reload. `public/locale-init.js` sets `<html lang>`
 before the first paint; it is a same-origin file, not an inline script (CSP `script-src 'self'`),
 writes only a code from the manifest, and `localeInit.test.ts` keeps its list equal to
