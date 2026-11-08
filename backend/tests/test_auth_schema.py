@@ -270,6 +270,11 @@ def test_check_constraints(admin: Connection) -> None:
         "expires_at) VALUES ('f', 'google', 'sign_in', 's', repeat('v', 64), now())",
         "INSERT INTO oauth_flows (flow_hash, provider, purpose, state_hash, pkce_verifier, "
         "nonce, expires_at) VALUES ('f', 'google', 'sign_in', 's', 'short', 'n', now())",
+        # #251: the coarse origin of an event is bounded like the QR desktop's.
+        "INSERT INTO auth_events (kind, browser) VALUES ('sign_out', repeat('b', 33))",
+        "INSERT INTO auth_events (kind, os) VALUES ('sign_out', repeat('o', 33))",
+        "INSERT INTO auth_events (kind, place) VALUES ('sign_out', '')",
+        "INSERT INTO auth_events (kind, place) VALUES ('sign_out', repeat('p', 65))",
     ]
     for statement in bad:
         with pytest.raises(IntegrityError):

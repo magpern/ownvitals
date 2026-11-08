@@ -10,8 +10,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.auth.activity_routes import router as activity_router
 from ownvitals.auth.admin_routes import router as admin_router
 from ownvitals.auth.email_routes import router as email_router
+from ownvitals.auth.event_origin import EventOriginMiddleware
 from ownvitals.auth.identity_routes import router as identity_router
 from ownvitals.auth.keys import Keys
 from ownvitals.auth.locale_routes import router as locale_router
@@ -49,6 +51,7 @@ SECRET_INPUT_PATHS = ("/api/auth/", "/api/connections", "/api/jobs")
 def install(app: FastAPI) -> None:
     """Routes, the Origin/CSRF middleware and the 429 and 503 handlers."""
     app.include_router(router)
+    app.include_router(activity_router)  # GET /api/auth/activity (#251)
     app.include_router(locale_router)  # PUT /api/account/locale (#249)
     for flow in (signup_router, signin_router, reset_router, email_router):
         app.include_router(flow)
@@ -65,6 +68,8 @@ def install(app: FastAPI) -> None:
         app.include_router(oauth)
     app.include_router(admin_router)
     app.add_middleware(AuthMiddleware)
+    # Outside AuthMiddleware: the request that ``auth_events`` rows take their origin from (#251).
+    app.add_middleware(EventOriginMiddleware)
 
     @app.exception_handler(RateLimited)
     async def rate_limited(_: Request, exc: Exception) -> JSONResponse:

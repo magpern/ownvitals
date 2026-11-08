@@ -149,6 +149,8 @@ TABLE_NAMES = (
 SUBMODULES = frozenset(
     {
         "accounts",
+        "activity_model",
+        "activity_routes",
         "admin_accounts",
         "admin_routes",
         "clientip",
@@ -157,6 +159,7 @@ SUBMODULES = frozenset(
         "devices",
         "disconnect_job",
         "email_routes",
+        "event_origin",
         "events",
         "flowtools",
         "hooks",

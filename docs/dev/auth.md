@@ -21,6 +21,8 @@ say ownvitals. The "Ported unchanged" table of ownvitals' ADR 0003 §1 maps them
 | `backend/src/ownvitals/auth/purge.py` | `purge_expired`, which the worker runs every `purge_interval_seconds` |
 | `backend/src/ownvitals/auth/disconnect_job.py` | the `withings_disconnect` job kind and its step-up check; `purge` re-exports its names |
 | `backend/src/ownvitals/auth/operator.py` | what the operator CLI calls (below) |
+| `backend/src/ownvitals/auth/events.py`, `event_origin.py` | `record_event`, the one writer of `auth_events`, and the request's coarse origin it stores ("Security activity" below) |
+| `backend/src/ownvitals/auth/activity_routes.py`, `activity_model.py` | `GET /api/auth/activity` and its pure allowlist of kinds and fields (#251) |
 | `backend/src/ownvitals/flags/` | the sign-up mode only (`invite` or `closed`); #12 adds the stored flags |
 
 ## Guard 8 and the public entry points
@@ -120,7 +122,8 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 
 - **Audit.** `auth_events` kinds: `mfa_verified`, `step_up`, `reauth_totp`, `mfa_failed` (with
   `detail.purpose`: `verify`, `stepup`, `reauth`, `enroll`, `qr_approve`), `totp_enrolled`, `totp_replaced`,
-  `totp_removed`, `logout_everywhere` (with the number of sessions). Code attempts share the MFA
+  `totp_removed`, `logout_everywhere` (with the number of sessions), `sign_out` and
+  `session_signed_out` (#251, "Security activity" below). Code attempts share the MFA
   rate-limit buckets.
 - **Removing the TOTP** (step-up) revokes every other session and rotates this one without its
   second factor, so it goes straight to enrolment.
@@ -176,7 +179,8 @@ The paths that take it first: password sign-in (`/login`) and Google sign-in
 TOTP confirm, step-up, password, Google and passkey re-auth, TOTP removal), linking a Google
 identity (`oauth_store.add_identity`) and unlinking one, the reset request (`reset_mail`) and
 completion (before it consumes the token), the password change, the email change (before it
-consumes its token), sign-out-everywhere (`/logout-all`), TOTP removal (`DELETE /mfa/totp`,
+consumes its token), sign-out-everywhere (`/logout-all`), sign-out (`/logout`) and ending one
+session (`DELETE /sessions/{id}`) (#251), TOTP removal (`DELETE /mfa/totp`,
 before the TOTP row), `admin mfa-reset` (`accounts.reset_mfa`), `keys wipe` and passkey
 registration (`passkeys.lock_user`, same mode) and the admin disable, enable and delete. A
 passkey or QR sign-in takes `FOR SHARE` (`passkeys.lock_user(share=True)`); a passkey re-auth
@@ -210,6 +214,51 @@ The rules that make it hold:
 reset, rotation vs reset, Google sign-in vs reset and vs disable, sign-out-everywhere vs sign-in,
 admin disable vs sign-in and TOTP removal vs `admin mfa-reset`, each in both orders where both
 exist, and the pairs at once with no deadlock or serialization error reaching the user.
+
+## Security activity (#251)
+
+The user's own security events, for the Security tab of #203 and the security page (no new
+screen; the frontend words every code through the catalogue).
+
+- **Sign-outs are recorded** (`auth/routes.py`): `POST /logout` and ending this session from the
+  list write `sign_out`; ending another of the user's sessions writes `session_signed_out`, which
+  the user's remaining sessions see in the list; `/logout-all` writes `logout_everywhere` with
+  the number of sessions. No row holds a session id. Each path takes the user row first ("Lock
+  order" above): the event's foreign key takes `FOR KEY SHARE` on the user row after the session
+  row is locked, which would otherwise deadlock with an account deletion
+  (`tests/test_auth_signout_races.py`). The event is written in a savepoint after the revoke: a
+  failed insert is logged by class and SQLSTATE and the session still ends. A sign-out that finds
+  its session already gone records nothing. No notice mail is defined for a sign-out, so none is
+  sent (a new notice kind is a later issue; `auth/notices.py` is unchanged).
+- **Origin** (`auth/event_origin.py`, migration `0019_auth_event_origin`): every `auth_events`
+  row written during a web request stores the request's browser family and operating system
+  (`useragent.BROWSERS`, `SYSTEMS`) and its place (`geo`, the `geo_source` setting; `NULL` is
+  "Place unknown"). `EventOriginMiddleware` (installed by `setup.install`, outside
+  `AuthMiddleware`) puts the request in a context variable; `record_event` reads it. Never the
+  address or the `User-Agent` string. Rows written outside a request (the purge, the CLI) and
+  older rows have none. `mfa_failed` now goes through `record_event` as well.
+- **`GET /api/auth/activity`** (`auth/activity_routes.py`), behind `require_user` (a full
+  session): `{"events": [...], "next_before": str | null}`, newest first. Each event is exactly
+  `kind`, `at`, `method` (`password`, `google`, `passkey`, `qr` or null), `browser`, `os` (a
+  family, `other`, or null when not recorded) and `place` (`"City, CC"`, `"CC"` or
+  `"Place unknown"`). The shown kinds are an allowlist (`activity_model.SHOWN`): sign-ins with
+  their method (`sign_in`, `passkey_signin` and `qr_login_completed` are all `sign_in`),
+  `sign_in_failed`, `reauth_failed` (a passkey re-auth failure too), `mfa_failed`, the three
+  sign-outs, the TOTP and recovery-code changes, `mfa_reset`, the passkey changes
+  (`passkey_added` for `passkey_registered`), `password_changed`, `password_reset`,
+  `email_changed`, `google_linked` and `google_unlinked`. Every other kind stays hidden until it
+  is named there. Nothing else of `detail` is read; `mfa_reset` (the operator's doing) shows no
+  origin.
+- **Only the caller's rows** (guard 7): `auth_events` is a system table without RLS, so the
+  route's `WHERE user_id = <ctx.user_id>` is the wall; no parameter names a user, and a cursor
+  only bounds that same filter. `tests/test_auth_activity.py` proves it with two users; the
+  other execution contexts never read this table.
+- **Paging:** `limit` 1 to 50 (default 20); `before` is the previous page's `next_before`
+  (`<microseconds since the epoch>_<event id hex>`, ordered by `(at, id)` so ties never skip or
+  repeat a row; index `auth_events_user_at_idx`). A malformed cursor is `422`, echoing nothing.
+  Rows are purged after 30 days.
+- **Tests:** `test_auth_activity.py`, `test_auth_activity_model.py`,
+  `test_auth_signout_races.py`, `test_log_redaction_auth_events.py`.
 
 ## Passkeys
 
