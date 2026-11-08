@@ -18,8 +18,8 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | M6 | MVP UI | the UI design is chosen ([docs/design/](design/README.md), #85) and aligned with the spec (#91); #98 (#105: shell, tokens, theme, fonts and primitives; pulled forward) merged; #193 (#217, chart primitives, value styles and the data layer) and #194 (#220, mail outbox) merged; backlog #195–#203 | — |
 | M7 | AI & reports | ADR 0013 (reports and export) and ADR 0014 (AI insights) (#204; #214) merged as Proposed; #205 (#224, the per-user monthly AI cost cap that holds under concurrency) merged; backlog #206–#211 | — |
 | M8 | Beyond-household gate | owner-gated; prerequisites P1–P3 (roadmap Amendment 7) | — |
-| G | Groundwork (Amendment 7, ADR 0015): `config.py` split, multilingual en/sv | planned 2026-11-08 (#244): G1 #245, G2 #246, G3 #249, G4 #250, G5 #253, G6 #254, G7 #255; G2 and G3 gate the M6 screen issues | — |
-| H | Hardening from classbeat (Amendment 7) | planned 2026-11-08 (#244): H1 #247, H2 #248, H3 #251, H4 #252; all security-critical | — |
+| G | Groundwork (Amendment 7, ADR 0015): `config.py` split, multilingual en/sv | all 7 issues merged on 2026-11-08 and IMPLEMENTED (synthetic tests only): G1 #245 (#259), G2 #246 (#260), G3 #249 (#264), G4 #250 (#263), G5 #253 (#265), G6 #254 (#268), G7 #255 (#269). The Swedish health wording stays on the M8 medical-claims review list (ADR 0015). Next migration number: 0020 | IMPLEMENTED |
+| H | Hardening from classbeat (Amendment 7) | all 4 issues merged on 2026-11-08 and IMPLEMENTED (synthetic tests only; all security-critical): H1 #247 (#262), H2 #248 (#261), H3 #251 (#266, migration 0019), H4 #252 (#267, migration 0018). Next migration number: 0020 | IMPLEMENTED |
 
 ### Start order (Amendment 7, from 2026-11-09)
 
@@ -40,10 +40,11 @@ G2), and each issue owns its own area file.
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| (docs) | Status after #242, #243 and #256 | Architect | #258 | open; docs only |
-| G1, G2, H1, H2 | Wave 1 of Amendment 7 (#245, #246, #247, #248) | Developers | — | planned for 2026-11-09; none started |
+| — | Nothing is active: G and H are merged; the next work is the M6 screen issues, which G2 and G3 no longer gate | — | — | — |
 
 Backlog: #257 (hardening from the #242 review: stale guard entries, guard 8's list, three files over the caps), #167 (metrics listener, wiring, definer aggregates), #165 (hardening umbrella: non-blocking findings from the Cursor PRs #149–#162 and the Claude PRs #166–#232; the Architect splits it before the M2 real-data gate; it also holds the threat-model gaps G1 to G5 from #223), #30 (e2e/M1 done-when), #188 (scores job), #180 (M3 UI), #191–#192 (M5), #195–#203 (M6), #206–#211 (M7). Labels are not authoritative, this table is.
+
+Merged on 2026-11-08 (`main` now `a47e1ef`): groundwork G and H, 11 PRs, see "Groundwork G/H done-when" below and [status/completed.md](status/completed.md).
 
 Merged on 2026-11-08 (`main` now `7987369`): #256 (roadmap Amendment 7 and ADR 0015, the G and H plan, docs), #243 (the `python:3.12.16-slim-bookworm` digest for the apt CVE-2026-109518 fix, so the E2E Trivy scan passes again) and #242 (the behaviour-neutral split of source files over 300 lines, with the egress, crypto, auth, withings and worker guards repointed; Opus `PASS` on `d69e56e`; it left `crypto/keks.py`, `findings_read.py`, `passkey_ceremonies.py`, `withings/client.py` and `worker/loop.py` whole on purpose). #242 had no issue; the findings that remain are #257.
 
@@ -71,13 +72,28 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `backend/src/ownvitals/derived/evaluate.py`, `derived/findings_store.py`, `derived/check_cli.py`, `backend/src/ownvitals/jobs/kinds.py`, `worker/**`, `cli.py` | #187 |
 | `backend/src/ownvitals/views/{status,metrics,days,nerve}_routes.py`, `views/schemas.py`, `docs/dev/views.md`, the router mount in `web.py` | #189 |
 | `e2e/package.json` and `e2e/package-lock.json` | #175 (Dependabot) |
-| `backend/pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `frontend/package.json` and lock, `frontend/src/main.tsx`, `frontend/src/pages/appPages.tsx`, `config.py` | — (free now); the issues that need them take the lock when they start (planner's note: `appPages.tsx` one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds; the migration number after `0015_qr_login` is the next free one) |
+| `backend/pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `frontend/package.json` and lock, `frontend/src/main.tsx`, `frontend/src/pages/appPages.tsx`, `config.py` | — (free now); the issues that need them take the lock when they start (planner's note: `appPages.tsx` one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds; the next free migration number is 0020; 0018 is H4 and 0019 is H3) |
 | `docs/status.md`, `docs/status/completed.md` | Architect |
 | everything else | — (released) |
 
 Alembic migrations: a PR takes the next free revision number when it opens; if another
 migration merges first, it renumbers and re-chains on its update, which needs a fresh scoped
 review.
+
+## Groundwork G/H done-when
+
+Merged on 2026-11-08, IMPLEMENTED with synthetic tests only (Amendment 7, ADR 0015): the `config.py` split (G1), the frontend i18n runtime (G2), the account language and sign-up locale (G3), stable response codes (G4), mail in the recipient's language (G5), the Swedish catalogues (G6), the half-wired-language guard, e2e and the add-a-language checklist (G7); Google re-authentication (H1), reset race windows (H2), sign-out and security-activity events (H3, migration 0019) and shorter cross-device passkey sessions (H4, migration 0018). Nothing is INTEGRATION_VERIFIED or PRODUCTION_READY; the owner's gates are untouched: the Swedish health wording is still listed for the M8 medical-claims review, and the ADR 0015 owner questions stay open.
+
+### Backlog from the G/H reviews (non-blocking; to be batched into hardening issues, not yet created)
+
+- G6 #268: Swedish "guidad"/"Idag" style points; ADR 0015 owner questions; native-Swedish review of the health keys; the E2 name; "värdeområde" missing from the glossary.
+- G7 #269: the locale guard's `_checks` accepts any migration that mentions "locale" and the code, without checking that each of the three tables is widened.
+- H4 #267: the `sessions.start_session` 72 h idle note; a route-level 403 test for QR approval by a cross-device session; the `mails.passkey_suspended_notice` re-auth wording; the `config.py` RP ID checks.
+- H3 #266: the `/logout-all` count>0/atomicity note; a docs line that failed-sign-in origins may be an attacker's.
+- G5 #265: a format-spec placeholder test; an explicit auth-mail untranslated list; confirm the `email_change_taken` locale; widen security-notice callers to the account language.
+- G3 #264: `/api/account/` into `SECRET_INPUT_PATHS`; sign-out language reset; the Language row moves to Settings → Profile with #203.
+- G4 #263: ConnectRefused catalogue entries; E2 evidence keys; the `withings/disconnect.py` scope note; English sentences in `auth/setup.py:81` and the `web.py` 404 detail; OAuth outcome words in `errors.ts`.
+- Earlier: H1 N1–N5, H2 N2/N4, the `has_password` lock test, the logging "why" gaps in `oauth_outcomes.py`, the G1 private-API note.
 
 ## Blocked on the owner
 
