@@ -2,7 +2,7 @@
 # The e2e stack's stand-in for Withings: an HTTP shell (server.py, standard library only) around
 # the protocol code of backend/tests, which compose.e2e.yaml mounts read-only at /protocol.
 # Not part of the release image.
-FROM python:3.12.16-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
+FROM python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
 
 RUN useradd --system --uid 10002 --no-create-home fakewithings
 WORKDIR /app
