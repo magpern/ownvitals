@@ -202,6 +202,7 @@ SUBMODULES = frozenset(
         "routes",
         "session_manage",
         "session_model",
+        "session_resolve",
         "sessions",
         "setup",
         "signin_routes",
