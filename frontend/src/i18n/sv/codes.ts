@@ -7,7 +7,7 @@ export const codes = {
   'code.blocked_by_provider_plan':
     'Din Withings-plan omfattar inte de här data. Det är inget fel på din anslutning.',
   'code.daily_summary':
-    'Varje dags värde är den första avläsningen mellan {start} och {end} lokal tid, annars medianen av dagens avläsningar. Avläsningar som är markerade som obekräftade, orimliga eller dubbletter visas men används inte. Det typiska intervallet är medianen plus eller minus {k} gånger den skalade medianavvikelsen (MAD) för de senaste {days} dagarna, aldrig smalare än en lägsta halvbredd. Trenden är en Theil-Sen-lutning med ett Mann-Kendall-test som är korrigerat för autokorrelation. Brytpunkter söks med PELT, och bara i en serie med tillräckligt med data. En dag utan avläsning är en lucka, inte noll.',
+    'Varje dags värde är den första avläsningen mellan {start} och {end} lokal tid, annars medianen av dagens avläsningar. Avläsningar som är markerade som obekräftade, orimliga eller dubbletter visas men används inte. Det vanliga intervallet är medianen plus eller minus {k} gånger den skalade absoluta medianavvikelsen (MAD) för de senaste {days} dagarna, aldrig smalare än en lägsta halvbredd. Trenden är en Theil-Sen-lutning med ett Mann-Kendall-test som är korrigerat för autokorrelation. Brytpunkter söks med PELT, och bara i en serie med tillräckligt med data. En dag utan avläsning är en lucka, inte noll.',
   'code.decrypt_failed': 'Din anslutning kunde inte läsas. Anslut ditt Withings-konto igen.',
   'code.email_taken': 'Den e-postadressen används redan.',
   'code.idempotency_key_invalid': 'Begäran kunde inte skickas på ett säkert sätt två gånger. Försök igen.',
@@ -35,7 +35,7 @@ export const codes = {
   'code.qr_approval_not_allowed': 'Det här kontot kan inte godkänna en inloggning på en annan enhet.',
   'code.rate_limited': 'För många begäranden har gjorts just nu. Försök igen senare.',
   'code.reauth_use_password': 'Använd ditt lösenord eller en kod från autentiseringsappen i stället.',
-  'code.revoke_failed': 'Withings kunde inte be att åtkomsten stoppas. Ta bort den i ditt Withings-konto.',
+  'code.revoke_failed': 'Det gick inte att be Withings stoppa åtkomsten. Ta bort den i ditt Withings-konto.',
   'code.revoke_incomplete':
     'Återkallandet hos Withings blev inte klart. Ta bort det här programmets åtkomst i Withings-kontot.',
   'code.too_large': 'Begäran är för stor.',
