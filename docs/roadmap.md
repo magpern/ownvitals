@@ -26,6 +26,73 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 7 (2026-11-08, owner): groundwork and hardening carried over from classbeat
+
+- **Changes:** PLAN §11 gains two milestones that run **before the M6 screens**: **G
+  Groundwork** (multilingual support, plus the `config.py` split that the new settings need)
+  and **H Hardening from classbeat** (auth fixes found in classbeat after the pinned port). It
+  also lists the **P** items that must be done before M8 opens registration beyond the
+  household. PLAN §8 gains "every page is shown in the user's language (English and Swedish)".
+  M6 does not start a screen issue until G2 and G3 are merged. From then on, every M6, M7 and
+  M3-UI issue builds its text through the catalogue, and the guard in G2 enforces it.
+- **Evidence:** the owner's decision of 2026-11-08 ("plan what needs to be planned … ground work
+  first"), after a scan of the classbeat issues closed since the pinned source
+  (`d806051`). For H, the evidence is a defect: classbeat fixed bugs in code that ownvitals ported
+  unchanged. For example, `auth/oauth_outcomes.py` refuses a Google re-authentication whose ID
+  token has no fresh `auth_time` (lines 131–135). classbeat #522 showed that Google sends no such
+  claim, so the refusal happens every time. The frontend is still small (about 3,400 lines,
+  sign-in and security pages only), so translation costs least now, before M6 adds about ten
+  screens.
+- **ADR:** [ADR 0015](adr/0015-multilingual.md) (multilingual; Proposed with this amendment). An
+  H issue that changes a recorded decision amends ADR 0003 or ADR 0011 in its own PR. P1 brings
+  its own ADR, and a roadmap amendment for the web egress list (Amendment 1's list gains the
+  Turnstile verification host only then).
+
+**G Groundwork** (done when: English and Swedish switch everywhere except the admin area. The
+guards refuse hard-coded text, a missing key and a half-added language. Mail goes out in the
+recipient's language. `docs/dev/i18n.md` has the add-a-language checklist.)
+
+| Id | Scope | Tier | Ports (classbeat) | Depends on |
+|---|---|---|---|---|
+| G1 | Split the `Settings` groups out of `config.py` (553 lines) into modules. No behaviour change; one move commit, checked with `git diff -M`. Releases the `config.py` lock sooner for everyone. | ordinary | #764, #803, #812 | — |
+| G2 | Frontend runtime: in-house typed catalogue `frontend/src/i18n/` (`en.ts` source, `sv.ts` `satisfies` its shape), `t()` with named placeholders, `plural()` on `Intl.PluralRules`, a `Trans` helper (no markup in strings). Also `format.ts` on `Intl` (numbers, dates and durations; days and reading times follow the account's day setting), the locale manifest, `<html lang>`, a picker on the signed-out pages, and every existing page moved to the catalogue. Guards: hard-coded string guard with a shrink-only allowlist, catalogue key and placeholder parity. | ordinary | #663, #665, #667 | — |
+| G3 | Language preference: `users.locale` (migration, next free number), `PUT /api/account/locale`, returned with the session; a bounded `Accept-Language` parse; a new account stores the language in effect at sign-up (email and Google paths, including the OAuth flow row); backend reads the same manifest. | security-critical (auth flows, OAuth state) | #664 | G1, G2 |
+| G4 | Codes, not sentences: every English sentence the backend sends to the page (errors, job and sync states, view `reason` strings, notices) becomes a code plus parameters that the frontend words, with the English text as the fallback for an unknown code. Findings already carry structured `evidence`. The rule texts are worded in the frontend from `rule_id` and evidence. | security-adjacent | #666, #699 | G2 |
+| G5 | Mail in the recipient's language: the outbox row carries the locale (an allowlisted code that only picks a fixed template, so threat model T59 holds), `notify/templates` and the auth mails gain one catalogue per locale, golden files per kind and locale, and `Content-Language`. Month names come from the catalogue, never `setlocale`. | security-critical (outbox definer functions) | #671 (layout of #652) | G3 |
+| G6 | Swedish catalogues for the app and mail: a Sonnet translator, an independent Opus-class Reviewer (ADR 0015 §7). The health wording (findings, tiers, disclaimers, score text) is listed in `docs/dev/i18n.md` for the owner's medical-claims review at M8. | ordinary (translation PR) | #672 | G2, G4, G5 |
+| G7 | Done-when suite: guards so a new language cannot be half-wired, the add-a-language checklist, e2e that switches language on sign-in and Settings. | ordinary | #673, #756, #761 | G6 |
+
+**H Hardening from classbeat** (all security-critical, so an Opus Developer and an Opus first
+Reviewer). Each issue first reproduces the classbeat defect in ownvitals with a failing test. If
+the defect cannot be reproduced, the issue closes with that test kept as a regression guard.
+
+| Id | Scope | Ports (classbeat) | Depends on |
+|---|---|---|---|
+| H1 | Google re-authentication: decide how freshness is proven without `auth_time` (fail closed; never weaken step-up's 10 minutes). Log one WARNING line for every refused OAuth callback (provider, purpose, outcome code, never a token, code, state or email). The frontend gets a code for "use your password or a TOTP instead". Includes 2FA activation behind a Google re-auth. | #522 (PR #563), #687 | — |
+| H2 | Race windows: a password sign-in racing a reset, and an identity linked during a reset, must not outlive it. Take the user-row lock (`FOR UPDATE`) before log-out-everywhere and the MFA reset revoke sessions, and in admin disable and delete. Same lock order everywhere, with race tests. `auth/sessions.py` (529 lines) is split on touch. | #639 (PR #642), #643, #675 | — (coordinate files with H1) |
+| H3 | Sign-out recorded in `auth_events`. A user-facing security activity API (sign-ins, sign-outs, method changes, other sessions signed out) with an event when another session is signed out; its screen is the Security tab of #203. | #646, #678 | H2 |
+| H4 | Passkeys: a shorter session after a cross-device (hybrid) passkey sign-in (an ADR 0011 amendment). #180 gains classbeat's e2e with a virtual authenticator and its hardening list (#795). | #776, #778, #795 | — (H4's UI part is in #180) |
+
+**P Before M8** (registration beyond the household). Built after M6, never enabled without the
+owner:
+
+| Id | Scope | Tier | Ports (classbeat) |
+|---|---|---|---|
+| P1 | Cloudflare Turnstile on sign-up, sign-in and reset, off by default. Backend verification first, then the widget, then the CSP and privacy text. The install check refuses "on" without keys. Own ADR and an egress amendment. | security-critical (egress, auth) | #721, #724, #726, #798, #805 |
+| P2 | Session anomaly signal, security log and an admin abuse view (scripted use of a stolen session). | security-critical | #577, #632, #750 |
+| P3 | Privacy and terms pages and a cookie notice in English and Swedish. The texts are drafts for the owner's §9.3 legal checklist; strictly necessary cookies only until P1 adds Turnstile's. | ordinary | #715, #718, #727 |
+
+**M6 additions:** #195 and #203 also take email preferences and a signed unsubscribe link
+(classbeat #655, security-adjacent).
+
+**Considered and not adopted:**
+- language in the URL (`/en`, `/sv`): ownvitals is a private signed-in app with no search
+  engine need;
+- plan quotas and prices: D11 keeps ownvitals free;
+- classbeat's image-only install: ownvitals' forced-command deploy (#84) is a different
+  mechanism, to be compared at M2;
+- the path-filtered Playwright job: ownvitals' CI already has the `stack` filter.
+
 ### Amendment 6 (2026-11-03, Architect): `findings.rule_id` and `tier` checks take the rule-id shapes the rules use
 
 - **Changes:** PLAN §5's `findings` checks (`rule_id` as a letter plus one or two digits, and
