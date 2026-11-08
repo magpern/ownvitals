@@ -230,7 +230,7 @@ screen; the frontend words every code through the catalogue).
   failed insert is logged by class and SQLSTATE and the session still ends. A sign-out that finds
   its session already gone records nothing. No notice mail is defined for a sign-out, so none is
   sent (a new notice kind is a later issue; `auth/notices.py` is unchanged).
-- **Origin** (`auth/event_origin.py`, migration `0018_auth_event_origin`): every `auth_events`
+- **Origin** (`auth/event_origin.py`, migration `0019_auth_event_origin`): every `auth_events`
   row written during a web request stores the request's browser family and operating system
   (`useragent.BROWSERS`, `SYSTEMS`) and its place (`geo`, the `geo_source` setting; `NULL` is
   "Place unknown"). `EventOriginMiddleware` (installed by `setup.install`, outside

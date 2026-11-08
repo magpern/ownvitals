@@ -237,7 +237,7 @@ auth_events = Table(
     Column("ip", Text),
     _ts("at", nullable=False, default_now=True),
     Column("detail", JSONB),
-    # The request's coarse origin (``event_origin``, migration 0018_auth_event_origin, #251).
+    # The request's coarse origin (``event_origin``, migration 0019_auth_event_origin, #251).
     Column("browser", Text),
     Column("os", Text),
     Column("place", Text),

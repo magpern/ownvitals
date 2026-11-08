@@ -1,0 +1,7 @@
+Content-Language: sv
+Subject: A new sign-in to ownvitals was approved from your phone
+
+A new sign-in to your ownvitals account was approved from your phone:
+Firefox on Linux (Synthetic place), as reported by that browser.
+
+If this wasn't you, sign that device out and change your password: https://ownvitals.example.test/settings/security

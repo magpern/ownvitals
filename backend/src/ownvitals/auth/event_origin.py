@@ -20,7 +20,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from ownvitals.auth import geo
 from ownvitals.auth.useragent import describe
 
-BROWSER_MAX: Final = 32  # the column checks of 0018_auth_event_origin
+BROWSER_MAX: Final = 32  # the column checks of 0019_auth_event_origin
 SYSTEM_MAX: Final = 32
 
 _request: ContextVar[Request | None] = ContextVar("ownvitals_auth_event_request", default=None)

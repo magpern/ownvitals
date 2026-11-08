@@ -1,0 +1,7 @@
+Content-Language: en
+Subject: Confirm your new ownvitals email address
+
+To use this address for your ownvitals account, sign in and open this link (valid for 1 hour):
+https://ownvitals.example.test/email-change#token=synthetic-token
+
+If this wasn't you, ignore this mail.

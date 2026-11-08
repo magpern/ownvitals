@@ -4,13 +4,14 @@ section 3). Every function takes the caller's ``AsyncSession`` (a ``system_sessi
 
 from collections.abc import Collection
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ownvitals.auth.session_cross_device import idle_cutoff
 from ownvitals.auth.session_model import PENDING_WINDOW
 from ownvitals.auth.tables import sessions
 from ownvitals.config import Settings
@@ -69,11 +70,10 @@ def _live_filters(settings: Settings) -> tuple[Any, ...]:
     Absolute- and idle-expired rows, and rows that never passed their second factor and are past
     their ten minutes, are left out. A ``reauth_at`` or ``stepup_at`` after now is not a proof.
     """
-    idle = timedelta(hours=settings.session_idle_hours)
     now = func.now()
     return (
         sessions.c.expires_at > now,
-        sessions.c.last_seen_at > now - idle,
+        sessions.c.last_seen_at > idle_cutoff(settings),  # shorter for a cross-device one
         # a session that never passed its second factor ends ten minutes after its proof
         or_(
             sessions.c.mfa_at.is_not(None),

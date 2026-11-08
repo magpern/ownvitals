@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.keys import token_hash
-from ownvitals.auth.session_model import Resolution, SessionInfo
+from ownvitals.auth.session_model import Resolution, SessionInfo, idle_limit
 from ownvitals.auth.tables import mfa_totp, sessions, users
 from ownvitals.config import Settings
 from ownvitals.db import system_session
@@ -72,7 +72,8 @@ async def resolve_session(
             origin=row.origin,
             mfa_by_approval=row.mfa_by_approval,
         )
-        idle = timedelta(hours=settings.session_idle_hours)
+        # A cross-device passkey session idles out sooner (ADR 0011 section 3, 2026-11-08).
+        idle = idle_limit(timedelta(hours=settings.session_idle_hours), row.origin)
         if (
             row.expires_at <= row.now
             or row.now - row.last_seen_at >= idle

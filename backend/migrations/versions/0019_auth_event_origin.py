@@ -1,7 +1,7 @@
 """accounts: the coarse origin of a security event (#251)
 
-Revision ID: 0018_auth_event_origin
-Revises: 0017_account_locale
+Revision ID: 0019_auth_event_origin
+Revises: 0018_cross_device_session
 Create Date: 2026-11-08
 
 ``auth_events`` gains the browser family, the operating system and the place of the request
@@ -21,8 +21,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0018_auth_event_origin"
-down_revision: str | Sequence[str] | None = "0017_account_locale"
+revision: str = "0019_auth_event_origin"
+down_revision: str | Sequence[str] | None = "0018_cross_device_session"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -16,7 +16,7 @@ from dbtools import (
     ready_to_downgrade,
 )
 
-HEAD = "0018_auth_event_origin"
+HEAD = "0019_auth_event_origin"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -25,6 +25,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0018_cross_device_session",
         "0017_account_locale",
         "0016_findings_rule_ids",
         "0015_qr_login",

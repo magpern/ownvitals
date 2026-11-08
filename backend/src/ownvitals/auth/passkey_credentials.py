@@ -49,6 +49,7 @@ class StoredCredential:
     disabled: bool
     handle: bytes | None
     totp_confirmed: bool
+    transports: tuple[str, ...] = ()  # as registered (``is_cross_device``)
 
 
 def _totp_confirmed() -> Any:
@@ -74,6 +75,7 @@ async def find_credential(db: AsyncSession, credential_id: bytes) -> StoredCrede
                 users.c.disabled_at.is_not(None).label("disabled"),
                 users.c.webauthn_handle,
                 _totp_confirmed().label("totp_confirmed"),
+                webauthn_credentials.c.transports,
             )
             .join(users, users.c.id == webauthn_credentials.c.user_id)
             .where(webauthn_credentials.c.credential_id == credential_id)
@@ -93,6 +95,7 @@ async def find_credential(db: AsyncSession, credential_id: bytes) -> StoredCrede
         row.disabled,
         None if row.webauthn_handle is None else bytes(row.webauthn_handle),
         row.totp_confirmed,
+        tuple(row.transports or ()),
     )
 
 
