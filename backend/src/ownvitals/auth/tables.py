@@ -237,7 +237,15 @@ auth_events = Table(
     Column("ip", Text),
     _ts("at", nullable=False, default_now=True),
     Column("detail", JSONB),
+    # The request's coarse origin (``event_origin``, migration 0018_auth_event_origin, #251).
+    Column("browser", Text),
+    Column("os", Text),
+    Column("place", Text),
+    CheckConstraint("char_length(browser) <= 32", name="auth_events_browser"),
+    CheckConstraint("char_length(os) <= 32", name="auth_events_os"),
+    CheckConstraint("char_length(place) BETWEEN 1 AND 64", name="auth_events_place"),
     Index("auth_events_at_idx", "at"),
+    Index("auth_events_user_at_idx", "user_id", "at", "id"),
 )
 
 TABLE_NAMES = tuple(metadata.tables)
