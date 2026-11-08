@@ -27,8 +27,8 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 COLUMNS = {
-    "browser": "char_length(browser) <= 32",
-    "os": "char_length(os) <= 32",
+    "browser": "char_length(browser) BETWEEN 1 AND 32",
+    "os": "char_length(os) BETWEEN 1 AND 32",
     "place": "char_length(place) BETWEEN 1 AND 64",
 }
 

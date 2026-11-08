@@ -96,7 +96,7 @@ async def list_own_activity(
 ) -> ActivityOut:
     position = None if before is None else decode_cursor(before)
     if before is not None and position is None:
-        raise HTTPException(status_code=422, detail={"reason": "invalid_cursor"})
+        raise HTTPException(status_code=422)  # FastAPI's own answer to bad input: no reason code
     async with system_session(_factory(request)) as db:
         entries, cursor = await read_activity(db, ctx.user_id, limit=limit, before=position)
     return ActivityOut(
