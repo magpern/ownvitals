@@ -28,7 +28,8 @@ RULES_JSON = API_DIR / "rules.json"
 # The ECG rules live in ``ecg/`` (ADR 0006 section 11); E5 is deferred (ADR 0010).
 ECG_RULES = {"E1", "E2", "E3", "E4", "E6"}
 
-# The route files of the families whose sites this module lists; auth has its own owner.
+# The route files of the families whose sites this module lists. The AUTH list is a hand list
+# that nothing here checks against auth/*: add auth's route files once G3 (#249) has merged.
 ROUTE_FILES = {
     "jobs": ["jobs/routes.py", "jobs/events_routes.py"],
     "connections": ["connections/routes.py"],

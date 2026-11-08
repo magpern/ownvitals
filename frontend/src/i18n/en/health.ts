@@ -2,8 +2,8 @@
 // key here is listed in docs/dev/i18n.md for the owner's medical-claims review at M8, in both
 // languages. Keyed by `rule_id` (variants included) and tier, worded from the finding's `evidence`
 // at display time; nothing translated is stored. A translation may not change a tier, a threshold
-// or a confidence, or add advice this text does not give. The placeholders are the evidence fields
-// named in docs/adr/0010-finding-rules-v1.md.
+// or a confidence, or add advice this text does not give. The placeholders map to evidence keys
+// in the table in docs/dev/i18n.md.
 export const health = {
   'tier.device': 'From your device',
   'tier.trend': 'Trend',
@@ -15,14 +15,14 @@ export const health = {
   'severity.info': 'For your information',
   'rule.E1.name': 'Atrial fibrillation reported by the device',
   'rule.E1.text': 'Your device reported atrial fibrillation in an ECG recording.',
-  'rule.E2.name': 'Atrial fibrillation in recent recordings',
-  'rule.E2.text': 'Your device reported atrial fibrillation in more than one of your last recordings.',
-  'rule.E3.name': 'Atrial fibrillation details reported by the device',
-  'rule.E3.text': 'Your device reported details of atrial fibrillation in an ECG recording.',
-  'rule.E4.name': 'ECG interval outside the usual range',
-  'rule.E4.text': 'An ECG interval reported by your device is outside its usual range.',
+  'rule.E2.name': 'Several recent ECGs inconclusive or noisy',
+  'rule.E2.text': 'Withings marked {count} of your last {total} ECGs inconclusive or noisy.',
+  'rule.E3.name': 'Low or high heart rate during an ECG',
+  'rule.E3.text': 'Withings marked an ECG recording with a low or high heart rate.',
+  'rule.E4.name': 'ECG interval above the reference limit',
+  'rule.E4.text': 'An ECG interval measured by this app is above its reference limit (QTc, PR or QRS).',
   'rule.E6.name': 'ECG interval above your usual level',
-  'rule.E6.text': 'The QTc or QRS interval of the day is above your own usual range.',
+  'rule.E6.text': 'Your QTc or QRS interval is above your own usual range of the last 90 days.',
   'rule.B1.name': 'Weight gain over three days',
   'rule.B1.text':
     'Your weight rose by {gainKg} kg in three days, and the extracellular water reading is above your usual range.',

@@ -8,7 +8,7 @@ export const codes = {
   'code.blocked_by_provider_plan':
     'Your Withings plan does not include this data. Nothing is wrong with your connection.',
   'code.daily_summary':
-    "Each day's value is the first reading between 04:00 and 11:00 local time, otherwise the median of the day's readings. Readings marked unconfirmed, implausible or duplicate are shown but not used. The typical range is the median plus or minus {k} times the scaled median absolute deviation of the last {days} days, never narrower than a minimum half-width. The trend is a Theil-Sen slope with a Mann-Kendall test corrected for autocorrelation. Change points are searched with PELT, only on a series with enough data. A day without a reading is a gap, not zero.",
+    "Each day's value is the first reading between {start} and {end} local time, otherwise the median of the day's readings. Readings marked unconfirmed, implausible or duplicate are shown but not used. The typical range is the median plus or minus {k} times the scaled median absolute deviation of the last {days} days, never narrower than a minimum half-width. The trend is a Theil-Sen slope with a Mann-Kendall test corrected for autocorrelation. Change points are searched with PELT, only on a series with enough data. A day without a reading is a gap, not zero.",
   'code.decrypt_failed': 'Your connection could not be read. Reconnect your Withings account.',
   'code.email_taken': 'That email address is already in use.',
   'code.idempotency_key_invalid': 'The request could not be sent safely twice. Try again.',

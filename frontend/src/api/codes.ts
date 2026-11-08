@@ -33,6 +33,11 @@ export function removalMessage(removal: string | null): string | null {
 }
 
 /** `method.code` of a metric detail, worded from `method.parameters` (numbers, as the API sends them). */
-export function methodMessage(code: string, parameters: { band_k: number; band_window_days: number }): string {
-  return codeMessage(code, { k: parameters.band_k, days: parameters.band_window_days })
+export function methodMessage(code: string, parameters: { band_k: number; band_window_days: number; morning_start: string; morning_end: string }): string {
+  return codeMessage(code, {
+    k: parameters.band_k,
+    days: parameters.band_window_days,
+    start: parameters.morning_start,
+    end: parameters.morning_end,
+  })
 }

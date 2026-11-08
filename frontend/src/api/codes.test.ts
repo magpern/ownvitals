@@ -38,7 +38,7 @@ describe('response codes', () => {
     expect(jobFailureMessage('upstream_unavailable')).toBe(CODES['code.upstream_unavailable'])
     expect(removalMessage(null)).toBeNull()
     expect(removalMessage('revoke_incomplete')).toBe(CODES['code.revoke_incomplete'])
-    const method = methodMessage('daily_summary', { band_k: 1.5, band_window_days: 90 })
+    const method = methodMessage('daily_summary', { band_k: 1.5, band_window_days: 90, morning_start: '04:00', morning_end: '11:00' })
     expect(method).toContain('1.5 times')
     expect(method).toContain('last 90 days')
   })
@@ -49,6 +49,12 @@ describe('response codes', () => {
 })
 
 describe('health wording', () => {
+  it('does not call the E2 and E3 device flags atrial fibrillation', () => {
+    for (const key of ['rule.E2.name', 'rule.E2.text', 'rule.E3.name', 'rule.E3.text']) {
+      expect(HEALTH[key], key).not.toMatch(/fibrillation/i)
+    }
+  })
+
   it.each(rules)('has a name and a text for the rule %s', (rule) => {
     expect(HEALTH[`rule.${rule}.name`], rule).toBeTruthy()
     expect(HEALTH[`rule.${rule}.text`], rule).toBeTruthy()

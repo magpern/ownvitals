@@ -122,7 +122,8 @@ def method_of(key: str, trend_out: TrendOut) -> MethodOut:
     return MethodOut(
         code=METHOD_DAILY_SUMMARY,
         parameters={
-            "morning_window": "04:00-11:00 local",
+            "morning_start": "04:00",
+            "morning_end": "11:00",
             "band_k": DISPLAY_K,
             "band_window_days": BAND_DAYS,
             "band_min_half_width": min_half_width(key),
