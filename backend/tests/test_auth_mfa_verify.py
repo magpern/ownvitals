@@ -277,10 +277,10 @@ async def test_a_missing_or_failing_notifier_never_raises(
     await notify_mfa_failures(uuid4(), "a@example.com")
 
     class Broken:
-        async def totp_enrolled(self, user_id: Any, email: str) -> None:
+        async def totp_enrolled(self, user_id: Any, email: str, locale: str = "en") -> None:
             raise RuntimeError("smtp down")
 
-        async def mfa_failures(self, user_id: Any, email: str) -> None:
+        async def mfa_failures(self, user_id: Any, email: str, locale: str = "en") -> None:
             raise RuntimeError("smtp down")
 
     register_security_notifier(Broken())

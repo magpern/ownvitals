@@ -1,0 +1,5 @@
+Content-Language: sv
+Subject: A sign-in method was added to your ownvitals account
+
+Google was linked to your ownvitals account as a way to sign in.
+If this wasn't you, sign in, remove it from your account page and change your password.

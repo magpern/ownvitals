@@ -154,7 +154,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             attach_state(app, settings, session_factory)
             # The outbox sender (ADR 0007 section 2): web sends what the worker queued.
             outbox_task = outbox_sender.start(
-                session_factory, app.state.mailer, settings.public_base_url
+                session_factory,
+                app.state.mailer,
+                settings.public_base_url,
+                settings.enabled_locales,  # intersected with the manifest when used
             )
             admin_db = AdminDb.from_settings(settings)
             if admin_db is not None:

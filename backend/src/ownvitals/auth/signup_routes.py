@@ -29,6 +29,7 @@ from ownvitals.auth.locale import for_new_account, still_offered
 from ownvitals.auth.oauth_handoff import confirm_provider_signup
 from ownvitals.auth.passwords import PasswordRuleError, normalize_password
 from ownvitals.auth.ratelimit import SIGN_IN_IP, SIGNUP_ADDRESS, SIGNUP_IP, Bucket, password_buckets
+from ownvitals.auth.recipients import request_locale, request_mail_locale
 from ownvitals.auth.tables import invites, pending_signups
 from ownvitals.config import Settings
 from ownvitals.db import system_session
@@ -107,8 +108,10 @@ async def sign_up(body: SignUpIn, request: Request, background: BackgroundTasks)
     password_hash = await request.app.state.password_hasher.hash(password)  # both branches
     message: MailMessage
     async with system_session(factory(request)) as db:
-        if await find_user(db, body.email) is not None:
-            message = mails.account_exists(settings, body.email)  # nothing is stored
+        existing = await find_user(db, body.email)
+        if existing is not None:  # nothing is stored; the account's language, else the page's
+            locale = await request_mail_locale(db, request, existing.id, body.locale)
+            message = mails.account_exists(settings, body.email, locale=locale)
         else:
             token = new_token()
             await db.execute(
@@ -122,7 +125,9 @@ async def sign_up(body: SignUpIn, request: Request, background: BackgroundTasks)
                     expires_at=func.now() + CONFIRMATION_LIFETIME,
                 )
             )
-            message = mails.signup_confirmation(settings, body.email, token)
+            message = mails.signup_confirmation(  # no account yet: the request's language
+                settings, body.email, token, locale=request_locale(request, body.locale)
+            )
     background.add_task(send_logged, mailer(request), message)
     return Accepted()
 

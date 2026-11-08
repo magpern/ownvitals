@@ -1,0 +1,9 @@
+Content-Language: sv
+Subject: Confirm your ownvitals account
+
+Someone asked to create an ownvitals account with this address.
+
+To finish, open this link (valid for 24 hours) and type the password you chose:
+https://ownvitals.example.test/signup/confirm#token=synthetic-token
+
+If this wasn't you, ignore this mail. No account is created.

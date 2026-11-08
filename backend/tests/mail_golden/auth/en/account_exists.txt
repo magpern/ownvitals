@@ -1,0 +1,9 @@
+Content-Language: en
+Subject: You already have an ownvitals account
+
+Someone asked to create an ownvitals account with this address, which already has one.
+
+Sign in: https://ownvitals.example.test/signin
+Forgot your password? https://ownvitals.example.test/reset
+
+If this wasn't you, ignore this mail.
