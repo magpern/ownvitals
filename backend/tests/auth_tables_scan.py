@@ -179,6 +179,7 @@ SUBMODULES = frozenset(
         "passkey_signin_routes",
         "passkeys",
         "oauth_client",
+        "oauth_errors",
         "oauth_handoff",
         "oauth_idtoken",
         "oauth_outcomes",
