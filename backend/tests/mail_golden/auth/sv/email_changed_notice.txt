@@ -1,0 +1,5 @@
+Content-Language: sv
+Subject: Your ownvitals email address was changed
+
+The email address of your ownvitals account was changed. This is the old address.
+If this wasn't you, contact the operator.

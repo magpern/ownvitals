@@ -1,0 +1,34 @@
+"""The Swedish outbox templates (ADR 0015 section 7). Same keys as ``en``. Until the translation
+PR of G6 they are English copies, each listed in ``untranslated.py``."""
+
+from types import MappingProxyType
+from typing import Final
+
+from ownvitals.notify.templates.base import LINK, Template
+
+_FOOTER: Final = (
+    "\n\nThis email says no more than that on purpose: what is waiting is shown only after you "
+    "sign in.\n\n- ownvitals\n"
+)
+
+TABLE: Final = MappingProxyType(
+    {
+        "findings_waiting": Template(
+            subject="ownvitals: something is waiting for you",
+            body="Something new is waiting for you in ownvitals.\n\nOpen it here: "
+            + LINK
+            + _FOOTER,
+        ),
+        "connection_attention": Template(
+            subject="ownvitals: a connection needs your attention",
+            body="One of your connections in ownvitals needs your attention.\n\nOpen it here: "
+            + LINK
+            + _FOOTER,
+        ),
+        "connection_needs_reconnect": Template(
+            subject="ownvitals: something is waiting on the admin page",
+            body="Something is waiting for an administrator in ownvitals.\n\nOpen the admin page "
+            "here: " + LINK + _FOOTER,
+        ),
+    }
+)

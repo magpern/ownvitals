@@ -1,0 +1,5 @@
+Content-Language: en
+Subject: Two-factor authentication was set up on your ownvitals account
+
+An authenticator app was enrolled (or replaced) on your ownvitals account.
+If this wasn't you, reset your password and contact the operator.
