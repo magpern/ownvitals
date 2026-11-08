@@ -9,6 +9,9 @@ import { Button } from '../components/ui/Button'
 import { Card, ComingLater } from '../components/ui/Card'
 import { StatePill } from '../components/ui/DataState'
 import { Icon } from '../components/ui/Icon'
+import { getLocale, plural, t as translate, useT } from '../i18n'
+import type { Locale } from '../i18n/locale'
+import { browserZone, formatDateOfInstant, formatTime } from '../lib/format'
 import { useRouter } from '../router/Router'
 
 // "Sign-in and security" (/settings/security; docs/design/mockups/src/Security.dc.html). #11
@@ -18,7 +21,7 @@ import { useRouter } from '../router/Router'
 
 /** "Firefox on Windows", from the browser's user agent (shown only to its own user). */
 export function deviceName(userAgent: string | null): string {
-  if (userAgent === null || userAgent === '') return 'Unknown device'
+  if (userAgent === null || userAgent === '') return translate('security.device.unknown')
   const browser = /Edg\//.test(userAgent)
     ? 'Edge'
     : /Firefox\//.test(userAgent)
@@ -27,7 +30,7 @@ export function deviceName(userAgent: string | null): string {
         ? 'Chrome'
         : /Safari\//.test(userAgent)
           ? 'Safari'
-          : 'A browser'
+          : translate('security.device.aBrowser')
   const system = /iPhone/.test(userAgent)
     ? 'iPhone'
     : /iPad/.test(userAgent)
@@ -41,41 +44,37 @@ export function deviceName(userAgent: string | null): string {
             : /Linux/.test(userAgent)
               ? 'Linux'
               : null
-  return system === null ? browser : `${browser} on ${system}`
+  return system === null ? browser : translate('security.device.on', { browser, system })
 }
 
-const TIME = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' })
-const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' })
-
-/** "Today 07:30" or "27 Oct". */
-export function signedInAt(iso: string, now: Date = new Date()): string {
+/** "Today 07:30" or "27 Oct", in the browser's zone: a session belongs to no reading. */
+export function signedInAt(iso: string, now: Date = new Date(), locale: Locale = getLocale()): string {
   const at = new Date(iso)
-  return at.toDateString() === now.toDateString() ? `Today ${TIME.format(at)}` : DAY.format(at)
+  const zone = browserZone()
+  if (at.toDateString() !== now.toDateString()) return formatDateOfInstant(locale, at, zone)
+  return translate('security.time.today', { time: formatTime(locale, at, zone) })
 }
 
 /** "Now", "5 minutes ago", "2 hours ago", "3 days ago". */
 export function lastActive(iso: string, now: Date = new Date()): string {
   const minutes = Math.floor((now.getTime() - new Date(iso).getTime()) / 60000)
-  if (minutes < 2) return 'Now'
-  if (minutes < 60) return `${String(minutes)} minutes ago`
+  if (minutes < 2) return translate('common.now')
+  if (minutes < 60) return plural('security.ago.minutes', minutes)
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return hours === 1 ? '1 hour ago' : `${String(hours)} hours ago`
-  const days = Math.floor(hours / 24)
-  return days === 1 ? '1 day ago' : `${String(days)} days ago`
+  if (hours < 24) return plural('security.ago.hours', hours)
+  return plural('security.ago.days', Math.floor(hours / 24))
 }
 
 export function SecurityPage() {
+  const t = useT()
   return (
     <div className="ov-stack" data-gap="lg">
       <p className="ov-band" role="note">
         <Icon name="lock" />
-        Actions marked with a lock ask for a fresh code from your authenticator app. One code
-        covers 10 minutes of protected actions.
+        {t('security.band')}
       </p>
       <Card>
-        <ComingLater label="How you sign in, the second factor and recent activity">
-          Changing the password, Google, email, the authenticator and recovery codes comes in M6.
-        </ComingLater>
+        <ComingLater label={t('security.laterLabel')}>{t('security.later')}</ComingLater>
       </Card>
       <SignedInSessions />
     </div>
@@ -83,6 +82,7 @@ export function SecurityPage() {
 }
 
 function SignedInSessions() {
+  const t = useT()
   const headingId = useId()
   const protect = useProtected()
   const { refresh } = useSession()
@@ -134,7 +134,7 @@ function SignedInSessions() {
 
   const signOutEverywhere = () => {
     void run(async () => {
-      await protect('Signing out everywhere', logoutEverywhere)
+      await protect(t('security.sessions.purpose'), logoutEverywhere)
       await refresh()
       navigate(SIGN_IN_PATH)
     })
@@ -144,26 +144,26 @@ function SignedInSessions() {
     <section className="ov-stack" aria-labelledby={headingId}>
       <div className="ov-between">
         <h2 id={headingId} className="ov-card__title">
-          Where you&apos;re signed in
+          {t('security.sessions.title')}
         </h2>
         <Button variant="danger" lock disabled={busy} onClick={signOutEverywhere}>
-          Sign out everywhere…
+          {t('security.sessions.signOutEverywhere')}
         </Button>
       </div>
       {error !== null ? <Notice kind="error">{error}</Notice> : null}
       {rows === null ? (
-        error === null ? <p className="ov-muted">Loading</p> : null
+        error === null ? <p className="ov-muted">{t('common.loading')}</p> : null
       ) : (
         <div className="ov-tbl-wrap">
           <table className="ov-tbl">
             <thead>
               <tr>
-                <th scope="col">Device</th>
-                <th scope="col">Place and IP</th>
-                <th scope="col">Signed in</th>
-                <th scope="col">Last active</th>
+                <th scope="col">{t('security.sessions.device')}</th>
+                <th scope="col">{t('security.sessions.place')}</th>
+                <th scope="col">{t('security.sessions.signedIn')}</th>
+                <th scope="col">{t('security.sessions.lastActive')}</th>
                 <th scope="col">
-                  <span className="ov-sr">Action</span>
+                  <span className="ov-sr">{t('security.sessions.action')}</span>
                 </th>
               </tr>
             </thead>
@@ -172,21 +172,21 @@ function SignedInSessions() {
                 <tr key={row.id} className={row.current ? 'ov-tbl__sel' : undefined}>
                   <td>
                     <strong>{deviceName(row.userAgent)}</strong>
-                    {row.current ? <StatePill tone="ok">This device</StatePill> : null}
+                    {row.current ? <StatePill tone="ok">{t('security.sessions.thisDevice')}</StatePill> : null}
                   </td>
-                  <td>{row.ip !== null ? <span className="ov-mono">{row.ip}</span> : 'Unknown'}</td>
+                  <td>{row.ip !== null ? <span className="ov-mono">{row.ip}</span> : t('security.sessions.unknown')}</td>
                   <td className="ov-num">{signedInAt(row.createdAt)}</td>
-                  <td>{row.current ? 'Now' : lastActive(row.lastSeenAt)}</td>
+                  <td>{row.current ? t('common.now') : lastActive(row.lastSeenAt)}</td>
                   <td>
                     {row.current ? null : (
                       <Button
                         disabled={busy}
-                        aria-label={`Sign out ${deviceName(row.userAgent)}`}
+                        aria-label={t('security.sessions.signOutDevice', { device: deviceName(row.userAgent) })}
                         onClick={() => {
                           signOutOne(row.id)
                         }}
                       >
-                        Sign out
+                        {t('common.signOut')}
                       </Button>
                     )}
                   </td>
@@ -196,9 +196,7 @@ function SignedInSessions() {
           </table>
         </div>
       )}
-      <p className="ov-small ov-muted">
-        A session ends after 72 hours without activity, and after 30 days at most.
-      </p>
+      <p className="ov-small ov-muted">{t('security.sessions.expiry')}</p>
     </section>
   )
 }

@@ -1,3 +1,4 @@
+import type { MessageKey } from '../../i18n/en'
 import type { NavId } from '../../router/appRoutes'
 import type { IconName } from '../ui/Icon'
 
@@ -6,40 +7,41 @@ import type { IconName } from '../ui/Icon'
 
 export interface NavItem {
   id: NavId
-  label: string
+  /** The catalogue key of the name. */
+  label: MessageKey
   to: string
   icon: IconName
 }
 
 export interface NavGroup {
-  label: string
+  label: MessageKey
   items: readonly NavItem[]
 }
 
-const OVERVIEW: NavItem = { id: 'overview', label: 'Overview', to: '/', icon: 'overview' }
-const FINDINGS: NavItem = { id: 'findings', label: 'Findings', to: '/findings', icon: 'findings' }
-const CONNECTIONS: NavItem = { id: 'connections', label: 'Connections', to: '/connections', icon: 'connections' }
-const SETTINGS: NavItem = { id: 'settings', label: 'Settings', to: '/settings', icon: 'settings' }
-const SECURITY: NavItem = { id: 'security', label: 'Security', to: '/settings/security', icon: 'security' }
-const ADMIN: NavItem = { id: 'admin', label: 'Admin', to: '/admin', icon: 'admin' }
+const OVERVIEW: NavItem = { id: 'overview', label: 'shell.nav.overview', to: '/', icon: 'overview' }
+const FINDINGS: NavItem = { id: 'findings', label: 'shell.nav.findings', to: '/findings', icon: 'findings' }
+const CONNECTIONS: NavItem = { id: 'connections', label: 'shell.nav.connections', to: '/connections', icon: 'connections' }
+const SETTINGS: NavItem = { id: 'settings', label: 'shell.nav.settings', to: '/settings', icon: 'settings' }
+const SECURITY: NavItem = { id: 'security', label: 'shell.nav.security', to: '/settings/security', icon: 'security' }
+const ADMIN: NavItem = { id: 'admin', label: 'shell.nav.admin', to: '/admin', icon: 'admin' }
 
 /** The groups of the rail. Admin is the last item of Account, and only an admin has it. */
 export function railGroups(admin: boolean): readonly NavGroup[] {
   return [
     {
-      label: 'Analyse',
+      label: 'shell.nav.analyse',
       items: [
         OVERVIEW,
-        { id: 'body', label: 'Body', to: '/body', icon: 'body' },
-        { id: 'heart', label: 'Heart & ECG', to: '/heart', icon: 'heart' },
-        { id: 'nerve', label: 'Nerve health', to: '/nerve', icon: 'nerve' },
-        { id: 'sleep', label: 'Sleep', to: '/sleep', icon: 'sleep' },
-        { id: 'activity', label: 'Activity', to: '/activity', icon: 'activity' },
+        { id: 'body', label: 'shell.nav.body', to: '/body', icon: 'body' },
+        { id: 'heart', label: 'shell.nav.heart', to: '/heart', icon: 'heart' },
+        { id: 'nerve', label: 'shell.nav.nerve', to: '/nerve', icon: 'nerve' },
+        { id: 'sleep', label: 'shell.nav.sleep', to: '/sleep', icon: 'sleep' },
+        { id: 'activity', label: 'shell.nav.activity', to: '/activity', icon: 'activity' },
         FINDINGS,
       ],
     },
-    { label: 'Your data', items: [CONNECTIONS] },
-    { label: 'Account', items: admin ? [SETTINGS, SECURITY, ADMIN] : [SETTINGS, SECURITY] },
+    { label: 'shell.nav.yourData', items: [CONNECTIONS] },
+    { label: 'shell.nav.account', items: admin ? [SETTINGS, SECURITY, ADMIN] : [SETTINGS, SECURITY] },
   ]
 }
 
@@ -62,7 +64,7 @@ export interface NavStatus {
 export const PHONE_TABS: readonly NavItem[] = [
   OVERVIEW,
   FINDINGS,
-  { ...CONNECTIONS, label: 'Data' },
+  { ...CONNECTIONS, label: 'shell.nav.data' },
   SETTINGS,
 ]
 

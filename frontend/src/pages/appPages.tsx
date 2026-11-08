@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react'
 import type { AppRoute, RouteId } from '../router/appRoutes'
 import { Card, ComingLater } from '../components/ui/Card'
+import { useT } from '../i18n'
 import { AdminPage } from './AdminPage'
 import { SecurityPage } from './SecurityPage'
 
@@ -17,9 +18,10 @@ const BUILT: Partial<Record<RouteId, ComponentType>> = {
 }
 
 function ComingLaterPage({ route }: { route: AppRoute }) {
+  const t = useT()
   return (
     <Card>
-      <ComingLater label={route.label ?? route.title}>{route.later}</ComingLater>
+      <ComingLater label={t(route.label ?? route.title)}>{t(route.later)}</ComingLater>
     </Card>
   )
 }

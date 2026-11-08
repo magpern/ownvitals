@@ -13,14 +13,16 @@ import { SignUpPage } from './pages/SignUpPage'
 import { TwoFactorChallengePage } from './pages/TwoFactorChallengePage'
 import { TwoFactorSetupPage } from './pages/TwoFactorSetupPage'
 import { matchAppRoute, type AppRoute } from './router/appRoutes'
+import { useLocale, useT } from './i18n'
 import { Link, RouterProvider, useRouter } from './router/Router'
 
 function NotFound() {
+  const t = useT()
   return (
     <section className="card">
-      <h1 className="card__title">Page not found</h1>
+      <h1 className="card__title">{t('shell.notFound')}</h1>
       <p>
-        <Link to="/">Back to the start</Link>
+        <Link to="/">{t('shell.backToStart')}</Link>
       </p>
     </section>
   )
@@ -32,6 +34,7 @@ function NotFound() {
  * plain frame around the waiting text. An admin-only screen does not exist for anyone else.
  */
 function AppScreen({ route, path }: { route: AppRoute; path: string }) {
+  const t = useT()
   const { status, session } = useSession()
   const ready = status === 'ready' && accessOf(session) === 'ready'
   if (ready && route.adminOnly === true && !isAdmin(session)) {
@@ -47,7 +50,7 @@ function AppScreen({ route, path }: { route: AppRoute; path: string }) {
     </RequireReady>
   )
   return ready ? (
-    <AppFrame title={route.title} active={route.nav} path={path}>
+    <AppFrame title={t(route.title)} active={route.nav} path={path}>
       {page}
     </AppFrame>
   ) : (
@@ -101,6 +104,8 @@ function otherPage(path: string) {
 }
 
 export function App() {
+  // The language is read here too, so a change repaints the whole tree.
+  useLocale()
   return (
     <RouterProvider>
       <SessionProvider>
