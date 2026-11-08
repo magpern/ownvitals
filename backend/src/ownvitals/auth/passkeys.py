@@ -39,6 +39,7 @@ from ownvitals.auth.passkey_model import (  # noqa: F401 - re-exported
     Purpose,
     RelyingParty,
     b64url_decode,
+    is_cross_device,
     normalize_name,
     read_client_data,
 )

@@ -16,7 +16,7 @@ from dbtools import (
     ready_to_downgrade,
 )
 
-HEAD = "0017_account_locale"
+HEAD = "0018_cross_device_session"
 
 
 def test_the_revisions_form_one_line() -> None:

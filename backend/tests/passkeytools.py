@@ -109,6 +109,7 @@ class SoftAuthenticator:
         credential_id: bytes | None = None,
         sign_count: int = 0,
         fmt: Literal["none", "packed"] = "none",
+        transports: list[str] | None = None,
     ) -> dict[str, Any]:
         """The response to registration ``options`` (as the server sent them). ``fmt`` packed
         gives a valid self-attestation (signed by the credential's own key)."""
@@ -144,7 +145,7 @@ class SoftAuthenticator:
             "response": {
                 "clientDataJSON": b64(client_data),
                 "attestationObject": b64(attestation),
-                "transports": ["internal", "hybrid"],
+                "transports": ["internal", "hybrid"] if transports is None else transports,
             },
             "authenticatorAttachment": "platform",
             "clientExtensionResults": {},
@@ -164,8 +165,10 @@ class SoftAuthenticator:
         sign_count: int | None = None,
         user_handle: bytes | Literal["keep"] | None = "keep",
         bad_signature: bool = False,
+        attachment: str | None = "platform",
     ) -> dict[str, Any]:
-        """An assertion for ``options`` with ``credential`` (default: the newest)."""
+        """An assertion for ``options`` with ``credential`` (default: the newest).
+        ``attachment`` is the client-reported ``authenticatorAttachment`` (``None``: absent)."""
         chosen = credential or self.credentials[-1]
         if sign_count is None:
             chosen.sign_count += self.counter_step
@@ -189,14 +192,16 @@ class SoftAuthenticator:
         handle = chosen.user_handle if user_handle == "keep" else user_handle
         if handle is not None:
             response["userHandle"] = b64(handle)
-        return {
+        answer: dict[str, Any] = {
             "id": b64(chosen.credential_id),
             "rawId": b64(chosen.credential_id),
             "type": "public-key",
             "response": response,
-            "authenticatorAttachment": "platform",
             "clientExtensionResults": {},
         }
+        if attachment is not None:
+            answer["authenticatorAttachment"] = attachment
+        return answer
 
 
 # --- flows through the real routes ----------------------------------------------------------------
