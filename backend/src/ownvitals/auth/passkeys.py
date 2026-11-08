@@ -7,8 +7,8 @@ only import of ``py_webauthn``, are in ``passkey_ceremonies``; this module needs
 library, so the operator CLI and the reset flow use it without loading one.
 
 Lock order: every path that adds or uses a sign-in method locks the account row (``lock_user``)
-before it re-checks the account's state, and ``accounts.reset_mfa`` locks it ``FOR UPDATE``
-before it removes them (ADR 0011 section 3, the #165 race finding).
+before it re-checks the account's state, and ``accounts.reset_mfa`` locks it ``FOR NO KEY
+UPDATE`` (``userlock``) before it removes them (ADR 0011 section 3, the #165 race finding).
 
 Nothing here logs. Challenges, credential ids, public keys and user handles never reach a log,
 an ``auth_events`` row or an error message (section 9).
@@ -156,11 +156,11 @@ async def take_challenge(
 
 
 async def lock_user(db: AsyncSession, user_id: UUID, *, share: bool = False) -> Any:
-    """Lock the account row (``FOR SHARE`` or ``FOR UPDATE``); returns it or ``None``. Every
-    path that adds or uses a sign-in method locks it before it re-checks its state, and
-    ``reset_mfa`` locks it ``FOR UPDATE`` before it removes them."""
+    """Lock the account row (``FOR SHARE``, or ``FOR NO KEY UPDATE`` as ``userlock``); returns
+    it or ``None``. Every path that adds or uses a sign-in method locks it before it re-checks
+    its state, and ``reset_mfa`` locks it (``userlock``) before it removes them."""
     statement = select(users.c.id, users.c.email, users.c.disabled_at).where(users.c.id == user_id)
-    statement = statement.with_for_update(read=share)
+    statement = statement.with_for_update(read=share, key_share=not share)
     return (await db.execute(statement)).first()
 
 

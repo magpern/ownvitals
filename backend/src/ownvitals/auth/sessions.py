@@ -33,6 +33,7 @@ from ownvitals.auth.session_model import (  # noqa: F401 - re-exported
 )
 from ownvitals.auth.session_resolve import TOUCH_INTERVAL, resolve_session  # noqa: F401
 from ownvitals.auth.tables import sessions, users
+from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
 
 USER_AGENT_LIMIT = 200
@@ -181,7 +182,9 @@ async def rotate_session(
     in a new row, the old row deleted, ``expires_at`` unchanged, ``mfa_at``, ``reauth_at`` and
     ``stepup_at`` carried over unless this rotation sets them. ``drop_mfa`` (the TOTP was
     removed) clears ``mfa_at``, so the session goes back to enrolment. No grace period: the old
-    token is dead at once."""
+    token is dead at once. The user row is locked first (``userlock``): a reset, disable or
+    revoke in flight finishes first and the rotation finds its row gone (``SessionGone``)."""
+    await lock_user_row(db, info.user_id)
     old = (
         await db.execute(
             delete(sessions)

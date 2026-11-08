@@ -135,11 +135,17 @@ One order everywhere, so the pairs below serialise instead of racing or deadlock
    sign-in takes `FOR SHARE` through `passkeys.lock_user`, which conflicts with it);
 2. then sessions, identities, passkeys, TOTP and recovery codes, known devices and tokens.
 
-The paths that take it first: password sign-in (`/login`) and password re-auth (`/reauth`),
-linking a Google identity (`oauth_store.add_identity`) and unlinking one, the reset request
-(`reset_mail`) and completion (before it consumes the token), the password change,
-sign-out-everywhere (`/logout-all`), `admin mfa-reset` (`accounts.reset_mfa`) and the admin
-disable, enable and delete. A plain `UPDATE users` as the first statement takes the same lock.
+The paths that take it first: password sign-in (`/login`) and Google sign-in
+(`oauth_outcomes._sign_in`), **every session rotation** (`sessions.rotate_session`: MFA verify,
+TOTP confirm, step-up, password, Google and passkey re-auth, TOTP removal), linking a Google
+identity (`oauth_store.add_identity`) and unlinking one, the reset request (`reset_mail`) and
+completion (before it consumes the token), the password change, the email change (before it
+consumes its token), sign-out-everywhere (`/logout-all`), TOTP removal (`DELETE /mfa/totp`,
+before the TOTP row), `admin mfa-reset` (`accounts.reset_mfa`), `keys wipe` and passkey
+registration (`passkeys.lock_user`, same mode) and the admin disable, enable and delete. A
+passkey or QR sign-in takes `FOR SHARE` (`passkeys.lock_user(share=True)`); a passkey re-auth
+takes `NO KEY UPDATE` at once, because it rotates and two `FOR SHARE` holders that both upgrade
+deadlock.
 
 The rules that make it hold:
 
@@ -150,9 +156,14 @@ The rules that make it hold:
   `session_mismatch` when a reset or revoke deleted it.
 - **Why `NO KEY UPDATE`, not `FOR UPDATE`:** inserting a session, an identity or an
   `auth_events` row takes `FOR KEY SHARE` on `users` (the foreign key). `FOR UPDATE` would block
-  it, so a rotation holding a session row and inserting its new one would wait on a reset that
-  waits for that session row: a deadlock. `NO KEY UPDATE` conflicts with itself and with
-  `FOR SHARE`, which is all the ordering needs.
+  it, so a transaction holding a session row and inserting such a row would wait on a reset or
+  disable that waits for that session row: a deadlock. `NO KEY UPDATE` conflicts with itself and
+  with `FOR SHARE`, which is all the ordering needs.
+- **Why rotations lock too:** a reset's `DELETE FROM sessions WHERE user_id = ...` that waits for
+  the row a rotation is replacing skips it when the rotation commits and never sees the new row
+  (not in its snapshot), so without the lock the rotated session survives the reset.
+- **A Google sign-in re-checks its identity** under the lock: a reset that removed it, or a
+  disable, committed since it was read, and the sign-in fails (`invalid`).
 - **A reset keeps only what its page could show.** Identities linked at or after the reset
   link's `created_at` are removed with the ones the user chose (`remove_methods`). A link stamps
   `created_at` with `clock_timestamp()` under the lock, and `reset_mail` takes the lock before
@@ -160,8 +171,9 @@ The rules that make it hold:
   `reset/info`) or counted as linked after it.
 
 `tests/test_auth_reset_races.py` holds each pair on the real database: sign-in vs reset, link vs
-reset, sign-out-everywhere vs sign-in and admin disable vs sign-in, each in both orders, and the
-pairs at once with no deadlock or serialization error reaching the user.
+reset, rotation vs reset, Google sign-in vs reset and vs disable, sign-out-everywhere vs sign-in,
+admin disable vs sign-in and TOTP removal vs `admin mfa-reset`, each in both orders where both
+exist, and the pairs at once with no deadlock or serialization error reaching the user.
 
 ## Passkeys
 

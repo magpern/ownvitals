@@ -31,6 +31,7 @@ from ownvitals.auth.sessions import (
     start_session,
 )
 from ownvitals.auth.tables import identities, invites, pending_signups
+from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
 from ownvitals.flags import effective as flags
 from ownvitals.mail import MailMessage
@@ -169,8 +170,14 @@ async def _sign_in(db: AsyncSession, req: Request) -> Outcome:
     provider, ident, settings = req.flow.provider, req.identity, req.settings
     owner = await identity_owner(db, provider, ident.subject)
     if owner is not None:
-        user_id, disabled = owner
-        if disabled:
+        user_id = owner[0]
+        # The user row first (``userlock``), then the identity and the account again: a reset
+        # that removed the identity, or a disable or delete, committed since the read above.
+        locked = await lock_user_row(db, user_id)
+        again = await identity_owner(db, provider, ident.subject)
+        if locked is None or again is None or again[0] != user_id:
+            return _fail("invalid")
+        if locked.disabled:
             await record_event(db, "sign_in_failed", user_id=user_id, ip=req.ip)
             return _fail("invalid")  # the generic failure
         return await _session_for(db, req, user_id)
