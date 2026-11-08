@@ -2,10 +2,11 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
-class AuthSettings(BaseModel):
+class AuthSettings(BaseSettings):
     """Sessions, proxies, passkeys and QR login. Every refusing validator stays in ``Settings``."""
 
     # The one public origin, for the Origin check and for links in mail.

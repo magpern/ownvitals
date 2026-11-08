@@ -1,9 +1,10 @@
 """The jobs and worker settings of ``ownvitals.config`` (fields only)."""
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
-class JobSettings(BaseModel):
+class JobSettings(BaseSettings):
     """Worker, lease and job-limit fields. Their bounds are the ``Field`` constraints."""
 
     # Jobs and the worker.

@@ -1,9 +1,10 @@
 """The feature-flag and AI cost-cap settings of ``ownvitals.config`` (fields only)."""
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
-class AiSettings(BaseModel):
+class AiSettings(BaseSettings):
     """Feature-flag and AI monthly-cap fields (the cross-field cap check stays in ``Settings``)."""
 
     # The environment side of the stored feature flags (the stricter of the two wins): both are

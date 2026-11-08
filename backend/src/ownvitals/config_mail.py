@@ -2,12 +2,12 @@
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 
 DEFAULT_SMTP_TOTAL_SECONDS = 20.0
 
 
-class MailSettings(BaseModel):
+class MailSettings(BaseSettings):
     """Mail and OAuth fields. Their validators and the secret fields stay in ``Settings``."""
 
     # Mail. Unset ``smtp_host``: no mail is sent (a warning is logged instead).
