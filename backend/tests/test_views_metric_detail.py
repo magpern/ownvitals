@@ -1,6 +1,6 @@
 """``GET /api/metrics/{key}?range=`` (issue #189): the daily series with gaps as ``null``, the
 band, the Theil-Sen trend, change points only on a series that passes the minimum-data policy,
-data quality, method text and provenance. Synthetic Withings groups through the real passes.
+data quality, method code and provenance. Synthetic Withings groups through the real passes.
 """
 
 from datetime import date, timedelta
@@ -82,8 +82,8 @@ async def test_the_trend_the_band_and_the_method(env: Env) -> None:
     assert body["state"] == "up_to_date"
     assert body["band_progress"] is None
     method = body["method"]
-    assert "Theil-Sen" in method["text"]
-    assert "gap, not zero" in method["text"]
+    assert method["code"] == "daily_summary"
+    assert "text" not in method
     assert method["parameters"]["band_k"] == 1.5
     assert method["algo_versions"]["daily"] == "daily/1"
     provenance = body["provenance"]

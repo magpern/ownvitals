@@ -1,4 +1,4 @@
-"""Failure categories, retry classes, backoff, the user's sentences and the kind registry (ADR 0005
+"""Failure categories, retry classes, backoff and the kind registry (ADR 0005
 sections 2 and 6); no database."""
 
 import importlib.util
@@ -21,7 +21,7 @@ from ownvitals.jobs import (
     failure_of,
 )
 from ownvitals.jobs.errors import BACKOFF_CAP_SECONDS, RATE_LIMIT_CAP_SECONDS
-from ownvitals.jobs.sentences import SENTENCES, failure_sentence
+from ownvitals.response_codes import JOB_FAILURES
 
 
 def migration_categories() -> set[str]:
@@ -40,16 +40,8 @@ def test_the_categories_match_the_migration_check() -> None:
     assert frozenset({"upstream_unavailable", "rate_limited"}) == RETRYABLE
 
 
-def test_every_category_has_one_plain_sentence() -> None:
-    assert set(SENTENCES) == set(CATEGORIES)
-    for category, sentence in SENTENCES.items():
-        assert sentence.endswith("."), category
-        assert failure_sentence("failed", category) == sentence
-        assert failure_sentence("dead_letter", category) == sentence
-    assert failure_sentence("failed", "made_up") == SENTENCES["internal"]
-    for state in ("queued", "running", "completed", "cancelled"):
-        assert failure_sentence(state, None) is None
-    assert failure_sentence("failed", None) is None
+def test_every_category_is_a_listed_response_code() -> None:
+    assert set(CATEGORIES) == JOB_FAILURES
 
 
 @pytest.mark.parametrize("attempt", [1, 2, 3, 4, 5, 6, 10])

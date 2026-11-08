@@ -30,7 +30,7 @@ from jobcore import (
 from jobtools import admin_fixture, engine_for, queue_schema_fixture  # noqa: F401 - fixtures
 from ownvitals.db.queue_locks import JOB_CREATION
 from ownvitals.jobs.routes import BODY_MAX_BYTES, canonical_json, jsonb_size
-from ownvitals.jobs.sentences import SENTENCES
+from ownvitals.response_codes import is_allowed
 
 SHOWN = {
     "id",
@@ -38,7 +38,6 @@ SHOWN = {
     "state",
     "cancel_requested",
     "error_category",
-    "error_message",
     "attempt",
     "max_attempts",
     "created_at",
@@ -65,7 +64,8 @@ async def test_create_queues_a_job_with_its_event(jenv: JobsEnv, api: Api) -> No
         False,
         0,
     )
-    assert (shown["error_category"], shown["error_message"]) == (None, None)
+    assert shown["error_category"] is None
+    assert "error_message" not in shown
     job_id = UUID(shown["id"])
     row = jenv.row(job_id)
     assert (row.owner_id, row.attempt, row.next_seq, row.lease_version) == (alice.user_id, 0, 1, 0)
@@ -279,7 +279,7 @@ async def test_cancel_queued_running_and_ended_jobs(jenv: JobsEnv, api: Api) -> 
     assert (ended.status_code, ended.json()) == (409, {"detail": {"reason": "not_cancellable"}})
 
 
-async def test_a_failed_job_shows_its_category_and_one_plain_sentence(
+async def test_a_failed_job_shows_its_category_code_and_no_sentence(
     jenv: JobsEnv, api: Api
 ) -> None:
     alice = api.browser()
@@ -291,7 +291,8 @@ async def test_a_failed_job_shows_its_category_and_one_plain_sentence(
     )
     shown = (await alice.get(f"/api/jobs/{job_id}")).json()
     assert shown["error_category"] == "upstream_unavailable"
-    assert shown["error_message"] == SENTENCES["upstream_unavailable"]
+    assert "error_message" not in shown
+    assert is_allowed("job_failures", shown["error_category"])
 
 
 async def test_a_body_over_the_cap_is_refused_before_it_is_read(jenv: JobsEnv, api: Api) -> None:

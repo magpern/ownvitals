@@ -139,7 +139,7 @@ class ChangePointsOut(BaseModel):
 
 
 class MethodOut(BaseModel):
-    text: str
+    code: str  # a response code of the ``views`` family (``ownvitals.response_codes``)
     parameters: dict[str, Any]
     algo_versions: dict[str, str]
 
