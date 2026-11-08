@@ -46,7 +46,6 @@ from ownvitals.jobs.events_routes import StreamLimiter
 from ownvitals.jobs.events_routes import router as events_router
 from ownvitals.jobs.hub import EventHub
 from ownvitals.jobs.kinds import KIND_NAME, KINDS, KindRegistry
-from ownvitals.jobs.sentences import failure_sentence
 from ownvitals.jobs.user import NewJob
 
 
@@ -89,8 +88,7 @@ class JobOut(BaseModel):
     kind: str
     state: str
     cancel_requested: bool
-    error_category: str | None
-    error_message: str | None = None  # one plain sentence per category, never error text
+    error_category: str | None  # a code of ``response_codes.JOB_FAILURES``; the page words it
     attempt: int
     max_attempts: int
     created_at: datetime
@@ -99,9 +97,7 @@ class JobOut(BaseModel):
 
     @classmethod
     def of(cls, view: service.JobView) -> "JobOut":
-        out = cls.model_validate(view, from_attributes=True)
-        out.error_message = failure_sentence(view.state, view.error_category)
-        return out
+        return cls.model_validate(view, from_attributes=True)
 
 
 def _refuse(reason: str, status: int | None = None, **counts: int) -> JSONResponse:

@@ -16,6 +16,7 @@ from ownvitals.analysis.methods.trend import DEFAULT_ALPHA, MAX_POINTS, trend
 from ownvitals.analysis.policy import InsufficientData, Purpose, evaluate_metric
 from ownvitals.analysis.quality import METRICS
 from ownvitals.analysis.rules.core import DISPLAY_K, display_band, min_half_width
+from ownvitals.response_codes import METHOD_DAILY_SUMMARY
 from ownvitals.views import states
 from ownvitals.views.assemble import (
     band_out,
@@ -116,17 +117,10 @@ def _change_points(
 
 
 def method_of(key: str, trend_out: TrendOut) -> MethodOut:
-    """How the numbers were made, in words and in the parameters behind them."""
+    """How the numbers were made: a catalogue code for the words and the parameters behind them
+    (ADR 0015 section 6). The frontend words the code from these parameters."""
     return MethodOut(
-        text=(
-            "Each day's value is the first reading between 04:00 and 11:00 local time, otherwise "
-            "the median of the day's readings. Readings marked unconfirmed, implausible or "
-            "duplicate are shown but not used. The typical range is the median plus or minus "
-            f"{DISPLAY_K} times the scaled median absolute deviation of the last {BAND_DAYS} "
-            "days, never narrower than a minimum half-width. The trend is a Theil-Sen slope with "
-            "a Mann-Kendall test corrected for autocorrelation. Change points are searched with "
-            "PELT, only on a series with enough data. A day without a reading is a gap, not zero."
-        ),
+        code=METHOD_DAILY_SUMMARY,
         parameters={
             "morning_window": "04:00-11:00 local",
             "band_k": DISPLAY_K,
