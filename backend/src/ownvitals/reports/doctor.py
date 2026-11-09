@@ -107,7 +107,7 @@ async def run_doctor(job: JobRun, settings: Settings | None = None) -> Complete:
             **owner,
             "ttl": settings.export_ttl_hours,
             "size": len(pdf),
-            "sha": hashlib.sha256(pdf).hexdigest(),
+            "sha": hashlib.sha256(pdf).digest(),
         }
         await fs.db.execute(MARK_READY, ready)
     detail = Ready(export_id=export_id, size=len(pdf), export_kind="doctor_pdf")
