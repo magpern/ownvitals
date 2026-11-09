@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
 import { rememberCsrfToken } from '../api/client'
+import { OVERVIEW_ROUTES } from './overviewFixtures'
 
 // Everything here is synthetic: no network, no real account, no real health data.
 
@@ -72,6 +73,7 @@ export function fakeApi(routes: Record<string, Handler | object | string>) {
     'GET /api/auth/session': ANONYMOUS,
     'GET /api/auth/mfa': MFA_ON,
     'GET /api/auth/oauth/providers': { providers: [] },
+    ...OVERVIEW_ROUTES,
     ...routes,
   }
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
