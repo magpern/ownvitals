@@ -114,3 +114,30 @@ The image **defaults to `OWNVITALS_ENVIRONMENT=prod`**, so a container started w
 fails closed: it needs an `https://` public URL, serves no API docs and refuses a password inside a
 database URL. `compose.yaml` sets `OWNVITALS_ENVIRONMENT: dev` for the local stack explicitly, and
 its database URLs carry the user only (the password is a secret file); `test_image.py` checks both.
+
+## Staging on the home server
+
+`https://ownvitals.pernemark.se` (roadmap Amendment 9) runs the repository's `compose.yaml` built
+from source on 192.168.1.222, as its own project, with an override file kept out of git
+(`compose.staging.yaml`, listed in `.git/info/exclude`):
+
+```bash
+docker compose -p ownvitals-staging -f compose.yaml -f compose.staging.yaml up -d --build --wait
+```
+
+The override replaces the published ports (`ports: !override`: Compose otherwise appends), moves
+web to `192.168.1.222:8098` and the database and mail UI to other `127.0.0.1` ports (the host's
+other projects hold the defaults), sets `OWNVITALS_ENVIRONMENT=prod`, the public URL, the Google
+client id and, on web only, the SMTP settings (`smtp.protonmail.ch:587`, STARTTLS, the secret file
+`smtp_password`). It sets no `OWNVITALS_TRUSTED_PROXIES`, so the app sees SWAG's address as the
+client (Amendment 9). It also mounts what `compose.yaml` does not: `connection_kek` into the
+worker (it loads the key ring at start), `webhook_seed` (worker only) and `webhook_pepper`, and
+`oauth_google_client_secret` and `smtp_password` into web.
+
+**Secret files readable by the image user.** Outside Swarm, Compose bind-mounts a file secret with
+its host owner and mode and ignores `uid`, `gid` and `mode`, so uid 10001 must be able to read the
+host file. The local stack uses `0644` files in a `0700` directory. Where a secret should not be
+world-readable (the SMTP token), make it `<owner>:ownvitals-secrets` mode `0640` (a system group
+with no members, gid 10011, created with `groupadd --system`) and give the service
+`group_add: ["10011"]`, as classbeat does with its own group. A `0600` file the owner holds makes
+the service fail at start with `PermissionError` on `/run/secrets/<name>`.
