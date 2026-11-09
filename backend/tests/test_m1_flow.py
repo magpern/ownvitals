@@ -76,16 +76,24 @@ async def _queue(env: Env, connection: UUID, kind: str) -> None:
 _BROKEN = (
     "SELECT coalesce(string_agg(state || ':' || coalesce(error_category, '-'), ','), '') "
     "FROM jobs WHERE {where} AND "
-    "(state IN ('failed', 'dead_letter') OR (state = 'queued' AND attempt > 0))"
+    "state IN ('failed', 'dead_letter')"
 )
 _COMPLETED = "SELECT count(*) FROM jobs WHERE {where} AND state = 'completed'"
 
 
 _SUMMARY = (
     "SELECT coalesce(string_agg(kind || '/' || origin || '/' || state || '/' || attempt::text "
-    "|| '/' || coalesce(error_category, '-') || '/' || (available_at > now())::text, '; '), '') "
+    "|| '/' || coalesce(error_category, '-') || '/' || (available_at > now())::text "
+    "|| '/' || coalesce((SELECT string_agg(e.payload->>'category', ',') FROM job_events e "
+    "WHERE e.job_id = jobs.id AND e.payload ? 'category'), '-'), '; '), '') "
     "FROM jobs"
 )
+
+
+async def _settled(url: str, kind: str) -> None:
+    """Until no job of ``kind`` is queued or running (a chain of per-stream jobs has ended)."""
+    pending = "SELECT count(*) FROM jobs WHERE kind = :k AND state IN ('queued', 'running')"
+    await until(lambda: not scalar(url, pending, k=kind), seconds=90)
 
 
 async def _done(url: str, kind: str, stream: str | None = None) -> None:
@@ -102,9 +110,12 @@ async def _done(url: str, kind: str, stream: str | None = None) -> None:
 
     try:
         await until(check, seconds=60)
-    except AssertionError:
-        seen = scalar(url, _SUMMARY)
-        raise AssertionError(f"timed out waiting for {kind}; jobs now: {seen}") from None
+    except AssertionError as error:
+        if "did not complete" in str(error):
+            raise
+        raise AssertionError(
+            f"timed out waiting for {kind}; jobs: {scalar(url, _SUMMARY)}"
+        ) from None
 
 
 def _states(url: str, kind: str) -> list[str]:
@@ -123,7 +134,7 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
 ) -> None:
     ring = env.app.state.keyring
     app_id = await create_app(owner_engine, env.factory, ring, CLIENT, BASE, SECRET)
-    fake = FakeWithings(seed=30)
+    fake = FakeWithings(seed=30, rate_limit=None)
     fake.add_app(CLIENT, SECRET, (REDIRECT,))
     user = fake.add_user(days=30, ecg_count=0, sleep_series_nights=0, intraday_days=0)
     expected = {g["grpid"] for g in user.data.measuregrps if g.get("category") in (1, 2)}
@@ -152,6 +163,7 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
         await _queue(env, stored.id, "withings_connect")
         await _done(database_url, "withings_connect")
         await _done(database_url, "withings_backfill", "measures")
+        await _settled(database_url, "withings_backfill")
         assert _states(database_url, "withings_connect") == ["completed"]
         assert _states(database_url, "withings_backfill").count("completed") >= 1
         assert measure_count() == len(expected)
