@@ -19,6 +19,7 @@ from admintools import (  # noqa: F401 - fixtures
     caller,
     reason,
 )
+from ownvitals.admin import users as users_module
 from ownvitals.admin.routes import admin_area_routes, calls
 from ownvitals.auth.admin_accounts import AccountSummary, account_emails
 from ownvitals.auth.deps import require_admin_stepup
@@ -212,3 +213,37 @@ async def test_delete_uses_the_account_delete_path_and_refuses_an_admin(aenv: Ad
     )
     assert (own.status_code, reason(own)) == (409, "target_is_admin")
     assert await aenv.env.scalar("SELECT count(*) FROM users WHERE id = :u", u=admin.user_id) == 1
+
+
+async def test_enable_refuses_an_admin_like_disable_and_delete(aenv: AdminEnv) -> None:
+    """#277: enable used to clear ``disabled_at`` for an admin; the admin role stays with the
+    operator CLI, so enable refuses an admin (409) and changes nothing."""
+    admin = await caller(aenv)
+    other = await caller(aenv, "other-admin@example.com")
+    await aenv.env.run("UPDATE users SET disabled_at = now() WHERE id = :u", u=other.user_id)
+    refused = await admin.request("POST", f"/api/admin/users/{other.user_id}/enable")
+    assert (refused.status_code, reason(refused)) == (409, "target_is_admin")
+    assert await aenv.env.scalar(
+        "SELECT disabled_at IS NOT NULL FROM users WHERE id = :u", u=other.user_id
+    )
+    rows = [row for row in await aenv.audit_rows() if row.action == "user.enable"]
+    assert [(row.outcome, row.reason) for row in rows] == [("refused", "target_is_admin")]
+
+
+async def test_a_lookup_miss_on_read_leaves_no_ok_row(
+    aenv: AdminEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#277: the address lookup missing after ``find_account`` (the account went in between)
+    rolled back nothing: ``user.read`` had already committed ``ok``. Now the miss is inside the
+    audited transaction, so the only row is the refusal."""
+    admin = await caller(aenv)
+    user_id = await _user(aenv, "sam@example.com")
+
+    async def gone(factory: object, ids: object) -> dict[uuid.UUID, str]:
+        return {}
+
+    monkeypatch.setattr(users_module, "account_emails", gone)
+    response = await admin.get(f"/api/admin/users/{user_id}")
+    assert (response.status_code, reason(response)) == (404, "not_found")
+    rows = [row for row in await aenv.audit_rows() if row.action == "user.read"]
+    assert [(row.outcome, row.reason) for row in rows] == [("refused", "not_found")]

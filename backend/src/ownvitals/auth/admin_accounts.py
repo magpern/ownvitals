@@ -9,7 +9,8 @@ session token, an IP or a user agent.
   live session count and the latest ``sign_in`` (never a measurement).
 - ``account_emails``: ``{id: email}`` for ids the caller already holds.
 - ``disable_account`` / ``enable_account``: ``disabled_at``, and disable also deletes every
-  session. An admin cannot be disabled (the role stays with the operator CLI).
+  session. Neither touches an admin (the role stays with the operator CLI), so the admin area
+  cannot undo an operator's disable of an admin either (#277).
 - ``delete_account``: the same ``delete_user_account`` the user's own
   ``DELETE /api/auth/account`` runs. Refuses an admin and an address that is not the account's.
 """
@@ -41,7 +42,7 @@ class AccountMissing(Exception):
 
 
 class TargetIsAdmin(Exception):
-    """Disable and delete refuse an admin, including the acting admin."""
+    """Disable, enable and delete refuse an admin, including the acting admin."""
 
 
 class EmailMismatch(Exception):
@@ -238,11 +239,14 @@ async def disable_account(factory: Factory, user_id: UUID) -> tuple[datetime, in
 
 
 async def enable_account(factory: Factory, user_id: UUID) -> None:
-    """Clear ``disabled_at``. Raises ``AccountMissing`` when there is no such account."""
+    """Clear ``disabled_at``. Raises ``AccountMissing`` or ``TargetIsAdmin`` and changes nothing
+    in those cases."""
     async with system_session(factory) as db:
         locked = await _locked(db, user_id)
         if locked is None:
             raise AccountMissing()
+        if locked[0] == "admin":
+            raise TargetIsAdmin()
         await db.execute(update(users).where(users.c.id == user_id).values(disabled_at=None))
 
 
