@@ -6,6 +6,7 @@ import { StepUpProvider } from './components/StepUp'
 import { AppFrame } from './components/shell/AppFrame'
 import { AppPage } from './pages/appPages'
 import { ApproveLoginPage } from './pages/ApproveLoginPage'
+import { OnboardingPage } from './pages/OnboardingPage'
 import { ProviderEmailPage } from './pages/ProviderEmailPage'
 import { ResetPage } from './pages/ResetPage'
 import { SignInPage } from './pages/SignInPage'
@@ -99,6 +100,12 @@ function otherPage(path: string) {
       return <TwoFactorSetupPage />
     case '/two-factor':
       return <TwoFactorChallengePage />
+    case '/onboarding':
+      return (
+        <RequireReady>
+          <OnboardingPage />
+        </RequireReady>
+      )
     case '/qr':
       // The phone's approval of a QR sign-in: it checks the session itself (ADR 0011 section 5).
       return <ApproveLoginPage />

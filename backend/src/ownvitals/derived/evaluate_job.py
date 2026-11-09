@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.config import Settings
 from ownvitals.derived.findings_store import evaluate_owner
+from ownvitals.derived.scores_job import enqueue_scores
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
 
@@ -70,6 +71,8 @@ async def run_evaluate(job: JobRun) -> Complete:
             "pending": outcome.pending,
         },
     )
+    if outcome.status in ("written", "current"):
+        await enqueue_scores(job.factory, parsed.connection_id)
     return Complete()
 
 

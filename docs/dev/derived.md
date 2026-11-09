@@ -449,3 +449,43 @@ notification, re-derivation, the switch on, off and stored off, Q1, the purge, i
 switch interleavings, the lock, concurrent passes, other writers' rules, the worker context, the
 enqueue and the chain from the daily pass), `tests/test_derived_evaluate_schema.py` (migration 0016
 and the read function's `C1x` drop) and `tests/test_derived_check.py` (the check command).
+
+## Scores: `scores` (#188)
+
+ADR 0012. Pure code: `analysis.scores` (`body_path`, `readiness`, `his`, `his_table`,
+`his_inputs`; no I/O). Database side: `derived/scores_gather.py` (read), `scores_compute.py`
+(pure glue), `scores_store.py` (verify and write), `scores_tables.py` (the optional HIS band
+table), `scores_job.py` (the `derive_scores` kind, worker registry only). The read API is
+`views/scores_routes.py` over `views.reads.latest_scores` (the allowlisted session module).
+Setting: `config_scores.ScoreSettings` (`OWNVITALS_HIS_BAND_TABLE`, unset by default).
+
+**Chain.** `derive_daily` -> `derive_evaluate` -> `derive_scores`: `derive_evaluate` queues the
+scores job after a pass that ended `written` or `current`, so the nightly reconciliation also
+recomputes the day's scores.
+
+**Rows.** One per `(owner_id, kind, day)`: `body_path:<key>`, `readiness`, and `his` only while the
+owner-only switch (`flags.effective.experimental_findings`) is effective; with it off the pass
+deletes the stored `his` rows. `value` is set only when `components.status` is `computed`; every
+other status (`not_set`, `not_available`, ...) leaves it null and names its reason. HIS ships no
+band table, so it is always `not_set` until the owner registers one (ADR 0012 owner questions).
+`input_revision` is the sum of the stream counters read.
+
+**Purge race.** The pattern of `daily_db`: write transaction takes the NORMALISATION lock, locks
+the `data_revisions` rows `FOR SHARE`, gathers the inputs again and writes only when the
+revisions and the fingerprint are the ones read (else `stale`). An upsert that changes nothing
+reports `current`.
+
+**Not wired (reported per row, never guessed).** BMI needs a height (the profile has none:
+`no_height`); `afib_ecg_count` and `high_bp_ratio` inputs are `input_not_wired`. Sleep and
+activity field names and units are assumptions until the owner's probe confirms them.
+
+**Tests.** `tests/analysis/scores/` (pure), `tests/test_derived_scores_db.py` (database: idempotence,
+one row per kind and day, the switch, the purge and ingest races, isolation).
+
+**Scores: trigger, day, stale (#188 fix round).** An owner with only sleep or activity data has no
+measures pass, so `derive_normalize` queues `derive_scores` itself when the `sleep_summary` or
+`activity_daily` pass wrote or was current and `measures` did not. The pass's "today" follows
+ADR 0010 §1 (`findings_gather._today`: the fixed zone, else the zone of the latest usable
+reading, else UTC). `GET /api/scores` marks a row `stale` when the summed stream revisions differ
+from its `input_revision` (the fingerprint is not recomputed on a read). Assumption: the last
+sleep summary of a wake-up day wins, so a nap on the same day replaces the main night.

@@ -59,6 +59,9 @@ ALLOWED: dict[str, str] = {
     "ownvitals.ingest.rows": "ingest writes ecg_recordings; the recompute writes estimated (§15)",
     "ownvitals.ecg_validate": "ownvitals ecg validate (#47) reads the stored estimated (V5)",
     "ownvitals.connections.purge": "the purge path: delete imported data removes both tables",
+    # #192: the ECG screen's reader of the user's recordings (Withings' values and the signal);
+    # it never selects the estimates, which come only through the read function.
+    "ownvitals.views.ecg_read": "the ECG list, viewer and PDF read the recordings (#192)",
     # #187: the rules engine's findings writer (ADR 0010 §4 episodes; ADR 0006 section 11 allows
     # the rules engine's writes) and the owner's read-only reproducibility check, which compares
     # the stored rows with a recompute and prints counts only.
@@ -212,6 +215,7 @@ def test_the_allow_list_is_exact() -> None:
         "ownvitals.ingest.rows",
         "ownvitals.ecg_validate",
         "ownvitals.connections.purge",
+        "ownvitals.views.ecg_read",
         "ownvitals.derived.findings_store",
         "ownvitals.derived.check_cli",
         "ownvitals.derived.findings_ecg",

@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { QR_SVG, SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, fakeApi, json, reason } from '../test/fakeApi'
+import { fakeStatus } from '../test/overviewFixtures'
 import { renderAt } from '../test/render'
 
 // The second-factor pages (#11, Auth mock-up): forced enrolment with its recovery codes, and the
@@ -22,6 +23,8 @@ function enrolRoutes() {
   let enrolled = false
   return {
     'GET /api/auth/session': () => (enrolled ? SIGNED_IN : SIGNED_IN_NO_TOTP),
+    'GET /api/connections': { connections: [] },
+    'GET /api/status': fakeStatus({ connection: 'not_connected', streams: [] }),
     'POST /api/auth/mfa/totp/start': ENROLMENT,
     'POST /api/auth/mfa/totp/confirm': () => {
       enrolled = true
@@ -71,7 +74,7 @@ describe('forced enrolment', () => {
     expect(go).toBeDisabled()
     fireEvent.click(screen.getByRole('checkbox', { name: "I've saved them somewhere safe" }))
     fireEvent.click(go)
-    expect(await screen.findByText('The connections page comes in M6.')).toBeInTheDocument()
+    expect(await screen.findByText('Not connected.')).toBeInTheDocument()
     expect(here()).toBe('/connections')
     expect(screen.queryByText('aaaa-1111')).toBeNull()
   })

@@ -146,7 +146,7 @@ re-grant), so a re-run of the script keeps the narrower grants (`test_roles_reru
 
 | Session | Packages | Exact modules |
 |---|---|---|
-| `user_session` | `ownvitals.db`, `ownvitals.auth`, `ownvitals.connections` | `ownvitals.jobs.fence` (every write a worker makes for a job), `ownvitals.jobs.service` and `ownvitals.jobs.progress` (the jobs API's own writes and reads for the signed-in user, web only), `ownvitals.ecg_validate` (#47), `ownvitals.views.findings_read` (#190: the one findings read function, ADR 0006 §11), `ownvitals.views.reads` (#189: the read API's reader) |
+| `user_session` | `ownvitals.db`, `ownvitals.auth`, `ownvitals.connections` | `ownvitals.jobs.fence` (every write a worker makes for a job), `ownvitals.jobs.service` and `ownvitals.jobs.progress` (the jobs API's own writes and reads for the signed-in user, web only), `ownvitals.ecg_validate` (#47), `ownvitals.views.findings_read` (#190: the one findings read function, ADR 0006 §11), `ownvitals.views.reads` (#189: the read API's reader), `ownvitals.views.ecg_read` (#192: the ECG list, signal and PDF reader; never the estimates) |
 | `system_session` | `ownvitals.db`, `ownvitals.auth` | `ownvitals.jobs.queue` (the calls of the queue's `SECURITY DEFINER` functions), `ownvitals.crypto.keks` (the key ring's startup check) |
 
 Everything else fails `test_session_guard.py`: the rest of `ownvitals.jobs` (the runner, the job

@@ -8,6 +8,7 @@ export const UNTRANSLATED: readonly string[] = []
 // catalogue.test.ts fails when a listed key differs and when an unlisted key is equal.
 export const SAME_IN_SV: Readonly<Record<string, string>> = {
   'health.tier.trend': 'the same word in Swedish: trend',
+  'connections.withings.title': 'a brand name, the same in Swedish: Withings',
   'ui.tier.trend': 'the same word in Swedish: trend',
   'ui.tier.system': 'the same word in Swedish: system',
   'shell.nav.data': 'the same word in Swedish: data',

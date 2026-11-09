@@ -17,7 +17,10 @@ Each has its own allowlist, of packages (the package and everything under it) an
   through it, so none of them opens a session of its own for those rows. The exact module
   ``ownvitals.views.reads`` (#189) is the read API's one other reader (status, metrics, days,
   readings, nerve summary): it never reads those tables. The exact module
-  ``ownvitals.views.profile_store`` (#203) reads and writes the caller's own
+  ``ownvitals.views.ecg_read`` (#192) reads the signed-in user's stored ECG recordings (Withings'
+  own values and the signal) for the ECG list, viewer and PDF, never the estimates, which come
+  only through ``findings_read``. The exact module ``ownvitals.views.profile_store`` (#203)
+  reads and writes the caller's own
   ``user_profiles`` row. The exact module
   ``ownvitals.derived.check_cli`` (#187) reads one named owner's daily values and findings for
   ``ownvitals analysis check`` (read only, counts and versions out). **The rest of
@@ -76,6 +79,7 @@ ECG_USER_SESSION = ("ownvitals.ecg_validate",)
 # The one findings read function (#190, ADR 0006 section 11): not the routes, not the package.
 VIEWS_USER_SESSION = (
     "ownvitals.views.findings_read",
+    "ownvitals.views.ecg_read",
     "ownvitals.views.reads",
     "ownvitals.views.profile_store",
 )
