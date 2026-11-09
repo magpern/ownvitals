@@ -19,6 +19,11 @@ A key ending in ``.*`` covers the package and its submodules; the most specific 
 ``EDGE_CUTS``: modules whose imports are reviewed as not a network path, with the reason; the
 closure does not propagate through them (``test_egress_closure.py`` proves each reason).
 
+``LISTENER_MODULE``: the one module outside the egress package that may open a server socket
+(the worker's ``/metrics``, #167; ADR 0009 note of 2026-11-09): ``LISTENER_NAMES`` are admitted
+there on top of the table, ``LISTENER_ATTRIBUTES`` as attributes there; anywhere else they stay
+refused.
+
 ``LOOP_METHODS``: the methods of ``asyncio.AbstractEventLoop`` (read from the locked stdlib) that
 any object may use. Every other method of it (``create_connection``, ``sock_connect``,
 ``getaddrinfo`` ...) is refused as an attribute of any object, since a loop object cannot be
@@ -412,6 +417,16 @@ DICT_KEY_STRINGS: frozenset[tuple[str, str]] = frozenset(
         ("ownvitals.ecg.pipeline", "modules"),
     }
 )
+
+# The worker's /metrics listener (#167): it listens on a checked loopback or private literal and
+# never connects. Its bind, timeout, line-limit and connection-cap rules are tested in
+# ``tests/test_metrics_server.py``; this exemption is pinned to exactly this module there and in
+# ``tests/test_egress_guard.py``.
+LISTENER_MODULE: str = "ownvitals.metrics_server"
+LISTENER_NAMES: dict[str, frozenset[str]] = {
+    "asyncio": frozenset({"Server", "StreamReader", "StreamWriter", "start_server"}),
+}
+LISTENER_ATTRIBUTES: frozenset[str] = frozenset({"start_server"})
 
 LOOP_METHODS: frozenset[str] = frozenset(
     {

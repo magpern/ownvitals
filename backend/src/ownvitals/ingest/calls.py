@@ -1,7 +1,8 @@
 """One rate-limited Withings call. The token is spent before the call and never refunded.
 
 The slot is released afterwards, including when the answer is only a capability. A lost lease
-raises from the fence; the token still stays consumed.
+raises from the fence; the token still stays consumed. Each granted call counts once towards
+the API quota metric, and a 601 answer once more towards the 601 count (PLAN section 4.4).
 """
 
 from dataclasses import dataclass
@@ -13,7 +14,14 @@ from ownvitals.jobs import JobFailure
 from ownvitals.jobs.run import JobRun
 from ownvitals.withings import rate
 from ownvitals.withings.capabilities import from_permanent, provider_plan_blocked
-from ownvitals.withings.errors import Permanent, RateLimited, TokenInvalid, Transient
+from ownvitals.withings.errors import (
+    RATE_LIMITED_STATUS,
+    Permanent,
+    RateLimited,
+    TokenInvalid,
+    Transient,
+)
+from ownvitals.withings.metrics import record_api_call
 
 _CALL_SECONDS = 30.0
 
@@ -82,11 +90,12 @@ async def _release(job: JobRun, claim: rate.Claim) -> None:
 async def limited(job: JobRun, account: Account, lane: int, call: Any) -> Any:
     """Spend one token, make the call, then free the slot."""
     claim = await _take(job, account, lane)
+    status: int | None = None
     try:
         async with job.provider_call(_CALL_SECONDS):
             return await call()
     except RateLimited as exc:
-        wait = exc.wait_seconds
+        status, wait = RATE_LIMITED_STATUS, exc.wait_seconds
         async with job.fenced() as fs:
             await fs.db.run_sync(lambda sync: rate.pause(sync.connection(), account.app_id, wait))
         raise JobFailure("rate_limited", retry_after=wait) from None
@@ -102,4 +111,5 @@ async def limited(job: JobRun, account: Account, lane: int, call: Any) -> Any:
             raise JobFailure("invalid_input") from None
         return Classified(found)
     finally:
+        record_api_call(status=status)
         await _release(job, claim)

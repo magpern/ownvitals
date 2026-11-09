@@ -4,14 +4,19 @@
 -- Run as the superuser, after `alembic upgrade head`, in ONE transaction. Plain SQL: no psql
 -- meta-commands and no transaction control. Migrations never create these functions.
 --
--- Idempotent: running it again repairs the two NOLOGIN roles, their grants, the functions and
+-- Idempotent: running it again repairs the three NOLOGIN roles, their grants, the functions and
 -- the app-role column grants on withings_apps. ownvitals_webhook_secrets has no BYPASSRLS.
 -- ownvitals_webhook_events inserts webhook_events. When the caller passes no job id it also
 -- resolves (app_id, withings_userid) and enqueues the singleton sync through queue_enqueue
 -- (ADR 0002 section 4). That read needs BYPASSRLS and column SELECT only: id, app_id,
 -- withings_userid, status and owner_id. It never reads a credential column.
--- 20-queue.sql admits ensure_month_partitions, webhook_secrets_apply, webhook_event_insert
--- and webhook_events_purge_owner, and no other function. A re-run keeps them.
+-- ownvitals_metrics (#167, PLAN section 4.4 "Observability") owns the two metrics aggregates,
+-- metrics_withings_aggregates and metrics_webhook_ages: BYPASSRLS, because they count across
+-- owners, and column SELECT only on the columns they read. They return counts and ages, never
+-- an id, a user, a measurement or a payload, and refuse to run inside a user session.
+-- 20-queue.sql admits ensure_month_partitions, webhook_secrets_apply, webhook_event_insert,
+-- webhook_events_purge_owner, metrics_withings_aggregates and metrics_webhook_ages, and no
+-- other function. A re-run keeps them.
 
 DO $$
 BEGIN
@@ -25,7 +30,9 @@ BEGIN
      OR to_regclass('public.intraday') IS NULL
      OR to_regclass('public.admin_audit') IS NULL
      OR to_regclass('public.connection_keks') IS NULL
-     OR to_regclass('public.admin_audit_id_seq') IS NULL THEN
+     OR to_regclass('public.admin_audit_id_seq') IS NULL
+     OR to_regclass('public.sync_cursors') IS NULL
+     OR to_regclass('public.jobs') IS NULL THEN
     RAISE EXCEPTION 'migrate to head first';
   END IF;
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_app') THEN
@@ -40,6 +47,9 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_webhook_events') THEN
     CREATE ROLE ownvitals_webhook_events NOLOGIN;
   END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_metrics') THEN
+    CREATE ROLE ownvitals_metrics NOLOGIN;
+  END IF;
 END $$;
 
 ALTER ROLE ownvitals_webhook_secrets WITH NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB
@@ -48,15 +58,21 @@ ALTER ROLE ownvitals_webhook_secrets WITH NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREA
 -- section 4). The role stays NOLOGIN and a member of nothing, so only this function runs as it.
 ALTER ROLE ownvitals_webhook_events WITH NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB
   NOCREATEROLE NOREPLICATION NOINHERIT CONNECTION LIMIT -1 PASSWORD NULL;
+-- BYPASSRLS: the metrics aggregates count across owners (#167). NOLOGIN and a member of nothing,
+-- like the ingest role; it may only read the columns granted below, and writes nothing.
+ALTER ROLE ownvitals_metrics WITH NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB
+  NOCREATEROLE NOREPLICATION NOINHERIT CONNECTION LIMIT -1 PASSWORD NULL;
 ALTER ROLE ownvitals_webhook_secrets RESET ALL;
 ALTER ROLE ownvitals_webhook_events RESET ALL;
+ALTER ROLE ownvitals_metrics RESET ALL;
 
 DO $$
 DECLARE
   v_role text;
   r record;
 BEGIN
-  FOREACH v_role IN ARRAY ARRAY['ownvitals_webhook_secrets', 'ownvitals_webhook_events'] LOOP
+  FOREACH v_role IN ARRAY ARRAY['ownvitals_webhook_secrets', 'ownvitals_webhook_events',
+                                 'ownvitals_metrics'] LOOP
     FOR r IN SELECT g.rolname AS granted, m.rolname AS member, gr.rolname AS grantor
                FROM pg_catalog.pg_auth_members am
                JOIN pg_catalog.pg_roles g ON g.oid = am.roleid
@@ -69,9 +85,12 @@ BEGIN
 END $$;
 
 -- Exactly the column grants of ADR 0002 section 3, plus the ingest role's INSERT.
-REVOKE ALL ON SCHEMA public FROM ownvitals_webhook_secrets, ownvitals_webhook_events;
-GRANT USAGE ON SCHEMA public TO ownvitals_webhook_secrets, ownvitals_webhook_events;
-REVOKE CREATE ON SCHEMA public FROM ownvitals_webhook_secrets, ownvitals_webhook_events;
+REVOKE ALL ON SCHEMA public
+  FROM ownvitals_webhook_secrets, ownvitals_webhook_events, ownvitals_metrics;
+GRANT USAGE ON SCHEMA public
+  TO ownvitals_webhook_secrets, ownvitals_webhook_events, ownvitals_metrics;
+REVOKE CREATE ON SCHEMA public
+  FROM ownvitals_webhook_secrets, ownvitals_webhook_events, ownvitals_metrics;
 
 REVOKE ALL ON TABLE public.withings_apps FROM ownvitals_webhook_secrets;
 GRANT UPDATE (webhook_secrets, rotation_requested_at, rotation_reason)
@@ -96,6 +115,20 @@ GRANT SELECT (app_id, withings_userid)
 REVOKE ALL ON TABLE public.connections FROM ownvitals_webhook_events;
 GRANT SELECT (id, app_id, withings_userid, status, owner_id)
   ON TABLE public.connections TO ownvitals_webhook_events;
+
+-- The metrics aggregates (#167): column SELECT only, on exactly the columns they read. No
+-- credential, owner id, payload or measurement column.
+REVOKE ALL ON TABLE public.connections FROM ownvitals_metrics;
+GRANT SELECT (id, app_id, withings_userid, status, public)
+  ON TABLE public.connections TO ownvitals_metrics;
+REVOKE ALL ON TABLE public.sync_cursors FROM ownvitals_metrics;
+GRANT SELECT (connection_id, stream, capability, backfill_state, last_ok_at)
+  ON TABLE public.sync_cursors TO ownvitals_metrics;
+REVOKE ALL ON TABLE public.webhook_events FROM ownvitals_metrics;
+GRANT SELECT (app_id, withings_userid, enddate, received_at)
+  ON TABLE public.webhook_events TO ownvitals_metrics;
+REVOKE ALL ON TABLE public.jobs FROM ownvitals_metrics;
+GRANT SELECT (state, available_at) ON TABLE public.jobs TO ownvitals_metrics;
 
 -- Repair the app and maint grants the migration and 30-maint.sql also set.
 REVOKE ALL ON TABLE public.withings_apps FROM ownvitals_app;
@@ -487,6 +520,107 @@ ALTER FUNCTION public.webhook_events_purge_owner() OWNER TO ownvitals_webhook_ev
 REVOKE ALL ON FUNCTION public.webhook_events_purge_owner() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.webhook_events_purge_owner() TO ownvitals_app;
 COMMENT ON FUNCTION public.webhook_events_purge_owner() IS 'ownvitals-withings v1';
+
+-- The metrics aggregates (#167, PLAN section 4.4 "Observability"), read by the worker for its
+-- /metrics gauges. Counts and ages only, aggregated across owners: never an id, a user, a value
+-- or a payload. Only a system session may call them: with app.user_id set (a user session)
+-- they raise, so no user can count other users' connections through them.
+--
+-- Rows: ('last_sync_age', stream, NULL, seconds since the oldest last successful sync of that
+-- stream across connected connections); ('subscriptions', NULL, state, connections) with state
+-- failed (needs_reconnect), pending (marked for resubscribe), active (a notification arrived
+-- within 7 days) or missing (none did); ('completeness', stream, state, cursors) with state
+-- not_available (not shared, unsupported or not available), complete, backfilling (the backfill
+-- is running) or partial; ('queue_oldest_age', NULL, NULL, seconds the oldest due queued job
+-- has waited, 0 when none).
+CREATE OR REPLACE FUNCTION public.metrics_withings_aggregates()
+  RETURNS TABLE (metric text, stream text, state text, total double precision)
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+#variable_conflict use_column
+DECLARE
+  v_now timestamp with time zone := pg_catalog.now();
+BEGIN
+  IF coalesce(pg_catalog.current_setting('app.user_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'system_session_only' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY
+    SELECT 'last_sync_age'::text, c.stream, NULL::text,
+           greatest(0, EXTRACT(EPOCH FROM v_now - min(c.last_ok_at)))::double precision
+      FROM public.sync_cursors c JOIN public.connections n ON n.id = c.connection_id
+     WHERE n.status = 'connected' AND c.last_ok_at IS NOT NULL
+     GROUP BY c.stream;
+  RETURN QUERY
+    SELECT 'subscriptions'::text, NULL::text, h.health, count(*)::double precision
+      FROM (SELECT CASE
+                     WHEN n.status = 'needs_reconnect' THEN 'failed'
+                     WHEN n.public -> 'resubscribe' = 'true'::jsonb THEN 'pending'
+                     WHEN EXISTS (SELECT 1 FROM public.webhook_events e
+                                   WHERE e.app_id = n.app_id
+                                     AND e.withings_userid = n.withings_userid
+                                     AND e.received_at > v_now - interval '7 days')
+                       THEN 'active'
+                     ELSE 'missing' END AS health
+              FROM public.connections n
+             WHERE n.status <> 'disconnected') h
+     GROUP BY h.health;
+  RETURN QUERY
+    SELECT 'completeness'::text, k.stream, k.completeness, count(*)::double precision
+      FROM (SELECT c.stream, CASE
+                     WHEN c.capability IN ('not_authorized', 'unsupported', 'not_available')
+                       THEN 'not_available'
+                     WHEN c.backfill_state ->> 'status' = 'complete' THEN 'complete'
+                     WHEN c.backfill_state ->> 'status' = 'running' THEN 'backfilling'
+                     ELSE 'partial' END AS completeness
+              FROM public.sync_cursors c JOIN public.connections n ON n.id = c.connection_id
+             WHERE n.status = 'connected') k
+     GROUP BY k.stream, k.completeness;
+  RETURN QUERY
+    SELECT 'queue_oldest_age'::text, NULL::text, NULL::text,
+           coalesce(greatest(0, EXTRACT(EPOCH FROM v_now - min(j.available_at))), 0)
+             ::double precision
+      FROM public.jobs j
+     WHERE j.state = 'queued' AND j.available_at <= v_now;
+END
+$fn$;
+
+-- Webhook delivery ages (received minus the notification's enddate, at least 0) of the
+-- notifications received after p_after, oldest first, at most 1000. The worker observes each
+-- age once and keeps the last received time as its next p_after. No id, user or payload.
+CREATE OR REPLACE FUNCTION public.metrics_webhook_ages(p_after timestamp with time zone)
+  RETURNS TABLE (received timestamp with time zone, age_seconds double precision)
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+BEGIN
+  IF coalesce(pg_catalog.current_setting('app.user_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'system_session_only' USING ERRCODE = '42501';
+  END IF;
+  IF p_after IS NULL THEN
+    RAISE EXCEPTION 'bad_after' USING ERRCODE = '22023';
+  END IF;
+  RETURN QUERY
+    SELECT e.received_at,
+           greatest(0, EXTRACT(EPOCH FROM e.received_at) - e.enddate)::double precision
+      FROM public.webhook_events e
+     WHERE e.received_at > p_after
+     ORDER BY e.received_at
+     LIMIT 1000;
+END
+$fn$;
+
+ALTER FUNCTION public.metrics_withings_aggregates() OWNER TO ownvitals_metrics;
+ALTER FUNCTION public.metrics_webhook_ages(timestamp with time zone) OWNER TO ownvitals_metrics;
+REVOKE ALL ON FUNCTION public.metrics_withings_aggregates() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.metrics_webhook_ages(timestamp with time zone) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.metrics_withings_aggregates() TO ownvitals_app;
+GRANT EXECUTE ON FUNCTION public.metrics_webhook_ages(timestamp with time zone) TO ownvitals_app;
+COMMENT ON FUNCTION public.metrics_withings_aggregates() IS 'ownvitals-withings v1';
+COMMENT ON FUNCTION public.metrics_webhook_ages(timestamp with time zone)
+  IS 'ownvitals-withings v1';
 
 -- queue_enqueue is installed by 20-queue.sql, which runs before this script. A database that
 -- has not installed it yet still loads this file; the grant waits until the function exists.

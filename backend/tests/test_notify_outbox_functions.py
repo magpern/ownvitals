@@ -131,6 +131,7 @@ def test_each_function_is_the_app_role_s_only(
             "ownvitals_queue",
             "ownvitals_webhook_events",
             "ownvitals_webhook_secrets",
+            "ownvitals_metrics",
             "ownvitals_test_public",
         ):
             with engine_for(admin_url()) as engine, engine.connect() as connection:

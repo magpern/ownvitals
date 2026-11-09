@@ -33,8 +33,11 @@ Each has its own allowlist, of packages (the package and everything under it) an
   and sign-up mode, a system table, without a user), the exact module
   ``ownvitals.notify.outbox`` (#194: web's outbox sender claims and marks rows only through the
   outbox's ``SECURITY DEFINER`` functions and holds no ``UserContext``, ADR 0007 section 3; the
-  session itself reaches no owned row), and the exact module ``ownvitals.ai.budget`` (#205: the
-  reaper's ``ai_settle_lost``, a definer function returning a count). The admin area opens
+  session itself reaches no owned row), the exact module ``ownvitals.ai.budget`` (#205: the
+  reaper's ``ai_settle_lost``, a definer function returning a count), and the exact module
+  ``ownvitals.worker.metrics`` (#167: the metrics refresh calls ``queue_stats()`` and the two
+  metrics aggregates, definer functions returning counts and ages that refuse a user session;
+  the session itself reaches no owned row). The admin area opens
   neither: it runs on its own audited maint session (``ownvitals.admin.db``).
 
 A later package joins a list in its own PR, with its reason, and the tests in
@@ -90,6 +93,9 @@ NOTIFY_SYSTEM_SESSION = ("ownvitals.notify.outbox",)
 # The AI reaper (#205): ``ai_settle_lost``, a definer function that returns a count; the session
 # itself reaches no owned row.
 AI_SYSTEM_SESSION = ("ownvitals.ai.budget",)
+# The worker's metrics refresh (#167): the metrics aggregates and ``queue_stats()``, definer
+# functions returning counts and ages; the session itself reaches no owned row.
+METRICS_SYSTEM_SESSION = ("ownvitals.worker.metrics",)
 
 USER_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
@@ -108,6 +114,7 @@ SYSTEM_SESSION = Allowlist(
         *FLAGS_SYSTEM_SESSION,
         *NOTIFY_SYSTEM_SESSION,
         *AI_SYSTEM_SESSION,
+        *METRICS_SYSTEM_SESSION,
     ),
 )
 # Each guarded name and who may use it; the private helper behind both is the session module's

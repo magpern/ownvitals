@@ -5,7 +5,6 @@ Measures are re-read through now + 3 months and no further. Callback URLs are ne
 Subscription repair lives in ``reconcile_subscriptions.py``, the cursor in ``reconcile_cursor.py``.
 """
 
-import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -25,16 +24,15 @@ from ownvitals.withings.capabilities import NOT_AUTHORIZED, after_success, from_
 from ownvitals.withings.client import WithingsClient
 from ownvitals.withings.errors import RetryBudget
 from ownvitals.withings.reconcile_cursor import _load, _save
+from ownvitals.withings.reconcile_drift import DriftTotals as DriftTotals
+from ownvitals.withings.reconcile_drift import drift_totals as drift_totals
+from ownvitals.withings.reconcile_drift import record_drift as _record
 from ownvitals.withings.reconcile_subscriptions import RepairResult, repair_subscriptions
 from ownvitals.withings.reconcile_subscriptions import (
     marked_for_resubscribe as marked_for_resubscribe,
 )
 from ownvitals.withings.streams import STREAMS, stream_named, windows
 
-logger = logging.getLogger(__name__)
-
-_CHANGED = 0
-_DELETED = 0
 _LIVE = text(
     "SELECT grpid FROM measure_groups WHERE owner_id = :owner "
     "AND connection_id = :connection AND deleted_at IS NULL"
@@ -51,12 +49,6 @@ class ReconcileResult:
 
 
 @dataclass(frozen=True, slots=True)
-class DriftTotals:
-    changed: int
-    deleted: int
-
-
-@dataclass(frozen=True, slots=True)
 class _Pages:
     seen: set[str]
     changed: int
@@ -65,29 +57,8 @@ class _Pages:
     goals: dict[str, Any] | None = None
 
 
-def drift_totals() -> DriftTotals:
-    return DriftTotals(_CHANGED, _DELETED)
-
-
-def _note(changed: int, deleted: int) -> None:
-    global _CHANGED, _DELETED
-    _CHANGED += changed
-    _DELETED += deleted
-
-
 def _ids(raw: Any) -> set[str]:
     return {str(item) for item in raw} if isinstance(raw, list) else set()
-
-
-def _record(account: Account, stream: str, changed: int, deleted: int) -> None:
-    _note(changed, deleted)
-    logger.info(
-        "withings reconciliation drift",
-        extra={
-            "connection_id": str(account.connection_id), "stream": stream,
-            "changed": changed, "deleted": deleted,
-        },
-    )  # fmt: skip
 
 
 async def _stop(

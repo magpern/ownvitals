@@ -16,6 +16,7 @@ from ownvitals.context import UserContext
 from ownvitals.db import user_session
 from ownvitals.egress import core
 from ownvitals.withings import client as client_module
+from ownvitals.withings import metrics as wm
 from ownvitals.withings.apps import create_app
 from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.tokens import recover_refresh, refresh_tokens
@@ -182,6 +183,8 @@ async def test_an_oversized_refresh_body_stays_recoverable(
     ctx, connection_id, fake, userid = await _grant(env, owner, "oversized-refresh@example.com")
     cap = client_module.MAX_RESPONSE_BYTES
     monkeypatch.setattr(client_module, "MAX_RESPONSE_BYTES", 64)
+    failures = wm.token_refresh.get(result="failure")
+    recoveries = wm.token_refresh.get(result="recovered")
     async with WithingsClient.open(
         WithingsApp(CLIENT, SECRET), inner=FakeWithingsTransport(fake)
     ) as client:
@@ -190,6 +193,9 @@ async def test_an_oversized_refresh_body_stays_recoverable(
         )
         assert _calls(fake) == 1
         assert result.outcome == "recover"
+        # #167: the refresh metrics move through the real refresh and recovery.
+        assert wm.token_refresh.get(result="failure") == failures + 1
+        assert wm.token_refresh.get(result="recovered") == recoveries
         assert result.access_token == ""
         assert result.access_token != fake.grant(CLIENT, userid).access
         opened = await open_withings(env.factory, env.app.state.keyring, ctx, connection_id)
@@ -200,6 +206,8 @@ async def test_an_oversized_refresh_body_stays_recoverable(
         )
     assert recovered.outcome == "refreshed"
     assert recovered.access_token == fake.grant(CLIENT, userid).access
+    assert wm.token_refresh.get(result="recovered") == recoveries + 1
+    assert wm.token_refresh.get(result="failure") == failures + 1
     assert _calls(fake) == 2
     stored = await open_withings(env.factory, env.app.state.keyring, ctx, connection_id)
     assert stored.intent is None
