@@ -128,10 +128,13 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "ownvitals.worker"]
     stop_grace_period: 30s
-    # Only the app role's password: the worker reads no connection secret before #77 adds the KEK
-    # ring check (connection_kek) and M1 the Withings kinds.
+    # The app role's password, and for the AI client the app secret (the audit key) and the model
+    # provider's key, which no other service mounts (ADR 0014 section 1; test_compose_ai_key.py).
+    # An empty anthropic_api_key file, as worktree.sh init creates it, is ai_not_configured.
     secrets:
       - database_password
+      - app_secret_key
+      - anthropic_api_key
     depends_on:
       db-functions:
         condition: service_completed_successfully
@@ -157,6 +160,8 @@ secrets:
     file: ./secrets/app_secret_key
   connection_kek:
     file: ./secrets/connection_kek
+  anthropic_api_key:
+    file: ./secrets/anthropic_api_key
 
 volumes:
   db-data:

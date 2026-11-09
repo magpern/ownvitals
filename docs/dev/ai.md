@@ -288,8 +288,10 @@ imported data" (`KEPT`) and goes with the account.
 
 ### Known gaps (client)
 
-- `compose.yaml` does not yet mount `anthropic_api_key` (and `app_secret_key`) into the worker
-  (ADR 0014 Consequences; `compose.yaml` is a shared lock). With the defaults AI is off anyway.
+- `compose.yaml` mounts `anthropic_api_key` and `app_secret_key` into the worker, the key there
+  only (`test_compose_ai_key.py`, [stack.md](stack.md#secrets)); `scripts/worktree.sh init`
+  leaves the key file empty, so the local stack is `ai_not_configured`. With the defaults AI is
+  off anyway.
 - No SDK: the guard refuses the provider's SDK in `src`, so the client posts the Messages API's
   JSON itself through `model_async_client` (`anthropic-version: 2023-06-01`). The request and
   answer shapes are from the public API documentation, not verified against the provider.
