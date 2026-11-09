@@ -264,6 +264,10 @@ def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
         "input_fingerprint) VALUES (:o, 'his', '2026-11-02', '{\"status\": \"not_set\"}', "
         "'his/1', 0, :h)",
         "INSERT INTO user_profiles (owner_id) VALUES (:o)",
+        # #195: an open notification hold of a synthetic finding id.
+        "INSERT INTO notify_holds (owner_id, finding_id, rule_id, started_at, revision_at, "
+        "revision_seen) VALUES (:o, gen_random_uuid(), 'E4', '2026-11-02 08:00:00+00', "
+        "'2026-11-02 08:00:00+00', '2026-11-02 08:00:00+00')",
     ):
         conn.execute(text(sql), {"o": owner_id, "h": digest})
 
@@ -337,6 +341,7 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
         "measure_groups",
         "measures",
         "metric_daily",
+        "notify_holds",
         "observations",
         "scores",
         "sleep_series",

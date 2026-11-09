@@ -72,6 +72,9 @@ ALLOWED: dict[str, str] = {
     # section 11 by name.
     "ownvitals.derived.findings_ecg": "the rules engine reads the recordings' Withings fields",
     "ownvitals.derived.ecg_recompute": "the estimated recompute and its sweep (§15) write it",
+    # #195: the notification step's state moves (notify_state, notified_at) and the ids of the
+    # findings still waiting; what the step shows or hides comes only through the read function.
+    "ownvitals.notify.findings_state": "the notification state of a finding (#195)",
 }
 # Strings outside ``ALLOWED`` that hold a word and were reviewed as no read: exact, by module,
 # with how many times each occurs there.
@@ -220,6 +223,7 @@ def test_the_allow_list_is_exact() -> None:
         "ownvitals.derived.check_cli",
         "ownvitals.derived.findings_ecg",
         "ownvitals.derived.ecg_recompute",
+        "ownvitals.notify.findings_state",
     }
     paths = {module_name(path): path for path in _modules()}
     for module in ALLOWED:

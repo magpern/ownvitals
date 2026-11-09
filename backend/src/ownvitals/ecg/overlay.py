@@ -172,6 +172,12 @@ def _gate_current(estimated: Mapping[str, Any] | None, fingerprint: str) -> bool
     return all(modules.get(name) == MODULES[name] for name in GATE_MODULES)
 
 
+def estimated_current(estimated: Mapping[str, Any] | None, fingerprint: str) -> bool:
+    """Whether a recording has a current ``estimated`` (its fingerprint and gate modules), with or
+    without a gate result: the notification hold waits only for a recording without one."""
+    return _gate_current(estimated, fingerprint)
+
+
 def _sqi(estimated: Mapping[str, Any]) -> Mapping[str, Any]:
     sqi = estimated.get("sqi")
     return sqi if isinstance(sqi, Mapping) else {}
@@ -281,6 +287,7 @@ __all__ = [
     "a7_links",
     "ecg_gate_overlay",
     "estimate_view",
+    "estimated_current",
     "gate_result",
     "group_device_ids",
     "recording_device_id",

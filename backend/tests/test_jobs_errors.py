@@ -133,6 +133,7 @@ def test_the_api_ships_no_kind_and_the_worker_ships_the_withings_kinds() -> None
         "derive_scores",  # the scores pass (#188)
         "ecg_fetch",
         "ecg_recompute",  # the estimated recompute and its sweep (#191)
+        "notify_findings",  # the finding notifications and the E4/E6 hold (#195)
         "token_refresh_recover",
         "withings_backfill",
         "withings_connect",

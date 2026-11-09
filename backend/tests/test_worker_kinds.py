@@ -41,6 +41,8 @@ from ownvitals.derived.scores_job import ScoresInput
 from ownvitals.jobs import KINDS, Complete, JobFailure, JobRun
 from ownvitals.jobs.runner import RunConfig
 from ownvitals.jobs.withings import INPUT_MODELS, NO_TARGETS, ConnectInput
+from ownvitals.notify.findings_job import KIND as NOTIFY_KIND
+from ownvitals.notify.findings_job import NotifyInput
 from ownvitals.withings.disconnect import DISCONNECT_KIND, DisconnectInput
 from ownvitals.withings.subscriptions import callback_url, derive_secret
 from ownvitals.withings.tokens import RefreshResult
@@ -65,6 +67,7 @@ WITHINGS_KINDS = [
     "derive_scores",  # #188: the scores pass, queued by derive_evaluate
     "ecg_fetch",
     "ecg_recompute",  # #191: the estimated recompute, queued by an ecg pass and the nightly sweep
+    "notify_findings",  # #195: the finding notifications, queued by evaluate and recompute
     "token_refresh_recover",
     "withings_backfill",
     "withings_connect",
@@ -90,6 +93,7 @@ def test_the_worker_registry_holds_the_withings_kinds_and_the_api_none() -> None
             EVALUATE_KIND: EvaluateInput,
             SCORES_KIND: ScoresInput,
             RECOMPUTE_KIND: RecomputeInput,
+            NOTIFY_KIND: NotifyInput,
         }
         expected = own[kind.name] if kind.name in own else INPUT_MODELS[kind.name]
         assert kind.input_model is expected

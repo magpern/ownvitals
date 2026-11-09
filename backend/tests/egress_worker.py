@@ -22,6 +22,12 @@ WORKER_PACKAGES = (
     # #194: the outbox writes (the owner notice of PLAN section 4.3 is queued in the worker).
     # Exactly that module: the sender beside it is web's.
     "ownvitals.notify.outbox",
+    # #195: the finding notifications' pass, its hold, its table and its job kind.
+    "ownvitals.notify.findings",
+    "ownvitals.notify.findings_job",
+    "ownvitals.notify.findings_state",
+    "ownvitals.notify.hold",
+    "ownvitals.notify.tables",
     # #205: the AI cost cap (the worker reserves, settles and runs the reaper).
     "ownvitals.ai",
     # #167: the metrics registry and the worker's /metrics listener.

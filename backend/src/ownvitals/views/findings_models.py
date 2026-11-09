@@ -55,6 +55,7 @@ class FindingsQuery:
     area: str | None = None
     limit: int | None = None
     offset: int = 0
+    notified: bool = False  # only findings whose notification was sent (the in-app list)
 
     def __post_init__(self) -> None:
         if self.tab is not None and self.tab not in TABS:
@@ -150,6 +151,30 @@ class FindingDetail:
 
     def __repr__(self) -> str:
         return "FindingDetail redacted"
+
+
+@dataclass(frozen=True)
+class TriggerLink:
+    """One trigger group of a finding, as ADR 0006 section 11's notification hold needs it: the
+    connection of its live measure group (``None``: no live group has that grpid), how many
+    recordings link to it now (A7) and how many of those have no current ``estimated``."""
+
+    grpid: int
+    connection: UUID | None
+    linked: int
+    without_estimate: int
+
+
+@dataclass(frozen=True)
+class NotificationCandidate:
+    """A finding for the notification step, hidden or not (the step never sends a hidden one;
+    it ends its hold), with its trigger groups' links."""
+
+    finding: FindingView
+    links: tuple[TriggerLink, ...]
+
+    def __repr__(self) -> str:
+        return "NotificationCandidate redacted"
 
 
 def area_of(rule_id: str) -> str | None:
