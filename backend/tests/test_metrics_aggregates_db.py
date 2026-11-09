@@ -286,7 +286,11 @@ async def test_a_running_worker_exports_every_observability_item(
         assert f"# TYPE {metric.name} {metric.kind}" in body, metric.name
     for series in (
         'ownvitals_withings_last_sync_success_age_seconds{stream="measures"}',
-        'ownvitals_withings_subscriptions{state="active"} 1',
+        # E was "missing" until its notification above: now A and E are active.
+        'ownvitals_withings_subscriptions{state="active"} 2',
+        'ownvitals_withings_subscriptions{state="missing"} 0',
+        'ownvitals_withings_subscriptions{state="pending"} 1',
+        'ownvitals_withings_subscriptions{state="failed"} 1',
         'ownvitals_withings_stream_completeness{stream="measures",state="complete"} 2',
         'ownvitals_jobs{state="queued"} 2',
         "ownvitals_jobs_oldest_queued_age_seconds ",

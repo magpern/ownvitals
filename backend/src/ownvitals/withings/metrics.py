@@ -14,7 +14,8 @@ from ownvitals.metrics import REGISTRY, Counter, Gauge, Histogram
 from ownvitals.withings.streams import STREAMS
 
 STREAM_NAMES: Final = tuple(s.name for s in STREAMS)
-JOB_STATES: Final = ("queued", "running", "completed", "failed", "cancelled", "dead_letter")
+# In queue_stats()'s order (20-queue.sql); tests/test_metrics_aggregates_db.py pins it.
+JOB_STATES: Final = ("queued", "running", "completed", "failed", "dead_letter", "cancelled")
 SUBSCRIPTION_STATES: Final = ("active", "pending", "failed", "missing")
 RECONCILE_KINDS: Final = ("changed", "deleted")
 REFRESH_RESULTS: Final = ("failure", "recovered")
