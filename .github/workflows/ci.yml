@@ -280,6 +280,16 @@ jobs:
         # compose.yaml's db image, the same index digest (test_compose_roles.py checks it).
         image: postgres:17.11@sha256:31ba9c94a03ada9988f2bb493a22a75eef3a185884533e5cdbcd498ea835b08f
         env:
+          # Throwaway database of this job only; not a secret.
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
       OWNVITALS_TEST_DATABASE_URL: postgresql+psycopg://postgres:test@127.0.0.1:5432/ownvitals
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
