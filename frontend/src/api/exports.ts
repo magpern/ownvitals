@@ -24,7 +24,7 @@ const REVOKE_AFTER_MS = 60_000
 
 const STATES: readonly ExportState[] = ['building', 'ready', 'failed', 'expired']
 
-function decodeItem(value: unknown): ExportItem {
+export function decodeItem(value: unknown): ExportItem {
   const item = object(value, 'export')
   const state = STATES.find((s) => s === text(item, 'state'))
   if (state === undefined) throw new DecodeError('state')
@@ -58,16 +58,16 @@ function reasonOf(body: unknown, response: Response): string | null {
   return response.headers.get('X-Ownvitals-Reason')
 }
 
-function filenameOf(response: Response): string {
+function filenameOf(response: Response, fallback: string): string {
   const header = response.headers.get('Content-Disposition') ?? ''
   const match = /filename="([A-Za-z0-9._-]+)"/.exec(header)
-  return match?.[1] ?? 'ownvitals-export.zip'
+  return match?.[1] ?? fallback
 }
 
-/** Fetch the archive and hand it to the browser as a file. Refusals throw an `ApiError`. */
-export async function downloadExport(id: string): Promise<void> {
-  const response = await fetch(`/api/exports/${encodeURIComponent(id)}/file`, {
-    headers: { Accept: 'application/zip, application/json' },
+/** Fetch a single-use file and hand it to the browser. Refusals throw an `ApiError`. */
+export async function downloadFile(path: string, accept: string, fallbackName: string): Promise<void> {
+  const response = await fetch(path, {
+    headers: { Accept: `${accept}, application/json` },
     credentials: 'same-origin',
   })
   if (!response.ok) {
@@ -83,7 +83,7 @@ export async function downloadExport(id: string): Promise<void> {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = filenameOf(response)
+  link.download = filenameOf(response, fallbackName)
   document.body.appendChild(link)
   link.click()
   link.remove()
@@ -92,4 +92,9 @@ export async function downloadExport(id: string): Promise<void> {
   window.setTimeout(() => {
     URL.revokeObjectURL(url)
   }, REVOKE_AFTER_MS)
+}
+
+/** Fetch the archive and hand it to the browser as a file. */
+export function downloadExport(id: string): Promise<void> {
+  return downloadFile(`/api/exports/${encodeURIComponent(id)}/file`, 'application/zip', 'ownvitals-export.zip')
 }

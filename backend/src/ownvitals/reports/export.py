@@ -78,16 +78,16 @@ _STEPS: Final = 2 + len(GENERIC) + 3 + 1 + 1
 _ROW = text(
     "SELECT state FROM exports WHERE id = :id AND owner_id = :owner AND kind = 'data' FOR UPDATE"
 )
-_CLEAR = text("DELETE FROM export_chunks WHERE export_id = :id AND owner_id = :owner")
-_CHUNK = text(
+CLEAR_CHUNKS = text("DELETE FROM export_chunks WHERE export_id = :id AND owner_id = :owner")
+INSERT_CHUNK = text(
     "INSERT INTO export_chunks (owner_id, export_id, seq, bytes) VALUES (:owner, :id, :seq, :b)"
 )
-_READY = text(
+MARK_READY = text(
     "UPDATE exports SET state = 'ready', ready_at = now(), "
     "expires_at = now() + make_interval(hours => :ttl), size = :size, sha256 = :sha "
     "WHERE id = :id AND owner_id = :owner AND state = 'building'"
 )
-_FAILED = text(
+MARK_FAILED = text(
     "UPDATE exports SET state = 'failed', failure = :failure, largest = :largest "
     "WHERE id = :id AND owner_id = :owner AND state = 'building'"
 )
@@ -112,7 +112,7 @@ class _Build:
     async def _store(self, db: AsyncSession, *, final: bool = False) -> None:
         for chunk in self.archive.take(final=final):
             params = {"owner": self.owner, "id": self.export_id, "seq": self.seq, "b": chunk}
-            await db.execute(_CHUNK, params)
+            await db.execute(INSERT_CHUNK, params)
             self.seq += 1
 
     async def page(self, read: Page, after: UUID | None) -> Sequence[Mapping[str, Any]]:
@@ -213,16 +213,16 @@ async def _start(job: JobRun, export_id: UUID) -> bool:
         state = (await fs.db.execute(_ROW, owner)).scalar_one_or_none()
         if state != "building":
             return False
-        await fs.db.execute(_CLEAR, owner)
+        await fs.db.execute(CLEAR_CHUNKS, owner)
     return True
 
 
 async def _fail(job: JobRun, export_id: UUID, largest: str) -> None:
     owner = {"id": export_id, "owner": job.ctx.user_id}
     async with job.fenced() as fs:
-        await fs.db.execute(_CLEAR, owner)
+        await fs.db.execute(CLEAR_CHUNKS, owner)
         params = {**owner, "failure": "export_too_large", "largest": largest}
-        await fs.db.execute(_FAILED, params)
+        await fs.db.execute(MARK_FAILED, params)
     await record_event(
         job.factory,
         job.ctx,
@@ -249,7 +249,7 @@ async def run_export(job: JobRun, settings: Settings | None = None) -> Complete:
     ttl = settings.export_ttl_hours
     async with job.fenced() as fs:
         params = {**owner, "ttl": ttl, "size": build.archive.size, "sha": build.archive.sha256}
-        await fs.db.execute(_READY, params)
+        await fs.db.execute(MARK_READY, params)
     await record_event(
         job.factory, job.ctx, "export_ready", Ready(export_id=export_id, size=build.archive.size)
     )

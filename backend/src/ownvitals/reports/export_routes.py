@@ -40,7 +40,14 @@ from ownvitals.auth.deps import (
     require_user,
     reserve_export_request,
 )
-from ownvitals.auth.exports import Downloaded, Expired, Failed, Requested, record_event
+from ownvitals.auth.exports import (
+    Downloaded,
+    Expired,
+    ExportEventKind,
+    Failed,
+    Requested,
+    record_event,
+)
 from ownvitals.context import UserContext
 from ownvitals.reports import export_store
 from ownvitals.reports.export_store import ExportView, Refused, Tidied
@@ -145,13 +152,19 @@ def _filename() -> str:
     return f"ownvitals-export-{datetime.now(UTC).date().isoformat()}.zip"
 
 
-@router.get("/{export_id}/file", response_model=None)
-async def download_export(
+async def serve_download(
     export_id: UUID,
     request: Request,
-    ctx: Annotated[UserContext, Depends(require_user)],
-    info: Annotated[Any, Depends(current_session)],
+    ctx: UserContext,
+    info: Any,
+    *,
+    kind: str,
+    media_type: str,
+    filename: str,
+    audit: ExportEventKind,
 ) -> StreamingResponse | HTMLResponse:
+    """The single-use, step-up-guarded download of one export of ``kind`` (ADR 0013 section 4),
+    shared with the doctor PDF. ``audit`` is the event kind recorded for each attempt."""
     # Cross-site first, before the step-up and before any read: nothing is counted.
     if request.headers.get("sec-fetch-site") != "same-origin":
         return HTMLResponse(
@@ -166,7 +179,7 @@ async def download_export(
     factory = _factory(request)
     ip = request_ip(request)
     try:
-        download = await export_store.begin_download(factory, ctx, export_id)
+        download = await export_store.begin_download(factory, ctx, export_id, kind)
     except Refused as refused:
         await _tidied(request, ctx, refused.tidied, ip)
         raise _refuse(refused.reason) from None
@@ -187,13 +200,37 @@ async def download_export(
             _LOG.warning("export download ended early: a chunk is gone or a later attempt began")
         finally:
             # Best effort when the client went away mid-stream (the attempt is counted already).
-            detail = Downloaded(export_id=export_id, attempt=download.attempt, completed=completed)
-            await record_event(factory, ctx, "export_downloaded", detail, ip=ip)
+            detail = Downloaded(
+                export_id=export_id,
+                attempt=download.attempt,
+                completed=completed,
+                export_kind="doctor_pdf" if kind == "doctor_pdf" else "data",
+            )
+            await record_event(factory, ctx, audit, detail, ip=ip)
 
     headers = {
-        "Content-Disposition": f'attachment; filename="{_filename()}"',
+        "Content-Disposition": f'attachment; filename="{filename}"',
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
         "Content-Length": str(download.size),
     }
-    return StreamingResponse(body(), media_type="application/zip", headers=headers)
+    return StreamingResponse(body(), media_type=media_type, headers=headers)
+
+
+@router.get("/{export_id}/file", response_model=None)
+async def download_export(
+    export_id: UUID,
+    request: Request,
+    ctx: Annotated[UserContext, Depends(require_user)],
+    info: Annotated[Any, Depends(current_session)],
+) -> StreamingResponse | HTMLResponse:
+    return await serve_download(
+        export_id,
+        request,
+        ctx,
+        info,
+        kind="data",
+        media_type="application/zip",
+        filename=_filename(),
+        audit="export_downloaded",
+    )

@@ -24,8 +24,8 @@ from pydantic import BaseModel
 from ownvitals.auth.deps import require_user
 from ownvitals.context import UserContext
 from ownvitals.ecg import display
-from ownvitals.reports.ecg_layout import ReportFacts
-from ownvitals.reports.ecg_pdf import TooLong, build_pdf, local_time_label
+from ownvitals.reports.ecg_facts import facts_for
+from ownvitals.reports.ecg_pdf import TooLong, build_pdf
 from ownvitals.views.ecg_read import (
     LIST_DEFAULT,
     LIST_MAX,
@@ -167,7 +167,7 @@ async def ecg_pdf(
     if r.leads is None or r.sampling_hz is None:
         raise HTTPException(status_code=404)
     try:
-        body = build_pdf(_facts(r, r.leads, r.sampling_hz))
+        body = build_pdf(facts_for(r, r.leads, r.sampling_hz))
     except TooLong:
         raise HTTPException(status_code=422) from None
     return Response(
@@ -211,30 +211,4 @@ async def get_ecg(
         wear_position=r.wearposition,
         signal=signal,
         ownvitals_estimate=estimate,
-    )
-
-
-def _facts(r: Recording, leads: tuple[tuple[int, ...], ...], rate: int) -> ReportFacts:
-    name = display.model_name(r.model_id)
-    device = display.NOT_REPORTED if r.model_id is None else name or f"Withings model {r.model_id}"
-    shown = {i.key: i.value for i in r.intervals}
-    return ReportFacts(
-        recording_id=str(r.id),
-        recorded_local=local_time_label(r.recorded_at, r.source_tz),
-        device=device,
-        sampling_hz=rate,
-        lead_label=display.lead_label(0, len(leads)),
-        wear_position=display.NOT_REPORTED if r.wearposition is None else f"code {r.wearposition}",
-        classification=display.classification_text(r.afib),
-        details=display.details_text(r.afib_details),
-        heart_rate=(display.NOT_REPORTED if r.heart_rate is None else f"{r.heart_rate} bpm"),
-        intervals=tuple(
-            (
-                label,
-                display.NOT_REPORTED if key not in shown else f"{shown[key]:g} ms",
-            )
-            for key, label in display.INTERVALS.values()
-        ),
-        leads=leads,
-        disclaimer=display.NOT_A_MEDICAL_DEVICE,
     )

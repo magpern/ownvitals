@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ownvitals.auth.clientip import bucket_ip, client_ip
 from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
 from ownvitals.auth.flowtools import reserve
-from ownvitals.auth.ratelimit import EXPORT_ACCOUNT, OAUTH_IP, Bucket
+from ownvitals.auth.ratelimit import DOCTOR_PDF_ACCOUNT, EXPORT_ACCOUNT, OAUTH_IP, Bucket
 from ownvitals.auth.sessions import (
     ADMIN_STEPUP_WINDOW,
     Resolution,
@@ -197,6 +197,11 @@ async def reserve_export_request(request: Request, ctx: UserContext) -> None:
     window, the bucket key an HMAC of the user's id; ADR 0013 section 4). Raises
     ``RateLimited`` (429 with ``Retry-After``) above it."""
     await reserve(request, [Bucket(EXPORT_ACCOUNT, str(ctx.user_id))])
+
+
+async def reserve_doctor_request(request: Request, ctx: UserContext) -> None:
+    """One slot of the doctor PDF request limit (``DOCTOR_PDF_ACCOUNT``, 10 per 24 hours)."""
+    await reserve(request, [Bucket(DOCTOR_PDF_ACCOUNT, str(ctx.user_id))])
 
 
 def request_device_token(request: Request) -> str | None:

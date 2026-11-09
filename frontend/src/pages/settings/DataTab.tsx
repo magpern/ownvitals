@@ -4,6 +4,7 @@ import { errorMessage } from '../../api/messages'
 import { SIGN_IN_PATH } from '../../auth/access'
 import { useSession } from '../../auth/SessionContext'
 import { Notice } from '../../components/forms'
+import { DoctorReport } from '../../components/reports/DoctorReport'
 import { ExportCard } from '../../components/reports/ExportCard'
 import { Cancelled, useProtected } from '../../components/StepUp'
 import { Button } from '../../components/ui/Button'
@@ -124,6 +125,7 @@ export function DataTab({ state }: { state: ProfileState }) {
       <Flags state={state} />
       <Card title={t('settings.data.title')}>
         <ExportCard />
+        <DoctorReport />
         <DeleteAccount />
       </Card>
     </Stack>
