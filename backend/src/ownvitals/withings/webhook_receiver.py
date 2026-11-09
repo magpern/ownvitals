@@ -3,8 +3,8 @@
 The receiver checks the request before the secret, then ``webhook_event_insert`` stores the
 event and the singleton sync job in one transaction. The job names a connection and a stream;
 the sync fetches from the API. Unknown and retired secrets get the same 200 and create nothing;
-so does a matched one whose notification could not be stored (#280), and one over quota gets
-it with the event recorded and no job.
+one over quota gets it with the event recorded and no job. A matched secret whose notification
+could not be stored gets a 500, never a 200 (durable before 200).
 """
 
 import logging
@@ -214,14 +214,17 @@ async def handle(request: Request, presented: str) -> Response:
     try:
         outcome = await _ingest(request.app.state.session_factory, entry, fields)
     except Exception as exc:
-        # Not stored. The answer is the forged secret's: an empty 200, so no status or body
-        # says the secret matched. The poll catches up; the warning is the alert.
-        outcome = "duplicate" if _is_duplicate(exc) else None
-        if outcome is None:
+        # A replay was stored before: the 200 stands. Anything else was not stored, so no 200
+        # (PLAN section 4.4, durable before 200): a 500 that Withings retries. Only a holder of
+        # a live 256-bit secret ever sees it, so it is no guessing oracle (ADR 0008, #280).
+        if not _is_duplicate(exc):
             logger.warning(
                 "webhook not stored",
                 extra={"error_type": type(exc).__name__, "sqlstate": _sqlstate(exc)},
             )
+            _log(request, 500)
+            return Response(status_code=500)
+        outcome = "duplicate"
     if outcome in ("unknown_user", "over_quota"):
         _note(request, outcome, entry.app_id)
     if getattr(request.app.state, "webhook_crash_after_commit", False):

@@ -171,11 +171,13 @@ default the Developer took; the Architect confirms or revises it.
   up. The limits are constants in the function, so changing one changes its pinned digest. The
   counts stop at the limit but use no index (none exists on `received_at`); they are soft under
   concurrent deliveries. An index is a follow-up if volume needs it.
-- **Error answers.** After a secret matched, any failure to store the notification answers the
-  same empty 200 an unknown secret gets, not a 500, so no answer says the secret is live. The
-  notification is then not durable; the poll covers it and the warning (error type and SQLSTATE
-  only) is the alert. A replay is recognised only by `webhook_event_insert`'s SQLSTATE `22023`
-  with the exact message `duplicate`.
+- **Error answers.** The generic 200 for a failed store is **not** adopted (Architect, #280):
+  after a secret matched, a failure to store the notification answers 500, as before, because
+  PLAN §4.4 requires the event and job committed before any 200 and the 500 lets Withings
+  retry. Telling a 500 apart from the generic 200 needs a live 256-bit secret already, so it
+  is no guessing oracle. The warning carries the error type and SQLSTATE only. A replay (stored
+  before) still answers 200, recognised only by `webhook_event_insert`'s SQLSTATE `22023` with
+  the exact message `duplicate`.
 - **Append lead.** `append_secret` refuses an `active_from` less than the entry-cache TTL after
   now (§1 routine step 1), before it mints or writes anything. The database function does not
   check it: it does not know web's TTL.

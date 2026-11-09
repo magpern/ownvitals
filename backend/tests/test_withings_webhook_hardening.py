@@ -77,16 +77,17 @@ async def linked_receiver(database_url: str, factory: Factory) -> tuple[FastAPI,
         RuntimeError("not a database error"),
     ],
 )
-async def test_an_internal_error_after_a_match_answers_like_a_forged_secret(
+async def test_an_internal_error_after_a_match_is_a_500_never_a_200(
     factory: Factory,
     database_url: str,
     captured: StringIO,  # noqa: F811 - fixture
     monkeypatch: pytest.MonkeyPatch,
     failure: Exception,
 ) -> None:
-    """The secret matched, the store failed: the empty 200 a forged secret gets, and a warning
-    with the error type and SQLSTATE only. An error that only mentions "duplicate" (here a
-    unique violation, SQLSTATE 23505) is an error, not a replay."""
+    """The secret matched, the store failed: nothing is durable, so no 200 (PLAN section 4.4)
+    but an empty 500 Withings retries, and a warning with the error type and SQLSTATE only. An
+    error that only mentions "duplicate" (here a unique violation, SQLSTATE 23505) is an
+    error, not a replay."""
     app, presented, _app_id = await linked_receiver(database_url, factory)
 
     async def fail(*_args: object) -> str:
@@ -94,10 +95,7 @@ async def test_an_internal_error_after_a_match_answers_like_a_forged_secret(
 
     monkeypatch.setattr(webhook_receiver, "_ingest", fail)
     broken = await post(app, presented, form())
-    forged = await post(app, FORGED, form())
-    same_answer(broken, forged)
-    assert broken.status_code == 200
-    assert broken.content == b""
+    assert (broken.status_code, broken.content) == (500, b"")
     logged = captured.getvalue()
     assert logged.count("webhook not stored") == 1
     assert type(failure).__name__ in logged
@@ -130,6 +128,36 @@ def test_only_the_duplicate_sqlstate_and_message_is_a_replay() -> None:
     # A constructed error carries no server diagnostics, so its message is not the server's.
     assert not webhook_receiver._is_duplicate(no_diag)  # pyright: ignore[reportPrivateUsage]
     assert not webhook_receiver._is_duplicate(RuntimeError("duplicate"))  # pyright: ignore[reportPrivateUsage]
+
+
+class _Diag:
+    def __init__(self, message: str) -> None:
+        self.message_primary = message
+
+
+class _ServerError(Exception):
+    """A stand-in for a psycopg error with server diagnostics (synthetic)."""
+
+    def __init__(self, sqlstate: str, message: str) -> None:
+        super().__init__(message)
+        self.sqlstate = sqlstate
+        self.diag = _Diag(message)
+
+
+@pytest.mark.parametrize(
+    ("sqlstate", "message", "replay"),
+    [
+        ("22023", "duplicate", True),
+        ("23505", "duplicate", False),
+        ("22023", "bad_dedupe_key", False),
+        ("22023", "duplicate key", False),
+    ],
+)
+def test_a_replay_needs_both_the_sqlstate_and_the_server_message(
+    sqlstate: str, message: str, replay: bool
+) -> None:
+    error = OperationalError("SELECT", {}, _ServerError(sqlstate, message))
+    assert webhook_receiver._is_duplicate(error) is replay  # pyright: ignore[reportPrivateUsage]
 
 
 def seed_events(
@@ -168,16 +196,20 @@ def stored_job(admin: Connection, app_id: int) -> object:
 
 @pytest.mark.usefixtures("schema")
 @pytest.mark.parametrize(
-    ("userid", "count", "age", "job", "over"),
+    ("userid", "count", "age", "job", "elsewhere", "over"),
     [
-        (USERID, PER_CONNECTION, timedelta(minutes=5), True, True),
-        (USERID, PER_CONNECTION - 1, timedelta(minutes=5), True, False),
-        (USERID, PER_CONNECTION, timedelta(minutes=61), True, False),
-        (USERID, PER_CONNECTION, timedelta(minutes=5), False, False),
-        (USERID + 1, PER_APP, timedelta(minutes=5), True, True),
-        (USERID + 1, PER_APP - 1, timedelta(minutes=5), True, False),
-        (USERID + 1, PER_APP, timedelta(minutes=5), False, False),
-        (USERID + 1, PER_APP, timedelta(minutes=61), True, False),
+        (USERID, PER_CONNECTION, timedelta(minutes=5), True, False, True),
+        (USERID, PER_CONNECTION - 1, timedelta(minutes=5), True, False, False),
+        (USERID, PER_CONNECTION, timedelta(minutes=61), True, False, False),
+        (USERID, PER_CONNECTION, timedelta(minutes=5), False, False, False),
+        # The same Withings user under another app is another connection.
+        (USERID, PER_CONNECTION, timedelta(minutes=5), True, True, False),
+        (USERID + 1, PER_APP, timedelta(minutes=5), True, False, True),
+        (USERID + 1, PER_APP - 1, timedelta(minutes=5), True, False, False),
+        (USERID + 1, PER_APP, timedelta(minutes=5), False, False, False),
+        (USERID + 1, PER_APP, timedelta(minutes=61), True, False, False),
+        # Another app at its quota does not stop this one.
+        (USERID + 1, PER_APP, timedelta(minutes=5), True, True, False),
     ],
 )
 async def test_the_quotas_record_the_event_and_add_no_job(
@@ -188,13 +220,15 @@ async def test_the_quotas_record_the_event_and_add_no_job(
     count: int,
     age: timedelta,
     job: bool,
+    elsewhere: bool,
     over: bool,
 ) -> None:
     """Per connection (60) and per app (1000) job-bearing events in the last hour. Over quota
     the event is kept without a job and Withings gets the same empty 200."""
     app, presented, app_id = await linked_receiver(database_url, factory)
     with engine_for(database_url) as engine, engine.begin() as admin:
-        seed_events(admin, app_id, userid, count, age=age, job=job)
+        target = new_app(database_url) if elsewhere else app_id
+        seed_events(admin, target, userid, count, age=age, job=job)
     answer = await post(app, presented, form())
     same_answer(answer, await post(app, FORGED, form()))
     with engine_for(database_url) as engine, engine.connect() as admin:
