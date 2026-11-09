@@ -565,17 +565,19 @@ async def test_two_concurrent_passes_for_one_owner_do_not_collide(env: Env) -> N
 
 
 async def test_another_writers_rules_are_never_touched(env: Env) -> None:
+    """A rule id outside ``OWNED_RULES`` (E5, deferred by ADR 0006 section 12; E1 to E4 and E6
+    are this writer's since #191) is never read, changed or deleted."""
     ctx, _ = await a_year(env)
     env.jenv.sql(
         "INSERT INTO findings (owner_id, rule_id, rule_version, tier, severity, confidence, "
         "origin, subject, window_start, window_end, evidence, input_revision, input_fingerprint) "
-        "VALUES (:o, 'E6', 'synthetic/1', 'trend', 'attention', 'medium', 'live', "
-        "'qtc_interval', '2026-10-01', '2026-10-01', '{}', 99, decode(repeat('ab', 32), 'hex'))",
+        "VALUES (:o, 'E5', 'synthetic/1', 'experimental', 'attention', 'medium', 'live', "
+        "'ecg', '2026-10-01', '2026-10-01', '{}', 99, decode(repeat('ab', 32), 'hex'))",
         o=ctx.user_id,
     )
-    await env.all_of(ctx)
-    e6 = [r for r in await env.found(ctx) if r.rule_id == "E6"]
-    assert [(r.rule_version, r.input_revision, bytes(r.input_fingerprint)) for r in e6] == [
+    await env.all_of(ctx, experimental=True)
+    e5 = [r for r in await env.found(ctx) if r.rule_id == "E5"]
+    assert [(r.rule_version, r.input_revision, bytes(r.input_fingerprint)) for r in e5] == [
         ("synthetic/1", 99, bytes.fromhex("ab" * 32))
     ]
 

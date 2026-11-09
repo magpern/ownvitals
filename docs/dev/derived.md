@@ -347,9 +347,9 @@ PLAN §7.1 steps 6 and 7, ADR 0010 §1 and §4. Code: `derived/evaluate.py` (pur
 analysis check`). The rules themselves are `analysis.rules` ([analysis-rules.md](analysis-rules.md)).
 
 **Rules.** Every rule of `SPECS`: B1 to B6, C1, C1x, C2, N2 (`N2:guided`, `N2:routine`), N3, N5
-and Q1's four parts. E1 to E6 are ADR 0006's writer (M5): their rows are never read, changed or
-deleted here, and every statement is limited to `evaluate.OWNED_RULES`. **Experimental rules**
-(B1, B3, C1x) are evaluated only when the owner-only switch is effective (`flags.effective.
+and Q1's four parts, and since #191 the ECG rules E1 to E4 and E6 ([ecg.md](ecg.md)); every
+statement is limited to `evaluate.OWNED_RULES`, so another rule id (E5 is deferred) is never read,
+changed or deleted here. **Experimental rules** (B1, B3, C1x, E4) are evaluated only when the owner-only switch is effective (`flags.effective.
 experimental_findings`: the environment and the stored flag; until M8 every account is a household
 account, so the switch is the whole rule). Without it they are not computed and nothing of theirs
 is written. **Switch turned off later:** the next pass deletes the stored experimental rows

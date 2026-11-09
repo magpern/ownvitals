@@ -104,10 +104,14 @@ def test_severity_is_urgent_only_for_e1_and_q1_reconnect_and_info_for_the_other_
 
 def test_the_tiers_of_the_rules_follow_the_adr() -> None:
     experimental = {r for r, s in SPECS.items() if s.tier is Tier.EXPERIMENTAL}
-    assert experimental == {"B1", "B3", "C1x"}
+    assert experimental == {"B1", "B3", "C1x", "E4"}
     persistent = {r for r, s in SPECS.items() if s.persistent}
     assert persistent == {"B2", "B4", "B5", "C2", "N3"}
     system = {r for r, s in SPECS.items() if s.tier is Tier.SYSTEM}
     assert system == {r for r in SPECS if r.startswith("Q1:")}
-    assert all(s.tier is Tier.TREND for r, s in SPECS.items() if r not in experimental | system)
+    device = {r for r, s in SPECS.items() if s.tier is Tier.DEVICE}
+    assert device == {"E1", "E2", "E3"}  # ADR 0006 section 11; E5 is deferred, not a rule
+    assert "E5" not in SPECS
+    others = experimental | system | device
+    assert all(s.tier is Tier.TREND for r, s in SPECS.items() if r not in others)
     assert all(spec.rule_id == rule and spec.version == 1 for rule, spec in SPECS.items())

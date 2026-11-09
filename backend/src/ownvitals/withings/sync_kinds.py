@@ -4,11 +4,15 @@
 Handlers are not attached to the API's registry (``KINDS``, which stays empty).
 `register_sync_kinds` registers the five kinds on the registry it is given; the worker's registry
 (``ownvitals.worker.kinds``) is built with it. Each handler opens the owner's grant and the app's
-client in the job's context (`open_materials`), then runs its pass.
+client in the job's context (`open_materials`), then runs its pass. A pass of the ``ecg`` stream
+then queues the ``estimated`` recompute (a new row or a rewritten signal, ADR 0006 section 15)
+and a rule evaluation (E1 to E3 read the recordings, #191).
 """
 
 from uuid import UUID
 
+from ownvitals.derived.ecg_recompute import enqueue_recompute
+from ownvitals.derived.evaluate_job import Origin, enqueue_evaluate
 from ownvitals.derived.normalize_job import TRIGGERS, enqueue_normalize
 from ownvitals.ingest.calls import Account
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
@@ -68,6 +72,15 @@ async def open_materials(job: JobRun, connection_id: UUID) -> tuple[Account, Wit
     return account, WithingsApp(secret.client_id, secret.secret)
 
 
+ECG_STREAM = "ecg"
+
+
+async def after_ecg(job: JobRun, connection_id: UUID, origin: Origin) -> None:
+    """The follow-ups of an ``ecg`` pass; both are best-effort and collapse into a queued one."""
+    await enqueue_recompute(job.factory, connection_id)
+    await enqueue_evaluate(job.factory, connection_id, origin)
+
+
 async def run_backfill(job: JobRun) -> Complete:
     parsed = job.input
     if not isinstance(parsed, StreamInput):
@@ -77,6 +90,8 @@ async def run_backfill(job: JobRun) -> Complete:
         await execute_backfill(job, account, client, parsed.stream)
     if parsed.stream in TRIGGERS:
         await enqueue_normalize(job.factory, parsed.connection_id, "backfill")
+    if parsed.stream == ECG_STREAM:
+        await after_ecg(job, parsed.connection_id, "backfill")
     return Complete()
 
 
@@ -89,6 +104,8 @@ async def run_sync_kind(job: JobRun) -> Complete:
         await execute_sync(job, account, client, parsed.stream)
     if parsed.stream in TRIGGERS:
         await enqueue_normalize(job.factory, parsed.connection_id, "live")
+    if parsed.stream == ECG_STREAM:
+        await after_ecg(job, parsed.connection_id, "live")
     return Complete()
 
 
@@ -98,7 +115,8 @@ async def run_ecg_fetch(job: JobRun) -> Complete:
         raise JobFailure("invalid_input")
     account, app = await open_materials(job, parsed.connection_id)
     async with WithingsClient.open(app) as client:
-        await execute_sync(job, account, client, "ecg")
+        await execute_sync(job, account, client, ECG_STREAM)
+    await after_ecg(job, parsed.connection_id, "live")
     return Complete()
 
 

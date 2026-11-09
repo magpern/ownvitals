@@ -297,3 +297,68 @@ when one did, or when the user id or the V4 flags are refused. V2 is report-only
 | `V5` | pass when recomputing `estimated` matches the stored JSON byte for byte (`canonical_json`), including the stored input revision and fingerprint. A row with neither a signal nor an estimate is not compared |
 
 The command was not run on a real account. Tests use labelled synthetic values only.
+
+## Rules E1 to E4 and E6, and the `estimated` recompute (#191)
+
+ADR 0006 §11 and §15, ADR 0010 §7 "ECG". Status IMPLEMENTED: synthetic tests only; nothing here is
+verified against a real Withings account.
+
+**Rules** (`analysis/rules/ecg.py` for E1 to E3, `ecg_intervals.py` for E4 and E6; pure). They are
+rules of the evaluation pass of #187 (`SPECS`, `derived/evaluate.py`), so they share its replay,
+episodes, origin, diff, lock and stale check ([derived.md](derived.md), "Rule evaluation").
+Findings hold Withings-reported values only; our gate is the read-time overlay
+(`ecg/overlay.py`, #190).
+
+| Rule | Subject | Evaluation days | Trigger groups |
+|---|---|---|---|
+| E1 `afib` 1 or `afib_details` 1/11/12 (urgent) | `ecg` | days with a recording whose outcome is decided | the groups A7 links to the positive recordings |
+| E2 ≥ 3 of the last 10 (by `recorded_at`, up to the day) with `afib_details` 2/5 | `ecg` | same | the groups linked to the counted recordings |
+| E3 `afib_details` 6/7 | `ecg` | same | the groups linked to the firing recordings |
+| E4 QTc > 450 (male) / 460 (female) / 500 ms (anyone; sex unknown: only 500); PR > 200 ms; QRS ≥ 120 ms | `qtc_interval`, `pr_interval`, `qrs_duration` | days with a reading of the subject | every reading of the day above the band |
+| E6 daily value > the finding threshold at the day (k 2.5, 90 days before, BASELINE) | `qtc_interval`, `qrs_duration` | days with a daily value | the daily value's provenance (`metric_daily.source_groups`) |
+
+Choices the specification leaves open:
+
+- **A missing code.** NULL or a code outside withings-findings §2's table is missing. A day on
+  which a missing code could change E1's, E2's or E3's outcome is **not an evaluation day**
+  (`ecg.decided_days`): it neither opens nor ends an episode, so a missing value never counts as
+  negative. E2 with 2 inconclusive and one missing code among the last 10 is undecided; with 2
+  and none missing it does not fire.
+- **Episodes.** All five open on their first firing and end on the first evaluation that does not
+  fire (`advance_simple`); reference day and window end are the evaluation day (E2's window starts
+  at the oldest of the counted ten). A later negative recording ends an E1 episode; the ended
+  finding stays in the history.
+- **E1 to E3's trigger groups** are the live measure groups A7 links to the firing recordings when
+  the pass reads them (same connection and timestamp, an ECG type, the same device: the overlay's
+  `a7_links`). The read function links them again at read time, so a recording deleted later is
+  no link. They show our gate outcome only behind the owner-only flag and are never hidden.
+- **E4** is experimental: computed only when the owner-only switch is effective, like B1, B3 and
+  C1x. The sex is `user_profiles.sex`.
+- **Inputs and provenance.** `derived/findings_ecg.py` reads, in the pass's transaction, the
+  recordings' Withings fields (never `signal` or `estimated`), their A7 groups and the profile's
+  sex; the evaluation fingerprint covers them, so a new or changed recording between the read and
+  the write makes the pass `stale`. `input_revision` stays the `measures` counter. An `ecg` pass
+  (sync, backfill, webhook fetch) queues an evaluation; without a `measures` revision row nothing
+  is evaluated (the pass's known gap).
+
+**The recompute** (`derived/ecg_recompute.py`, kind `ecg_recompute`, singleton `ecg_recompute`,
+input `{connection_id, origin: "backfill"}`). A row is current when its `estimated` has the running
+`algo_version` and the row's `input_fingerprint`; every other row is read, analysed outside the
+transaction and written only if it still has the same `signalid`, payload hash and sampling rate.
+A rewrite or a purge in between wins. The write touches `estimated` only: no revision bump, no
+evaluation queued (§15). Queued after every `ecg` pass (a new row or a rewritten signal) and by the
+nightly reconciliation of each connection: **the sweep** after a module version bump, so stale
+estimates are recomputed within a day. Until then the overlay already treats a gate-module
+difference as no gate result and keeps the result on an `hrv`-only difference. A stored frame that
+no longer decodes gets the `signal_missing` estimate. Logs: counts and the pipeline version.
+
+Known gaps: the job is claimed on the scheduler's lane (3), not the backfill lane (5):
+`queue_enqueue` maps only `withings_backfill` to lane 5 (as for `derive_normalize`). No sweep runs
+at worker start; the nightly reconciliation is the trigger.
+
+Tests: `tests/analysis/rules/test_ecg.py` and `test_ecg_intervals.py` (every rule case, the
+undecided days, origin, the switch, E6's provenance into the overlay; no database),
+`tests/test_derived_ecg_findings_db.py` (ingest to findings: history without notification, A7
+triggers, E4 and the sex, no re-evaluation after a recompute, stale, worker context) and
+`tests/test_derived_ecg_recompute_db.py` (current and stale rows, no bump, no evaluation queued,
+the sweep and an `hrv`-only bump, rewrite and purge races, worker context, the enqueue).
