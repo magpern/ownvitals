@@ -15,7 +15,7 @@ import { FreshnessLine } from './FreshnessLine'
 import { PhoneTabs, Rail, type NavStatuses } from './Rail'
 import { phoneTabOf } from './nav'
 import { StatusContext } from './statusContext'
-import { useAccountTheme } from './useAccountTheme'
+import { DisplayProvider } from '../../display/DisplayContext'
 
 // The frame of every app page (docs/design/mockups/src/Dashboard.dc.html and the others): the
 // navigation rail on the left, and on the right a top bar (the page header, the account menu)
@@ -40,7 +40,6 @@ export function AppFrame({ title, active, path, status, children }: AppFrameProp
   const email = session?.authenticated === true ? (session.user?.email ?? '') : ''
   const admin = isAdmin(session)
   const t = useT()
-  useAccountTheme()
   // One read of the status for the freshness line, the rail's marks and the stream tiles.
   const statusResource = useResource('/api/status', decodeStatus)
   const marks = { ...(statusResource.data === null ? {} : railStatus(statusResource.data, t)), ...status }
@@ -54,27 +53,29 @@ export function AppFrame({ title, active, path, status, children }: AppFrameProp
   }, [title])
 
   return (
-    <StatusContext.Provider value={statusResource}>
-      <div className="ov-app">
-        <div className="ov-rail-wrap">
-          <Rail active={active} path={path} admin={admin} status={marks} />
+    <DisplayProvider>
+      <StatusContext.Provider value={statusResource}>
+        <div className="ov-app">
+          <div className="ov-rail-wrap">
+            <Rail active={active} path={path} admin={admin} status={marks} />
+          </div>
+          <div className="ov-main">
+            <header className="ov-topbar">
+              <Link className="ov-topbar__logo" to="/" aria-label="ownvitals">
+                <Logo />
+              </Link>
+              <h1 className="ov-topbar__title">{title}</h1>
+              <AccountMenu email={email} admin={admin} onSignOut={signOut} />
+            </header>
+            <FreshnessLine status={statusResource.data} />
+            <main className="ov-content">
+              {error ? <Notice kind="error">{error}</Notice> : null}
+              {children}
+            </main>
+          </div>
+          <PhoneTabs active={active === null ? null : phoneTabOf(active)} path={path} />
         </div>
-        <div className="ov-main">
-          <header className="ov-topbar">
-            <Link className="ov-topbar__logo" to="/" aria-label="ownvitals">
-              <Logo />
-            </Link>
-            <h1 className="ov-topbar__title">{title}</h1>
-            <AccountMenu email={email} admin={admin} onSignOut={signOut} />
-          </header>
-          <FreshnessLine status={statusResource.data} />
-          <main className="ov-content">
-            {error ? <Notice kind="error">{error}</Notice> : null}
-            {children}
-          </main>
-        </div>
-        <PhoneTabs active={active === null ? null : phoneTabOf(active)} path={path} />
-      </div>
-    </StatusContext.Provider>
+      </StatusContext.Provider>
+    </DisplayProvider>
   )
 }

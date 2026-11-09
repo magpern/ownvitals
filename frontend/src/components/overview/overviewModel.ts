@@ -14,9 +14,9 @@ export const RANGES = ['30d', '90d', '1y', 'all'] as const
 export type RangeId = (typeof RANGES)[number]
 export const DEFAULT_RANGE: RangeId = '90d'
 
-/** The `?range=` of the address, or the default for anything else. */
-export function parseRange(value: string | null): RangeId {
-  return RANGES.find((r) => r === value) ?? DEFAULT_RANGE
+/** The `?range=` of the address, else the saved range if the screen offers it, else the default. */
+export function parseRange(value: string | null, saved: string | null = null): RangeId {
+  return RANGES.find((r) => r === value) ?? RANGES.find((r) => r === saved) ?? DEFAULT_RANGE
 }
 
 /** The data state of the design for an API state. `not_connected` reads as "not available". */

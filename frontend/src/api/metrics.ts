@@ -184,12 +184,14 @@ export function decodeMetricDetail(raw: unknown): MetricDetail {
 }
 
 const enc = encodeURIComponent
+/** The tiles of the overview over the chosen range (`all` and the rest as the metric screen's). */
+export const metricsPath = (range: string): string => `/api/metrics?range=${enc(range)}`
 export const metricPath = (key: string, range: Range): string => `/api/metrics/${enc(key)}?range=${range}`
 export const dayPath = (key: string, day: string): string => `/api/days/${enc(key)}/${enc(day)}`
 export const readingPath = (id: string): string => `/api/readings/${enc(id)}`
 
 /** The in-app addresses: the metric, a day of it, and a reading opened over the day. */
 export const metricUrl = (key: string, range?: Range): string =>
-  `/m/${enc(key)}${range === undefined || range === DEFAULT_RANGE ? '' : `?range=${range}`}`
+  `/m/${enc(key)}${range === undefined ? '' : `?range=${range}`}`
 export const dayUrl = (key: string, day: string, reading?: string): string =>
   `/m/${enc(key)}/${enc(day)}${reading === undefined ? '' : `?reading=${enc(reading)}`}`

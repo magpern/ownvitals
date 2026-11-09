@@ -51,7 +51,7 @@ export function Tile({ tile, range, valueText, name: given }: Props) {
     detail = t('overview.tile.progress', { have: tile.progress.daysWithData, need: tile.progress.daysRequired })
   }
 
-  const rangeText = band === null ? '' : `${f.number(band.low, digits)}–${f.number(band.high, digits)}`
+  const rangeText = band === null ? '' : `${f.quantity(band.low, tile.unit, digits)}–${f.quantity(band.high, tile.unit, digits)}`
   const position = latest !== null && band !== null ? rangePosition(latest.value, band.low, band.high) : null
 
   return (
@@ -61,7 +61,7 @@ export function Tile({ tile, range, valueText, name: given }: Props) {
           kind === null ? <p className="ov-muted">{t('overview.tile.noValue')}</p> : null
         ) : (
           <>
-            <Value value={valueText ?? f.number(latest.value, digits)} unit={valueText ? undefined : tile.unit} />
+            <Value value={valueText ?? f.quantity(latest.value, tile.unit, digits)} unit={valueText ? undefined : f.unit(tile.unit)} />
             {tile.sparkline.length > 0 ? (
               <div className="ov-tile__spark">
                 <Sparkline
@@ -73,7 +73,7 @@ export function Tile({ tile, range, valueText, name: given }: Props) {
             {band !== null && position !== null ? (
               <>
                 <div className="ov-tile__bar" aria-hidden="true">
-                  <RangeBar value={latest.value} low={band.low} high={band.high} format={(n) => f.number(n, digits)} />
+                  <RangeBar value={latest.value} low={band.low} high={band.high} format={(n) => f.quantity(n, tile.unit, digits)} />
                 </div>
                 <p className={position === 'within' ? 'ov-small ov-muted' : 'ov-small ov-tile__attn'}>
                   {t(`overview.range.${position}`, { range: rangeText })}

@@ -42,7 +42,7 @@ function ReadingBody({ reading }: { reading: ReadingView }) {
           .join(' · ')
   return (
     <>
-      <Value size="large" value={f.number(reading.value, decimalsOf(reading.valueExact))} unit={reading.unit} />
+      <Value size="large" value={f.quantity(reading.value, reading.unit, decimalsOf(reading.valueExact))} unit={f.unit(reading.unit)} />
       <p className="ov-small">
         <SourceMark source="withings" />
       </p>

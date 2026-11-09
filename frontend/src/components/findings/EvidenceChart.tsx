@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { decodeMetricDetail, metricPath, type MetricDetail } from '../../api/metrics'
 import { useResource } from '../../api/useResource'
+import { convertDetail } from '../../lib/displayDetail'
 import { useT } from '../../i18n'
 import { useFormat } from '../../i18n/useFormat'
 import { ChartLegend, type LegendKey } from '../charts/ChartLegend'
@@ -22,7 +23,7 @@ export function EvidenceChart({ metric, windowStart, windowEnd, today }: { metri
   const resource = useResource(metricPath(metric, chartRange(windowStart, today)), decodeMetricDetail)
   return (
     <ResourceView resource={resource}>
-      {(detail) => <Drawn detail={detail} name={name} windowStart={windowStart} windowEnd={windowEnd} format={(v) => f.number(v, 1)} none={t('findings.detail.chart.none')} />}
+      {(detail) => <Drawn detail={convertDetail(detail, f.settings)} name={name} windowStart={windowStart} windowEnd={windowEnd} format={(v) => f.number(v, 1)} none={t('findings.detail.chart.none')} />}
     </ResourceView>
   )
 }
