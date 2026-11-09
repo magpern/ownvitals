@@ -119,6 +119,35 @@ No mock-up covers this screen; it is built only from components the mock-ups hav
   composition", "Arms and legs" and "Body findings"; the symmetry line is "Left and right differ
   by {percent}". No new colour, icon, chart style or component.
 
+## Nerve health (`/nerve`), designed for #202
+
+No mock-up covers this screen; it is built only from components the mock-ups have
+(recorded 2026-11-09 under rule 3; the owner may review it). Reference screens: `Dashboard`
+(tiles, range links, data states) and `Findings` (finding cards). Same pattern as
+"Body composition".
+
+- **Layout.** The range links of the overview (`?range=`), then three sections:
+  1. *Nerve measures*: one overview tile each for the nerve health score, the nerve response
+     score and electrochemical skin conductance (ESC), unchanged (value, sparkline or phone
+     range bar, typical range, data state), the title linking to the metric detail. Below
+     those, one card, *Left and right foot*, for the per-foot pairs and the N5 symmetric
+     index: "Not supported" with the overview's own sentence until the account has the
+     per-foot types (the API lists no per-foot metric yet).
+  2. *Month by month*: one card, newest month first, one row per month with, for each of the
+     three metrics, the days with data and the median with the lowest and highest daily value
+     (from `/api/nerve/summary`, the view of ADR 0010 section 8). A month without data reads
+     "No readings", never zero.
+  3. *Nerve findings*: the finding cards of the findings inbox for N2, N3 and N5 (guided and
+     routine N2 readings are told apart by the finding's own name), each linking to
+     `/findings`. Empty: "No nerve findings right now." There is no N4 and no ESC literature
+     band anywhere on the page.
+- **States.** The overview's data-state pill and sentence on every tile. "Insufficient data"
+  (N1: fewer than 4 days with data over 28 days) shows the overview's progress line. A
+  metric the API does not list reads "Not available".
+- **Wording.** Section headings "Nerve measures", "Month by month" and "Nerve findings"; metric
+  names of the catalogue. Descriptive only: no good or bad colour. No new colour, icon,
+  chart style or component.
+
 ## Visual system
 
 - **Type:** IBM Plex Sans for UI, Plex Mono for ids, versions and raw values; tabular figures for
