@@ -140,4 +140,4 @@ service image in `ci.yml` (with `compose.yaml`'s `db` image, which must carry th
 [jobs.md](jobs.md)), the images in `release.yml` above, the uv and Node versions given to
 `setup-uv` and `setup-node`, the `Dockerfile`'s uv image and `# syntax=` line, and the gitleaks
 and Trivy releases in `ci.yml` (each with its SHA-256 from the release's checksums file;
-`scripts/test-ci-downloads.sh` tests that both steps check it).
+`scripts/ci-install-release.sh` checks it before unpacking, also for a cached tarball).

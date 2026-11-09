@@ -138,5 +138,5 @@ is part of `checks` and required.
 - The specs were written without a Docker daemon in the authoring session; the first CI run is
   their first run. Chromium must keep `Secure` cookies (`__Host-`) on `http://127.0.0.1`, which it
   does for loopback.
-- The Trivy release and checksum in the `e2e` job are copied from the `checks` job and
-  `scripts/test-ci-downloads.sh` tests only the latter: bump both together.
+- The Trivy release and checksum in the `e2e` job are copied from the `checks` job (both
+  install it through `scripts/ci-install-release.sh`): bump both together.
