@@ -114,7 +114,7 @@ def _reading(
         return None
 
 
-def _today(now: datetime, day_tz: str | None, latest_zone: str | None) -> date:
+def today_in_zone(now: datetime, day_tz: str | None, latest_zone: str | None) -> date:
     """ADR 0010 §1: the date of ``now`` in the fixed zone, or in per-reading mode in the zone of
     the most recent usable reading (UTC when there is none)."""
     zone = day_tz or latest_zone or "UTC"
@@ -229,7 +229,7 @@ async def gather(
     latest = max(usable, key=lambda o: (o.ts, o.source_grpid), default=None)
     recordings, sex = await read_ecg(db, owner, day_tz=day_tz)
     inputs = Inputs(
-        today=_today(now, day_tz, None if latest is None else latest.source_tz),
+        today=today_in_zone(now, day_tz, None if latest is None else latest.source_tz),
         experimental=await effective.experimental_findings(db, settings),
         daily=values,
         provenance=provenance,

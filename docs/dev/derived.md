@@ -468,7 +468,9 @@ owner-only switch (`flags.effective.experimental_findings`) is effective; with i
 deletes the stored `his` rows. `value` is set only when `components.status` is `computed`; every
 other status (`not_set`, `not_available`, ...) leaves it null and names its reason. HIS ships no
 band table, so it is always `not_set` until the owner registers one (ADR 0012 owner questions).
-`input_revision` is the sum of the stream counters read.
+`input_revision` is `scores_revision.revision_digest` of the three stream counters read (63 bits of a
+SHA-256 over the ordered counters; the old sum was ambiguous, `(2,0,0)` and `(1,1,0)` summed equal).
+No migration: a row stored under the old sum reads as stale and the next pass rewrites it.
 
 **Purge race.** The pattern of `daily_db`: write transaction takes the NORMALISATION lock, locks
 the `data_revisions` rows `FOR SHARE`, gathers the inputs again and writes only when the
@@ -479,13 +481,17 @@ reports `current`.
 `no_height`); `afib_ecg_count` and `high_bp_ratio` inputs are `input_not_wired`. Sleep and
 activity field names and units are assumptions until the owner's probe confirms them.
 
-**Tests.** `tests/analysis/scores/` (pure), `tests/test_derived_scores_db.py` (database: idempotence,
+**Tests.** `tests/analysis/scores/` (pure), `tests/test_derived_scores_hardening_db.py` (#302: concurrent writers, fingerprint cases, zone
+change, digest, stale on read), `tests/test_derived_scores_db.py` (database: idempotence,
 one row per kind and day, the switch, the purge and ingest races, isolation).
 
 **Scores: trigger, day, stale (#188 fix round).** An owner with only sleep or activity data has no
 measures pass, so `derive_normalize` queues `derive_scores` itself when the `sleep_summary` or
 `activity_daily` pass wrote or was current and `measures` did not. The pass's "today" follows
-ADR 0010 §1 (`findings_gather._today`: the fixed zone, else the zone of the latest usable
-reading, else UTC). `GET /api/scores` marks a row `stale` when the summed stream revisions differ
-from its `input_revision` (the fingerprint is not recomputed on a read). Assumption: the last
+ADR 0010 §1 (`findings_gather.today_in_zone`: the fixed zone, else the zone of the latest usable
+reading, else UTC). `GET /api/scores` marks a row `stale` when the digest of the stream revisions differs
+from its `input_revision` (the fingerprint is not recomputed on a read). **Decision (#302):** a
+read covers the stream revisions only; a change of profile, fixed zone, owner-only switch or band
+table shows on the next pass, which the nightly reconciliation runs (pinned by
+`test_a_read_covers_the_stream_revisions_only`). Assumption: the last
 sleep summary of a wake-up day wins, so a nap on the same day replaces the main night.
