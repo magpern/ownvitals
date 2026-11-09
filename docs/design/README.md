@@ -162,3 +162,21 @@ For the Architect to accept or send to the owner. Each was built from existing c
 - **New classes** `ov-callout` (neutral, urgent, attn, info), `ov-kv`, `ov-choice` and `ov-steps` in
   `styles/connections.css`, built only from existing tokens.
 - **Onboarding's phone "overview" step** is the real overview page: the last step links to it.
+
+## ECG screens built beyond the mock-up (#199)
+
+Built from existing components and tokens; the Architect accepts them here.
+
+- The `ECG` mock-up shows the list and the viewer side by side. The UI has two routes: the list
+  at `/heart/ecg` and the viewer at `/heart/ecg/:id` (a back link, no list sidebar).
+- The mock-up's 9.5 s scroll is a 10 s row with Earlier/Later, plus the 30 s overview with the
+  shown row outlined (a click picks a row).
+- States the mock-up lacks: "Not evaluated by ownvitals" (no gate result), "Signal quality: not
+  passed" (values hidden; only mapped reasons shown, never a raw code), no signal stored (no
+  strip, no PDF button), "Withings code n" for an undocumented classification, and "not reported"
+  for a missing value.
+- Gain options are 10 (nominal) and a labelled 5 mm/mV; zoom is 100/150/200 %, both axes
+  together. The mock-up's 20 mm/mV option is not built.
+- The two PDF buttons of the mock-up are one "Download PDF" link.
+- The All / AFib / Inconclusive filter chips are not built; the list pages by "Older recordings".
+- The filtered 0.5-40 Hz view is an opt-in checkbox, off by default, labelled display-only.
