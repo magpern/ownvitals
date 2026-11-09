@@ -1,4 +1,5 @@
-import { decodeReading, readingPath, dayUrl, type ReadingView } from '../../api/metrics'
+import { dayUrl, readingPath } from '../../api/metrics'
+import { decodeReading, type ReadingView } from '../../api/metricDay'
 import { useResource } from '../../api/useResource'
 import { isMessageKey, useT } from '../../i18n'
 import { useFormat } from '../../i18n/useFormat'

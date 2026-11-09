@@ -1,4 +1,5 @@
-import { dayUrl, type DayReading, type DayView } from '../../api/metrics'
+import { dayUrl } from '../../api/metrics'
+import type { DayReading, DayView } from '../../api/metricDay'
 import { isMessageKey, plural, useT } from '../../i18n'
 import { useFormat } from '../../i18n/useFormat'
 import { Link } from '../../router/Router'

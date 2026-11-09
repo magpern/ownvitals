@@ -1,4 +1,5 @@
-import { decodeDay, dayPath, metricUrl, type DayView } from '../api/metrics'
+import { dayPath, metricUrl } from '../api/metrics'
+import { decodeDay, type DayView } from '../api/metricDay'
 import { useResource } from '../api/useResource'
 import { AlsoRecorded, DayValueCard, ReadingsTable } from '../components/metric/DayReadings'
 import { useMetricName } from '../components/metric/names'
