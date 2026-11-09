@@ -4,9 +4,9 @@ import { flag, list, object, optionalFlag, optionalText, text, DecodeError, type
 // The Withings connection of the signed-in user (issue 196). GET /api/connections lists the rows
 // (no tokens ever); DELETE /api/connections/withings disconnects (issue 163; recent sign-in and a
 // step-up code, so the caller runs it through `protect`). Starting the connect is
-// POST /api/connections/withings/start, which answers the Withings authorize address: ASSUMPTION
-// (docs/design/README.md, "Gaps"): the route is not in the API yet; this is the contract the
-// screens are built against.
+// POST /api/connections/withings/start (issue 296, same step-up), which answers the Withings
+// authorize address; the callback returns to /onboarding?withings=<outcome>
+// (docs/dev/connections.md).
 
 export type ConnectionStatus = 'connected' | 'needs_reconnect' | 'disconnected'
 

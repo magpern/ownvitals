@@ -19,6 +19,7 @@ from ownvitals.auth.setup import attach_state, detach_state
 from ownvitals.auth.setup import install as install_auth
 from ownvitals.config import Settings
 from ownvitals.connections.routes import router as connections_router
+from ownvitals.connections.withings_routes import router as withings_connect_router
 from ownvitals.crypto.keks import load_keyring
 from ownvitals.db import (
     check_ready,
@@ -63,6 +64,7 @@ api = APIRouter(prefix="/api")
 # middleware and the error handlers.
 FEATURE_ROUTERS = (
     connections_router,
+    withings_connect_router,
     flags_router,
     jobs_router,
     admin_router,

@@ -70,6 +70,31 @@ The worker registers the kind (`worker.kinds.worker_registry` calls
 The job issuer's account directory (`ownvitals.auth.owners.ACCOUNTS.connection_refs`) reads
 live `(provider, id)` pairs in the owner's session. A disconnected row is not a ref.
 
+### Withings connect (#296)
+
+PLAN section 4.3, ADR 0004 section 7, roadmap Amendment 1. `connections.withings_routes`:
+
+- `POST /api/connections/withings/start` (`require_sensitive`, CSRF, the per-IP OAuth start limit
+  `OAUTH_IP` that Google's start uses too) answers `{"authorize_url"}` with `no-store`. The state
+  comes from `withings.oauth.start`: SHA-256 only, bound to the session id, 10 minutes, one use,
+  at most 30 starts per user in 15 minutes (429 `rate_limited`), kept in this web process
+  (`app.state.withings_oauth_states`; a restart means starting again, #165 moves it to a table).
+  The app is the newest `withings_apps` row; with none the answer is 503
+  `withings_not_configured`. A failure to open the app secret is 503 with its category.
+- `GET /api/oauth/withings/callback` always answers 303 to `/onboarding?withings=<outcome>`
+  (`no-store`, `no-referrer`, empty body); the query (code, state) is never echoed or logged.
+  Outcomes: `connected`; `state_rejected` (no full session, a missing, repeated, overlong,
+  unknown, expired, spent or foreign state); `denied` (Withings sent `error`: the state is spent);
+  `error` (no code: the state is spent); and `withings.oauth.callback`'s refusals
+  (`step_up_required` when the step-up lapsed at Withings, `exchange_failed` for a refused or
+  failed exchange, a transport error or timeout included, `linked_elsewhere`,
+  `other_withings_account`, `conflict`). The state is taken before the exchange, so a replay or a
+  foreign try spends it.
+- On `connected` the route queues one `withings_connect` job (user lane) for the stored row, in a
+  slot of its own (the owner's active jobs plus one) and only when none is queued or running. The
+  worker reads devices, goals and capabilities and queues the backfills; if the job cannot be
+  queued, the 6-hourly poll still finds the connection. Web makes no other Withings call.
+
 ## keys rewrap
 
 `python -m ownvitals keys rewrap`, as the app role (the same engine as web). One transaction
@@ -119,7 +144,8 @@ docker compose exec db psql -U postgres -d ownvitals -c CHECKPOINT
 cd backend
 uvx uv@0.13.6 run pytest -q tests/test_connections.py tests/test_connections_schema.py \
   tests/test_connections_generation.py tests/test_connection_errors.py \
-  tests/test_keys_rewrap.py tests/test_keys_wipe.py tests/test_withings_disconnect_routes.py
+  tests/test_keys_rewrap.py tests/test_keys_wipe.py tests/test_withings_disconnect_routes.py \
+  tests/test_withings_connect_routes.py
 ```
 
 Fixtures are synthetic. The test provider never calls Withings.

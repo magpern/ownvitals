@@ -29,6 +29,14 @@ services:
       fake-oidc:
         condition: service_healthy
 
+  # One-off only (`docker compose run migrate python -m ownvitals withings-apps create ...`,
+  # e2e/helpers/fake-withings.ts registerApp): the operator command seals the fake app's client
+  # secret under the KEK, so it needs the synthetic ring as web has it. The normal `alembic
+  # upgrade head` run does not read it.
+  migrate:
+    secrets:
+      - connection_kek
+
   # The worker refuses to start without the KEK ring (connection_kek, a synthetic file that
   # scripts/worktree.sh init creates); the base file mounts it for web only.
   worker:
@@ -82,7 +90,11 @@ services:
     environment:
       OWNVITALS_ENVIRONMENT: test
       FAKE_WITHINGS_CLIENT_ID: e2e-withings-client
-      FAKE_WITHINGS_REDIRECT_URI: http://localhost:${WEB_PORT:-8000}/api/oauth/withings/callback
+      # https: the app's callback base must be an https origin (withings-apps create refuses
+      # anything else). The stack itself is plain http, so the spec that follows the redirect
+      # (answerWithings in e2e/helpers/fake-withings.ts) sends the browser to the same path and
+      # query on http://localhost. The code exchange checks this exact URI.
+      FAKE_WITHINGS_REDIRECT_URI: https://localhost:${WEB_PORT:-8000}/api/oauth/withings/callback
       # The callback URL a worker subscribes is built from the public base URL, which this
       # container cannot reach: the HEAD check and webhook deliveries go to web instead.
       FAKE_WITHINGS_CALLBACK_BASE: http://web:8000

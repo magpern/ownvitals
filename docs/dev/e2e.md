@@ -11,7 +11,7 @@ spec uses is made up per run. M0's "done when" (PLAN §11) is the login-and-TOTP
 | `e2e/fake-withings/` | the stand-in for Withings (`server.py`, Python standard library, runs `backend/tests/withingscore.py`) |
 | `e2e/scripts/` | `stack-up.sh`, `stack-prepare.sh`, `stack-checks.sh`, `stack-down.sh` |
 | `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps), `ratelimit.ts` (empties the rate-limit buckets) |
-| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login` |
+| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login`, `onboarding` |
 
 ## Run it
 
@@ -90,7 +90,17 @@ trust bundle (the worker needs it for the Withings calls of M1).
   `seconds`), `GET /__e2e/state` (counts, the masked request log, subscriptions as scheme and host
   only, failures fired), `POST /__e2e/send-webhook` (`userid`, `appli`, optional `fields` or a
   forged `form`; one attempt per subscribed URL, the retry schedule spans hours and is not run
-  here), `GET /__e2e/ready`.
+  here), `POST /__e2e/authorize` (`url`, optional `deny`: the fake answers its authorize page for
+  that URL, its synthetic user consenting or refusing once, and returns `status` and `location`),
+  `GET /__e2e/ready`.
+- **The connect journey** (#296). The browser's visit to `account.withings.com` is intercepted by
+  the spec (`answerWithings` in `helpers/fake-withings.ts`) and handed to `/__e2e/authorize`; the
+  answer's redirect goes to the app's callback base, which `withings-apps create` requires to be
+  https (`https://localhost:<WEB_PORT>`, the fake's `FAKE_WITHINGS_REDIRECT_URI`), so the spec sends
+  the browser to the same path and query on the stack's http origin. `registerApp` stores the fake
+  app as the newest Withings app with the operator command in a one-off `migrate` container (the
+  overlay gives it the synthetic `connection_kek`; the secret goes in on stdin) after
+  `resetWorld()`, which gives the fake a new client secret.
 - **Callback URLs.** The strict default (HTTPS, 443, a domain name) would refuse the compose
   receiver, which is plain HTTP on `web:8000`. The service starts the fake with
   `strict_callbacks=False`, the one e2e-only opt-out (a backend test shows the default refuses),
@@ -146,6 +156,10 @@ of `ci` and in `JOBS`/`FILTERS` of `scripts/ci-gate.sh` (filter `stack`). `npm a
 is part of `checks` and required.
 
 ## Assumptions not verified here
+
+- `onboarding`'s connect journey (#296) was written without a Docker daemon; its first CI run is
+  its first run (the `docker compose run` of `migrate` with the KEK, the intercepted authorize
+  page, the redirect to http, the worker's first import within 60 s).
 
 - `fake-withings`: the first CI run is its first run in Docker (the sysctl for port 443 as a
   non-root user, the alias names, the mounted bundle in the worker). Nothing about it is verified

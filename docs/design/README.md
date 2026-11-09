@@ -156,9 +156,9 @@ For the Architect to accept or send to the owner. Each was built from existing c
   status API does not carry them.
 - **The disconnect code is asked by the shared step-up dialog**, after "Disconnect", not by a field
   inside the disconnect dialog.
-- **Connect needs a route that is not in the API yet.** The screens use `POST
-  /api/connections/withings/start` answering `{authorize_url}`, and expect the callback to return
-  to `/onboarding?withings=<outcome>`. This is an assumption to confirm.
+- **The connect routes** (#296, [connections.md](../dev/connections.md)): the screens use `POST
+  /api/connections/withings/start` answering `{authorize_url}`, and the callback returns to
+  `/onboarding?withings=<outcome>`.
 - **New classes** `ov-callout` (neutral, urgent, attn, info), `ov-kv`, `ov-choice` and `ov-steps` in
   `styles/connections.css`, built only from existing tokens.
 - **Onboarding's phone "overview" step** is the real overview page: the last step links to it.

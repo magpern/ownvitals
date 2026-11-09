@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { enrolAuthenticator, newAccount, signInWithPassword, signUpAndConfirm, typeCode } from '../helpers/flows.ts'
+import { answerWithings, registerApp, resetWorld } from '../helpers/fake-withings.ts'
 import { ageStepUp, createInvite } from '../helpers/invite.ts'
 
 // Onboarding (issue 196): a fresh account signs up, enrols the authenticator and is offered Withings.
@@ -25,11 +26,12 @@ test('a fresh account lands on Connections with Connect offered, and Onboarding 
   await expect(page.getByText(/13 Oct 2026/)).toBeVisible()
 })
 
-// The whole journey. It needs two things that are not in the stack yet: the web route that starts
-// the Withings authorize (POST /api/connections/withings/start) with its callback, and an
-// authorize page on fake-withings. Until they exist this stays a fixme; it is the spec the stack
-// has to pass (docs/design/README.md, "Gaps").
-test.fixme('connects the fake Withings, waits for the import and reaches the overview', async ({ page }) => {
+// The whole journey (#296): Connect, the step-up, the Withings authorize page (intercepted and
+// answered by fake-withings' synthetic user, `answerWithings`), the callback's code exchange in
+// web, the first import by the worker, then the overview. Synthetic data only.
+test('connects the fake Withings, waits for the import and reaches the overview', async ({ page }) => {
+  registerApp(resetWorld())
+  await answerWithings(page)
   const { account, authenticator } = await freshAccount(page, 'import')
   ageStepUp(account.email)
   await page.getByRole('button', { name: 'Connect Withings' }).click()
@@ -37,7 +39,7 @@ test.fixme('connects the fake Withings, waits for the import and reaches the ove
   await typeCode(dialog, await authenticator.next())
   await dialog.getByRole('button', { name: 'Confirm' }).click()
 
-  await expect(page).toHaveURL(/\/onboarding/)
+  await expect(page).toHaveURL(/\/onboarding\?withings=connected/)
   await expect(page.getByRole('heading', { name: 'Your history is imported' })).toBeVisible({ timeout: 60_000 })
   await page.getByRole('link', { name: 'Go to the overview' }).click()
   await expect(page).toHaveURL(/\/$/)

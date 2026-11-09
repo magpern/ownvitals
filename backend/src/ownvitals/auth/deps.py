@@ -17,8 +17,10 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ownvitals.auth.clientip import client_ip
+from ownvitals.auth.clientip import bucket_ip, client_ip
 from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
+from ownvitals.auth.flowtools import reserve
+from ownvitals.auth.ratelimit import OAUTH_IP, Bucket
 from ownvitals.auth.sessions import (
     ADMIN_STEPUP_WINDOW,
     Resolution,
@@ -181,6 +183,13 @@ def request_ip(request: Request) -> str:
         cf_connecting_ip=request.headers.getlist("cf-connecting-ip"),
         cf_proxies=settings.cf_connecting_ip_networks,
     )
+
+
+async def reserve_oauth_start(request: Request) -> None:
+    """One slot of the per-IP OAuth start limit (``OAUTH_IP``, 30 per 15 minutes; ADR 0003
+    section 9) that Google's start reserves too: the Withings connect start (ADR 0004 section 7)
+    counts against it. Raises ``RateLimited`` (429 with ``Retry-After``) above it."""
+    await reserve(request, [Bucket(OAUTH_IP, bucket_ip(request_ip(request)))])
 
 
 def request_device_token(request: Request) -> str | None:
