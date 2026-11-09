@@ -55,7 +55,7 @@ _BEHIND_POINTS = text(
     "AND metric_key LIKE :pattern AND input_revision <> :r"
 )
 _LATEST_ZONE = text(
-    "SELECT source_tz FROM observations WHERE owner_id = :o AND source_type IS NULL "
+    "SELECT source_tz FROM observations WHERE owner_id = :o "
     "AND NOT (quality_flags && ARRAY['unconfirmed','implausible','duplicate']) "
     "ORDER BY ts DESC, source_grpid DESC NULLS LAST LIMIT 1"
 )
