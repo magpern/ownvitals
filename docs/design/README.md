@@ -90,6 +90,35 @@ Each screen is `mockups/src/<Name>.dc.html`, `mockups/html/<Name>.html` and
 | `Security` | Password, Google, email, passkeys and QR approve (M3), second factor and recovery codes, sessions with place and IP, sign out everywhere, recent security activity, the shared step-up dialog | §6, ADR 0003 §3–4 |
 | `Admin` | Admin band ("no health data here"), counts, accounts, job counts, Withings app (read-only), flags that only tighten, audit log | ADR 0002 §4, ADR 0005, threat model T26, T52–T54 |
 
+## Body composition (`/body`), designed for #201
+
+No mock-up covers this screen; it is built only from components the mock-ups have
+(recorded 2026-11-09 under rule 3; the owner may review it). Reference screens: `Dashboard`
+(tiles, range bars, data states) and `Findings` (finding cards).
+
+- **Layout.** The range links of the overview (30 d, 90 d, 1 y, All; `?range=`), then three
+  sections, each a heading with cards in the overview's tile grid (one column on a phone):
+  1. *Body composition*: one overview tile each for weight, fat ratio, fat-free mass, fat mass,
+     muscle mass, hydration, bone mass, extracellular water, intracellular water, visceral fat
+     and metabolic age. A tile is the overview tile unchanged (value, sparkline or phone range
+     bar, typical range, data state) and its title links to the metric detail.
+  2. *Arms and legs*: one card with four rows (left arm, right arm, left leg, right leg), each
+     the segmental muscle mass in kg, with the left and right difference shown as a plain
+     percentage (the B6 symmetric index) in the card's footer. Descriptive only: no good or
+     bad colour; the tier mark of B6 appears only on its finding.
+  3. *Body findings*: the finding cards of the findings inbox for the rules B2, B4, B5 and B6,
+     and B1 and B3 only when the API returns them (the owner-only flag), each linking to
+     `/findings`. Empty: "No body findings right now."
+- **States.** Every tile and row uses the data-state pill and sentence of the overview: up to
+  date, stale, importing, incomplete import, insufficient data (with progress), not supported,
+  not shared, not available. A metric a device cannot measure reads "Not supported" with the
+  sentence "Your device doesn't measure this." and is never empty or zero. A metric the API does
+  not list at all reads "Not available". Segmental values have no read API yet, so the card
+  shows "Not available" per row until they arrive.
+- **Wording.** Titles use the metric names of the catalogue; the section headings are "Body
+  composition", "Arms and legs" and "Body findings"; the symmetry line is "Left and right differ
+  by {percent}". No new colour, icon, chart style or component.
+
 ## Visual system
 
 - **Type:** IBM Plex Sans for UI, Plex Mono for ids, versions and raw values; tabular figures for
