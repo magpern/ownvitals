@@ -445,7 +445,13 @@ END $$;
 -- Enqueue one webhook or scheduler job owned by the connection's owner (ADR 0005 section 8).
 -- The advisory lock is namespace 1, job creation, keyed by the owner (ADR 0005 section 9).
 -- A queued singleton collapses into the existing row and its available_at moves 30 seconds out.
--- A running singleton gets exactly one queued follow-up; a later enqueue collapses into that.
+-- A running singleton gets exactly one queued follow-up, itself 30 seconds out (the debounce);
+-- a later enqueue collapses into that. A queued row of the key that appears after the check
+-- (a running one handed back or requeued) fails the insert on jobs_singleton_queued: the
+-- enqueue then collapses into that row instead of failing (#278).
+-- A job that targets a webhook secret names it in its input (secret_id) and in
+-- p_target_secret_id, the same id, so the cross-owner cancel and the runner's re-check see it;
+-- notify_update must have one (ADR 0008, #278).
 CREATE OR REPLACE FUNCTION public.queue_enqueue(
     p_connection_id uuid, p_kind text, p_origin text, p_input jsonb,
     p_singleton_key text, p_max_attempts integer, p_target_secret_id uuid)
@@ -457,6 +463,8 @@ DECLARE
   v_lane smallint;
   v_id uuid;
   v_existing uuid;
+  v_available timestamptz := now();
+  v_constraint text;
 BEGIN
   IF p_connection_id IS NULL OR p_kind IS NULL OR p_kind !~ '^[a-z_]{1,40}$' THEN
     RAISE EXCEPTION 'invalid enqueue' USING ERRCODE = '22023';
@@ -473,6 +481,12 @@ BEGIN
   END IF;
   IF p_max_attempts IS NULL OR p_max_attempts < 1 OR p_max_attempts > 10 THEN
     RAISE EXCEPTION 'invalid max_attempts' USING ERRCODE = '22023';
+  END IF;
+  IF (p_kind = 'notify_update' OR p_target_secret_id IS NOT NULL
+      OR p_input -> 'secret_id' IS NOT NULL)
+     AND (p_target_secret_id IS NULL
+          OR (p_input ->> 'secret_id') IS DISTINCT FROM p_target_secret_id::text) THEN
+    RAISE EXCEPTION 'invalid target' USING ERRCODE = '22023';
   END IF;
   SELECT c.owner_id INTO v_owner FROM public.connections c
    WHERE c.id = p_connection_id AND c.status <> 'disconnected';
@@ -496,14 +510,36 @@ BEGIN
        WHERE j.id = v_existing;
       RETURN v_existing;
     END IF;
+    IF EXISTS (SELECT FROM public.jobs j
+                WHERE j.owner_id = v_owner AND j.singleton_key = p_singleton_key
+                  AND j.state = 'running') THEN
+      v_available := now() + make_interval(secs => 30);
+    END IF;
   END IF;
   v_id := pg_catalog.gen_random_uuid();
-  INSERT INTO public.jobs (
-      id, owner_id, kind, origin, lane, state, input, singleton_key, target_secret_id,
-      max_attempts, next_seq)
-  VALUES (
-      v_id, v_owner, p_kind, p_origin, v_lane, 'queued', p_input, p_singleton_key,
-      p_target_secret_id, p_max_attempts, 1);
+  BEGIN
+    INSERT INTO public.jobs (
+        id, owner_id, kind, origin, lane, state, input, singleton_key, target_secret_id,
+        max_attempts, next_seq, available_at)
+    VALUES (
+        v_id, v_owner, p_kind, p_origin, v_lane, 'queued', p_input, p_singleton_key,
+        p_target_secret_id, p_max_attempts, 1, v_available);
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint IS DISTINCT FROM 'jobs_singleton_queued' OR p_singleton_key IS NULL THEN
+      RAISE;
+    END IF;
+    SELECT j.id INTO v_existing FROM public.jobs j
+     WHERE j.owner_id = v_owner AND j.singleton_key = p_singleton_key AND j.state = 'queued'
+       FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE;
+    END IF;
+    UPDATE public.jobs j
+       SET available_at = now() + make_interval(secs => 30), updated_at = now()
+     WHERE j.id = v_existing;
+    RETURN v_existing;
+  END;
   INSERT INTO public.job_events (owner_id, job_id, seq, kind, payload, lease_version)
   VALUES (v_owner, v_id, 1, 'queued', '{}'::jsonb, 0);
   PERFORM pg_catalog.pg_notify('job_events', v_id::text);
@@ -513,7 +549,9 @@ END $$;
 
 -- Cancel queued jobs of one kind that target a webhook secret, across owners (ADR 0008, ADR
 -- 0005 section 3). Returns how many were cancelled. A job already claimed is left running; it
--- re-checks the target when it runs.
+-- re-checks the target when it runs. A queued row another transaction holds (a debounce, a
+-- claim) is waited for, never skipped: one still queued when that lock goes is cancelled, one
+-- claimed meanwhile no longer matches (#278). Any error fails the whole call.
 CREATE OR REPLACE FUNCTION public.queue_cancel_for_secret(p_kind text, p_secret_id uuid)
   RETURNS integer
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
@@ -529,30 +567,28 @@ BEGIN
   END IF;
   FOR r IN SELECT j.id, j.owner_id FROM public.jobs j
             WHERE j.state = 'queued' AND j.kind = p_kind AND j.target_secret_id = p_secret_id
-            ORDER BY j.created_at
-              FOR UPDATE SKIP LOCKED LOOP
-    BEGIN
-      UPDATE public.jobs j
-         SET state = 'cancelled',
-             cancel_requested_at = coalesce(j.cancel_requested_at, now()),
-             finished_at = now(), next_seq = j.next_seq + 1, updated_at = now()
-       WHERE j.id = r.id AND j.state = 'queued'
-      RETURNING j.lease_version, j.next_seq INTO v_version, v_seq;
-      IF NOT FOUND THEN
-        CONTINUE;
-      END IF;
-      INSERT INTO public.job_events (owner_id, job_id, seq, kind, payload, lease_version)
-      VALUES (r.owner_id, r.id, v_seq, 'cancelled', '{}'::jsonb, v_version);
-      PERFORM pg_catalog.pg_notify('job_events', r.id::text);
-      v_done := v_done + 1;
-    EXCEPTION WHEN OTHERS THEN
-      NULL;
-    END;
+            ORDER BY j.created_at, j.id
+              FOR UPDATE LOOP
+    UPDATE public.jobs j
+       SET state = 'cancelled',
+           cancel_requested_at = coalesce(j.cancel_requested_at, now()),
+           finished_at = now(), next_seq = j.next_seq + 1, updated_at = now()
+     WHERE j.id = r.id AND j.state = 'queued'
+    RETURNING j.lease_version, j.next_seq INTO v_version, v_seq;
+    IF NOT FOUND THEN
+      CONTINUE;
+    END IF;
+    INSERT INTO public.job_events (owner_id, job_id, seq, kind, payload, lease_version)
+    VALUES (r.owner_id, r.id, v_seq, 'cancelled', '{}'::jsonb, v_version);
+    PERFORM pg_catalog.pg_notify('job_events', r.id::text);
+    v_done := v_done + 1;
   END LOOP;
   RETURN v_done;
 END $$;
 
 -- A new queued job from a dead-lettered one. The terminal row is not changed (ADR 0005 section 8).
+-- It takes queue_enqueue's lock (namespace 1, the owner) before the row's, so a replay and an
+-- enqueue of the same singleton key never race on jobs_singleton_queued (#278).
 CREATE OR REPLACE FUNCTION public.queue_replay(p_job_id uuid)
   RETURNS TABLE (job_id uuid, owner_id uuid)
   LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
@@ -572,6 +608,11 @@ BEGIN
   IF p_job_id IS NULL THEN
     RAISE EXCEPTION 'invalid replay' USING ERRCODE = '22023';
   END IF;
+  SELECT j.owner_id INTO v_owner FROM public.jobs j WHERE j.id = p_job_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'not replayable' USING ERRCODE = '22023';
+  END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(1, pg_catalog.hashtext(v_owner::text));
   SELECT j.owner_id, j.kind, j.input, j.lane, j.singleton_key, j.max_attempts,
          j.target_secret_id, j.state
     INTO v_owner, v_kind, v_input, v_lane, v_singleton, v_max, v_secret, v_state
