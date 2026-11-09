@@ -56,6 +56,8 @@ RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
     # nothing; every write is a definer function of 50-ai.sql. ai_spend_global is NO_APP_ACCESS.
     "ai_spend": {"SELECT"},
     "ai_reservations": {"SELECT"},
+    # Migration 0023 (#207, ADR 0014 section 6): the AI audit log is append-only for the app.
+    "ai_audit": {"SELECT", "INSERT"},
 }
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
 # Maint's columns are guard 11's. The queue role reads three columns of ``connections`` and

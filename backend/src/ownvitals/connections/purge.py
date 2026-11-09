@@ -77,11 +77,20 @@ IMPORTED = (
 # that was billed must stay counted, or deleting imported data would reset the month's budget.
 # ``ai_consents`` (#206): the record of the user's AI consent and its withdrawal, no content;
 # deleting data is not withdrawing consent (withdrawal is its own action, ``ai.consent``).
+# ``ai_audit`` (#207): one redacted row per model call (counts, codes, keyed fingerprints; no
+# content), kept like the spend it accounts for.
 # All go with the account through the ``owner_id`` cascade. The connection row is removed by
 # ``delete_disconnected_row`` and ``job_events`` follow their job, so neither is listed here or
 # in ``IMPORTED``. A test enumerates every owned table against these lists, so a new owned table
 # must be added to one of them.
-KEPT = ("user_profiles", "mail_outbox", "ai_spend", "ai_reservations", "ai_consents")
+KEPT = (
+    "user_profiles",
+    "mail_outbox",
+    "ai_spend",
+    "ai_reservations",
+    "ai_consents",
+    "ai_audit",
+)
 
 
 async def purge_imported(factory: Factory, ctx: UserContext) -> None:

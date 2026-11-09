@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
 from dbtools import PARENT, drop_tables, migrated, owner_connection, run_rls_helper
+from ownvitals.ai.audit import AI_AUDIT_OWNED
 from ownvitals.ai.budget import AI_OWNED
 from ownvitals.ai.tables import AI_CONSENT_OWNED
 from ownvitals.db import SYSTEM_TABLES
@@ -64,6 +65,7 @@ def test_the_migrated_schema_meets_the_contract(database_url: str) -> None:
                 *NOTIFY_OWNED,
                 *AI_CONSENT_OWNED,
                 *EXPORT_OWNED,
+                *AI_AUDIT_OWNED,
             }
     finally:
         engine.dispose()

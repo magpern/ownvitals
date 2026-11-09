@@ -128,6 +128,7 @@ NOT_EXPORTED_TABLES: Final[Mapping[str, str]] = {
     "mail_outbox": "delivery state of notification mails (a fixed kind and route), no content",
     "ai_spend": "the AI cost cap's accounting (micro-USD), no data of the user",
     "ai_reservations": "the AI cost cap's reservations, no data of the user",
+    "ai_audit": "the redacted AI call audit (#207): codes, counts and keyed hashes, no content",
     "exports": "the export's own record",
     "export_chunks": "the bytes of exports themselves",
 }

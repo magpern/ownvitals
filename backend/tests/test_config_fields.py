@@ -70,6 +70,9 @@ ADDED = frozenset(
         "ai_include_experimental",  # issue 206: experimental items to the model (ADR 0014 §4)
         "export_max_bytes",  # issue 211: the export's size limit and expiry (ADR 0013 §4)
         "export_ttl_hours",
+        "ai_model",  # issue 207: the pinned model id and the owner's locks 2 and 3 (ADR 0014 §1)
+        "ai_provider_review_ref",
+        "ai_eval_ref",
     }
 )
 
