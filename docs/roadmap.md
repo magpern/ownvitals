@@ -26,6 +26,42 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 9 (2026-11-09, owner): hostnames, ports, no host firewall, no trusted proxies, staging mail
+
+- **Changes:**
+  - **Hostnames.** Production is `https://ownvitals.eu`, staging `https://ownvitals.pernemark.se`.
+    Both replace `withings.pernemark.se` wherever the specification names it (PLAN, PLAN-operations,
+    withings-findings stay as frozen; this entry is the correction). The Withings callback and the
+    OAuth redirect URIs use the host of the environment they belong to.
+  - **Ports.** Web is published on `192.168.1.222:8097` (production) and `192.168.1.222:8098`
+    (staging), bound to that address only, in place of PLAN-operations §9.2's `8096`: `8096` is
+    taken by another project on the shared server. SWAG's upstreams use these ports.
+  - **No host firewall change.** The server is shared, so no iptables, `DOCKER-USER` or ufw rule
+    is added. PLAN-operations §9.2's "port 8096 firewalled to SWAG only" (threat model T17, T60,
+    T63, O6) does not hold: any host on the LAN can reach the web ports over plain HTTP. Accepted
+    for the household phase.
+  - **No trusted proxies.** `OWNVITALS_TRUSTED_PROXIES` and `OWNVITALS_CF_CONNECTING_IP_PROXIES`
+    stay unset (loopback only). The app then ignores `X-Forwarded-For` and `CF-Connecting-IP` and
+    sees SWAG's address (192.168.1.151) as the client. So every per-IP rate-limit bucket
+    (`SIGN_IN_IP`, `MFA_IP`, `SIGNUP_IP`, `MAIL_IP`, `OAUTH_IP`, `PASSKEY_OPTIONS_IP`,
+    `QR_START_IP`) is one site-wide bucket, the (account, IP) pair limits act per account, and the
+    audit trail, the session list and the QR approval screen show SWAG's address. A busy hour or
+    one abuser can exhaust the sign-in, sign-up, mail or MFA budget for everyone. `geo_source`
+    stays `none`. SWAG therefore forwards no client-IP headers for ownvitals.
+  - **Staging mail.** Staging sends real mail through Proton SMTP (`smtp.protonmail.ch:587`,
+    STARTTLS), to the owner's own addresses only. Web only, as before: the worker refuses to send.
+    The token is the secret file `smtp_password`, never a variable.
+- **Evidence:** the owner's decisions of 2026-11-09 on the home-server setup. The per-IP
+  behaviour is read from `auth/clientip.py`, `auth/deps.py` (`request_ip`), `auth/ratelimit.py`
+  and `docs/dev/auth.md`; the port conflict from `docker ps` and `ss` on 192.168.1.222.
+- **Not decided here:** a code change that reads the client IP from a header SWAG overwrites
+  (without a trust list, or trusting SWAG's one address) would be its own amendment.
+- **Known gaps found while setting up staging** (the repo's `compose.yaml`, a shared-file lock,
+  so not changed here): the `worker` mounts no `connection_kek`, although it loads the key ring at
+  start; `webhook_seed` (worker only) and `webhook_pepper` (web and worker) are mounted by no
+  service although M1 needs them; `oauth_google_client_secret` and `smtp_password` are not
+  mounted into `web`. Staging adds them in its own override; the production compose must carry them.
+
 ### Amendment 8 (2026-11-09, owner): the `main` ruleset no longer requires branches to be up to date
 
 - **Changes:** PLAN-operations §10.5 (the `main` ruleset) required the checks `ci` and `pr-title`

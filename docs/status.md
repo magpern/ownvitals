@@ -101,7 +101,7 @@ Nothing blocks M0 or any open issue. These are needed later (live Withings, the 
 
 | Item | Needed for | Owner action |
 |---|---|---|
-| Withings developer app (callback `https://withings.pernemark.se/...`, HTTPS on 443) | M1 live, M2 | Register the app; put the client id and secret on the home server only |
+| Withings developer app (callback `https://ownvitals.eu/...` for production, `https://ownvitals.pernemark.se/...` for staging, HTTPS on 443) | M1 live, M2 | Register the app; put the client id and secret on the home server only |
 | Google OAuth client for sign-in | M2 live sign-in | Create the OAuth client; secret on the home server only |
 | SWAG `site-confs/ownvitals.conf`, Cloudflare DNS, SSL Full (strict), WAF skip rule for `/api/webhooks/withings/*` | M2 | Apply on 192.168.1.151 and Cloudflare |
 | `ownvitals-deploy` user with the forced-command key on 192.168.1.222 | M2 | Create the user and install the reviewed deploy script |
@@ -109,8 +109,8 @@ Nothing blocks M0 or any open issue. These are needed later (live Withings, the 
 | Connect your Withings account and run `ownvitals probe` on the home server | M1 → INTEGRATION_VERIFIED | Run it; paste the shape-only output into the issue |
 | Written clarification from Withings on Developer Agreement §4 and D2 (BYO, user cap) | M8 | Contact Withings |
 | Human security review, legal checklist (§9.3), medical-claims review | M8 | Owner or a trusted reviewer |
-| Threat model O6: SWAG settings for ownvitals as the threat model lists them (no buffering for SSE, the webhook location's access log without the URI, `CF-Connecting-IP` honoured only on connections from Cloudflare's ranges (SWAG's real-IP settings), port 8096 firewalled to SWAG only) | M2 | Confirm or apply (192.168.1.151 and 192.168.1.222) |
-| Threat model O12: disk encryption on 192.168.1.222; whether Cloudflare proxies `withings.pernemark.se` | M2 | Decide and tell the Architect |
+| Threat model O6: SWAG settings for ownvitals as the threat model lists them (no buffering for SSE, the webhook location's access log without the URI, `CF-Connecting-IP` honoured only on connections from Cloudflare's ranges (SWAG's real-IP settings); Amendment 9: no host firewall, no trusted proxies, web on 8097/8098) | M2 | Confirm or apply (192.168.1.151 and 192.168.1.222) |
+| Threat model O12: disk encryption on 192.168.1.222; whether Cloudflare proxies `ownvitals.eu` and `ownvitals.pernemark.se` (both are, 2026-11-09) | M2 | Decide and tell the Architect |
 | Threat model O15: confirm or reject the risks the threat model proposes as accepted | Before the M2 real-data gate | Review the "Accepted risks" section of `docs/security/threat-model.md` (merged with #41; risks 20 and 21 are new; #49, #72, #78 and #88 extend 21, including the ways code with the app role could stall a rotation) |
 | ECG (ADR 0006, merged in #46): whether our ECG estimates may be shown to anyone but the owner; whether public research ECG datasets may ever be used | M5 | Decide when M5 reaches them |
 | Receiving mail through Proton Mail Bridge (IMAP, or a `mail-worker` that posts to a REST API): production sending through Bridge on the owner's own domain is decided, receiving may come later | Not in the frozen spec; not before M2 mail works | A product decision; then the Architect writes a roadmap amendment and a threat-model entry for the new inbound path |

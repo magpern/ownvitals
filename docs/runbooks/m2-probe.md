@@ -47,7 +47,7 @@ stderr, so with `--json` stdout is a single JSON document.
 1. M2 is deployed on the home server, and the worker service has the connection key
    (`connection_kek`) and the worker's key files, as it needs them to sync at all.
 2. You signed in and connected your Withings account in the app.
-3. Find the connection id: while signed in, open `https://withings.pernemark.se/api/connections`
+3. Find the connection id: while signed in, open `https://ownvitals.eu/api/connections`
    in the same browser. Copy the `id` of the row whose `provider` is `withings` and whose
    `status` is `connected`.
 
