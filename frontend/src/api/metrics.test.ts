@@ -18,9 +18,9 @@ describe('decodeMetricDetail', () => {
 })
 
 describe('addresses', () => {
-  it('leaves the default range out of the metric address', () => {
+  it('names the range in the metric address whenever one is chosen (the saved default may differ)', () => {
     expect(metricUrl('weight')).toBe('/m/weight')
-    expect(metricUrl('weight', '90d')).toBe('/m/weight')
+    expect(metricUrl('weight', '90d')).toBe('/m/weight?range=90d')
     expect(metricUrl('weight', '1y')).toBe('/m/weight?range=1y')
   })
 

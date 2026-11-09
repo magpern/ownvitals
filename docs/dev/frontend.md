@@ -418,3 +418,15 @@ English is formatted as en-GB (day first, 24 hours); see `INTL_TAG` in `src/i18n
 (`src/api/profile.ts`, `useProfile`). The theme follows the account: the server value is applied on
 load and `setThemePreference` keeps it in this browser. The Language row (`AccountLanguage`) is in
 the Display card. Deleting the account runs `DELETE /api/auth/account` through `useProtected`.
+
+## Saved display settings
+
+`src/display/DisplayContext.tsx` (`DisplayProvider`, inside `AppFrame`) reads `/api/profile` once and
+holds the saved units, date format and chart range for every screen, and applies the theme.
+Settings hands each saved profile to `apply`; an answer that was requested before a save but
+arrives after it is ignored. Screens read the settings through `useFormat()`: `f.quantity(value,
+unit, digits)` and `f.unit(unit)` show kg as lb or st and C as F (values stay SI in the API and the
+analysis; only what is shown is converted, in `lib/display.ts` and `lib/displayDetail.ts`), and
+`f.day()` follows the date format. A metric or overview address with no `?range=` starts on the
+saved range (when the screen offers it) once the profile is read; the overview passes its range to
+`/api/metrics?range=`.

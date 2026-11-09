@@ -1,3 +1,5 @@
+import { useDisplay } from '../display/DisplayContext'
+import { metricsPath } from '../api/metrics'
 import { decodeFindings, decodeMetrics } from '../api/overview'
 import { useResource } from '../api/useResource'
 import { AreaSection } from '../components/overview/AreaSection'
@@ -18,8 +20,11 @@ import { Link, useQuery } from '../router/Router'
 
 export function OverviewPage() {
   const t = useT()
-  const range = parseRange(useQuery().get('range'))
-  const metrics = useResource('/api/metrics', decodeMetrics)
+  const asked = useQuery().get('range')
+  const { chartRange, settled } = useDisplay()
+  const range = parseRange(asked, chartRange)
+  // With no range in the address the saved one is used, so the read waits for the profile.
+  const metrics = useResource(asked !== null || settled ? metricsPath(range) : null, decodeMetrics)
   const findings = useResource('/api/findings?tab=live&limit=20', decodeFindings)
   const status = useStatus()
   return (

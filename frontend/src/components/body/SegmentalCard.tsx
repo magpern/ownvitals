@@ -34,7 +34,7 @@ function Row({ position, tile }: { position: Position; tile: MetricTile | null }
           {t(`overview.tile.detail.${tile === null ? 'not_available' : state}` as MessageKey)}
         </Stateless>
       ) : (
-        <Value value={f.number(value, 1)} unit={tile?.unit ?? 'kg'} />
+        <Value value={f.quantity(value, tile?.unit ?? 'kg', 1)} unit={f.unit(tile?.unit ?? 'kg')} />
       )}
     </li>
   )

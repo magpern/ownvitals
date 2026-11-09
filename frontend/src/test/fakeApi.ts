@@ -85,7 +85,8 @@ export function fakeApi(routes: Record<string, Handler | object | string>) {
     const headers = new Headers(init?.headers)
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined
     calls.push({ method, path, body, headers })
-    const route = table[`${method} ${path}`]
+    // A route without a query answers the same path with one; `calls` keeps the full address.
+    const route = table[`${method} ${path}`] ?? table[`${method} ${path.split('?')[0] ?? path}`]
     if (route === undefined) {
       return Promise.reject(new Error(`unexpected request: ${method} ${path}`))
     }
