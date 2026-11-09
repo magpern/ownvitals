@@ -11,9 +11,10 @@ signed-in user's ``user_session`` (forced RLS; every statement also names ``owne
   that expired now, for the audit. Downloads refuse an expired row whether or not this ran.
 - ``begin_download``: locks the row, refuses what is not ``ready``, past its expiry or out of
   attempts (at most 3), and counts the attempt before any byte is sent.
-- ``read_chunk`` and ``finish_download``: the archive in order, then, after the last byte, the
-  row ``expired`` with ``download_count`` 1 and its chunks deleted ("single use" is one completed
-  transfer).
+- ``read_chunk`` and ``take_last_chunk``: the archive in order, for the latest attempt only;
+  the last chunk is read in the transaction that marks the row ``expired`` with
+  ``download_count`` 1 and deletes its chunks ("single use" is one completed transfer, and of
+  parallel attempts at most one gets it).
 
 The cross-user purge of abandoned rows (``exports_purge_expired()``, a ``SECURITY DEFINER``
 function) is not built yet: until then an expired archive's chunks are removed the next time
@@ -46,7 +47,8 @@ ONE_BUILDING: Final = "exports_one_building"
 _FAIL_ENDED = text(
     "UPDATE exports AS e SET state = 'failed', failure = 'build_failed' FROM jobs AS j "
     "WHERE e.owner_id = :owner AND e.state = 'building' AND j.owner_id = :owner "
-    "AND j.id = e.job_id AND j.state IN ('completed', 'failed', 'dead_letter', 'cancelled')"
+    "AND j.id = e.job_id AND j.state IN ('completed', 'failed', 'dead_letter', 'cancelled') "
+    "RETURNING e.id"
 )
 _EXPIRE = text(
     "UPDATE exports SET state = 'expired' WHERE owner_id = :owner AND state = 'ready' "
@@ -84,12 +86,20 @@ _EXPIRE_ONE = text(
     "UPDATE exports SET state = 'expired' WHERE id = :id AND owner_id = :owner AND state = 'ready'"
 )
 _CHUNKS = text("SELECT count(*) FROM export_chunks WHERE export_id = :id AND owner_id = :owner")
+# A chunk is read only by the latest attempt of a ready export: a parallel attempt that started
+# later bumps ``download_attempts`` and ends the earlier stream.
 _CHUNK = text(
-    "SELECT bytes FROM export_chunks WHERE export_id = :id AND owner_id = :owner AND seq = :seq"
+    "SELECT c.bytes FROM export_chunks AS c JOIN exports AS e ON e.owner_id = c.owner_id "
+    "AND e.id = c.export_id WHERE c.export_id = :id AND c.owner_id = :owner AND c.seq = :seq "
+    "AND e.state = 'ready' AND e.download_attempts = :attempt"
+)
+_LOCK_ATTEMPT = text(
+    "SELECT id FROM exports WHERE id = :id AND owner_id = :owner AND state = 'ready' "
+    "AND download_attempts = :attempt FOR UPDATE"
 )
 _DONE = text(
     "UPDATE exports SET state = 'expired', download_count = 1 WHERE id = :id "
-    "AND owner_id = :owner AND state = 'ready' RETURNING id"
+    "AND owner_id = :owner AND state = 'ready'"
 )
 _DELETE_CHUNKS = text("DELETE FROM export_chunks WHERE export_id = :id AND owner_id = :owner")
 
@@ -97,10 +107,18 @@ _DELETE_CHUNKS = text("DELETE FROM export_chunks WHERE export_id = :id AND owner
 class Refused(Exception):
     """A request or download that is refused: ``reason`` is a response code."""
 
-    def __init__(self, reason: str, *, expired: tuple[UUID, ...] = ()) -> None:
+    def __init__(self, reason: str, *, tidied: "Tidied | None" = None) -> None:
         super().__init__(reason)
         self.reason = reason
-        self.expired = expired
+        self.tidied = tidied if tidied is not None else Tidied()
+
+
+@dataclass(frozen=True, slots=True)
+class Tidied:
+    """What ``tidy`` changed now, for the audit: exports that expired and builds that failed."""
+
+    expired: tuple[UUID, ...] = ()
+    failed: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +139,7 @@ class ExportView:
 @dataclass(frozen=True, slots=True)
 class Requested:
     export_id: UUID
-    expired: tuple[UUID, ...]
+    tidied: Tidied
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,13 +149,13 @@ class Download:
     chunks: int
 
 
-async def tidy(db: AsyncSession, ctx: UserContext) -> tuple[UUID, ...]:
+async def tidy(db: AsyncSession, ctx: UserContext) -> Tidied:
     owner = {"owner": ctx.user_id}
-    await db.execute(_FAIL_ENDED, owner)
+    failed = tuple((await db.execute(_FAIL_ENDED, owner)).scalars())
     expired = tuple((await db.execute(_EXPIRE, owner)).scalars())
     await db.execute(_DROP_CHUNKS, owner)
     await db.execute(_DROP_OLD, owner)
-    return expired
+    return Tidied(expired=expired, failed=failed)
 
 
 async def request(
@@ -162,7 +180,7 @@ async def request(
     try:
         async with user_session(factory, ctx) as db:
             await user_jobs.lock_owner(db, ctx)
-            expired = await tidy(db, ctx)  # committed with a refusal too
+            tidied = await tidy(db, ctx)  # committed with a refusal too
             if (await db.execute(_BUILDING, {"owner": ctx.user_id})).scalar_one():
                 refusal = "export_in_progress"
             elif await user_jobs.active_jobs(db, ctx) >= job_limit:
@@ -180,16 +198,14 @@ async def request(
             raise Refused("export_in_progress") from None
         raise
     if refusal is not None:
-        raise Refused(refusal, expired=expired)
-    return Requested(export_id, expired)
+        raise Refused(refusal, tidied=tidied)
+    return Requested(export_id, tidied)
 
 
-async def list_exports(
-    factory: Factory, ctx: UserContext
-) -> tuple[list[ExportView], tuple[UUID, ...]]:
-    """The user's latest exports, newest first, after ``tidy``; and the ids that expired now."""
+async def list_exports(factory: Factory, ctx: UserContext) -> tuple[list[ExportView], Tidied]:
+    """The user's latest exports, newest first, after ``tidy``; and what the tidy changed."""
     async with user_session(factory, ctx) as db:
-        expired = await tidy(db, ctx)
+        tidied = await tidy(db, ctx)
         rows = (await db.execute(_LIST, {"owner": ctx.user_id, "limit": LIST_LIMIT})).all()
     views = [
         ExportView(
@@ -205,7 +221,7 @@ async def list_exports(
         )
         for r in rows
     ]
-    return views, expired
+    return views, tidied
 
 
 async def begin_download(factory: Factory, ctx: UserContext, export_id: UUID) -> Download:
@@ -218,7 +234,7 @@ async def begin_download(factory: Factory, ctx: UserContext, export_id: UUID) ->
         if row.state == "ready" and not row.live:
             await db.execute(_EXPIRE_ONE, params)
             await db.execute(_DELETE_CHUNKS, params)
-            refusal = Refused("export_expired", expired=(export_id,))
+            refusal = Refused("export_expired", tidied=Tidied(expired=(export_id,)))
         elif row.state in ("expired", "failed"):
             refusal = Refused("export_expired")
         elif row.state != "ready":
@@ -232,9 +248,12 @@ async def begin_download(factory: Factory, ctx: UserContext, export_id: UUID) ->
     raise refusal
 
 
-async def read_chunk(factory: Factory, ctx: UserContext, export_id: UUID, seq: int) -> bytes:
-    """One chunk, in its own transaction; ``LookupError`` when it is gone (expired meanwhile)."""
-    params = {"id": export_id, "owner": ctx.user_id, "seq": seq}
+async def read_chunk(
+    factory: Factory, ctx: UserContext, export_id: UUID, seq: int, attempt: int
+) -> bytes:
+    """One chunk for ``attempt``, in its own transaction; ``LookupError`` when it is gone or a
+    later attempt has started meanwhile."""
+    params = {"id": export_id, "owner": ctx.user_id, "seq": seq, "attempt": attempt}
     async with user_session(factory, ctx) as db:
         data = (await db.execute(_CHUNK, params)).scalar_one_or_none()
     if data is None:
@@ -242,10 +261,20 @@ async def read_chunk(factory: Factory, ctx: UserContext, export_id: UUID, seq: i
     return bytes(data)
 
 
-async def finish_download(factory: Factory, ctx: UserContext, export_id: UUID) -> bool:
-    """After the last byte: the export ``expired`` with one completed download, chunks gone."""
-    params = {"id": export_id, "owner": ctx.user_id}
+async def take_last_chunk(
+    factory: Factory, ctx: UserContext, export_id: UUID, seq: int, attempt: int
+) -> bytes:
+    """The last chunk and the single use in one transaction: under the row's lock, only the
+    latest attempt of a still ready export gets it, and that same transaction marks the export
+    ``expired`` with one completed download and deletes its chunks. So of parallel attempts at
+    most one ever receives the whole archive. ``LookupError`` otherwise."""
+    params = {"id": export_id, "owner": ctx.user_id, "seq": seq, "attempt": attempt}
     async with user_session(factory, ctx) as db:
-        done = (await db.execute(_DONE, params)).first() is not None
+        if (await db.execute(_LOCK_ATTEMPT, params)).first() is None:
+            raise LookupError("not the live attempt")
+        data = (await db.execute(_CHUNK, params)).scalar_one_or_none()
+        if data is None:
+            raise LookupError("chunk gone")
+        await db.execute(_DONE, params)
         await db.execute(_DELETE_CHUNKS, params)
-    return done
+    return bytes(data)

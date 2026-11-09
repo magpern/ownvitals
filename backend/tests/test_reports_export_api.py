@@ -5,10 +5,13 @@ runs it. Synthetic accounts only; no real data.
 
 import logging
 from typing import Any
+from uuid import UUID
 
 import pytest
 
 from authtools import Env, auth_schema_fixture, clean_auth_fixture  # noqa: F401 - fixtures
+from contexttools import plant
+from ctx import make_context
 from exporttools import (  # noqa: F401 - fixture
     admin_row,
     admin_run,
@@ -22,6 +25,8 @@ from exporttools import (  # noqa: F401 - fixture
     xenv_fixture,
 )
 from flows import age_reauth, reason
+from jobtools import admin_url
+from ownvitals.reports import export, export_archive, export_store
 
 SYNTHETIC = True
 
@@ -223,18 +228,60 @@ async def test_a_build_that_ended_without_an_archive_shows_failed(xenv: Env) -> 
     admin_run("UPDATE jobs SET state = 'failed', error_category = 'internal', finished_at = now()")
     listed = (await browser.get("/api/exports")).json()["exports"]
     assert [(e["state"], e["failure"]) for e in listed] == [("failed", "build_failed")]
+    # Audited once, when the tidy marks it (ADR 0013 section 5).
+    events = await _events(xenv, "export_failed")
+    assert [(e["export_id"], e["reason"]) for e in events] == [(listed[0]["id"], "build_failed")]
     assert (await request_export(browser)).status_code == 202  # no longer in progress
+    assert len(await _events(xenv, "export_failed")) == 1
 
 
 async def test_a_build_over_the_limit_fails_and_keeps_nothing(
-    xenv: Env, app_database_url: str
+    xenv: Env, app_database_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     browser = await exporter(xenv)
+    owner = UUID(str(await xenv.scalar("SELECT id FROM users")))
+    plant(admin_url(), owner)  # some rows, so the archive passes several small chunks
     assert (await request_export(browser)).status_code == 202
-    assert await run_build(app_database_url, export_max_bytes=1024) == "completed"
-    row = admin_row("SELECT state, failure, largest, size FROM exports")
+    # Small chunks, so some are stored before the limit trips; the failure must remove them.
+    monkeypatch.setattr(export_archive, "CHUNK_MAX_BYTES", 256)
+    stored_before: list[int] = []
+    original = export._fail
+
+    async def counting(job: Any, export_id: Any, largest: str) -> None:
+        stored_before.append(admin_scalar("SELECT count(*) FROM export_chunks"))
+        await original(job, export_id, largest)
+
+    monkeypatch.setattr(export, "_fail", counting)
+    assert await run_build(app_database_url, export_max_bytes=4096) == "completed"
+    assert stored_before
+    assert stored_before[0] > 0
+    row = admin_row("SELECT state, failure, largest, size FROM exports WHERE state <> 'expired'")
     assert (row.state, row.failure, row.size) == ("failed", "export_too_large", None)
     assert row.largest is not None
     assert admin_scalar("SELECT count(*) FROM export_chunks") == 0
     events = await _events(xenv, "export_failed")
     assert [e["reason"] for e in events] == ["export_too_large"]
+
+
+async def test_parallel_attempts_give_the_whole_archive_at_most_once(
+    xenv: Env, app_database_url: str
+) -> None:
+    browser = await exporter(xenv)
+    export_id = UUID(await built_export(xenv, browser, app_database_url))
+    owner = UUID(str(await xenv.scalar("SELECT id FROM users")))
+    ctx = make_context(owner)
+    first = await export_store.begin_download(xenv.factory, ctx, export_id)
+    second = await export_store.begin_download(xenv.factory, ctx, export_id)
+    last = first.chunks - 1
+    # The earlier attempt is superseded: it gets neither a chunk nor the last one.
+    with pytest.raises(LookupError):
+        await export_store.read_chunk(xenv.factory, ctx, export_id, 0, first.attempt)
+    with pytest.raises(LookupError):
+        await export_store.take_last_chunk(xenv.factory, ctx, export_id, last, first.attempt)
+    # The latest attempt gets the archive once; after that nobody does.
+    assert await export_store.take_last_chunk(xenv.factory, ctx, export_id, last, second.attempt)
+    with pytest.raises(LookupError):
+        await export_store.take_last_chunk(xenv.factory, ctx, export_id, last, second.attempt)
+    row = admin_row("SELECT state, download_count FROM exports")
+    assert (row.state, row.download_count) == ("expired", 1)
+    assert admin_scalar("SELECT count(*) FROM export_chunks") == 0

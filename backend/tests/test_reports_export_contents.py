@@ -204,6 +204,17 @@ def _plant_tiers(owner: UUID) -> dict[str, UUID]:
     hidden_group = 900_001
     plant_group(owner, connection, hidden_group, minutes=0)
     plant_recording(owner, connection, hidden_group, minutes=0, result="fail")
+    # A stored HIS (experimental) and a readiness score (trend): the HIS stays stored after the
+    # switch goes off until the next score pass, so the export must filter it itself.
+    for kind in ("his", "readiness"):
+        admin_run(
+            "INSERT INTO scores (owner_id, kind, day, value, components, algo_version, "
+            "input_revision, input_fingerprint) VALUES (:o, :k, DATE '2026-11-01', 50, "
+            "CAST('{\"status\": \"computed\"}' AS jsonb), 'synthetic/1', 0, :h)",
+            o=owner,
+            k=kind,
+            h=SYNTHETIC_HASH,
+        )
     return {
         "C1": plant_finding(owner, "C1", tier="trend"),
         "B1": plant_finding(owner, "B1", tier="experimental", metric_keys=("weight",)),
@@ -229,7 +240,11 @@ async def test_experimental_items_follow_the_switch_and_hidden_ones_are_marked(
         rule: found[str(i)]["overlay_state"] for rule, i in planted.items() if str(i) in found
     }
     shown = manifest(files)
+    kinds = sorted(row["kind"] for row in _json(files, "scores"))
+    csv_kinds = sorted(row[1] for row in _csv(files, "scores")[1:])
+    assert csv_kinds == kinds
     if switch:
+        assert kinds == ["his", "readiness"]
         assert set(states) == {"C1", "B1", "E4", "E6"}
         assert shown["withheld"] == []
         estimates = _json(files, "ecg_estimates")
@@ -239,9 +254,11 @@ async def test_experimental_items_follow_the_switch_and_hidden_ones_are_marked(
         assert entry["label"] == ESTIMATES_LABEL
     else:
         assert set(states) == {"C1", "E6"}  # absent, not redacted
+        assert kinds == ["readiness"]  # the stored HIS is absent without the switch
         assert shown["withheld"] == [
             {"item": "ecg_estimates", "reason": WITHHELD_REASON},
             {"item": "experimental_findings", "reason": WITHHELD_REASON},
+            {"item": "experimental_scores", "reason": WITHHELD_REASON},
         ]
         assert "data/ecg_estimates.json" not in files
     assert states["C1"] == "shown"

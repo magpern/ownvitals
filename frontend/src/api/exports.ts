@@ -20,6 +20,8 @@ export interface ExportItem {
   attemptsLeft: number
 }
 
+const REVOKE_AFTER_MS = 60_000
+
 const STATES: readonly ExportState[] = ['building', 'ready', 'failed', 'expired']
 
 function decodeItem(value: unknown): ExportItem {
@@ -79,14 +81,15 @@ export async function downloadExport(id: string): Promise<void> {
   }
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
-  try {
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filenameOf(response)
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-  } finally {
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filenameOf(response)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // Revoked later, not at once: some browsers (Firefox) start reading the blob only after the
+  // click returns, and the server has already spent the export.
+  window.setTimeout(() => {
     URL.revokeObjectURL(url)
-  }
+  }, REVOKE_AFTER_MS)
 }

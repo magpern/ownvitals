@@ -125,9 +125,9 @@ class _Build:
             await self._store(fs.db, final=final)
 
 
-def _generic(owner: UUID, spec: TableSpec) -> Page:
+def _generic(owner: UUID, spec: TableSpec, experimental: bool) -> Page:
     async def read(db: AsyncSession, after: UUID | None) -> Sequence[Mapping[str, Any]]:
-        return await read_page(db, owner, spec, after)
+        return await read_page(db, owner, spec, after, experimental=experimental)
 
     return read
 
@@ -178,19 +178,19 @@ async def build_archive(job: JobRun, export_id: UUID, settings: Settings) -> _Bu
     if account is None:
         raise JobFailure("account_disabled")
     _account(build, account)
-    done = 2
+    # The read function decides the experimental tier once (the owner-only switch, D9); the
+    # experimental scores, findings and estimates all follow that one answer.
+    read = await read_findings(job.factory, job.ctx, settings, consumer="export")
+    findings_entry(build.archive, finding_rows(read.findings))
+    done = 3
+    await build.flush()
     await job.progress(done, _STEPS)
     for spec in GENERIC:
-        await paged(build, spec, _generic(build.owner, spec))
+        await paged(build, spec, _generic(build.owner, spec, read.experimental))
         done += 1
         await job.progress(done, _STEPS)
     recording_ids = await recordings(build, _ecg(build.owner))
     done += 3
-    await job.progress(done, _STEPS)
-    read = await read_findings(job.factory, job.ctx, settings, consumer="export")
-    findings_entry(build.archive, finding_rows(read.findings))
-    done += 1
-    await build.flush()
     await job.progress(done, _STEPS)
     if read.experimental:
         estimates = await read_ecg_estimates(job.factory, job.ctx, settings, recording_ids)

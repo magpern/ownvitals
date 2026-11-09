@@ -42,10 +42,13 @@ come with their own issues and extend this file. The ECG PDF of `reports/ecg_pdf
 3. `GET /api/exports/{id}/file`: refused with a small page (403, header `X-Ownvitals-Reason:
    download_same_origin_required`, a link to Settings) unless `Sec-Fetch-Site: same-origin`, then
    `require_stepup`, then under RLS (404 for another user's id). The attempt is counted before any
-   byte (at most 3). The body streams from the chunks with `Content-Disposition: attachment`,
+   byte (at most 3). Only the latest attempt reads chunks, and the last chunk is read in the
+   transaction that spends the export, so of parallel attempts at most one gets the whole
+   archive. The body streams from the chunks with `Content-Disposition: attachment`,
    `Cache-Control: no-store`, `Content-Type: application/zip`, `X-Content-Type-Options: nosniff`
-   and `Content-Length`. After the last byte the row is `expired` with `download_count` 1 and the
-   chunks are deleted. Audit `export_downloaded` (attempt, completed).
+   and `Content-Length`. With the last chunk the row becomes `expired` with `download_count` 1 and
+   the chunks are deleted. Audit `export_downloaded` (attempt, completed); a build whose job ended
+   without an archive is marked `build_failed` by the tidy and audited `export_failed` then.
 4. The SPA fetches the file (same-origin) and saves it as a blob; the shared step-up dialog
    handles `step_up_required` and `reauth_required` for both actions.
 
@@ -65,8 +68,10 @@ rows, RFC 4180):
   `overlay_state` (`shown`, `hidden_gate_failed`, `not_evaluated`);
 - `ecg_estimates` only for an account with the experimental tier, each row with `source`
   "Estimated by ownvitals from the raw signal; not a Withings measurement" (the manifest entry
-  carries the same `label`). Without the tier, `withheld` lists `ecg_estimates` and
-  `experimental_findings` with `experimental_tier_not_enabled`.
+  carries the same `label`). Without the tier, the experimental score kinds (`his`) are left out
+  of `scores` too, and `withheld` lists `ecg_estimates`, `experimental_findings` and
+  `experimental_scores` with `experimental_tier_not_enabled`. The read function's one answer on
+  the switch decides all three.
 
 Never: tokens, secrets, any hash, HMAC or ciphertext, job rows, rate-limit buckets, system
 tables, another user's rows. CSV text cells starting with `=`, `+`, `-`, `@`, a tab or a carriage
@@ -102,6 +107,7 @@ Real PostgreSQL ([backend.md](backend.md)), synthetic accounts only:
 - **FIT** (`export_fit`, ADR 0013 §3) is off by default and not built.
 - **The `export_ready` mail** (ADR 0007's outbox) is not sent; the Settings row polls instead.
 - The export kinds are not yet in the activity list's allowlist (`activity_model.SHOWN`).
-- The download is a fetch saved as a blob, so the browser holds the whole archive in memory once.
+- The download is a fetch saved as a blob (revoked a minute after the save starts), so the
+  browser holds the whole archive in memory once.
 - Tables are paged on `id` (keyset), so a file is in id order, not time order, and the pages are
   not one snapshot: a row written during the build may or may not be in it.

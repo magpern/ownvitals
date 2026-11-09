@@ -11,7 +11,9 @@
   same-origin``; anything else, or none, gets 403 ``download_same_origin_required`` as a small
   page that links to Settings, without counting an attempt. Then 410 ``export_expired``, 409
   ``export_not_ready``, 410 ``export_download_spent`` (3 attempts used). The body streams from
-  the chunks; after the last byte the export is ``expired`` and its chunks are deleted.
+  the chunks; only the latest attempt reads them, and the last chunk is taken in the transaction
+  that marks the export ``expired`` and deletes its chunks, so of parallel attempts at most one
+  receives the whole archive.
 
 Audit (section 5, ``ownvitals.auth.exports.record_event``): ``export_requested``,
 ``export_downloaded`` (attempt number, whether it completed) and ``export_expired``; the build
@@ -20,7 +22,7 @@ id.
 """
 
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated, Any, Final
 from uuid import UUID
@@ -38,10 +40,10 @@ from ownvitals.auth.deps import (
     require_user,
     reserve_export_request,
 )
-from ownvitals.auth.exports import Downloaded, Expired, Requested, record_event
+from ownvitals.auth.exports import Downloaded, Expired, Failed, Requested, record_event
 from ownvitals.context import UserContext
 from ownvitals.reports import export_store
-from ownvitals.reports.export_store import ExportView, Refused
+from ownvitals.reports.export_store import ExportView, Refused, Tidied
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 _LOG = logging.getLogger(__name__)
@@ -95,11 +97,15 @@ def _refuse(reason: str) -> HTTPException:
     return HTTPException(status_code=status, detail=dict(detail))
 
 
-async def _expired(request: Request, ctx: UserContext, ids: Sequence[UUID], ip: str | None) -> None:
-    for export_id in ids:
-        await record_event(
-            _factory(request), ctx, "export_expired", Expired(export_id=export_id), ip=ip
-        )
+async def _tidied(request: Request, ctx: UserContext, tidied: Tidied, ip: str | None) -> None:
+    """The audit of what the user's tidy changed: builds that ended without an archive, then
+    archives that expired."""
+    factory = _factory(request)
+    for export_id in tidied.failed:
+        detail = Failed(export_id=export_id, reason="build_failed")
+        await record_event(factory, ctx, "export_failed", detail, ip=ip)
+    for export_id in tidied.expired:
+        await record_event(factory, ctx, "export_expired", Expired(export_id=export_id), ip=ip)
 
 
 @router.post("", status_code=202, response_model=ExportOne)
@@ -117,9 +123,9 @@ async def request_export(
             factory, ctx, job_limit=request.app.state.settings.jobs_per_user, reserve=reserve
         )
     except Refused as refused:
-        await _expired(request, ctx, refused.expired, ip)
+        await _tidied(request, ctx, refused.tidied, ip)
         raise _refuse(refused.reason) from None
-    await _expired(request, ctx, done.expired, ip)
+    await _tidied(request, ctx, done.tidied, ip)
     await record_event(factory, ctx, "export_requested", Requested(export_id=done.export_id), ip=ip)
     views, _ = await export_store.list_exports(factory, ctx)
     view = next(v for v in views if v.id == done.export_id)
@@ -130,8 +136,8 @@ async def request_export(
 async def list_exports(
     request: Request, ctx: Annotated[UserContext, Depends(require_user)]
 ) -> ExportList:
-    views, expired = await export_store.list_exports(_factory(request), ctx)
-    await _expired(request, ctx, expired, request_ip(request))
+    views, tidied = await export_store.list_exports(_factory(request), ctx)
+    await _tidied(request, ctx, tidied, request_ip(request))
     return ExportList(exports=[_out(v) for v in views])
 
 
@@ -162,17 +168,23 @@ async def download_export(
     try:
         download = await export_store.begin_download(factory, ctx, export_id)
     except Refused as refused:
-        await _expired(request, ctx, refused.expired, ip)
+        await _tidied(request, ctx, refused.tidied, ip)
         raise _refuse(refused.reason) from None
 
     async def body() -> AsyncIterator[bytes]:
         completed = False
+        attempt, last = download.attempt, download.chunks - 1
         try:
-            for seq in range(download.chunks):
-                yield await export_store.read_chunk(factory, ctx, export_id, seq)
-            completed = await export_store.finish_download(factory, ctx, export_id)
+            if last < 0:
+                raise LookupError("no chunk")
+            for seq in range(last):
+                yield await export_store.read_chunk(factory, ctx, export_id, seq, attempt)
+            # The last chunk and the single use commit together (parallel attempts: one wins).
+            final = await export_store.take_last_chunk(factory, ctx, export_id, last, attempt)
+            completed = True
+            yield final
         except LookupError:
-            _LOG.warning("export download ended early: a chunk is gone")
+            _LOG.warning("export download ended early: a chunk is gone or a later attempt began")
         finally:
             # Best effort when the client went away mid-stream (the attempt is counted already).
             detail = Downloaded(export_id=export_id, attempt=download.attempt, completed=completed)

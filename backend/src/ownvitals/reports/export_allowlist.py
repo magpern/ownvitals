@@ -33,13 +33,15 @@ _OWNER: Final = "the account's own id, given once in manifest.json"
 
 @dataclass(frozen=True, slots=True)
 class TableSpec:
-    """One exported owned table: its file stem, the columns in file order, and whether a
-    ``value`` (``value_raw * 10 ** unit``, the real value) is added after them."""
+    """One exported owned table: its file stem, the columns in file order, whether a ``value``
+    (``value_raw * 10 ** unit``, the real value) is added after them, and the ``kind`` values
+    that are the experimental tier (exported only behind the owner-only switch, D9)."""
 
     file: str
     table: str
     columns: tuple[str, ...]
     real_value: bool = False
+    experimental_kinds: tuple[str, ...] = ()
 
 
 GENERIC: Final[tuple[TableSpec, ...]] = (
@@ -89,7 +91,7 @@ GENERIC: Final[tuple[TableSpec, ...]] = (
     ), real_value=True),
     TableSpec("scores", "scores", (
         "id", "kind", "day", "value", "components", "algo_version", "input_revision",
-    )),
+    ), experimental_kinds=("his",)),  # the HIS is experimental (ADR 0012, as on screen)
     TableSpec("ai_consents", "ai_consents", (
         "id", "consent_version", "locale", "given_at", "withdrawn_at",
     )),
@@ -179,7 +181,7 @@ NOT_EXPORTED_COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
 ESTIMATES_FILE: Final = "ecg_estimates"
 ESTIMATES_LABEL: Final = "Estimated by ownvitals from the raw signal; not a Withings measurement"
 # What an account without the experimental tier does not receive, and why.
-WITHHELD_WITHOUT_TIER: Final = ("ecg_estimates", "experimental_findings")
+WITHHELD_WITHOUT_TIER: Final = ("ecg_estimates", "experimental_findings", "experimental_scores")
 WITHHELD_REASON: Final = "experimental_tier_not_enabled"
 
 

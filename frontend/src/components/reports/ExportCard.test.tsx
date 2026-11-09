@@ -58,7 +58,8 @@ describe('the export row', () => {
   it('downloads a ready export as a same-origin fetch of its id only', async () => {
     let exports = [item('ready')]
     const created = vi.fn(() => 'blob:synthetic')
-    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() }))
+    const revoked = vi.fn()
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: created, revokeObjectURL: revoked }))
     const api = fakeApi({
       'GET /api/auth/session': SIGNED_IN,
       'GET /api/exports': () => ({ exports }),
@@ -79,6 +80,8 @@ describe('the export row', () => {
     await waitFor(() => {
       expect(created).toHaveBeenCalled()
     })
+    // The blob stays readable while the browser saves it; it is revoked a minute later.
+    expect(revoked).not.toHaveBeenCalled()
     expect(await screen.findByText(/Downloaded\. The file is now deleted/)).toBeTruthy()
     const call = api.to('GET', '/api/exports/synthetic-export-1/file')[0]
     expect(call).toBeDefined()
