@@ -20,6 +20,7 @@ from ownvitals.db import user_session
 from ownvitals.derived.tables import findings, metric_daily, observations, scores
 from ownvitals.ingest.tables import data_revisions, sync_cursors
 from ownvitals.notify.tables import notify_holds
+from ownvitals.reports.tables import export_chunks, exports
 from ownvitals.withings.tables import (
     activity_daily,
     devices,
@@ -64,6 +65,9 @@ IMPORTED = (
     # before their conversations). The consent itself is kept (``KEPT``).
     ai_messages,
     ai_conversations,
+    # #211: an export archive is a copy of this data (chunks before their export rows).
+    export_chunks,
+    exports,
     _JOBS,
 )
 # Owned tables this option deliberately keeps, because they hold no imported or derived health

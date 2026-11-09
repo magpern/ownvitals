@@ -99,7 +99,14 @@ export const settings = {
   'data.export.help':
     'JSON och CSV, varje avläsning och fynd med sitt ursprung. Kräver din autentiseringskod.',
   'data.export.button': 'Exportera…',
-  'data.export.later': 'Exporten kommer i en senare version.',
+  'data.export.purpose': 'Exportera dina data',
+  'data.export.downloadPurpose': 'Ladda ner din export',
+  'data.export.preparing': 'Din export förbereds. Det kan ta några minuter.',
+  'data.export.ready': 'Din export är klar ({size} MB). Ladda ner den före {until}; den kan laddas ner en gång.',
+  'data.export.download': 'Ladda ner',
+  'data.export.failed': 'Exporten kunde inte förberedas. Försök igen.',
+  'data.export.tooLarge': 'Exporten är större än gränsen. Den största delen var {part}.',
+  'data.export.downloaded': 'Nedladdad. Filen är nu borttagen från ownvitals; starta en ny export för en ny kopia.',
   'data.delete.label': 'Radera ditt konto',
   'data.delete.help':
     'Återkallar ownvitals åtkomst hos Withings och raderar sedan ditt konto och alla avläsningar. Kräver ditt lösenord och din autentiseringskod.',

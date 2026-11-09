@@ -240,11 +240,11 @@ describe('Your data', () => {
     expect(await screen.findByRole('switch', { name: 'Show experimental results' })).not.toBeChecked()
   })
 
-  it('shows the export as not there yet', async () => {
+  it('offers the export behind the lock icon (issue 211)', async () => {
     profileApi()
     renderAt('/settings/data')
     const button = await screen.findByRole('button', { name: 'Export…' })
-    expect(button).toBeDisabled()
+    expect(button).not.toBeDisabled()
     expect(button).toHaveAttribute('data-lock')
   })
 

@@ -86,6 +86,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "require_sensitive",
             "require_stepup",
             "require_user",
+            "reserve_export_request",
             "reserve_oauth_start",
             "session_probe",
         }
@@ -114,6 +115,21 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     ),
     # keys rewrap (#13): only the wrap of a TOTP seed changes
     "ownvitals.auth.totp_keys": frozenset({"rewrap_totp_secrets", "totp_rows_by_key"}),
+    # the export (#211, ADR 0013 section 4): the account's allowlisted data for the archive
+    # and the export audit events, both keyed by the context's user alone
+    "ownvitals.auth.exports": frozenset(
+        {
+            "ACCOUNT_COLUMNS",
+            "AccountExport",
+            "Downloaded",
+            "Expired",
+            "Failed",
+            "Ready",
+            "Requested",
+            "export_account",
+            "record_event",
+        }
+    ),
     # the admin Users view (#127): list and find, emails by id, disable, enable and delete
     "ownvitals.auth.admin_accounts": frozenset(
         {
@@ -163,6 +179,7 @@ SUBMODULES = frozenset(
         "email_routes",
         "event_origin",
         "events",
+        "exports",
         "flowtools",
         "gate",
         "hooks",
