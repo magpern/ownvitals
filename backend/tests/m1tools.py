@@ -81,7 +81,8 @@ def refill(url: str) -> None:
             )
             conn.execute(
                 text(
-                    "UPDATE jobs SET available_at = now() WHERE state = 'queued' AND available_at > now()"
+                    "UPDATE jobs SET available_at = now() "
+                    "WHERE state = 'queued' AND available_at > now()"
                 )
             )
     finally:
