@@ -20,7 +20,7 @@ from ownvitals.ingest.codec import (
     plain_object,
 )
 from ownvitals.ingest.revisions import bump
-from ownvitals.ingest.rows_common import changed, optional_instant
+from ownvitals.ingest.rows_common import changed, optional_instant, written
 from ownvitals.ingest.skips import INVALID, OUT_OF_RANGE, note
 from ownvitals.ingest.when import from_epoch, in_range, local_day, zone_name
 from ownvitals.withings.models import (
@@ -35,7 +35,8 @@ _ACTIVITY = text(
     "payload_hash) VALUES (:owner, :connection, :day, :start, :zone, CAST(:raw AS jsonb), :hash) "
     "ON CONFLICT (owner_id, connection_id, day) DO UPDATE SET start_at = EXCLUDED.start_at, "
     "source_tz = EXCLUDED.source_tz, raw = EXCLUDED.raw, payload_hash = EXCLUDED.payload_hash "
-    "WHERE activity_daily.payload_hash IS DISTINCT FROM EXCLUDED.payload_hash RETURNING id"
+    "WHERE activity_daily.payload_hash IS DISTINCT FROM EXCLUDED.payload_hash"
+    " RETURNING (xmax = 0) AS inserted"
 )
 
 
@@ -71,7 +72,7 @@ async def upsert_activity(
     if not changed(found):
         return "unchanged"
     await bump(db, owner, "activity_daily")
-    return "inserted"
+    return written(found)
 
 
 _WORKOUT = text(
@@ -81,7 +82,8 @@ _WORKOUT = text(
     "DO UPDATE SET start_at = EXCLUDED.start_at, end_at = EXCLUDED.end_at, "
     "source_tz = EXCLUDED.source_tz, category = EXCLUDED.category, raw = EXCLUDED.raw, "
     "payload_hash = EXCLUDED.payload_hash WHERE workouts.payload_hash IS DISTINCT FROM "
-    "EXCLUDED.payload_hash RETURNING id"
+    "EXCLUDED.payload_hash"
+    " RETURNING (xmax = 0) AS inserted"
 )
 
 
@@ -122,7 +124,7 @@ async def upsert_workout(
     if not changed(found):
         return "unchanged"
     await bump(db, owner, "workouts")
-    return "inserted"
+    return written(found)
 
 
 _SUMMARY = text(
@@ -131,7 +133,8 @@ _SUMMARY = text(
     ":model, CAST(:raw AS jsonb), :hash) ON CONFLICT (owner_id, connection_id, day) DO UPDATE "
     "SET start_at = EXCLUDED.start_at, end_at = EXCLUDED.end_at, source_tz = EXCLUDED.source_tz, "
     "model_id = EXCLUDED.model_id, raw = EXCLUDED.raw, payload_hash = EXCLUDED.payload_hash "
-    "WHERE sleep_summaries.payload_hash IS DISTINCT FROM EXCLUDED.payload_hash RETURNING id"
+    "WHERE sleep_summaries.payload_hash IS DISTINCT FROM EXCLUDED.payload_hash"
+    " RETURNING (xmax = 0) AS inserted"
 )
 
 
@@ -180,7 +183,7 @@ async def upsert_sleep_summary(
     if not changed(found):
         return "unchanged"
     await bump(db, owner, "sleep_summary")
-    return "inserted"
+    return written(found)
 
 
 _DEVICE = text(
@@ -191,7 +194,8 @@ _DEVICE = text(
     "last_session_at = EXCLUDED.last_session_at, source_tz = EXCLUDED.source_tz "
     "WHERE devices.model_id IS DISTINCT FROM EXCLUDED.model_id OR devices.type IS DISTINCT FROM "
     "EXCLUDED.type OR devices.battery IS DISTINCT FROM EXCLUDED.battery "
-    "OR devices.last_session_at IS DISTINCT FROM EXCLUDED.last_session_at RETURNING id"
+    "OR devices.last_session_at IS DISTINCT FROM EXCLUDED.last_session_at"
+    " RETURNING (xmax = 0) AS inserted"
 )
 
 
@@ -224,7 +228,7 @@ async def upsert_device(
     if not changed(found):
         return "unchanged"
     await bump(db, owner, "devices")
-    return "inserted"
+    return written(found)
 
 
 def goal_body(goals: Any) -> dict[str, Any]:

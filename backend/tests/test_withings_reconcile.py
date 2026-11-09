@@ -506,3 +506,31 @@ async def test_a_marked_connection_is_resubscribed_after_cleanup(
         (4, CURRENT),
     ]
     assert "stale-marker" not in caplog.text
+
+
+async def test_a_current_url_outside_the_callback_base_is_refused_before_any_call(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    app_id = new_app(database_url)
+    owner, connection, job_id = _plant(database_url, app_id)
+    fake = FakeWithings(seed=31, rate_limit=None)
+    app = fake.add_app()
+    user = fake.add_user(days=1, ecg_count=0, sleep_series_nights=0, intraday_days=0)
+    token = fake.tokens_for(app.client_id, user.userid)["access_token"]
+    account = Account(connection, app_id, ("user.metrics",), "UTC", token)
+    job = _run(sessions, owner, connection, job_id)
+    before = fake.request_count
+    async with WithingsClient.open(
+        WithingsApp(app.client_id, app.client_secret), inner=FakeWithingsTransport(fake)
+    ) as client:
+        for elsewhere in ("https://elsewhere.example.test/api/webhooks/withings/x", BASE + "x/y"):
+            with pytest.raises(JobFailure):
+                await repair_subscriptions(
+                    job,
+                    account,
+                    client,
+                    callback_base=BASE,
+                    current_url=elsewhere,
+                    resubscribe=False,
+                )
+    assert fake.request_count == before

@@ -57,6 +57,16 @@ from ownvitals.ecg.validate_rules_oc import (
 )
 
 
+def _meets_floor(part: int, whole: int, floor_percent: int) -> bool:
+    """``part / whole >= floor_percent %`` exactly (rounding first passes 74.6 % at a 75 floor)."""
+    return 100 * part >= floor_percent * whole
+
+
+def _floor_percent(part: int, whole: int) -> int:
+    """The percentage shown for a floor criterion: rounded down, so it never reads as the floor."""
+    return (100 * part) // whole
+
+
 def _optional_int(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
@@ -129,8 +139,8 @@ def _v1(recordings: Sequence[Recording]) -> tuple[str, int, str]:
     if not eligible:
         return "not-applicable", 0, "not-applicable"
     passed = sum(1 for recording in eligible if _gate(recording.estimated) == "pass")
-    percent = _whole_percent(passed, len(eligible))
-    return ("pass" if percent >= V1_MIN_PERCENT else "fail"), len(eligible), f"{percent}%"
+    met = _meets_floor(passed, len(eligible), V1_MIN_PERCENT)
+    return ("pass" if met else "fail"), len(eligible), f"{_floor_percent(passed, len(eligible))}%"
 
 
 def _band(heart_rate: int | None) -> str:
@@ -188,9 +198,9 @@ def _v3(recordings: Sequence[Recording]) -> tuple[str, int, str, str, str]:
     if not diffs:
         return "not-applicable", 0, "not-applicable", "none", "none"
     within = sum(1 for diff in diffs if abs(diff) <= V3_MAX_BPM)
-    percent = _whole_percent(within, len(diffs))
+    percent = _floor_percent(within, len(diffs))
     sign, limits = _bland(diffs)
-    status = "pass" if percent >= V3_MIN_PERCENT else "fail"
+    status = "pass" if _meets_floor(within, len(diffs), V3_MIN_PERCENT) else "fail"
     return status, len(diffs), f"{percent}%", sign, limits
 
 

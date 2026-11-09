@@ -1,5 +1,6 @@
 """Revision bumps, out-of-range skips and month partitions. Synthetic rows only."""
 
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
@@ -179,6 +180,7 @@ async def test_a_null_signal_row_stores_a_current_estimate(
 async def test_out_of_range_rows_are_skipped_and_a_month_is_created_on_its_own(
     sessions: async_sessionmaker[AsyncSession], database_url: str, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level(logging.INFO, logger="ownvitals.ingest.skips")
     owner, connection = _owner(database_url)
     ctx = make_context(owner)
     SKIPPED.clear()
@@ -204,6 +206,7 @@ async def test_out_of_range_rows_are_skipped_and_a_month_is_created_on_its_own(
         ).scalar_one()
     assert count == 0
     assert SKIPPED["out_of_range"] == 2
+    assert caplog.text.count("sync row skipped") == 2  # the assertion below sees real log lines
     assert "424242" not in caplog.text
     async with user_session(sessions, ctx) as db:
         await ensure_month(db, "sleep_series", datetime(2026, 11, 1).date())
@@ -453,3 +456,33 @@ async def test_ecg_metadata_change_bumps_and_an_estimated_only_write_does_not(
             )
         ).scalar_one()
         assert afib == 1
+
+
+async def test_an_upsert_that_changes_an_existing_row_reports_updated(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    owner, connection = _owner(database_url)
+    ctx = make_context(owner)
+
+    def activity(steps: int) -> Activity:
+        return Activity.model_validate({"date": "2025-06-01", "timezone": "UTC", "steps": steps})
+
+    def workout(calories: int) -> Workout:
+        return Workout.model_validate(
+            {
+                "id": 7,
+                "category": 1,
+                "data": {"calories": calories},
+                "startdate": IN_RANGE,
+                "enddate": IN_RANGE + 600,
+                "timezone": "UTC",
+            }
+        )
+
+    async with user_session(sessions, ctx) as db:
+        got = await upsert_activity(db, owner, connection, activity(1), "UTC", WHEN)
+        assert got == "inserted"
+        assert await upsert_activity(db, owner, connection, activity(1), "UTC", WHEN) == "unchanged"
+        assert await upsert_activity(db, owner, connection, activity(2), "UTC", WHEN) == "updated"
+        assert await upsert_workout(db, owner, connection, workout(1), "UTC", WHEN) == "inserted"
+        assert await upsert_workout(db, owner, connection, workout(2), "UTC", WHEN) == "updated"
