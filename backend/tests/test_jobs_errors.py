@@ -131,6 +131,7 @@ def test_the_api_ships_no_kind_and_the_worker_ships_the_withings_kinds() -> None
         "derive_evaluate",  # the rule evaluation (#187)
         "derive_normalize",  # the observations pass (#185)
         "derive_scores",  # the scores pass (#188)
+        "doctor_pdf_build",  # the doctor PDF (#210)
         "ecg_fetch",
         "ecg_recompute",  # the estimated recompute and its sweep (#191)
         "export_build",  # the user's JSON/CSV export (#211)

@@ -143,6 +143,7 @@ Known gaps:
 - The doctor audit kinds are not in the activity list's allowlist; the tidy job's audited
   `export_failed` and `export_expired` for doctor rows carry `export_kind` "data".
 - The cross-user purge above is still not built, for doctor rows too.
+- The ECG picker offers the first page of recordings only (newest, with a signal).
 - ECG pages keep their own "Page i of k".
 - A month's min and max are the min and max of the daily minimums and maximums.
 - A metric whose typical range cannot be computed prints "No typical range yet"; one with no data

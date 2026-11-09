@@ -27,7 +27,9 @@ import { Button } from '../ui/Button'
 const POLL_MS = 3000
 const DAY_MS = 86_400_000
 
-const isoDay = (date: Date): string => date.toISOString().slice(0, 10)
+// The local calendar day, not the UTC one: near midnight the two differ.
+const isoDay = (date: Date): string =>
+  `${String(date.getFullYear())}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 
 export function DoctorReport() {
   const t = useT()

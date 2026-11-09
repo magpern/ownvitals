@@ -15,6 +15,7 @@ from sqlalchemy import text
 import pdftools
 from authtools import Env, auth_schema_fixture, clean_auth_fixture  # noqa: F401 - fixtures
 from contexttools import plant
+from ctx import make_context
 from exporttools import (  # noqa: F401 - fixture
     admin_row,
     admin_run,
@@ -28,6 +29,7 @@ from jobcore import settings_for
 from jobtools import admin_url
 from ownvitals.auth.owners import ACCOUNTS
 from ownvitals.db import create_session_factory
+from ownvitals.db.session import user_session
 from ownvitals.jobs import KindRegistry, queue
 from ownvitals.jobs.runner import Execution, RunConfig, execute
 from ownvitals.reports.doctor import KIND, register_doctor_kind
@@ -106,6 +108,32 @@ def seed(user: UUID) -> None:
             v=70 + i % 4,
             i=i,
         )
+    # Day 7 is fed only by an unconfirmed (attrib 1) group, day 8 by a typed-in one (attrib 4).
+    admin_run(
+        "INSERT INTO measure_groups (owner_id, connection_id, grpid, measured_at, source_tz, "
+        "payload_hash, attrib) SELECT owner_id, connection_id, 7000 + a, measured_at, source_tz, "
+        "decode(repeat('ef', 32), 'hex'), a FROM measure_groups, (VALUES (1), (4)) AS v(a) "
+        "WHERE grpid = 1 AND owner_id = :o",
+        o=user,
+    )
+    admin_run(
+        "UPDATE metric_daily SET source_groups = ARRAY[7001]::bigint[], value = 123, mean = 123, "
+        "min = 123, max = 123 "
+        "WHERE metric_key = 'weight' AND day = :d",
+        d=START + timedelta(days=7),
+    )
+    admin_run(
+        "UPDATE metric_daily SET source_groups = ARRAY[7004]::bigint[] "
+        "WHERE metric_key = 'weight' AND day = :d",
+        d=START + timedelta(days=8),
+    )
+    admin_run(
+        "INSERT INTO findings (owner_id, rule_id, rule_version, tier, severity, confidence, "
+        "origin, subject, window_start, window_end, evidence, input_revision, "
+        "input_fingerprint) VALUES (:o, 'E2', 'synthetic/1', 'device', 'attention', 'high', "
+        "'live', 'x', '2025-06-01', '2025-06-01', '{}', 98, decode(repeat('ce', 32), 'hex'))",
+        o=user,
+    )
     for rule, tier in (("E1", "device"), ("E5", "experimental"), ("C1", "trend")):
         admin_run(
             "INSERT INTO findings (owner_id, rule_id, rule_version, tier, severity, confidence, "
@@ -219,6 +247,8 @@ async def test_the_pdf_holds_the_chosen_data_and_nothing_experimental(
     assert "Weight" in shown
     assert "Withings classified an ECG as positive for atrial fibrillation." in shown
     assert "no signal stored" in shown  # the planted recording has no signal
+    assert "123" not in shown  # the day fed only by an unconfirmed (attrib 1) group
+    assert "Withings classified several recent ECGs" not in shown  # E2 is outside the period
     assert "E5" not in shown
     assert "C1" not in shown
     for word in ("estimate", "experimental", "trend", "score"):
@@ -301,3 +331,20 @@ async def test_the_data_export_download_does_not_serve_a_doctor_report(
     xenv.client.cookies.clear()
     response = await xenv.client.get(f"/api/exports/{export_id}/file", headers=headers)
     assert response.status_code == 404
+
+
+async def test_the_reader_drops_unconfirmed_days_and_flags_typed_in_ones(xenv: Env) -> None:
+    from ownvitals.reports.doctor_read import read_daily
+
+    await exporter(xenv)
+    user = UUID(str(admin_scalar("SELECT id FROM users")))
+    seed(user)
+    async with user_session(xenv.factory, make_context(user)) as db:
+        rows = (await read_daily(db, user, ["weight"], START, END))["weight"]
+    by_day = {row.day: row for row in rows}
+    assert START + timedelta(days=7) not in by_day  # attrib 1 only: never in the PDF data
+    assert all(row.value != 123 for row in rows)
+    assert by_day[START + timedelta(days=5)].manual  # attrib 2
+    assert by_day[START + timedelta(days=8)].manual  # attrib 4
+    assert not by_day[START + timedelta(days=6)].manual
+    assert sum(row.manual for row in rows) == 2
