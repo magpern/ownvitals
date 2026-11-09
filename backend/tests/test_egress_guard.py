@@ -389,7 +389,10 @@ def test_only_in_pins_mail_the_worker_hostname_and_db_functions_psycopg() -> Non
         "psycopg.conninfo": runner,
         # py_webauthn (#178): only the passkey ceremonies, which parse and verify in memory.
         **dict.fromkeys(WEBAUTHN, ("ownvitals.auth.passkey_ceremonies",)),
+        # the ECG PDF (#192): the canvas draws into memory; no image or link is drawn
+        "reportlab.pdfgen.canvas": ("ownvitals.reports.ecg_pdf",),
     }
+    assert TABLE["reportlab.pdfgen.canvas"].names == {"Canvas"}
     assert TABLE["socket"].names == {"gethostname"}
     assert not TABLE["socket"].exceptions
     assert TABLE["smtplib"].names == {"SMTP", "SMTP_SSL"}

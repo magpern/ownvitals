@@ -119,6 +119,13 @@ TABLE: dict[str, Entry] = {
         "UUID",
         "uuid4",
     ),
+    "reportlab.pdfgen.canvas": _allowed(
+        "the ECG PDF (#192): the canvas draws lines and built-in-font text into memory; "
+        "capable only through reportlab.lib.utils, whose URL opener serves images, and the PDF "
+        "never draws an image or a link",
+        "Canvas",
+        only_in=("ownvitals.reports.ecg_pdf",),
+    ),
     "scipy.stats": _allowed(
         "statistics on in-memory arrays; capable only through scipy's docstring tooling, which "
         "imports pydoc, whose documentation server (http.server, select) is never started",
