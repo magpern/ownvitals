@@ -81,7 +81,8 @@ def _oc2(positions: int, owner: str | None) -> str:
 
 def _spectrum(lead: tuple[int, ...], sampling_hz: int) -> tuple[bool, bool] | None:
     """(low-pass holds, a 50 or 60 Hz line is present), or None when Welch cannot run."""
-    if sampling_hz < 2 or len(lead) < 4 * sampling_hz:
+    # The low-pass check compares against the band above 40 Hz; it is empty at or below 80 Hz.
+    if sampling_hz <= 80 or len(lead) < 4 * sampling_hz:
         return None
     series = np.asarray(lead, dtype=np.float64) / 1000.0
     try:

@@ -17,7 +17,7 @@ from ownvitals.jobs.withings import singleton_for
 from ownvitals.withings.capabilities import NOT_AUTHORIZED, after_success, from_scopes
 from ownvitals.withings.client import WithingsClient
 from ownvitals.withings.errors import RetryBudget
-from ownvitals.withings.streams import STREAMS
+from ownvitals.withings.streams import STREAMS, stream_named
 from ownvitals.withings.sync import _lane, _owner_cursor, _store
 
 
@@ -53,6 +53,21 @@ async def execute_connect(
     lane = _lane("withings_connect") if lane is None else lane
     budget = RetryBudget(retries=2)
     for shape, stream in (("devices", "devices"), ("goals", "goals")):
+        if from_scopes(stream_named(stream), account.scopes) == NOT_AUTHORIZED:
+            # No granted scope covers it: record that and make no call (no token, no slot).
+            await _store(
+                job,
+                account,
+                stream,
+                capability=NOT_AUTHORIZED,
+                state={"status": "complete", "index": 1, "skipped_out_of_range": 0},
+                lastupdate=None,
+                zone=account.zone,
+                covered_from=None,
+                covered_to=None,
+                done=True,
+            )
+            continue
         got = await once(job, account, client, lane, budget, shape, moment)
         capability = (
             got.capability

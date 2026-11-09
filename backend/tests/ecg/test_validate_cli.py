@@ -340,3 +340,29 @@ def test_the_command_is_installed() -> None:
     assert args.command == "ecg"
     assert args.action == "validate"
     assert COMMANDS["ecg"] is not None
+
+
+def test_oc3_is_not_applicable_when_the_rate_leaves_no_band_above_40_hz() -> None:
+    # SYNTHETIC. At 80 Hz the Nyquist is 40 Hz, so there is no high band to compare with.
+    slow = _rec(sampling_hz=80, leads=(_sine((10.0, 1000), fs=80),))
+    lines = evaluate((slow,), (), OwnerAnswers()).lines
+    assert "OC3 lowpass not-applicable" in lines
+    assert "OC3 mains not-applicable" in lines
+
+
+def test_v1_and_v3_compare_the_exact_ratio_not_the_rounded_percent() -> None:
+    # SYNTHETIC. 159 of 200 is 79.5 %, under the 80 % floor; rounding half up read it as 80.
+    recordings = tuple(
+        _rec(signalid=i, estimated=_gate("pass" if i < 159 else "fail")) for i in range(200)
+    )
+    v1 = evaluate(recordings, (), OwnerAnswers()).lines
+    assert "V1 fail" in v1
+    assert "V1 rate 79%" in v1
+    # 189 of 200 within 5 bpm is 94.5 %, under the 95 % floor.
+    close = tuple(
+        _rec(signalid=i, heart_rate=60, estimated=_gate("pass", hr=60.0 if i < 189 else 70.0))
+        for i in range(200)
+    )
+    v3 = evaluate(close, (), OwnerAnswers()).lines
+    assert "V3 fail" in v3
+    assert "V3 within-5 94%" in v3

@@ -37,6 +37,11 @@ class RepairResult:
 
 
 def marked_for_resubscribe(public: Mapping[str, Any]) -> bool:
+    """Whether ``connections.public`` carries the resubscribe mark (a strict ``True``).
+
+    Nothing writes the mark yet: the secret-rotation flow that sets it is a later issue, so a
+    caller passes ``resubscribe`` explicitly until then.
+    """
     return public.get(_RESUBSCRIBE) is True
 
 
@@ -96,6 +101,9 @@ async def repair_subscriptions(
     lane: int | None = None,
 ) -> RepairResult:
     """List, then revoke, update or subscribe. URLs are not stored and not logged."""
+    if not _under_base(current_url, callback_base):
+        # Only a URL under our own base may be subscribed or swapped in; refuse before any call.
+        raise JobFailure("invalid_input")
     lane = lane_for("withings_reconcile", "scheduler") if lane is None else lane
     budget = RetryBudget(retries=2)
     listed = await _notify(

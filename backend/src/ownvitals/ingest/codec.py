@@ -34,6 +34,7 @@ from ownvitals.withings.models import HeartListEntry
 MAGIC = b"OVE1"
 ZSTD_LEVEL = 19
 MAX_SAMPLES = 1_000_000
+MAX_LEADS = 12  # a standard 12-lead ECG; Withings sends 1 to 6
 MAX_RATE_HZ = 2_000
 HOLD_BOUND_SECONDS = 86_400
 OUT_OF_CONTRACT = "ecg_signal_out_of_contract"
@@ -84,7 +85,7 @@ def fixed_point(value: Decimal) -> tuple[int, int]:
 
 
 def _leads(leads: list[list[int]]) -> None:
-    if not leads:
+    if not leads or len(leads) > MAX_LEADS:
         raise SignalRejected
     for lead in leads:
         if not lead or len(lead) > MAX_SAMPLES:
@@ -107,7 +108,7 @@ def parse_uncompressed(payload: bytes) -> list[list[int]]:
     if len(payload) < 8 or payload[:4] != MAGIC:
         raise SignalRejected
     n_leads, reserved = struct.unpack_from("<HH", payload, 4)
-    if reserved != 0 or n_leads < 1:
+    if reserved != 0 or not 1 <= n_leads <= MAX_LEADS:
         raise SignalRejected
     header = 8 + 4 * n_leads
     if len(payload) < header:
