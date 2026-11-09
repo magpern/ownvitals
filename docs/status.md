@@ -21,7 +21,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | G | Groundwork (Amendment 7, ADR 0015): `config.py` split, multilingual en/sv | all 7 issues merged on 2026-11-08 and IMPLEMENTED (synthetic tests only): G1 #245 (#259), G2 #246 (#260), G3 #249 (#264), G4 #250 (#263), G5 #253 (#265), G6 #254 (#268), G7 #255 (#269). The Swedish health wording stays on the M8 medical-claims review list (ADR 0015). Next migration number: 0020 | IMPLEMENTED |
 | H | Hardening from classbeat (Amendment 7) | all 4 issues merged on 2026-11-08 and IMPLEMENTED (synthetic tests only; all security-critical): H1 #247 (#262), H2 #248 (#261), H3 #251 (#266, migration 0019), H4 #252 (#267, migration 0018). Next migration number: 0020 | IMPLEMENTED |
 
-### Start order (Amendment 7, from 2026-11-09)
+### Start order (Amendment 7, from 2026-11-09): waves 1-4 done, all merged on 2026-11-08
 
 Waves keep the file sets disjoint: no file is in two locks of the same wave. A wave starts its
 issues in parallel within the Developer limit of AGENTS.md (about three). Wave 1 has four, so H2 or
@@ -40,9 +40,9 @@ G2), and each issue owns its own area file.
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| — | Nothing is active: G and H are merged; the next work is the M6 screen issues, which G2 and G3 no longer gate | — | — | — |
+| — | Housekeeping (this PR, docs only). Next: wave A (#257, #167, #197, #198, #203), then wave B and C as in the 2026-11-09 plan | — | — | — |
 
-Backlog: #257 (hardening from the #242 review: stale guard entries, guard 8's list, three files over the caps), #167 (metrics listener, wiring, definer aggregates), #165 (hardening umbrella: non-blocking findings from the Cursor PRs #149–#162 and the Claude PRs #166–#232; the Architect splits it before the M2 real-data gate; it also holds the threat-model gaps G1 to G5 from #223), #30 (e2e/M1 done-when), #188 (scores job), #180 (M3 UI), #191–#192 (M5), #195–#203 (M6), #206–#211 (M7). Labels are not authoritative, this table is.
+Backlog: #257 (hardening from the #242 review: stale guard entries, guard 8's list, three files over the caps), #167 (metrics listener, wiring, definer aggregates), hardening issues split from the closed umbrella #165 and the G/H backlog on 2026-11-09: #277 admin, #278 queue, #279 connections, #280 webhook, #281 sync/ECG validate, #282 auth follow-ups, #283 i18n follow-ups, #284 egress (threat-model gaps G1 to G5 from #223 stay open and go to the owner's M2 gate), #30 (e2e/M1 done-when), #188 (scores job), #180 (M3 UI), #191–#192 (M5), #195–#203 (M6), #206–#211 (M7). Labels are not authoritative, this table is.
 
 Merged on 2026-11-08 (`main` now `a47e1ef`): groundwork G and H, 11 PRs, see "Groundwork G/H done-when" below and [status/completed.md](status/completed.md).
 
@@ -84,16 +84,9 @@ review.
 
 Merged on 2026-11-08, IMPLEMENTED with synthetic tests only (Amendment 7, ADR 0015): the `config.py` split (G1), the frontend i18n runtime (G2), the account language and sign-up locale (G3), stable response codes (G4), mail in the recipient's language (G5), the Swedish catalogues (G6), the half-wired-language guard, e2e and the add-a-language checklist (G7); Google re-authentication (H1), reset race windows (H2), sign-out and security-activity events (H3, migration 0019) and shorter cross-device passkey sessions (H4, migration 0018). Nothing is INTEGRATION_VERIFIED or PRODUCTION_READY; the owner's gates are untouched: the Swedish health wording is still listed for the M8 medical-claims review, and the ADR 0015 owner questions stay open.
 
-### Backlog from the G/H reviews (non-blocking; to be batched into hardening issues, not yet created)
+### Backlog from the G/H reviews
 
-- G6 #268: Swedish "guidad"/"Idag" style points; ADR 0015 owner questions; native-Swedish review of the health keys; the E2 name; "värdeområde" missing from the glossary.
-- G7 #269: the locale guard's `_checks` accepts any migration that mentions "locale" and the code, without checking that each of the three tables is widened.
-- H4 #267: the `sessions.start_session` 72 h idle note; a route-level 403 test for QR approval by a cross-device session; the `mails.passkey_suspended_notice` re-auth wording; the `config.py` RP ID checks.
-- H3 #266: the `/logout-all` count>0/atomicity note; a docs line that failed-sign-in origins may be an attacker's.
-- G5 #265: a format-spec placeholder test; an explicit auth-mail untranslated list; confirm the `email_change_taken` locale; widen security-notice callers to the account language.
-- G3 #264: `/api/account/` into `SECRET_INPUT_PATHS`; sign-out language reset; the Language row moves to Settings → Profile with #203.
-- G4 #263: ConnectRefused catalogue entries; E2 evidence keys; the `withings/disconnect.py` scope note; English sentences in `auth/setup.py:81` and the `web.py` 404 detail; OAuth outcome words in `errors.ts`.
-- Earlier: H1 N1–N5, H2 N2/N4, the `has_password` lock test, the logging "why" gaps in `oauth_outcomes.py`, the G1 private-API note.
+Batched into hardening issues on 2026-11-09: auth side #282, i18n side #283; the earlier `#165` items are #277–#281 and #284. The ADR 0015 owner questions and the native-Swedish review of the health wording stay the owner's.
 
 ## Blocked on the owner
 
@@ -166,6 +159,8 @@ Backend only (IMPLEMENTED, synthetic); the desktop panel, the phone screen and `
 - SWAG: the owner's location for `/api/auth/qr/` must not buffer (threat model O6).
 
 ## Decisions since the last reconcile
+
+2026-11-09 (owner): the `ownvitals probe` output is confirmed and the Withings integration is verified, said in the session prompt. Agents do not write INTEGRATION_VERIFIED; the owner records it. The unverified-assumptions table below stays until the owner settles each row, so the code keeps its current readings.
 
 2026-11-08 (owner, roadmap Amendment 7): groundwork before the M6 screens: G (`config.py` split, multilingual en/sv, ADR 0015) and H (auth fixes from classbeat after the pinned port: Google re-auth `auth_time`, reset race windows and row locks, sign-out events and security activity, passkey follow-ups). P1–P3 (Turnstile, session anomaly signal and abuse view, privacy, terms and cookie notice) are required before M8. Not adopted: language in the URL, plan quotas, the image-only install.
 
