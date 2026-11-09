@@ -4,6 +4,7 @@ import { errorMessage } from '../../api/messages'
 import { SIGN_IN_PATH } from '../../auth/access'
 import { useSession } from '../../auth/SessionContext'
 import { Notice } from '../../components/forms'
+import { ExportCard } from '../../components/reports/ExportCard'
 import { Cancelled, useProtected } from '../../components/StepUp'
 import { Button } from '../../components/ui/Button'
 import { Card, Stack } from '../../components/ui/Card'
@@ -14,7 +15,7 @@ import { Row, Toggle } from './controls'
 import type { ProfileState } from './useProfile'
 
 // "Your data" (/settings/data): the experimental state (read-only here), AI consent (`AiSection`,
-// issue 206), the export (a placeholder until the export exists) and deleting the account behind
+// issue 206), the export (`ExportCard`, issue 211) and deleting the account behind
 // the shared "Confirm it's you" dialog: the server wants a recent password and a fresh
 // authenticator code.
 
@@ -122,11 +123,7 @@ export function DataTab({ state }: { state: ProfileState }) {
     <Stack gap="lg">
       <Flags state={state} />
       <Card title={t('settings.data.title')}>
-        <Row label={t('settings.data.export.label')} help={t('settings.data.export.help')}>
-          <Button lock disabled title={t('settings.data.export.later')}>
-            {t('settings.data.export.button')}
-          </Button>
-        </Row>
+        <ExportCard />
         <DeleteAccount />
       </Card>
     </Stack>

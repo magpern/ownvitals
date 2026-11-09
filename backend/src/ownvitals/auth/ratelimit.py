@@ -52,6 +52,8 @@ PASSKEY_OPTIONS_IP = Limit("passkey-options", "ip", 20, 10 * 60)
 QR_START_IP = Limit("qr-start", "ip", 20, 10 * 60)
 QR_SCAN_ACCOUNT = Limit("qr-scan", "account", 10, 10 * 60)
 QR_APPROVE_ACCOUNT = Limit("qr-approve", "account", 3, 3600)
+# The data export (ADR 0013 section 4): every accepted request counts, per account.
+EXPORT_ACCOUNT = Limit("export", "account", 3, 24 * 3600)
 
 OnSuccess = Literal["decrement", "delete"]
 

@@ -262,6 +262,7 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
     from ownvitals.connections.withings_routes import router as withings_connect
     from ownvitals.flags.routes import router as flags
     from ownvitals.jobs.routes import router as jobs
+    from ownvitals.reports.export_routes import router as exports
     from ownvitals.views.days_routes import router as days
     from ownvitals.views.ecg_routes import router as ecg
     from ownvitals.views.findings_routes import router as findings
@@ -288,6 +289,7 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
         scores,
         notifications,
         ai_consent,
+        exports,
     )
     assert all(isinstance(router, APIRouter) for router in routers)
     assert {id(router) for router in routers} == {id(router) for router in FEATURE_ROUTERS}

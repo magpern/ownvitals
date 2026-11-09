@@ -68,6 +68,8 @@ ADDED = frozenset(
         "metrics_port",
         "metrics_refresh_seconds",
         "ai_include_experimental",  # issue 206: experimental items to the model (ADR 0014 §4)
+        "export_max_bytes",  # issue 211: the export's size limit and expiry (ADR 0013 §4)
+        "export_ttl_hours",
     }
 )
 
