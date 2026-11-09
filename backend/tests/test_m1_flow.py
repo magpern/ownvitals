@@ -27,15 +27,15 @@ from m1tools import (
     REDIRECT,
     SECRET,
     receiver,
-    refill,
     running_worker,
     scalar,
     through_fake,
 )  # fmt: skip
 from ownvitals.connections.purge import purge_connection
 from ownvitals.egress import core, install_worker_allowlist
+from ownvitals.ingest import calls
 from ownvitals.jobs.queue import enqueue
-from ownvitals.withings import streams
+from ownvitals.withings import rate, streams
 from ownvitals.withings.apps import create_app
 from ownvitals.withings.disconnect import disconnect_withings
 from ownvitals.withings.oauth import SessionProof, StateStore, callback, start
@@ -97,7 +97,6 @@ async def _settled(url: str, kind: str) -> None:
     pending = "SELECT count(*) FROM jobs WHERE kind = :k AND state IN ('queued', 'running')"
 
     def check() -> bool:
-        refill(url)
         return not scalar(url, pending, k=kind)
 
     await until(check, seconds=90)
@@ -111,7 +110,6 @@ async def _done(url: str, kind: str, stream: str | None = None) -> None:
     match = "kind = :k AND (CAST(:s AS text) IS NULL OR input->>'stream' = :s)"
 
     def check() -> bool:
-        refill(url)
         broken = scalar(url, _BROKEN.replace("{where}", match), **params)
         assert not broken, f"{kind} {stream or ''} did not complete: {broken}"
         return bool(scalar(url, _COMPLETED.replace("{where}", match), **params))
@@ -161,6 +159,15 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     through_fake(monkeypatch, fake)
     # The synthetic history is 30 days: walk 45, not 17 years of windows, so the backfill is a
     # handful of calls per stream.
+    # The worker's token bucket denies a call whenever another lane or slot holds the turn, which
+    # fails the job as rate_limited and spends an attempt; here every call is granted. The
+    # limiter itself is covered by test_withings_rate.py.
+    granted = rate.Claim(granted=True, lease_id=None, retry_at=None, reason="granted")
+
+    async def take(*_: object) -> rate.Claim:
+        return granted
+
+    monkeypatch.setattr(calls, "_take", take)
     monkeypatch.setattr(streams, "FLOOR", datetime.now(UTC) - timedelta(days=45))
 
     def measure_count() -> int:
