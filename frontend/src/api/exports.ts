@@ -80,6 +80,12 @@ export async function downloadFile(path: string, accept: string, fallbackName: s
     throw new ApiError(response.status, reasonOf(body, response), null, body)
   }
   const blob = await response.blob()
+  // A body shorter than its Content-Length is a broken download (the server aborts a stream it
+  // cannot finish, issue 333): never hand a truncated archive to the browser as a file.
+  const expected = response.headers.get('Content-Length')
+  if (expected !== null && Number(expected) !== blob.size) {
+    throw new TypeError('incomplete download')
+  }
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url

@@ -13,7 +13,11 @@
   ``export_not_ready``, 410 ``export_download_spent`` (3 attempts used). The body streams from
   the chunks; only the latest attempt reads them, and the last chunk is taken in the transaction
   that marks the export ``expired`` and deletes its chunks, so of parallel attempts at most one
-  receives the whole archive.
+  receives the whole archive. The export is therefore spent when its last chunk is handed over:
+  a client that drops during that chunk has lost it and requests a new one (the audit says
+  ``completed`` false then). A stream that cannot go on (a later attempt began, the export
+  expired) is **aborted**, not ended: the connection breaks short of ``Content-Length``, so the
+  browser reports a failed download instead of saving a truncated archive.
 
 Audit (section 5, ``ownvitals.auth.exports.record_event``): ``export_requested``,
 ``export_downloaded`` (attempt number, whether it completed) and ``export_expired``; the build
@@ -54,6 +58,12 @@ from ownvitals.reports.export_store import ExportView, Refused, Tidied
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 _LOG = logging.getLogger(__name__)
+
+
+class DownloadAborted(Exception):
+    """Raised by the body of a download that cannot go on, so the server breaks the connection
+    instead of ending a body that is shorter than its ``Content-Length``."""
+
 
 # Each refusal of the store, as its status and body.
 REFUSALS: Final[dict[str, tuple[int, dict[str, str]]]] = {
@@ -194,10 +204,13 @@ async def serve_download(
                 yield await export_store.read_chunk(factory, ctx, export_id, seq, attempt)
             # The last chunk and the single use commit together (parallel attempts: one wins).
             final = await export_store.take_last_chunk(factory, ctx, export_id, last, attempt)
-            completed = True
             yield final
+            # Resumed only once the server has sent the last chunk; a client gone before that
+            # closes the generator at the yield, and the attempt is audited as not completed.
+            completed = True
         except LookupError:
             _LOG.warning("export download ended early: a chunk is gone or a later attempt began")
+            raise DownloadAborted("export download aborted") from None
         finally:
             # Best effort when the client went away mid-stream (the attempt is counted already).
             detail = Downloaded(
