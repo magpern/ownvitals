@@ -9,12 +9,14 @@ import { Button } from '../../components/ui/Button'
 import { Card, Stack } from '../../components/ui/Card'
 import { useT } from '../../i18n'
 import { useRouter } from '../../router/Router'
+import { AiSection } from './AiSection'
 import { Row, Toggle } from './controls'
 import type { ProfileState } from './useProfile'
 
-// "Your data" (/settings/data): the experimental and AI states (read-only here), the export (a
-// placeholder until the export exists) and deleting the account behind the shared "Confirm it's
-// you" dialog: the server wants a recent password and a fresh authenticator code.
+// "Your data" (/settings/data): the experimental state (read-only here), AI consent (`AiSection`,
+// issue 206), the export (a placeholder until the export exists) and deleting the account behind
+// the shared "Confirm it's you" dialog: the server wants a recent password and a fresh
+// authenticator code.
 
 function Flags({ state }: { state: ProfileState }) {
   const t = useT()
@@ -32,9 +34,7 @@ function Flags({ state }: { state: ProfileState }) {
           disabled
         />
       </Row>
-      <Row label={t('settings.flags.ai.label')} help={t('settings.flags.ai.help')}>
-        <Toggle label={t('settings.flags.ai.label')} checked={false} disabled />
-      </Row>
+      <AiSection available={profile.aiAvailable} />
     </Card>
   )
 }

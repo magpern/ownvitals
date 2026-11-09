@@ -82,6 +82,18 @@ export const settings = {
   'flags.ai.label': 'AI-insikter',
   'flags.ai.help':
     'Inte tillgängligt än. När det kommer är det avstängt tills du uttryckligen samtycker, och att dra tillbaka samtycket raderar konversationshistoriken.',
+  'ai.on': 'På. Du har gett samtycke; du kan återkalla det här när som helst.',
+  'ai.off': 'Av tills du ger uttryckligt samtycke. Läs först vad det innebär.',
+  'ai.loadFailed': 'AI-samtycket kunde inte läsas in.',
+  'ai.consent.agree': 'Jag har läst detta och godkänner.',
+  'ai.consent.give': 'Ge samtycke',
+  'ai.consent.purpose': 'Ge samtycke till AI-insikter',
+  'ai.consent.outdated': 'Samtyckestexten har ändrats sedan du godkände den. Läs den igen för att behålla AI-insikter.',
+  'ai.withdraw.button': 'Återkalla samtycke',
+  'ai.withdraw.confirm':
+    'Det här stoppar AI-insikter direkt och raderar din AI-konversationshistorik. Det som redan har skickats omfattas av Anthropics egen lagring. Fortsätta?',
+  'ai.withdraw.yes': 'Återkalla och radera historiken',
+  'ai.withdraw.done': 'Samtycket är återkallat. Din AI-konversationshistorik är raderad.',
   'data.title': 'Dina data',
   'data.export.label': 'Exportera allt',
   'data.export.help':

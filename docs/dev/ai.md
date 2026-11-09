@@ -1,8 +1,9 @@
-# AI: the per-user monthly cost cap
+# AI: the cost cap, consent and the tool set
 
-How ownvitals bounds what AI insights cost: [ADR 0014 §7](../adr/0014-ai-insights.md) (D11,
-PLAN §7.4). Only the cap exists so far (#205); the model client, consent, the tools, the jobs and
-the audit log come with their own M7 issues and extend this file.
+How ownvitals bounds what AI insights cost ([ADR 0014 §7](../adr/0014-ai-insights.md), D11,
+PLAN §7.4; #205), how a user consents and withdraws (§3), and the data-minimised tools the model
+may call (§4; #206). The model client, the jobs and the audit log come with their own M7 issues
+and extend this file. Consent and tools are [below](#consent-and-withdrawal).
 
 ## The pieces
 
@@ -101,3 +102,85 @@ jobs only, no model call:
   actual-to-bound ratio.
 - The overrun is logged (`ai_cost_overrun`, a count), not yet a metric: `metrics.py` comes with
   #167.
+
+## Consent and withdrawal
+
+ADR 0014 §3, #206. AI is **off** for a user unless the effective `ai_insights` flag is on **and**
+the user has a live consent to the current text. Every AI entry point checks both
+(`ai.consent.require_enabled` / `check_enabled`) and answers "not enabled" otherwise
+(`AiNotEnabled`; the tools answer `{"error": "not_enabled"}` and read nothing).
+
+| Path | What |
+|---|---|
+| `backend/migrations/versions/0021_ai_consent.py` | `ai_consents`, `ai_conversations`, `ai_messages` (owned, forced RLS; at most one live consent per owner; a message belongs to a conversation of the same owner) |
+| `backend/src/ownvitals/ai/consent_text.py` | the consent text per language (`en`, `sv`), `CONSENT_VERSION` and the SHA-256 a consent records (pure) |
+| `backend/src/ownvitals/ai/consent.py` | give, withdraw, the enabled check, `require_consent` (`FOR SHARE`, for a job's fenced session), `AI_JOB_KINDS` |
+| `backend/src/ownvitals/ai/consent_routes.py` | `GET`/`POST`/`DELETE /api/ai/consent` |
+| `backend/src/ownvitals/ai/tables.py` | the Core handles and the vocabularies |
+| `frontend/src/pages/settings/AiSection.tsx` | the AI row of Settings, "Your data" |
+
+- **The text** is code, one copy per language; the API serves it as it is with its version and
+  SHA-256, and a consent names all three. Changing a text means a new `CONSENT_VERSION`: every
+  user's consent is then `outdated` and AI is off for them until they consent again. Version 1's
+  retention paragraph is a placeholder until the owner records the provider review (ADR 0014
+  §2); AI stays off until then (lock 2), and the recorded answer comes as version 2.
+- **Give**: `POST /api/ai/consent` with `version`, `locale`, `sha256` and `agree: true`. Needs a
+  **step-up** (`require_stepup`). 409 `ai_not_enabled` while the flag is off, 409
+  `ai_consent_outdated` for any other text. A live consent to an older text is closed and
+  replaced.
+- **Withdraw**: `DELETE /api/ai/consent`, a full session only (no step-up), also while the flag
+  is off. One transaction: close the live row (its lock first), cancel the user's queued and
+  running `ai_chat_turn` / `ai_digest` jobs (`jobs.user.cancel`: a queued job ends at once, a
+  running one at its next checkpoint), delete `ai_messages` and `ai_conversations`. The consent
+  rows and the spend ledger stay (no content).
+- **Storing a reply or digest** (the chat and digest issues) first calls
+  `consent.require_consent(fs.db, owner)` in the same fenced transaction: the live row is read
+  `FOR SHARE`, so a withdrawal waits for the reply to commit and then deletes it, or commits
+  first and the reply refuses.
+- **Purge**: account deletion removes all three tables (`owner_id` cascade). "Delete imported
+  data" (`connections.purge`) deletes the conversation history with the imported rows and keeps
+  `ai_consents` (`KEPT`): deleting data is not withdrawing consent.
+
+## The tool set
+
+ADR 0014 §4, #206. `ai.tools.run_tool(factory, ctx, settings, name, arguments, now=...)` runs one
+tool for `ctx`'s user, in web or in the worker (a job's `job_run.factory` and `job_run.ctx`).
+Arguments are closed sets (`ai.tools_model`); outputs are fixed models on the allowlist
+`OUTPUT_FIELDS`. `TOOLSET_VERSION` is bumped with any change to a tool, its arguments or its
+output.
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `list_metrics` | none | the metrics with daily values: key, unit, area, data state |
+| `metric_summary` | `metric`, `period` 30/90/180/365 | days with data, the display band's median and range, the latest value and day, the trend's state, direction, significance and slope per 30 days with its interval, coverage, longest gap |
+| `daily_values` | `metric`, `period` 7/14/30/60/90 | `[day, value]`, at most 90, two decimals |
+| `findings` | `status` active/history, `period` | rule id, tier, severity, confidence, origin, status, window dates, metric keys; at most 100 |
+| `scores` | `kind` readiness/his/body_path | kind, day, status, value, stale |
+
+- **Reads** only through `views.reads` (the read API's reader and assembly) and
+  `views.findings_read` (consumer `ai_context`: hidden findings absent), each a `user_session` of
+  the caller under forced RLS. No tool writes, takes a user argument or returns an id, email,
+  Withings or device identifier, subject, evidence, free text or time of day.
+- **Tier filter**: experimental findings and the HIS only when the owner-only switch is on **and**
+  `OWNVITALS_AI_INCLUDE_EXPERIMENTAL` is true (default false); otherwise the reads run with the
+  switch off, so they are never loaded. No tool returns an ECG estimate.
+- A result over 64 KiB is `{"error": "result_too_large"}`; an unknown tool `unknown_tool`; bad
+  arguments `invalid_arguments`.
+
+| Test file | Covers |
+|---|---|
+| `test_ai_consent.py` | the text and its fingerprint; give needs the flag, a step-up, the exact text and the ticked box; outdated consent; the flag and consent checks; withdrawal deletes history, cancels queued and running AI jobs only, keeps the ledger and the other user's rows, needs no step-up and works with the flag off; the reply/withdrawal race on the consent row |
+| `test_ai_tools_schema.py` | the pinned output schema (any extra field fails), `check_fields`, closed arguments, refusals, and no planted identifier or text in any output over every tool and argument |
+| `test_ai_tools_tiers.py` | experimental items for each combination of the switch and the setting, a stored "off", hidden findings, `not_enabled` without the flag, without consent and with an outdated consent |
+| `test_ai_tools_isolation.py` | two users, in the request context and in a worker job run by the runner: no row of the other user |
+| `frontend/src/pages/settings/AiSection.test.tsx` | the read-only state, plain-text consent text, the unticked box, the request body, outdated, withdrawal |
+
+### Known gaps (consent and tools)
+
+- `ecg_summary`, `sleep_summary` and `activity_summary` (ADR 0014 §4) are not built: the read API
+  has no sleep or activity daily values yet, and an ECG summary needs a counts read in
+  `views.ecg_read`. They come with the read views they need.
+- `scores` returns no components (they are free-form JSON); the device attribution of device
+  findings is not returned.
+- `ai_purge_expired()` (90-day conversation retention) and `ai_digests` are not built.
+- ADR 0003 §4's step-up table does not list "Give AI consent" yet (ADR 0014 Consequences).

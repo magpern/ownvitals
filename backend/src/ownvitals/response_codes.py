@@ -110,6 +110,10 @@ CONNECTIONS: Final = (
 # The ``method.code`` of a metric detail; its numbers are in ``method.parameters``.
 VIEWS: Final = COMMON | {"daily_summary"}
 
+# ``detail.reason`` of /api/ai/* (#206): AI is not enabled (the flag is off), and a consent that
+# names another text than the current one.
+AI: Final = COMMON | {"ai_not_enabled", "ai_consent_outdated", "step_up_required"}
+
 FAMILIES: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
     {
         "auth": AUTH,
@@ -117,6 +121,7 @@ FAMILIES: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
         "job_failures": JOB_FAILURES,
         "connections": CONNECTIONS,
         "views": VIEWS,
+        "ai": AI,
     }
 )
 

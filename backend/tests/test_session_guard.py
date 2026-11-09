@@ -43,6 +43,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.views.reads",
             "ownvitals.views.profile_store",
             "ownvitals.derived.check_cli",
+            "ownvitals.ai.consent",
         ),
     )
     system = Allowlist(
@@ -152,6 +153,11 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.ai.budget", False, True),
         ("ownvitals.ai", False, False),
         ("ownvitals.ai.pricing", False, False),
+        # AI consent (#206): that exact module; the tools read through the views, the routes
+        # through the consent module.
+        ("ownvitals.ai.consent", True, False),
+        ("ownvitals.ai.tools", False, False),
+        ("ownvitals.ai.consent_routes", False, False),
         # The metrics refresh (#167): that exact module; the loop and the kinds open none.
         ("ownvitals.worker.metrics", False, True),
         ("ownvitals.worker.loop", False, False),

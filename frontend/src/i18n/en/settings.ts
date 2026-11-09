@@ -81,6 +81,18 @@ export const settings = {
   'flags.ai.label': 'AI insights',
   'flags.ai.help':
     'Not available yet. When it comes, it is off until you give explicit consent, and withdrawing consent deletes the conversation history.',
+  'ai.on': 'On. You gave consent; withdraw it here at any time.',
+  'ai.off': 'Off until you give explicit consent. Read what it means first.',
+  'ai.loadFailed': "The AI consent couldn't be loaded.",
+  'ai.consent.agree': 'I have read this and agree.',
+  'ai.consent.give': 'Give consent',
+  'ai.consent.purpose': 'Giving consent to AI insights',
+  'ai.consent.outdated': 'The consent text has changed since you agreed. Read it again to keep AI insights on.',
+  'ai.withdraw.button': 'Withdraw consent',
+  'ai.withdraw.confirm':
+    'This stops AI insights at once and deletes your AI conversation history. What was already sent stays under Anthropic’s own retention. Continue?',
+  'ai.withdraw.yes': 'Withdraw and delete history',
+  'ai.withdraw.done': 'Consent withdrawn. Your AI conversation history is deleted.',
   'data.title': 'Your data',
   'data.export.label': 'Export everything',
   'data.export.help':

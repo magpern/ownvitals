@@ -18,6 +18,8 @@ export const errors = {
   'reason.provider_disabled': 'That sign-in method is not available.',
   'reason.forbidden': 'Your account is not allowed to do that.',
   'reason.two_factor_required': 'Enter a code from your authenticator app to continue.',
+  'reason.ai_not_enabled': 'AI insights are not available.',
+  'reason.ai_consent_outdated': 'The consent text has changed. Read it again and agree to the new version.',
   'reason.step_up_required': 'This needs a fresh code from your authenticator app.',
   'reason.reauth_required': 'This needs your password again.',
   'reason.reauth_stale': 'The sign-in at Google was not recent enough. Try again.',
