@@ -10,7 +10,7 @@ could not be stored gets a 500, never a 200 (durable before 200).
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, Request, Response
@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from ownvitals.withings.webhook_cache import Cache, CachedEntry, Factory
+from ownvitals.withings.webhook_cache import Cache, CachedEntry, Factory, app_now
 
 # The logger keeps the name it had before this module was split out of ``webhooks.py``.
 logger = logging.getLogger("ownvitals.withings.webhooks")
@@ -76,8 +76,7 @@ def _metrics(app: FastAPI) -> Metrics:
 
 
 def _now(app: FastAPI) -> datetime:
-    clock = getattr(app.state, "webhook_clock", None)
-    return clock() if clock is not None else datetime.now(UTC)
+    return app_now(app)
 
 
 def _media(header: str | None) -> str | None:
