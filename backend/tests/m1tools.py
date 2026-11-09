@@ -39,7 +39,8 @@ def through_fake(monkeypatch: pytest.MonkeyPatch, fake: FakeWithings) -> None:
     original = WithingsClient.open
 
     def opened(app: Any, **options: Any) -> Any:
-        return original(app, inner=FakeWithingsTransport(fake), **options)
+        options.setdefault("inner", FakeWithingsTransport(fake))
+        return original(app, **options)
 
     monkeypatch.setattr(WithingsClient, "open", opened)
 
