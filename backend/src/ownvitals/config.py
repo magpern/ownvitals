@@ -9,11 +9,10 @@ import ipaddress
 import math
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr, ValidationInfo, field_validator, model_validator
-from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
@@ -33,6 +32,8 @@ from ownvitals.config_net import (  # noqa: F401 (re-exported)
 from ownvitals.config_secrets import (  # noqa: F401 (re-exported)
     DEFAULT_SECRETS_DIR,
     SECRET_FILE_FIELDS,
+    SecretFilesSettingsSource,
+    WithoutSecretsSource,
     read_secret_files,
     secrets_dir,
 )
@@ -66,34 +67,6 @@ CONNECTION_KEK_ID = re.compile(r"kek-[a-z0-9-]{1,28}")
 # ``webhook_pepper`` secret files, read by the crypto package; ADR 0004 section 4).
 WEBHOOK_SEED_ID = re.compile(r"seed-[a-z0-9-]{1,28}")
 WEBHOOK_PEPPER_ID = re.compile(r"pep-[a-z0-9-]{1,28}")
-
-
-class SecretFilesSettingsSource(PydanticBaseSettingsSource):
-    """Secrets come only from files, named after the field without the env prefix.
-
-    ``/run/secrets/database_password`` sets ``database_password``. pydantic-settings' own
-    secrets source would look for ``ownvitals_database_password`` because of ``env_prefix``.
-    """
-
-    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
-        return None, field_name, False  # unused: __call__ reads the files directly
-
-    def __call__(self) -> dict[str, Any]:
-        return dict(read_secret_files(secrets_dir(), SECRET_FILE_FIELDS))
-
-
-class WithoutSecretsSource(PydanticBaseSettingsSource):
-    """Wraps the environment source and drops the secret fields: env vars never set secrets."""
-
-    def __init__(self, inner: PydanticBaseSettingsSource) -> None:
-        super().__init__(inner.settings_cls)
-        self._inner = inner
-
-    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
-        return self._inner.get_field_value(field, field_name)
-
-    def __call__(self) -> dict[str, Any]:
-        return {k: v for k, v in self._inner().items() if k not in SECRET_FILE_FIELDS}
 
 
 class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings):
