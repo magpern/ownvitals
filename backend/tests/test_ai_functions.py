@@ -53,6 +53,7 @@ OTHER_ROLES = (
     "ownvitals_queue",
     "ownvitals_webhook_events",
     "ownvitals_webhook_secrets",
+    "ownvitals_metrics",
     "ownvitals_test_public",
 )
 

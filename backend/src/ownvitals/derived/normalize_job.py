@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.derived.daily_job import enqueue_daily
 from ownvitals.derived.normalize_db import SOURCES, normalise_all
+from ownvitals.derived.scores_job import enqueue_scores
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
 
@@ -85,6 +86,14 @@ async def run_normalize(job: JobRun) -> Complete:
     # to derive.
     if outcomes["measures"].status in ("written", "current"):
         await enqueue_daily(job.factory, parsed.connection_id, parsed.origin)
+    elif any(
+        outcomes[stream].status in ("written", "current")
+        for stream in ("sleep_summary", "activity_daily")
+        if stream in outcomes
+    ):
+        # An owner with only a sleep analyser or a watch has no measures, so the chain through
+        # the daily pass never runs: the scores (Readiness) are queued from here (ADR 0012 §1).
+        await enqueue_scores(job.factory, parsed.connection_id)
     return Complete()
 
 

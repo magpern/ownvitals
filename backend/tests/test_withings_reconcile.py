@@ -25,6 +25,7 @@ from ownvitals.jobs.errors import JobFailure
 from ownvitals.jobs.fence import Lease
 from ownvitals.jobs.run import JobRun
 from ownvitals.jobs.withings import ConnectInput
+from ownvitals.withings import metrics as wm
 from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.reconcile import (
     execute_reconcile,
@@ -261,8 +262,12 @@ async def test_a_row_is_deleted_only_after_two_complete_passes(
     assert await _absent(sessions, owner) == [str(grpid)]
     fake.failures.clear()
 
+    # #167: the drift counter and the API quota counter move through this real path.
+    deleted_before, calls_before = wm.reconcile_rows.get(kind="deleted"), wm.api_calls.get()
     deleted = await once()
     assert deleted.deleted == 1  # pyright: ignore[reportAttributeAccessIssue]
+    assert wm.reconcile_rows.get(kind="deleted") == deleted_before + 1
+    assert wm.api_calls.get() > calls_before
     assert await _deleted(sessions, owner, connection, grpid) is True
     assert str(grpid) not in await _absent(sessions, owner)
     assert await _revision(sessions, owner) == revision + 1
@@ -361,8 +366,10 @@ async def test_a_backdated_edit_updates_the_row_and_bumps_the_revision(
         now=int(datetime.now(UTC).timestamp()),
         measures=[{**group["measures"][0], "value": PLANTED}],
     )
+    changed_before = wm.reconcile_rows.get(kind="changed")
     edited = await once()
     assert edited.changed == 1  # pyright: ignore[reportAttributeAccessIssue]
+    assert wm.reconcile_rows.get(kind="changed") == changed_before + 1  # #167
     assert await _revision(sessions, owner) == held + 1
     async with user_session(sessions, make_context(owner)) as db:
         stored = (
@@ -384,6 +391,31 @@ async def test_a_backdated_edit_updates_the_row_and_bumps_the_revision(
     assert int(stored) == PLANTED
     assert str(PLANTED) not in state
     assert str(PLANTED) not in caplog.text
+
+
+async def test_a_601_counts_once_as_a_call_and_once_as_a_rate_limit(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    """#167: the quota and 601 counters move through the rate-limited call (``limited``)."""
+    app_id = new_app(database_url)
+    owner, connection, job_id = _plant(database_url, app_id)
+    fake = FakeWithings(seed=29, rate_limit=None)
+    app = fake.add_app()
+    user = fake.add_user(days=2, ecg_count=0, sleep_series_nights=0, intraday_days=0)
+    token = fake.tokens_for(app.client_id, user.userid)["access_token"]
+    account = Account(connection, app_id, ("user.metrics",), "UTC", token)
+    job = _run(sessions, owner, connection, job_id)
+    _refill(database_url, app_id)
+    fake.inject("status", at=1, endpoint="measure:getmeas", status=601, wait_seconds=5)
+    calls, limited = wm.api_calls.get(), wm.api_rate_limited.get()
+    async with WithingsClient.open(
+        WithingsApp(app.client_id, app.client_secret), inner=FakeWithingsTransport(fake)
+    ) as client:
+        with pytest.raises(JobFailure) as raised:
+            await execute_reconcile(job, account, client, "measures")
+    assert raised.value.category == "rate_limited"
+    assert wm.api_calls.get() == calls + 1
+    assert wm.api_rate_limited.get() == limited + 1
 
 
 async def test_subscription_drift_is_repaired_without_logging_urls(

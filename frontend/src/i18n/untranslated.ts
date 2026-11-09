@@ -8,6 +8,7 @@ export const UNTRANSLATED: readonly string[] = []
 // catalogue.test.ts fails when a listed key differs and when an unlisted key is equal.
 export const SAME_IN_SV: Readonly<Record<string, string>> = {
   'health.tier.trend': 'the same word in Swedish: trend',
+  'connections.withings.title': 'a brand name, the same in Swedish: Withings',
   'ui.tier.trend': 'the same word in Swedish: trend',
   'ui.tier.system': 'the same word in Swedish: system',
   'shell.nav.data': 'the same word in Swedish: data',
@@ -19,4 +20,15 @@ export const SAME_IN_SV: Readonly<Record<string, string>> = {
   'detail.range.90d': 'the same abbreviation in Swedish: 90 d',
   'overview.range.30d': 'the same abbreviation in Swedish: 30 d',
   'overview.range.90d': 'the same abbreviation in Swedish: 90 d',
+  'settings.theme.system': 'the same word in Swedish: system',
+  'settings.tier.trend': 'the same word in Swedish: trend',
+  'settings.tier.system': 'the same word in Swedish: system',
+  'settings.weight.unit.kg': 'a unit',
+  'settings.weight.unit.lb': 'a unit',
+  'settings.weight.unit.st': 'a unit',
+  'settings.temperature.unit.c': 'a unit',
+  'settings.temperature.unit.f': 'a unit',
+  'settings.format.iso': 'an ISO date, the same in every language',
+  'settings.range.30d': 'the same abbreviation in Swedish: 30 d',
+  'settings.range.90d': 'the same abbreviation in Swedish: 90 d',
 }

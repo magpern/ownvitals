@@ -6,12 +6,12 @@ spec uses is made up per run. M0's "done when" (PLAN §11) is the login-and-TOTP
 
 | Path | What |
 |---|---|
-| `compose.e2e.yaml` | the overlay on `compose.yaml`: `fake-oidc`, Google sign-in switched on for web, web's trust bundle |
+| `compose.e2e.yaml` | the overlay on `compose.yaml`: `fake-oidc`, Google sign-in switched on for web, web's trust bundle, the `localhost` origin |
 | `e2e/fake-oidc/` | the stand-in for Google's token and JWKS hosts (Node, no dependencies) |
 | `e2e/fake-withings/` | the stand-in for Withings (`server.py`, Python standard library, runs `backend/tests/withingscore.py`) |
 | `e2e/scripts/` | `stack-up.sh`, `stack-prepare.sh`, `stack-checks.sh`, `stack-down.sh` |
-| `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps) |
-| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n` |
+| `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps), `ratelimit.ts` (empties the rate-limit buckets) |
+| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login` |
 
 ## Run it
 
@@ -25,11 +25,15 @@ e2e/scripts/stack-down.sh        # down -v, removes e2e/.certs
 ```
 
 Ports come from `.env` (`WEB_PORT`, `MAILPIT_PORT`; `FAKE_OIDC_PORT` defaults to 9100), which
-`playwright.config.ts` reads. The browser must use `http://127.0.0.1:<WEB_PORT>`, the stack's
-`OWNVITALS_PUBLIC_BASE_URL`, or the Origin check refuses it. One worker, no retries: the specs
-share one stack and one client IP, and with them the sign-up (5 an hour) and sign-in rate limits
-(ADR 0003 §9). A rerun against the same stack needs a fresh one (`stack-down.sh`, `stack-up.sh`)
-once those budgets are spent.
+`playwright.config.ts` reads. The browser must use `http://localhost:<WEB_PORT>`, the
+`OWNVITALS_PUBLIC_BASE_URL` that `compose.e2e.yaml` sets for web and the worker, or the Origin
+check refuses it: `localhost`, not `127.0.0.1`, because WebAuthn has no relying party on an IP
+address (#180; the two fakes' redirect URIs follow it). One worker, no retries: the specs share
+one stack and one client IP, and with them the sign-up (5 an hour) and sign-in rate limits (ADR
+0003 §9). `passkeys` and `qr-login` sign up more accounts and start with `resetRateLimits()`
+(`DELETE FROM rate_limits` as the database superuser, like `ageStepUp`); a rerun of the other
+specs against the same stack still needs a fresh one (`stack-down.sh`, `stack-up.sh`) once those
+budgets are spent.
 
 ## Image and SPA
 
@@ -106,6 +110,14 @@ trust bundle (the worker needs it for the Withings calls of M1).
   account with a password gets `reauth_use_password` at the start ([auth-reauth.md](auth-reauth.md)).
 - `step-up`: Security → "Sign out everywhere…" → "Confirm it's you" with a fresh code → signed out
   everywhere. A wrong code changes nothing.
+- `passkeys` (#180, ADR 0011 §8): a CDP virtual authenticator (CTAP2, internal, resident key, user
+  verification): add a passkey behind "Confirm it's you" (code), sign out, "Sign in with a
+  passkey", the code prompt, then remove it behind the dialog (password, then code).
+- `qr-login` (#180, ADR 0011 §5): two contexts, the test's page as the desktop and a signed-in
+  "phone". The phone opens `/qr#<nonce>` with the nonce from the desktop's `qr/start` answer (as
+  the camera reads it from the QR; no test hook in the app): approve with a code (the desktop shows
+  "Signed in as …", then the app), deny, and expiry: the desktop's clock is faked
+  (`page.clock`), the code shows as expired after 60 s, and a new code makes the old one refused.
 - `password-reset`: mail from mailpit → new password → the old one is refused, the new one signs
   in (as far as enrolment).
 
@@ -140,7 +152,9 @@ is part of `checks` and required.
   against the real Withings (INTEGRATION_VERIFIED is the owner's).
 
 - The specs were written without a Docker daemon in the authoring session; the first CI run is
-  their first run. Chromium must keep `Secure` cookies (`__Host-`) on `http://127.0.0.1`, which it
-  does for loopback.
+  their first run. Chromium must keep `Secure` cookies (`__Host-`) on `http://localhost`, which it
+  does for loopback, and reach the port published on 127.0.0.1 when it resolves `localhost`.
+- `passkeys` and `qr-login` (#180) were written without a Docker daemon too; their first CI run is
+  their first run.
 - The Trivy release and checksum in the `e2e` job are copied from the `checks` job (both
   install it through `scripts/ci-install-release.sh`): bump both together.

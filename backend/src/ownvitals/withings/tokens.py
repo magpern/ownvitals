@@ -7,7 +7,8 @@ access token is returned only after that commit. An ambiguous outcome leaves the
 ``requesttoken`` body is that same lost response on this path only: ``Permanent.ambiguous``
 stays false and the client does not retry it. An intent older than 8 hours,
 or a failed recovery, sets ``needs_reconnect`` and the in-app notice (``last_error``). Nothing
-here sends mail.
+here sends mail. Every ``requesttoken`` that does not store a new pair counts as a refresh
+failure, and a recovery that does store one as a recovery (PLAN section 4.4).
 
 Two callers that race take the same lock. The one that finds the generation already moved
 returns the stored token and does not call Withings.
@@ -34,6 +35,7 @@ from ownvitals.crypto.keks import KeyRing
 from ownvitals.jobs.fence import Lease
 from ownvitals.withings.client import WithingsClient
 from ownvitals.withings.errors import TOO_LARGE, TokenInvalid, WithingsError
+from ownvitals.withings.metrics import record_refresh_failure, record_refresh_recovery
 
 Factory = async_sessionmaker[AsyncSession]
 _OUTCOMES = frozenset(
@@ -91,6 +93,8 @@ async def _apply(
         other = not ambiguous
     if after_response is not None and issued is not None:
         after_response()
+    if issued is None:
+        record_refresh_failure()
     if issued is not None:
         saved = await commit_refresh(
             factory,
@@ -104,6 +108,8 @@ async def _apply(
             lease,
         )
         if saved:
+            if recovery:
+                record_refresh_recovery()
             if after_commit is not None:
                 after_commit()
             return RefreshResult(

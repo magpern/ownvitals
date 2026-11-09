@@ -1,0 +1,76 @@
+/*
+ * QR approve-login (ADR 0011 sections 5 and 7): the desktop's panel on the sign-in card and the
+ * phone's approval screen. Built from the existing pieces (the sign-in card, `.qr`, `.ov-auth`,
+ * the dialog); tokens only. The QR stays dark on light in both themes (`--ov-qr-paper`).
+ */
+
+.ov-qrlogin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-3);
+  margin-top: var(--ov-space-4);
+}
+
+.ov-qrlogin__title {
+  margin: 0;
+  font-size: var(--ov-text-md);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-qrlogin p,
+.ov-qrlogin .notice {
+  margin: 0;
+}
+
+.ov-qrlogin .qr {
+  margin: 0;
+  padding: var(--ov-space-2);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-sm);
+}
+
+.ov-qrlogin__alt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-2);
+  margin-top: var(--ov-space-4);
+}
+
+/* The sign-in card's passkey and phone buttons: full width, as "Continue with Google" */
+
+.ov-signin-alt .button {
+  width: 100%;
+  margin-right: 0;
+}
+
+.ov-signin-alt .field__hint {
+  margin: 0 0 var(--ov-space-3);
+}
+
+/* What the phone shows about the computer that asks */
+
+.ov-approve__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--ov-space-2) var(--ov-space-4);
+  margin: 0;
+}
+
+.ov-approve__facts dt {
+  color: var(--ov-muted);
+}
+
+.ov-approve__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ov-approve__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ov-space-2);
+}
+
+.ov-approve__actions .ov-btn {
+  flex: 1 1 8rem;
+}

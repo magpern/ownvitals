@@ -410,3 +410,11 @@ English is formatted as en-GB (day first, 24 hours); see `INTL_TAG` in `src/i18n
   (the admin page, the product name) and the test pins its size.
 - `src/i18n/catalogue.test.ts`: same keys per area, placeholder names equal to English and bare,
   no markup, plural categories present for each language, the untranslated list exact.
+
+## Settings (issue 203)
+
+`/settings/profile`, `/settings/notifications` and `/settings/data` are in `src/pages/settings/`
+(`settingsPages.tsx` maps the routes). They read and save `GET`/`PUT /api/profile` as one document
+(`src/api/profile.ts`, `useProfile`). The theme follows the account: the server value is applied on
+load and `setThemePreference` keeps it in this browser. The Language row (`AccountLanguage`) is in
+the Display card. Deleting the account runs `DELETE /api/auth/account` through `useProtected`.

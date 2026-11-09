@@ -89,6 +89,16 @@ answers 404 `passkeys_unavailable`; locally, use `http://localhost:<port>`.
 - **A password reset** keeps passkeys; its link mail lists them with a link to the Security page.
   A password change sends no mail today, so it lists nothing.
 
+## Frontend (#180)
+
+`frontend/src/api/passkeys.ts` converts between the JSON form above and the browser's
+ArrayBuffers and runs the ceremonies; `components/PasskeyList.tsx` is the Security tab's
+passkeys (list, rename, add and remove through `useProtected`, so the shared "Confirm it's you"
+dialog asks for the password and the code and the action is tried again); the sign-in page has
+"Sign in with a passkey" (discoverable, so the browser offers "Use a phone"). A closed passkey
+window (`NotAllowedError`) or a passkey already on the authenticator (`InvalidStateError`) is one
+sentence, never the browser's text. e2e: `e2e/specs/passkeys.spec.ts`.
+
 ## Settings
 
 | Setting | Default | |

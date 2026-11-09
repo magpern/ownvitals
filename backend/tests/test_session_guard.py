@@ -40,6 +40,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.ecg_validate",
             "ownvitals.views.findings_read",
             "ownvitals.views.reads",
+            "ownvitals.views.profile_store",
             "ownvitals.derived.check_cli",
         ),
     )
@@ -51,6 +52,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.flags.routes",
             "ownvitals.notify.outbox",
             "ownvitals.ai.budget",
+            "ownvitals.worker.metrics",
         ),
     )
     private = Allowlist(prefixes=("ownvitals.db",))
@@ -97,6 +99,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
         "ownvitals.views.metrics_routes",
         "ownvitals.views.days_routes",
         "ownvitals.views.nerve_routes",
+        "ownvitals.views.profile_routes",
         "ownvitals.views.assemble",
     ],
 )
@@ -120,6 +123,8 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.views.findings_read", True, False),
         # The read API's reader (#189): that exact module, not its routes.
         ("ownvitals.views.reads", True, False),
+        # The caller's own profile row (#203): that exact module, not its routes.
+        ("ownvitals.views.profile_store", True, False),
         # The owner's reproducibility check (#187): that exact module, not the writers.
         ("ownvitals.derived.check_cli", True, False),
         ("ownvitals.derived.findings_store", False, False),
@@ -142,6 +147,11 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.ai.budget", False, True),
         ("ownvitals.ai", False, False),
         ("ownvitals.ai.pricing", False, False),
+        # The metrics refresh (#167): that exact module; the loop and the kinds open none.
+        ("ownvitals.worker.metrics", False, True),
+        ("ownvitals.worker.loop", False, False),
+        ("ownvitals.worker", False, False),
+        ("ownvitals.metrics_server", False, False),
     ],
 )
 def test_the_owning_modules_are_allowlisted(module: str, user: bool, system: bool) -> None:
