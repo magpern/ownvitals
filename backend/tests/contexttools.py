@@ -136,6 +136,10 @@ ROWS: Final[Mapping[str, str]] = {
     # The AI cost cap (#205): one month row per planting (n) and a settled reservation.
     "ai_spend": "INSERT INTO public.ai_spend (owner_id, month) VALUES "
     "(:owner, CAST(DATE '2000-01-01' + make_interval(months => :n) AS date)) RETURNING id",
+    # The notification holds (#195): an ended hold of a synthetic finding id.
+    "notify_holds": "INSERT INTO public.notify_holds (owner_id, finding_id, rule_id, started_at, "
+    "revision_at, revision_seen, ended_at, reason, outcome) VALUES (:owner, gen_random_uuid(), "
+    "'E4', :ts, :ts, :ts, :ts, 'timeout', 'sent_not_evaluated') RETURNING id",
     "ai_reservations": "INSERT INTO public.ai_reservations (owner_id, month, amount, actual, "
     "state, job_id, lease_version, ended_at) VALUES (:owner, DATE '2026-01-01', :n, :n, "
     "'settled', :job, 0, :ts) RETURNING id",

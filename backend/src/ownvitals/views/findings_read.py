@@ -26,6 +26,10 @@ filters ``owner_id`` itself (ADR 0002). Then, in order:
 4. **Estimates** (section 9) only behind the switch, and only up to date
    (``overlay.estimate_view``).
 
+The notification step (``notify.findings``) reads through ``read_notification_candidates``, in
+its job's fenced session: the ``notification`` consumer with hidden findings kept and marked, so
+it can end their hold without sending, and each trigger group's links (``TriggerLink``).
+
 The result is typed; its ``repr`` names no value.
 """
 
@@ -46,6 +50,7 @@ from ownvitals.ecg.overlay import (
     RecordingKey,
     ecg_gate_overlay,
     estimate_view,
+    estimated_current,
     recording_device_id,
     resolve_links,
 )
@@ -66,8 +71,10 @@ from ownvitals.views.findings_models import (
     FindingView,
     GateView,
     LinkedEstimate,
+    NotificationCandidate,
     Reading,
     Tab,
+    TriggerLink,
     area_of,
     groups_of_evidence,
 )
@@ -94,7 +101,8 @@ _FINDINGS = text(
     "WHERE owner_id = :owner "
     "AND (CAST(:origin AS text) IS NULL OR origin = CAST(:origin AS text)) "
     "AND (CAST(:tier AS text) IS NULL OR tier = CAST(:tier AS text)) "
-    "AND (CAST(:finding AS uuid) IS NULL OR id = CAST(:finding AS uuid)) "
+    "AND (CAST(:finding_ids AS uuid[]) IS NULL OR id = ANY(CAST(:finding_ids AS uuid[]))) "
+    "AND (NOT CAST(:notified AS boolean) OR notify_state = 'sent') "
     "AND (CAST(:experimental AS boolean) OR (tier <> 'experimental' "
     "AND rule_id <> ALL(CAST(:experimental_rules AS text[])))) "
     "AND (CAST(:letters AS text[]) IS NULL OR left(rule_id, 1) = ANY(CAST(:letters AS text[]))) "
@@ -180,21 +188,32 @@ async def _links(
     )
 
 
+@dataclass(frozen=True)
+class _Loaded:
+    views: list[FindingView]
+    linked: dict[UUID, dict[int, tuple[RecordingKey, ...]]]
+    next_offset: int | None
+    groups: tuple[GroupKey, ...]
+
+
 async def _load(
     db: AsyncSession,
     owner: UUID,
     switch: bool,
     consumer: Consumer,
     query: FindingsQuery,
-    finding: UUID | None,
-) -> tuple[list[FindingView], dict[UUID, dict[int, tuple[RecordingKey, ...]]], int | None]:
+    ids: Sequence[UUID] | None,
+    *,
+    keep_hidden: bool = False,
+) -> "_Loaded":
     if consumer not in CONSUMERS:
         raise ValueError("unknown consumer")
     params = {
         "owner": owner,
         "origin": None if query.tab is None else _ORIGIN[query.tab],
         "tier": query.tier,
-        "finding": finding,
+        "finding_ids": None if ids is None else list(ids),
+        "notified": query.notified,
         "experimental": switch,
         "experimental_rules": sorted(EXPERIMENTAL_RULES),
         "letters": None
@@ -223,11 +242,11 @@ async def _load(
         triggers = groups_of_evidence(mapping_of(row["evidence"]))
         linked = resolve_links(triggers, group_keys, recordings)
         overlay = ecg_gate_overlay(str(row["rule_id"]), linked)
-        if overlay.hidden and consumer not in INCLUDES_HIDDEN:
+        if overlay.hidden and consumer not in INCLUDES_HIDDEN and not keep_hidden:
             continue
         views.append(finding_view(row, overlay, switch))
         linked_by_finding[row["id"]] = linked
-    return views, linked_by_finding, next_offset
+    return _Loaded(views, linked_by_finding, next_offset, group_keys)
 
 
 async def read_findings(
@@ -242,7 +261,8 @@ async def read_findings(
     query = query if query is not None else FindingsQuery()
     async with user_session(factory, ctx) as db:
         switch = await _switch(db, settings)
-        views, _, next_offset = await _load(db, ctx.user_id, switch, consumer, query, None)
+        loaded = await _load(db, ctx.user_id, switch, consumer, query, None)
+        views, next_offset = loaded.views, loaded.next_offset
     return FindingsRead(findings=tuple(views), experimental=switch, next_offset=next_offset)
 
 
@@ -259,9 +279,8 @@ async def read_finding(
     user's, missing, experimental without the switch, or hidden for this consumer."""
     async with user_session(factory, ctx) as db:
         switch = await _switch(db, settings)
-        views, linked, _ = await _load(
-            db, ctx.user_id, switch, consumer, FindingsQuery(), finding_id
-        )
+        loaded = await _load(db, ctx.user_id, switch, consumer, FindingsQuery(), [finding_id])
+        views, linked = loaded.views, loaded.linked
         if not views:
             return None
         view = views[0]
@@ -294,6 +313,42 @@ async def read_finding(
                 shown = estimate_view(recording.estimated, recording.fingerprint)
                 estimates.append(LinkedEstimate(recording.id, grpid, shown))
     return FindingDetail(finding=view, readings=readings_of(rows), estimates=tuple(estimates))
+
+
+def _trigger_links(
+    linked: Mapping[int, Sequence[RecordingKey]], groups: Sequence[GroupKey]
+) -> tuple[TriggerLink, ...]:
+    connection: dict[int, UUID] = {}
+    for group in groups:
+        connection.setdefault(group.grpid, group.connection)
+    return tuple(
+        TriggerLink(
+            grpid=grpid,
+            connection=connection.get(grpid),
+            linked=len(recordings),
+            without_estimate=sum(
+                1 for r in recordings if not estimated_current(r.estimated, r.fingerprint)
+            ),
+        )
+        for grpid, recordings in linked.items()
+    )
+
+
+async def read_notification_candidates(
+    db: AsyncSession, owner: UUID, settings: Settings, ids: Sequence[UUID]
+) -> tuple[NotificationCandidate, ...]:
+    """The findings ``ids`` for the notification step (``ownvitals.notify.findings``), in the
+    caller's session: a job's fenced session of ``owner``, under forced RLS. The ``notification``
+    consumer, except that a hidden finding is kept with ``hidden`` set, so the step can end its
+    hold (it never sends one). Without the switch no experimental finding is returned."""
+    if not ids:
+        return ()
+    switch = await _switch(db, settings)
+    loaded = await _load(db, owner, switch, "notification", FindingsQuery(), ids, keep_hidden=True)
+    return tuple(
+        NotificationCandidate(view, _trigger_links(loaded.linked[view.id], loaded.groups))
+        for view in loaded.views
+    )
 
 
 async def read_ecg_estimates(
@@ -336,10 +391,12 @@ __all__ = [
     "FindingsRead",
     "GateView",
     "LinkedEstimate",
+    "NotificationCandidate",
     "Reading",
     "Tab",
     "area_of",
     "read_ecg_estimates",
     "read_finding",
     "read_findings",
+    "read_notification_candidates",
 ]

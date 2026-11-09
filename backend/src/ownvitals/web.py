@@ -36,6 +36,7 @@ from ownvitals.views.ecg_routes import router as ecg_router
 from ownvitals.views.findings_routes import router as findings_router
 from ownvitals.views.metrics_routes import router as metrics_router
 from ownvitals.views.nerve_routes import router as nerve_router
+from ownvitals.views.notifications_routes import router as notifications_router
 from ownvitals.views.profile_routes import router as profile_router
 from ownvitals.views.scores_routes import router as scores_router
 from ownvitals.views.status_routes import router as status_router
@@ -74,6 +75,7 @@ FEATURE_ROUTERS = (
     ecg_router,
     profile_router,
     scores_router,
+    notifications_router,
 )
 
 

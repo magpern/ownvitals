@@ -18,6 +18,7 @@ from ownvitals.context import UserContext
 from ownvitals.db import user_session
 from ownvitals.derived.tables import findings, metric_daily, observations, scores
 from ownvitals.ingest.tables import data_revisions, sync_cursors
+from ownvitals.notify.tables import notify_holds
 from ownvitals.withings.tables import (
     activity_daily,
     devices,
@@ -56,6 +57,7 @@ IMPORTED = (
     observations,
     metric_daily,
     findings,
+    notify_holds,  # #195: the notification holds of those findings (rule ids and times only)
     scores,
     _JOBS,
 )

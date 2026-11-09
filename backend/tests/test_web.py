@@ -265,6 +265,7 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
     from ownvitals.views.findings_routes import router as findings
     from ownvitals.views.metrics_routes import router as metrics
     from ownvitals.views.nerve_routes import router as nerve
+    from ownvitals.views.notifications_routes import router as notifications
     from ownvitals.views.profile_routes import router as profile
     from ownvitals.views.scores_routes import router as scores
     from ownvitals.views.status_routes import router as status
@@ -282,6 +283,7 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
         ecg,
         profile,
         scores,
+        notifications,
     )
     assert all(isinstance(router, APIRouter) for router in routers)
     assert {id(router) for router in routers} == {id(router) for router in FEATURE_ROUTERS}
