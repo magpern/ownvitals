@@ -6,7 +6,8 @@ section 8, ADR 0008).
 ``ecg_fetch``, ``withings_poll``), the nightly ``withings_reconcile``,
 ``token_refresh_recover`` and ``withings_disconnect`` (the revoke a disconnect or an account
 deletion enqueues, ``ownvitals.auth.purge``, #163), and the analysis chain
-``derive_normalize``, ``derive_daily`` and ``derive_evaluate`` (#185, #186, #187). Only
+``derive_normalize``, ``derive_daily``, ``derive_evaluate`` and ``derive_scores`` (#185, #186,
+#187, #188). Only
 ``python -m ownvitals.worker`` builds it. The API's registry (``ownvitals.jobs.KINDS``) stays
 empty, so ``POST /api/jobs`` still refuses every kind and the web process registers no handler
 (web imports ``ownvitals.auth.purge`` for the routes, which defines the disconnect handler but
@@ -36,6 +37,7 @@ from ownvitals.crypto.keks import KeyRing, KeyRingError, KeyUnavailable
 from ownvitals.derived.daily_job import register_daily_kind
 from ownvitals.derived.evaluate_job import register_evaluate_kind
 from ownvitals.derived.normalize_job import enqueue_normalize, register_normalize_kind
+from ownvitals.derived.scores_job import register_scores_kind
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
 from ownvitals.jobs.withings import ConnectInput, SecretTargets
@@ -168,4 +170,5 @@ def worker_registry() -> KindRegistry:
     register_normalize_kind(registry)
     register_daily_kind(registry)
     register_evaluate_kind(registry)
+    register_scores_kind(registry)
     return registry
