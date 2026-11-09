@@ -283,9 +283,9 @@ def check_queue(conn: Connection) -> list[str]:
         need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
         actual_acl = set(f.acl or [])
         expected_acl = set(ACL)
-        # The ingest role may EXECUTE queue_enqueue (40-withings.sql). A later run of
-        # 20-queue.sql alone revokes it; both are shipped states.
-        if name == "queue_enqueue" and f"ownvitals_webhook_events=X/{QUEUE}" in actual_acl:
+        # The ingest role must EXECUTE queue_enqueue once 40-withings.sql installed the ingest,
+        # and must not before (#280). 20-queue.sql run alone keeps the grant.
+        if name == "queue_enqueue" and any(g.proname == "webhook_event_insert" for g in functions):
             expected_acl.add(f"ownvitals_webhook_events=X/{QUEUE}")
         need(
             actual_acl == expected_acl and len(actual_acl) == len(expected_acl),

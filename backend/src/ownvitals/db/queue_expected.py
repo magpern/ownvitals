@@ -83,8 +83,8 @@ WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
 }
 EXPECTED_ACL = "ownvitals_app=X/ownvitals_queue,ownvitals_queue=X/ownvitals_queue"
 # 40-withings.sql grants the ingest role EXECUTE on queue_enqueue so the notification and the
-# job commit together. 20-queue.sql revokes that grant when it is re-run on its own, so both
-# ACLs are the shipped ones: with the ingest role, and without it.
+# job commit together, and 20-queue.sql keeps that grant when it is re-run on its own. The ACL
+# is this one exactly when webhook_event_insert exists, and EXPECTED_ACL before it does (#280).
 ENQUEUE_INGEST_ACL = EXPECTED_ACL + ",ownvitals_webhook_events=X/ownvitals_queue"
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 EXPECTED_ATTRIBUTES = [False, False, False, False, False, True, False]
