@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ANONYMOUS, SIGNED_IN, SIGNED_IN_NO_CODE, fakeApi, reason } from '../test/fakeApi'
 import { renderAt } from '../test/render'
@@ -42,6 +42,29 @@ describe('approving a sign-in on the phone', () => {
     expect(api.to('POST', '/api/auth/qr/scan')).toHaveLength(1)
     expect(api.to('POST', '/api/auth/qr/scan')[0]?.body).toEqual({ nonce: NONCE })
     expect(screen.getByRole('button', { name: 'Approve…' })).toHaveAttribute('aria-haspopup', 'dialog')
+  })
+
+  it('starts over when a new code is opened in the same tab (only the fragment changes)', async () => {
+    let scans = 0
+    const api = fakeApi({
+      'GET /api/auth/session': SIGNED_IN,
+      'POST /api/auth/qr/scan': () => {
+        scans += 1
+        return { ...SCANNED, id: `row-${String(scans)}` }
+      },
+      'POST /api/auth/qr/row-1/deny': { status: 'denied' },
+    })
+    renderAt(`/qr#${NONCE}`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Deny' }))
+    expect(await screen.findByRole('heading', { name: 'Sign-in denied' })).toBeInTheDocument()
+    const next = 'B'.repeat(42) + 'Q'
+    act(() => {
+      window.history.replaceState(null, '', `/qr#${next}`)
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+    expect(await screen.findByRole('heading', { name: 'Approve a sign-in?' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('')
+    expect(api.to('POST', '/api/auth/qr/scan').map((call) => call.body)).toEqual([{ nonce: NONCE }, { nonce: next }])
   })
 
   it('warns when the computer is on another network', async () => {

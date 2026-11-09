@@ -39,7 +39,25 @@ type View =
 /** The server's own "Place unknown" (geo.shown), worded in the current language. */
 const SERVER_PLACE_UNKNOWN = 'Place unknown'
 
+/**
+ * A new `/qr#<nonce>` opened while this page is showing (the camera reusing the tab) changes only
+ * the fragment, so the browser does not load the page again: start over with the new request.
+ */
 export function ApproveLoginPage() {
+  const [request, setRequest] = useState(0)
+  useEffect(() => {
+    const onHash = () => {
+      if (window.location.hash !== '') setRequest((n) => n + 1)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => {
+      window.removeEventListener('hashchange', onHash)
+    }
+  }, [])
+  return <ApproveRequest key={request} />
+}
+
+function ApproveRequest() {
   const t = useT()
   const { status, session } = useSession()
   // Read before the effect below removes it; the initializer may run twice, both before that.
