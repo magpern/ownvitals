@@ -17,6 +17,8 @@ Each has its own allowlist, of packages (the package and everything under it) an
   through it, so none of them opens a session of its own for those rows. The exact module
   ``ownvitals.views.reads`` (#189) is the read API's one other reader (status, metrics, days,
   readings, nerve summary): it never reads those tables. The exact module
+  ``ownvitals.views.profile_store`` (#203) reads and writes the caller's own
+  ``user_profiles`` row. The exact module
   ``ownvitals.derived.check_cli`` (#187) reads one named owner's daily values and findings for
   ``ownvitals analysis check`` (read only, counts and versions out). **The rest of
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
@@ -69,7 +71,11 @@ JOBS_USER_SESSION = ("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvital
 # The owner ECG report (#47): one module, not the pure ECG library.
 ECG_USER_SESSION = ("ownvitals.ecg_validate",)
 # The one findings read function (#190, ADR 0006 section 11): not the routes, not the package.
-VIEWS_USER_SESSION = ("ownvitals.views.findings_read", "ownvitals.views.reads")
+VIEWS_USER_SESSION = (
+    "ownvitals.views.findings_read",
+    "ownvitals.views.reads",
+    "ownvitals.views.profile_store",
+)
 # ``analysis check`` (#187): the owner's reproducibility check reads one named owner's daily
 # values and findings for the operator command; the rest of ``ownvitals.derived`` writes only
 # through the fence.

@@ -31,7 +31,7 @@ describe('the app frame', () => {
   })
 
   // The screens built so far (src/pages/appPages.tsx) have their own tests.
-  const BUILT_SCREENS = new Set(['security', 'overview', 'heart', 'sleep', 'activity'])
+  const BUILT_SCREENS = new Set(['security', 'overview', 'heart', 'sleep', 'activity', 'settings', 'notifications', 'data'])
 
   it.each(APP_ROUTES.filter((route) => !BUILT_SCREENS.has(route.id)).map((route) => [route.id, route] as const))(
     'shows the page header and "Coming later" on the %s screen',
