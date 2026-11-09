@@ -5,6 +5,7 @@ import { useT } from '../i18n'
 import { AdminPage } from './AdminPage'
 import { OVERVIEW_PAGES } from './overviewPages'
 import { SecurityPage } from './SecurityPage'
+import { METRIC_PAGES } from './metricPages'
 
 // The screens of the signed-in app. A screen that is not built yet shows the "Coming later"
 // pattern under its page header (the frame supplies the header). The issue that builds a screen
@@ -17,6 +18,7 @@ const BUILT: Partial<Record<RouteId, ComponentType>> = {
   // #11: the lock band, "Where you're signed in" and the step-up dialog; the rest comes later.
   security: SecurityPage,
   ...OVERVIEW_PAGES,
+  ...METRIC_PAGES,
 }
 
 function ComingLaterPage({ route }: { route: AppRoute }) {

@@ -3,6 +3,7 @@ import { account } from './account'
 import { auth } from './auth'
 import { codes } from './codes'
 import { common } from './common'
+import { detail } from './detail'
 import { errors } from './errors'
 import { health } from './health'
 import { overview } from './overview'
@@ -13,7 +14,7 @@ import { ui } from './ui'
 // English is the source of every message and the fallback for a key a language lacks. An area is
 // one file in this folder, and one line here and in ../sv/index.ts.
 
-export const EN_AREAS = { common, errors, codes, health, auth, account, security, shell, ui, overview }
+export const EN_AREAS = { common, errors, codes, detail, health, auth, account, security, shell, ui, overview }
 
 export type Areas = typeof EN_AREAS
 export type MessageKey = {
@@ -25,6 +26,7 @@ export const EN: Messages = {
   ...prefixed('common', common),
   ...prefixed('errors', errors),
   ...prefixed('codes', codes),
+  ...prefixed('detail', detail),
   ...prefixed('health', health),
   ...prefixed('auth', auth),
   ...prefixed('account', account),

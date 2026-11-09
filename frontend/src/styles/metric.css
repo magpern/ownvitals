@@ -1,0 +1,100 @@
+/* The metric screens: metric detail, day view and the reading drawer. Tokens only. */
+
+.ov-range {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--ov-space-1);
+  padding: var(--ov-space-1);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-full);
+}
+
+.ov-range__item {
+  padding: var(--ov-space-1) var(--ov-space-3);
+  border-radius: var(--ov-radius-full);
+  color: var(--ov-muted);
+  font-size: var(--ov-text-sm);
+  text-decoration: none;
+}
+
+.ov-range__item[aria-current='true'] {
+  background: var(--ov-brand-soft);
+  color: var(--ov-brand);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-metric__crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ov-space-2);
+  color: var(--ov-muted);
+  font-size: var(--ov-text-sm);
+}
+
+.ov-metric__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ov-space-3);
+  margin: var(--ov-space-3) 0 var(--ov-space-5);
+}
+
+.ov-metric__name {
+  margin: 0;
+}
+
+.ov-metric__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--ov-space-4);
+  margin-bottom: var(--ov-space-5);
+}
+
+.ov-metric__list,
+.ov-metric__unconfirmed {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov-metric__unconfirmed {
+  margin-top: var(--ov-space-3);
+  color: var(--ov-muted);
+  font-size: var(--ov-text-sm);
+}
+
+.ov-metric__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--ov-space-2) var(--ov-space-4);
+  margin: 0;
+}
+
+.ov-metric__facts dt {
+  color: var(--ov-muted);
+}
+
+.ov-metric__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ov-metric__day {
+  display: grid;
+  gap: var(--ov-space-4);
+}
+
+.ov-metric__drawer {
+  padding: var(--ov-space-4);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-lg);
+  background: var(--ov-surface);
+}
+
+@media (min-width: 64rem) {
+  .ov-metric__day--open {
+    grid-template-columns: minmax(0, 1fr) 24rem;
+    align-items: start;
+  }
+}

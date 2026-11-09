@@ -11,6 +11,12 @@ export const SAME_IN_SV: Readonly<Record<string, string>> = {
   'ui.tier.trend': 'the same word in Swedish: trend',
   'ui.tier.system': 'the same word in Swedish: system',
   'shell.nav.data': 'the same word in Swedish: data',
+  'detail.trend': 'the same word in Swedish: trend',
+  'detail.day.status': 'the same word in Swedish: status',
+  'detail.reading.firmware': 'the same word in Swedish: firmware',
+  'detail.reading.rawFormula': 'a formula, the same in both languages',
+  'detail.range.30d': 'the same abbreviation in Swedish: 30 d',
+  'detail.range.90d': 'the same abbreviation in Swedish: 90 d',
   'overview.range.30d': 'the same abbreviation in Swedish: 30 d',
   'overview.range.90d': 'the same abbreviation in Swedish: 90 d',
 }
