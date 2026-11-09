@@ -125,7 +125,11 @@ The `e2e` job runs when the `stack` filter is true (`backend/`, `frontend/`, `e2
 `Dockerfile`, compose files, `.env.example`, `.trivyignore`, `scripts/worktree.sh`; everything on
 a `.github/` change, the weekly run and a manual run). It builds and starts the stack, runs
 `stack-checks.sh`, scans the web image with a checksum-verified Trivy (HIGH and CRITICAL with a
-fix fail; `.trivyignore` applies), type-checks `e2e/`, then runs Playwright. `e2e` is in `needs`
+fix fail; `.trivyignore` applies), then, only when the `playwright` filter is true (`frontend/`, `e2e/`, `docker/`, `Dockerfile`,
+compose files, `.dockerignore`; everything on a `.github/` change, a push to `main`, the weekly run
+and a manual run), installs the e2e dependencies and Chromium, type-checks `e2e/` and runs
+Playwright. A backend-only change gets the stack, the checks and the scan without Playwright.
+`e2e` is in `needs`
 of `ci` and in `JOBS`/`FILTERS` of `scripts/ci-gate.sh` (filter `stack`). `npm audit` of `e2e/`
 is part of `checks` and required.
 

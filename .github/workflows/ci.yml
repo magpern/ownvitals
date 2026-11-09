@@ -30,6 +30,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       stack: ${{ steps.filter.outputs.stack }}
+      playwright: ${{ steps.filter.outputs.playwright }}
       all: ${{ steps.filter.outputs.all }}
       # The backend test shard count, from the backend-tests matrix's shard list (the one source).
       shards: ${{ steps.shards.outputs.total }}
@@ -415,8 +416,10 @@ jobs:
       - run: npm run build
 
   # The compose stack with fakes only (Google's back channel, mail), the image scan, then the
-  # Playwright specs against it (docs/dev/e2e.md). Runs when the stack changed (filter `stack`).
-  # No step is skipped: a missing e2e/ fails the job. The Trivy release is the same one, with the
+  # Playwright specs against it (docs/dev/e2e.md). Runs when the stack changed (filter `stack`);
+  # the e2e dependencies, Chromium, the type check and the specs run only when the `playwright`
+  # filter is true (UI, e2e, compose or Docker files; always on `main`, weekly and manual runs).
+  # The Trivy release is the same one, with the
   # same checksum, as the `checks` job's (bump both together).
   e2e:
     name: E2E
@@ -472,6 +475,7 @@ jobs:
             "$image"
 
       - name: Install the e2e dependencies and Chromium
+        if: needs.changes.outputs.playwright == 'true'
         working-directory: e2e
         run: |
           set -euo pipefail
@@ -479,10 +483,12 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Type check
+        if: needs.changes.outputs.playwright == 'true'
         working-directory: e2e
         run: npm run typecheck
 
       - name: Playwright specs
+        if: needs.changes.outputs.playwright == 'true'
         working-directory: e2e
         env:
           CI: "true"
