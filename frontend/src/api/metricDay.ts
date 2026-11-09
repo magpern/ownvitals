@@ -72,7 +72,7 @@ export interface ReadingView {
   qualityFlags: string[]
   gates: Gate[]
   usedInDaily: boolean
-  provenance: { algoVersion: string; inputRevision: number; recomputePending: boolean }
+  provenance: { algoVersion: string; inputRevision: number; inputFingerprint: string; recomputePending: boolean }
 }
 
 export function decodeReading(raw: unknown): ReadingView {
@@ -98,6 +98,7 @@ export function decodeReading(raw: unknown): ReadingView {
     provenance: {
       algoVersion: text(provenance, 'algo_version'),
       inputRevision: num(provenance, 'input_revision'),
+      inputFingerprint: text(provenance, 'input_fingerprint'),
       recomputePending: flag(provenance, 'recompute_pending'),
     },
   }

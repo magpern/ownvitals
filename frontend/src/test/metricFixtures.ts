@@ -1,6 +1,7 @@
 // Synthetic payloads of the metric screens (synthetic: true). Made-up numbers, no real account.
 
 export const SYNTHETIC = true
+export const FINGERPRINT = '9f3c41d0aa11bb22cc33dd44ee55ff667788990011223344556677887be2a71e'
 
 type Json = Record<string, unknown>
 
@@ -22,7 +23,7 @@ export function syntheticMetric(over: Json = {}): Json {
     band: { median: 78.2, low: 77.5, high: 78.9, window_days: 28, k: 2 },
     band_progress: null,
     trend: {
-      state: 'ready',
+      state: 'ok',
       progress: null,
       direction: 'increasing',
       significant: true,
@@ -81,6 +82,20 @@ export function syntheticReading(): Json {
     quality_flags: [],
     gates: [{ gate: 'range', passed: true, advisory: false }],
     used_in_daily: true,
-    provenance: { algo_version: 'v1', input_revision: 3, recompute_pending: false },
+    provenance: { algo_version: 'v1', input_revision: 3, input_fingerprint: FINGERPRINT, recompute_pending: false },
   }
+}
+
+/** A trend that is not ready (state `insufficient_data`) although a slope is present: it must not be shown. */
+export function syntheticTrendNotReady(): Json {
+  return syntheticMetric({
+    trend: {
+      state: 'insufficient_data',
+      progress: { days_with_data: 5, days_required: 14, span_days: 5, span_required: 30, fraction: 0.35 },
+      direction: 'increasing',
+      significant: true,
+      slope_per_day: 0.5,
+      n_days: 5,
+    },
+  })
 }

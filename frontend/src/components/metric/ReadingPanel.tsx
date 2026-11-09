@@ -14,6 +14,11 @@ import { useMetricName } from './names'
 // what was checked before it was used. It is opened by the address (`?reading=<id>`), so a link
 // reaches it and the back button closes it.
 
+/** A hash as the design shows it: the first and last eight characters. */
+function shortHash(hash: string): string {
+  return hash.length > 20 ? `${hash.slice(0, 8)}…${hash.slice(-8)}` : hash
+}
+
 function attribText(t: ReturnType<typeof useT>, attrib: number | null): string {
   if (attrib === null) return t('detail.reading.attrib.none')
   const key = `detail.reading.attrib.${String(attrib)}`
@@ -83,6 +88,9 @@ function ReadingBody({ reading }: { reading: ReadingView }) {
           })}
         </Mono>
         {reading.provenance.recomputePending ? ` ${t('detail.reading.pending')}` : ''}
+      </p>
+      <p className="ov-small ov-muted">
+        {t('detail.reading.fingerprint')} <Mono>{shortHash(reading.provenance.inputFingerprint)}</Mono>
       </p>
     </>
   )

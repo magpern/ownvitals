@@ -133,5 +133,6 @@ export const detail = {
   'reading.rawFormula': '{raw} × 10^{exponent}',
   'reading.provenance': 'Provenance',
   'reading.provenanceLine': 'Analysis {version} · input revision {revision}',
+  'reading.fingerprint': 'Input fingerprint',
   'reading.pending': 'A recalculation is pending.',
 } satisfies Record<string, string>

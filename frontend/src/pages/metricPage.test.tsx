@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SIGNED_IN, fakeApi } from '../test/fakeApi'
-import { syntheticDay, syntheticInsufficient, syntheticMetric, syntheticReading } from '../test/metricFixtures'
+import { FINGERPRINT, syntheticDay, syntheticTrendNotReady, syntheticInsufficient, syntheticMetric, syntheticReading } from '../test/metricFixtures'
 import { renderAt } from '../test/render'
 
 // uPlot needs a canvas, which jsdom has not: the chart is checked through the data it is given.
@@ -40,6 +40,20 @@ describe('the metric screen', () => {
     expect(screen.queryByText(/a month/)).toBeNull()
     expect(screen.queryByText(/Increasing/)).toBeNull()
     expect(screen.queryByText(/77\.5/)).toBeNull()
+  })
+
+  it('shows no trend value while the trend is not ready, even if the API sent a slope', async () => {
+    fakeApi({ ...SESSION, 'GET /api/metrics/weight?range=90d': syntheticTrendNotReady() })
+    renderAt('/m/weight')
+    expect(await screen.findAllByText(/5 of 14 days with data/)).not.toHaveLength(0)
+    expect(screen.queryByText(/a month/)).toBeNull()
+    expect(screen.queryByText(/Increasing/)).toBeNull()
+  })
+
+  it('shows the trend of a ready metric', async () => {
+    fakeApi({ ...SESSION, 'GET /api/metrics/weight?range=90d': syntheticMetric() })
+    renderAt('/m/weight')
+    expect(await screen.findByText(/a month/)).toBeTruthy()
   })
 
   it('shows only the state of a metric that cannot be read', async () => {
@@ -104,5 +118,6 @@ describe('the day view and the reading drawer', () => {
     renderAt('/m/weight/2026-10-02?reading=r-used')
     const drawer = await screen.findByRole('complementary', { name: /reading/i })
     expect(await within(drawer).findByText(/78\.20/)).toBeTruthy()
+    expect(within(drawer).getByText(`${FINGERPRINT.slice(0, 8)}…${FINGERPRINT.slice(-8)}`)).toBeTruthy()
   })
 })
