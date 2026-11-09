@@ -112,7 +112,7 @@ No mock-up covers this screen; it is built only from components the mock-ups hav
 - **States.** Every tile and row uses the data-state pill and sentence of the overview: up to
   date, stale, importing, incomplete import, insufficient data (with progress), not supported,
   not shared, not available. A metric a device cannot measure reads "Not supported" with the
-  sentence "Your device doesn't measure this." and is never empty or zero. A metric the API does
+  overview's own sentence ("This Withings account doesn't offer this ...") and is never empty or zero. A metric the API does
   not list at all reads "Not available". Segmental values have no read API yet, so the card
   shows "Not available" per row until they arrive.
 - **Wording.** Titles use the metric names of the catalogue; the section headings are "Body
