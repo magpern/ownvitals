@@ -19,7 +19,8 @@ from authtools import (  # noqa: F401
     smtp_fixture,
 )
 from ctx import make_context
-from ownvitals.connections.repository import connect
+from ownvitals.connections.repository import clear_credentials, connect, disconnect
+from ownvitals.db import user_session
 from ownvitals.keys_cli import add_keys_subcommands, wipe
 from smtpfake import SmtpFake
 
@@ -168,3 +169,36 @@ async def test_an_unsent_wipe_mail_can_be_resent(
     assert "1 sent" in out.getvalue()
     assert len(smtp.messages) == 1
     assert ACCESS not in smtp.messages[0].text
+
+
+async def test_wipe_keeps_the_live_row_of_a_provider_with_several_rows(
+    env: Env, database_url: str
+) -> None:
+    """The live row becomes ``needs_reconnect`` even when an older disconnected row was updated
+    later, and a second run picks the same row (#279)."""
+    user_id = await env.user("wipe-rows@example.com")
+    ctx = make_context(user_id)
+    ring = env.app.state.keyring
+    old = await connect(env.factory, ring, ctx, "test", ACCESS, REFRESH)
+    assert await disconnect(env.factory, ctx, "test")
+    live = await connect(env.factory, ring, ctx, "test", ACCESS, REFRESH)
+    assert live.id != old.id
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE connections SET updated_at = now() + interval '1 hour' WHERE id = :i"),
+                {"i": old.id},
+            )
+        for _ in range(2):
+            async with user_session(env.factory, ctx) as db:
+                assert await clear_credentials(db, ctx) == ("test",)
+            with engine.connect() as conn:
+                states = dict(
+                    conn.execute(
+                        text("SELECT id, status FROM connections WHERE secret IS NULL")
+                    ).all()
+                )
+            assert states == {live.id: "needs_reconnect", old.id: "disconnected"}
+    finally:
+        engine.dispose()
