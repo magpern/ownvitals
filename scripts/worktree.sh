@@ -68,6 +68,13 @@ cmd_init() {
       echo "created secrets/$name"
     fi
   done
+  # The model provider's key (worker only, ADR 0014 section 1) is never generated: an empty file,
+  # so Compose can mount it, and the AI client answers ai_not_configured until the owner fills it.
+  if [ ! -f secrets/anthropic_api_key ]; then
+    : > secrets/anthropic_api_key
+    chmod 644 secrets/anthropic_api_key 2>/dev/null || true
+    echo "created secrets/anthropic_api_key (empty: AI not configured)"
+  fi
 }
 
 cmd_new() {

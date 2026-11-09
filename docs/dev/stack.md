@@ -62,6 +62,14 @@ bytes, hex) and `connection_kek` (32 bytes, 64 lowercase hex characters). They a
 container user can read the bind mount; `secrets/` itself is `0700`. The image contains none of
 them; `docker inspect` shows only the file mounts.
 
+`init` also creates an **empty** `anthropic_api_key` (never a generated key): Compose needs the
+file to mount it, and an empty key is `ai_not_configured` ([ai.md](ai.md)). The worker alone
+mounts it, with `app_secret_key` (the AI audit key); `test_compose_ai_key.py` fails if any
+compose file at the root gives the key to another service (a secrets entry by source or target,
+an alias secret, an environment-backed secret or variable, or a bind mount that is or may hold
+`secrets/`). A checkout made before this needs `scripts/worktree.sh init` again, and the staging
+host needs the file too (empty keeps AI off).
+
 The database roles ([isolation.md](isolation.md)): `db` creates `ownvitals_owner`,
 `ownvitals_app` and the `ownvitals_maint` LOGIN role from `docker/postgres/init/10-roles.sql`
 on the first start of an empty volume, with the passwords of `database_owner_password`,
