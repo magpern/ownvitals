@@ -21,7 +21,7 @@ levels (D10): agents set **IMPLEMENTED** only; **INTEGRATION_VERIFIED** and
 | G | Groundwork (Amendment 7, ADR 0015): `config.py` split, multilingual en/sv | all 7 issues merged on 2026-11-08 and IMPLEMENTED (synthetic tests only): G1 #245 (#259), G2 #246 (#260), G3 #249 (#264), G4 #250 (#263), G5 #253 (#265), G6 #254 (#268), G7 #255 (#269). The Swedish health wording stays on the M8 medical-claims review list (ADR 0015). Next migration number: 0020 | IMPLEMENTED |
 | H | Hardening from classbeat (Amendment 7) | all 4 issues merged on 2026-11-08 and IMPLEMENTED (synthetic tests only; all security-critical): H1 #247 (#262), H2 #248 (#261), H3 #251 (#266, migration 0019), H4 #252 (#267, migration 0018). Next migration number: 0020 | IMPLEMENTED |
 
-### Start order (Amendment 7, from 2026-11-09): waves 1-4 done, all merged on 2026-11-08
+### Start order (Amendment 7, from 2026-11-09): waves 1-4 done, all merged on 2026-11-08; waves A to C merged 2026-11-09
 
 Waves keep the file sets disjoint: no file is in two locks of the same wave. A wave starts its
 issues in parallel within the Developer limit of AGENTS.md (about three). Wave 1 has four, so H2 or
@@ -38,11 +38,17 @@ G2), and each issue owns its own area file.
 
 ## Active
 
+Reconciled 2026-11-09 against `gh api repos/magpern/ownvitals/pulls?state=open` (`main` at `b2e6558`).
+
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| — | Housekeeping (this PR, docs only). Next: wave A (#257, #167, #197, #198, #203), then wave B and C as in the 2026-11-09 plan | — | — | — |
+| #199 | ECG list and calibrated canvas viewer with PDF download (`frontend/src/pages/Ecg*.tsx`, `components/ecg/**`, `api/ecg.ts`, `pages/appPages.tsx`, `i18n/*/ecg.ts`) | Developer | #298 (head `ed5dab1`) | open, review pending |
+| — | Housekeeping (this PR, docs only: status, issue labels, hardening issues #301-#305) | Developer | this PR | open |
 
-Backlog: #257 (hardening from the #242 review: stale guard entries, guard 8's list, three files over the caps), #167 (metrics listener, wiring, definer aggregates), hardening issues split from the closed umbrella #165 and the G/H backlog on 2026-11-09: #277 admin, #278 queue, #279 connections, #280 webhook, #281 sync/ECG validate, #282 auth follow-ups, #283 i18n follow-ups, #284 egress (threat-model gaps G1 to G5 from #223 stay open and go to the owner's M2 gate), #30 (e2e/M1 done-when), #188 (scores job), #180 (M3 UI), #191–#192 (M5), #195–#203 (M6), #206–#211 (M7). Labels are not authoritative, this table is.
+Ready to start (every `Depends on` is closed; labels refreshed 2026-11-09): #191 (ECG rules E1-E4, E6), #200 (findings inbox), #201 (body composition), #202 (nerve health), #206 (AI consent and tool set), #210 (doctor PDF), #211 (export), #294 (backfill fan-out), #296 (Withings connect web routes), the hardening issues #277, #279, #281, #282, #283, #284 and the new #301 (ECG PDF), #302 (scores), #303 (metrics), #304 and #305 (UI). Blocked on an open issue: #195 (needs #191), #207 (needs #206), #208, #209, and #280 (needs #278's queue hardening, `blocked-deps`); #278 is ready. Labels are not authoritative, this table is.
+
+Merged on 2026-11-09 (`main` now `b2e6558`), all IMPLEMENTED (synthetic tests only; verdict comments are on the PRs): #285 (docs, reconcile and the #165 split), #286 (#257, hardening from the #242 review), #287 (#197, overview dashboard), #288 (#198, metric detail and day view), #289 (#203, settings), #290 (#167, `/metrics` from the worker), #291 (M1 done-when flow, failure injection, RLS context tests), #292 (#188, scores job), #293 (#180, passkey and QR approve-login UI), #295 (onboarding and connections screen) and #297 (#192, ECG list and signal API, ECG PDF). Their assumptions are in the table below and the non-blocking findings are #294, #296 and #301-#305.
+
 
 Merged on 2026-11-08 (`main` now `a47e1ef`): groundwork G and H, 11 PRs, see "Groundwork G/H done-when" below and [status/completed.md](status/completed.md).
 
@@ -69,10 +75,8 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `backend/src/ownvitals/derived/evaluate.py`, `derived/findings_store.py`, `derived/check_cli.py`, `backend/src/ownvitals/jobs/kinds.py`, `worker/**`, `cli.py` | #187 |
-| `backend/src/ownvitals/views/{status,metrics,days,nerve}_routes.py`, `views/schemas.py`, `docs/dev/views.md`, the router mount in `web.py` | #189 |
-| `e2e/package.json` and `e2e/package-lock.json` | #175 (Dependabot) |
-| `backend/pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `frontend/package.json` and lock, `frontend/src/main.tsx`, `frontend/src/pages/appPages.tsx`, `config.py` | — (free now); the issues that need them take the lock when they start (planner's note: `appPages.tsx` one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds; the next free migration number is 0020; 0018 is H4 and 0019 is H3) |
+| `frontend/src/pages/appPages.tsx`, `frontend/src/i18n/{en,sv}/index.ts` and `untranslated.ts` (the ECG lines), `docs/design/README.md` | #199 (PR #298) |
+| `backend/pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `frontend/package.json` and lock, `frontend/src/main.tsx`, `config.py` | — (free now); the issues that need them take the lock when they start (planner's note: `appPages.tsx` is held by #199 now, one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds; the next free migration number is 0020; 0018 is H4 and 0019 is H3) |
 | `docs/status.md`, `docs/status/completed.md` | Architect |
 | everything else | — (released) |
 
@@ -86,7 +90,7 @@ Merged on 2026-11-08, IMPLEMENTED with synthetic tests only (Amendment 7, ADR 00
 
 ### Backlog from the G/H reviews
 
-Batched into hardening issues on 2026-11-09: auth side #282, i18n side #283; the earlier `#165` items are #277–#281 and #284. The ADR 0015 owner questions and the native-Swedish review of the health wording stay the owner's.
+Batched into hardening issues on 2026-11-09: auth side #282, i18n side #283; the earlier `#165` items are #277 to #281 and #284 (the umbrella #165 is closed and its comment lists them). The non-blocking findings of the wave A to C reviews (#287 to #297) were batched on 2026-11-09 into #301 (ECG PDF), #302 (scores), #303 (metrics), #304 (UI: outcome notice, QR panel, approve-login) and #305 (UI: saved display settings, range to `/api/metrics`, `sv` native review); #294 (backfill fan-out) and #296 (connect routes) came from #291 and #295. The ADR 0015 owner questions and the native-Swedish review of the health wording stay the owner's.
 
 ## Blocked on the owner
 
@@ -143,6 +147,11 @@ Nothing blocks M0 or any open issue. These are needed later (live Withings, the 
 | ECG A9: Withings lists an ECG in `heart list` by the time its 135–138 group is in `getmeas` | ADR 0006 §11's notification hold | OC5's late-link count, once the M6/M7 hold records its end reasons (#88) |
 | Read API (#233): a stream is `stale` after 48 h without a successful sync; `importing` versus `incomplete` is decided by a queued or running `withings_backfill` job (not scoped to the connection); `withings_plus_needed` shows when `connections.last_error` or a cursor's `last_error_category` is `blocked_by_provider_plan`, which nothing writes yet; ECG intervals 135–138 take their capability from the `ecg` stream; the metric detail returns one display band as of the window's end | #189 `views/*` (`docs/dev/views.md`) | the owner's first real sync; the Withings+ signal needs the probe or the owner |
 | Rule evaluation (#234): the `getdevice` battery enum is `high`/`medium`/`low`; attrib 15 means a guided measurement; per-foot types 158/159/197/198 | rules Q1, N2, N5 | the probe (capability states, attrib values, meastypes) |
+| M1 done-when flow (#291, `backend/tests/test_m1_flow.py`): the token lifecycle steps 1 to 3 as the fake models them; the status codes the wire helper assumes (`withingswire`); the answer to `revoke` for an unknown user; `enqueue(origin="scheduler")` for the connect, poll and reconcile kinds, backfill progress events and `backfill_state->>'status'` = `complete` (could not all be run); the webhook e2e asserts only receiver statuses, and its 503 case is weak; the rate limiter is bypassed in the test, so the real limiter path is not covered (#294) | the M1 done-when evidence, the e2e spec | the owner's first real connect, sync and webhook; #294 for the limiter |
+| Metrics (#290, `docs/dev/metrics.md`): the definitions of the subscription states (`failed`, `pending`, `active` = a notification within 7 days, `missing`) and of completeness (`not_available`, `complete`, `backfilling`, `partial`) are derived, since nothing stores a subscription state; webhook ages are read from `webhook_events.received_at` and `enddate` from the worker's start time; a late-committed row with an earlier time is not counted | the `/metrics` gauges | the owner's first real deployment and Prometheus scrape (the listener is off by default) |
+| QR and passkey UI (#293): ADR 0011 section 5 and section 8 amended in the PR (the QR nonce comes from the desktop's `qr/start` response, and the approve code goes in the approve body; recorded in `dev/auth-qrlogin.md`); the owner has not signed off the design of the phone approval screen or the desktop QR panel (no mock-up covers them); hybrid "Use a phone" is not exercised in CI | `QrLoginPanel`, `ApproveLoginPage`, `e2e/specs` | the owner's design sign-off; a real phone |
+| Scores (#292, ADR 0012): the Health Improvement Score is always `not_set` (default: no band table registered, owner questions 1 to 3 open); sleep and activity field names and units (`total_sleep_time` seconds, moderate and intense seconds) are assumed; BMI is `no_height`; `afib_ecg_count` and `high_bp_ratio` are `input_not_wired` | the scores job and the dashboard score card | the owner's ADR 0012 answers; the probe (field names, units) |
+| Onboarding and connections UI (#295): the contract `POST /api/connections/withings/start` returns `{authorize_url}` and the callback returns to `/onboarding?withings=<outcome>` is assumed and no route exists yet (#296); the design has gaps (Devices list, Sync now and Import more have no API, so Devices shows "Coming later"; the loading state has no design) | the connections screen | #296 builds the routes to the assumed contract; the owner's design answers; the owner's first real connect |
 
 Known gaps of #233 and #234 (all in #165): blocked streams with stored data still return values (docs say they should not); each evaluation pass replays the owner's whole history (about 3 s CPU for two years of seven daily metrics); the Settings writer (M6) must queue a daily pass when `fixed_tz` changes; the "all imported data" UI copy has no screen yet; an import never normalised reports `current`, not `behind`.
 
