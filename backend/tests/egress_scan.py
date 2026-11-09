@@ -45,6 +45,9 @@ from pathlib import Path
 
 from egress_classified import (
     EDGE_CUTS,
+    LISTENER_ATTRIBUTES,
+    LISTENER_MODULE,
+    LISTENER_NAMES,
     LOOP_METHODS,
     NATIVE_MODULES,
     PROCESS_MODULES,
@@ -163,8 +166,13 @@ def exception_classes(module: str) -> frozenset[str]:
     return frozenset(found)
 
 
-def allowed_names(module: str, entry: Entry) -> frozenset[str]:
-    return entry.names | (exception_classes(module) if entry.exceptions else frozenset())
+def allowed_names(module: str, entry: Entry, scanning: str = "") -> frozenset[str]:
+    """The entry's names, its exception classes when it says so, and in ``LISTENER_MODULE``
+    the listener's own names of ``module``."""
+    names = entry.names | (exception_classes(module) if entry.exceptions else frozenset())
+    if scanning == LISTENER_MODULE:
+        names |= LISTENER_NAMES.get(module, frozenset())
+    return names
 
 
 def _functions(body: list[ast.stmt]) -> list[str]:
@@ -241,10 +249,11 @@ def classify(dotted: str, scanning: str, verb: str, used: set[str] | None = None
         if entry.kind == "denied":
             return [f"{verb} {dotted}: {module} is denied ({entry.reason})"]
         if entry.kind == "allowed" and rest:
-            if rest[0] not in allowed_names(module, entry):
+            if rest[0] not in allowed_names(module, entry, scanning):
                 return [f"{verb} {dotted}: {rest[0]} is not an allowed name of {module}"]
             if used is not None:
-                used.add(f"{key}:{rest[0]}")
+                listener = scanning == LISTENER_MODULE and rest[0] not in entry.names
+                used.add(f"listener:{module}:{rest[0]}" if listener else f"{key}:{rest[0]}")
     return []
 
 
@@ -397,7 +406,8 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
             continue
         found += [(line, w) for w in classify(name, module, "imports", used)]
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and node.attr in object_names:
+        listener = module == LISTENER_MODULE and getattr(node, "attr", None) in LISTENER_ATTRIBUTES
+        if isinstance(node, ast.Attribute) and node.attr in object_names and not listener:
             found.append((node.lineno, f"uses .{node.attr}: an asyncio network method"))
         if isinstance(node, ast.Attribute | ast.Name):
             name = _dotted(node, runtime if id(node) in typed else aliases)

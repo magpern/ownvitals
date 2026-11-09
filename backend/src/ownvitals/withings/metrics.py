@@ -3,9 +3,11 @@
 Every metric is aggregated across users: labels are closed vocabularies (streams, job states,
 outcomes), never a user id, email, token or measurement. ``ownvitals.metrics`` refuses any
 other label value. Code records through the functions below; the DB-derived gauges are set from
-aggregates the caller computed (counts and ages, no ids).
+the rows of ``metrics_withings_aggregates()`` (``apply_aggregates``: counts and ages, no ids),
+which the worker reads in a system session (``ownvitals.worker.metrics``).
 """
 
+from collections.abc import Iterable
 from typing import Final
 
 from ownvitals.metrics import REGISTRY, Counter, Gauge, Histogram
@@ -80,7 +82,12 @@ stream_completeness = REGISTRY.register(
 
 def record_webhook(received_at: float, enddate: float) -> None:
     """Epoch seconds. A negative age (clock skew) is recorded as 0."""
-    webhook_delivery_age.observe(max(0.0, received_at - enddate))
+    record_webhook_age(received_at - enddate)
+
+
+def record_webhook_age(age_seconds: float) -> None:
+    """One delivery age, as ``metrics_webhook_ages()`` returns it. Negative is recorded as 0."""
+    webhook_delivery_age.observe(max(0.0, age_seconds))
 
 
 def record_last_sync_age(stream: str, age_seconds: float) -> None:
@@ -123,3 +130,33 @@ def record_api_call(*, status: int | None = None) -> None:
 def set_completeness(stream: str, counts: dict[str, int]) -> None:
     for state in COMPLETENESS_STATES:
         stream_completeness.set(counts.get(state, 0), stream=stream, state=state)
+
+
+Aggregate = tuple[str, str | None, str | None, float]
+
+
+def apply_aggregates(rows: Iterable[Aggregate]) -> float:
+    """Set the DB-derived gauges from ``metrics_withings_aggregates()`` rows ``(metric, stream,
+    state, total)``; return the oldest due queued job's age for ``set_queue``. A stream without
+    a successful sync has no age series; one without cursors counts zero in every state. A
+    stream, state or metric outside the closed sets is skipped, never a new series."""
+    ages: dict[str, float] = {}
+    health: dict[str, int] = {}
+    completeness: dict[str, dict[str, int]] = {}
+    oldest_queued = 0.0
+    for metric, stream, state, total in rows:
+        if metric == "last_sync_age" and stream in STREAM_NAMES:
+            ages[stream] = total
+        elif metric == "subscriptions" and state in SUBSCRIPTION_STATES:
+            health[state] = int(total)
+        elif metric == "completeness" and stream in STREAM_NAMES and state in COMPLETENESS_STATES:
+            completeness.setdefault(stream, {})[state] = int(total)
+        elif metric == "queue_oldest_age":
+            oldest_queued = total
+    last_sync_success.reset()
+    for stream, age in ages.items():
+        record_last_sync_age(stream, age)
+    set_subscription_counts(health)
+    for stream in STREAM_NAMES:
+        set_completeness(stream, completeness.get(stream, {}))
+    return oldest_queued

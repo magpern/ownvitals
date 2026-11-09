@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import egress_scan
-from egress_classified import EDGE_CUTS, LOOP_METHODS, TABLE, Entry
+from egress_classified import EDGE_CUTS, LISTENER_NAMES, LOOP_METHODS, TABLE, Entry
 from egress_closure import SEEDS, Closure
 from egress_scan import (
     CLOSURE,
@@ -233,6 +233,14 @@ def test_no_allowed_name_is_stale() -> None:
     used = _used()
     stale = {(k, n) for k, e in TABLE.items() for n in e.names if f"{k}:{n}" not in used}
     assert stale == set()
+    # The listener's own names (#167) are used by the listener, each one.
+    listener = {
+        (m, n)
+        for m, names in LISTENER_NAMES.items()
+        for n in names
+        if f"listener:{m}:{n}" not in used
+    }
+    assert listener == set()
 
 
 @pytest.mark.skipif(not LINUX, reason="entries and cuts are exact for Linux, where CI runs")

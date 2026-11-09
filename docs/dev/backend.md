@@ -114,6 +114,7 @@ All settings of the platform milestone exist already, so the issues that use the
 | `smtp_total_seconds` | 20 | the most one mail may take, connect to quit; positive and finite |
 | `oauth_google_client_id` | unset | Google is the only OAuth provider |
 | `worker_poll_seconds`, `worker_maintenance_seconds`, `worker_shutdown_wait_seconds` | 2, 30, 25 | wait at most 25 s |
+| `metrics_bind`, `metrics_port`, `metrics_refresh_seconds` | unset, 9464, 30 | the worker's `/metrics` listener (a loopback or private IP literal; unset: none) and its gauge refresh ([metrics.md](metrics.md)) |
 | `job_lease_seconds`, `worker_concurrency`, `jobs_per_user`, `job_busy_requeue_limit` | 120, 2, 2, 5 | bounded: 30..600, 1..16, 1..100, 0..100 |
 | `experimental_findings`, `ai_insights` | `false` | environment side of the stored flags; the stricter wins |
 

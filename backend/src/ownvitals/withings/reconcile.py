@@ -24,6 +24,7 @@ from ownvitals.jobs.withings import lane_for
 from ownvitals.withings.capabilities import NOT_AUTHORIZED, after_success, from_scopes
 from ownvitals.withings.client import WithingsClient
 from ownvitals.withings.errors import RetryBudget
+from ownvitals.withings.metrics import reconcile_rows, record_reconcile
 from ownvitals.withings.reconcile_cursor import _load, _save
 from ownvitals.withings.reconcile_subscriptions import RepairResult, repair_subscriptions
 from ownvitals.withings.reconcile_subscriptions import (
@@ -33,8 +34,6 @@ from ownvitals.withings.streams import STREAMS, stream_named, windows
 
 logger = logging.getLogger(__name__)
 
-_CHANGED = 0
-_DELETED = 0
 _LIVE = text(
     "SELECT grpid FROM measure_groups WHERE owner_id = :owner "
     "AND connection_id = :connection AND deleted_at IS NULL"
@@ -66,13 +65,9 @@ class _Pages:
 
 
 def drift_totals() -> DriftTotals:
-    return DriftTotals(_CHANGED, _DELETED)
-
-
-def _note(changed: int, deleted: int) -> None:
-    global _CHANGED, _DELETED
-    _CHANGED += changed
-    _DELETED += deleted
+    """Since the process started: the reconciliation drift counter of ``/metrics``."""
+    total = reconcile_rows.get
+    return DriftTotals(int(total(kind="changed")), int(total(kind="deleted")))
 
 
 def _ids(raw: Any) -> set[str]:
@@ -80,7 +75,7 @@ def _ids(raw: Any) -> set[str]:
 
 
 def _record(account: Account, stream: str, changed: int, deleted: int) -> None:
-    _note(changed, deleted)
+    record_reconcile(changed=changed, deleted=deleted)
     logger.info(
         "withings reconciliation drift",
         extra={

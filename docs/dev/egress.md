@@ -221,6 +221,11 @@ What else the guard refuses outside the package:
   `asyncio.AbstractEventLoop` outside `LOOP_METHODS` (`create_connection`, `sock_connect`,
   `getaddrinfo` ...) and the functions of `asyncio.streams`, read from the locked stdlib. A loop
   object cannot be told apart statically, so `retry(loop.sock_connect)` is refused too;
+- **server sockets**, except in the worker's `/metrics` listener (#167, ADR 0009 note of
+  2026-11-09): `ownvitals.metrics_server` alone may use `asyncio.start_server` and the stream
+  types `Server`, `StreamReader` and `StreamWriter` (`LISTENER_MODULE`, `LISTENER_NAMES`,
+  `LISTENER_ATTRIBUTES`); every other loop network method stays refused there too, and a test
+  pins the exemption to exactly that module;
 - **strings** that name a dotted path to a capable module or to a name outside its allowed names
   (`ext://` stripped; `"handlers.X"` is also read as `logging.handlers.X`, the `fileConfig`
   form), as `dictConfig` would import it;

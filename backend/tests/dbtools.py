@@ -29,7 +29,7 @@ OUTBOX_ROLE = "ownvitals_mail_outbox"
 AI_SCRIPT = BACKEND_DIR.parent / "docker" / "postgres" / "ai" / "50-ai.sql"
 AI_ROLE = "ownvitals_ai"
 QUEUE_ROLE = "ownvitals_queue"
-WEBHOOK_ROLES = ("ownvitals_webhook_secrets", "ownvitals_webhook_events")
+WEBHOOK_ROLES = ("ownvitals_webhook_secrets", "ownvitals_webhook_events", "ownvitals_metrics")
 # libpq reads these when the URL leaves the host or a service open; the database fixtures drop
 # them for the test process, so libpq connects to exactly the host the loopback check saw.
 LIBPQ_HOST_ENVIRONMENT = ("PGHOST", "PGHOSTADDR", "PGSERVICE")

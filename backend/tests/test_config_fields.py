@@ -61,7 +61,14 @@ FIELDS = frozenset(
 )
 
 # Fields added after the split, each with its issue.
-ADDED = frozenset({"locales"})  # issue 249: OWNVITALS_LOCALES (ADR 0015 section 1)
+ADDED = frozenset(
+    {
+        "locales",  # issue 249: OWNVITALS_LOCALES (ADR 0015 section 1)
+        "metrics_bind",  # issue 167: the worker's /metrics listener
+        "metrics_port",
+        "metrics_refresh_seconds",
+    }
+)
 
 
 def test_the_field_set_is_unchanged_by_the_split() -> None:

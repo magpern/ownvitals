@@ -27,6 +27,9 @@ WITHINGS_FUNCTION_NAMES = (
     "webhook_secrets_apply",
     "webhook_event_insert",
     "webhook_events_purge_owner",
+    # #167: the metrics aggregates, owned by the read-only ownvitals_metrics.
+    "metrics_withings_aggregates",
+    "metrics_webhook_ages",
 )
 WITHINGS_VERSION = "ownvitals-withings v1"
 # name -> (identity arguments, owner, proconfig joined by ';', ACL joined by ',')
@@ -58,6 +61,18 @@ WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
         "ownvitals_webhook_events",
         "search_path=pg_catalog, pg_temp",
         "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
+    ),
+    "metrics_withings_aggregates": (
+        "",
+        "ownvitals_metrics",
+        "search_path=pg_catalog, pg_temp",
+        "ownvitals_app=X/ownvitals_metrics,ownvitals_metrics=X/ownvitals_metrics",
+    ),
+    "metrics_webhook_ages": (
+        "p_after timestamp with time zone",
+        "ownvitals_metrics",
+        "search_path=pg_catalog, pg_temp",
+        "ownvitals_app=X/ownvitals_metrics,ownvitals_metrics=X/ownvitals_metrics",
     ),
 }
 # Admitted with the Withings functions (20-queue.sql, rate.sql). Absent until the migration

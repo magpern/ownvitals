@@ -51,6 +51,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.flags.routes",
             "ownvitals.notify.outbox",
             "ownvitals.ai.budget",
+            "ownvitals.worker.metrics",
         ),
     )
     private = Allowlist(prefixes=("ownvitals.db",))
@@ -142,6 +143,11 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.ai.budget", False, True),
         ("ownvitals.ai", False, False),
         ("ownvitals.ai.pricing", False, False),
+        # The metrics refresh (#167): that exact module; the loop and the kinds open none.
+        ("ownvitals.worker.metrics", False, True),
+        ("ownvitals.worker.loop", False, False),
+        ("ownvitals.worker", False, False),
+        ("ownvitals.metrics_server", False, False),
     ],
 )
 def test_the_owning_modules_are_allowlisted(module: str, user: bool, system: bool) -> None:
