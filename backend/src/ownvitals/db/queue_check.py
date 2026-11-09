@@ -10,7 +10,8 @@ exactly the fixed ``search_path``, the version comment, the shipped ``md5(pg_get
 ownvitals_app=X/ownvitals_queue}``; the role has exactly its attributes, no memberships either way,
 no settings, no default privileges and exactly its privileges; no other user-defined function,
 procedure, aggregate or operator exists in any schema, except the Withings partition, webhook-secret
-and webhook-event functions admitted by name in ``20-queue.sql``, and the rate functions
+and webhook-event functions and the metrics aggregates (#167) admitted by name in ``20-queue.sql``,
+and the rate functions
 ``withings_rate_claim``,
 ``withings_rate_release`` and ``withings_rate_pause`` admitted the same way, and the mail outbox's
 ``mail_outbox_claim``, ``mail_outbox_mark`` and ``owner_notice_queue`` (#194, ADR 0007 section 3;

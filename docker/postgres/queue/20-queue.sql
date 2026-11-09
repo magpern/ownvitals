@@ -203,7 +203,8 @@ END $$;
 -- operator, trigger or rule, and no expression calling a built-in that runs SQL text or changes
 -- settings. The queue check (ownvitals.db.queue_check) refuses the same: stop here, naming each
 -- object as it and guard 9 do. ensure_month_partitions, webhook_secrets_apply,
--- webhook_event_insert and webhook_events_purge_owner (40-withings.sql), and
+-- webhook_event_insert, webhook_events_purge_owner, metrics_withings_aggregates and
+-- metrics_webhook_ages (40-withings.sql), and
 -- withings_rate_claim, withings_rate_release and withings_rate_pause (rate.sql), and
 -- mail_outbox_claim, mail_outbox_mark and owner_notice_queue (50-outbox.sql, #194), and
 -- ai_reserve, ai_settle, ai_release and ai_settle_lost (ai/50-ai.sql, #205), are
@@ -221,7 +222,7 @@ BEGIN
      WHERE NOT (n.nspname = 'public' AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
             'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay', 'queue_schedule',
             'ensure_month_partitions', 'webhook_secrets_apply', 'webhook_event_insert',
-            'webhook_events_purge_owner',
+            'webhook_events_purge_owner', 'metrics_withings_aggregates', 'metrics_webhook_ages',
             'withings_rate_claim', 'withings_rate_release', 'withings_rate_pause',
             'mail_outbox_claim', 'mail_outbox_mark', 'owner_notice_queue',
             'ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost'))

@@ -5,7 +5,9 @@ of PR #55, and amended before implementation on 2026-10-31 after the event-loop 
 (PR #55, comment 6550033885). Implemented in #6 (PR #55); web's install is an acceptance
 criterion of #77. Amended on 2026-11-01 by the Architect after `Agent review (Opus): FAIL
 e1feee9` (findings N3, N4 and N5): process creation and sockets of other families are refused,
-and the inherited scope is stated (see "Amendment, 2026-11-01").
+and the inherited scope is stated (see "Amendment, 2026-11-01"). Noted on 2026-11-09 (#167): the
+worker's `/metrics` listener is the one server socket outside the egress package (see "Note,
+2026-11-09").
 
 ## Context
 
@@ -214,3 +216,23 @@ in CI and pins the standard loop's rows.
   Decision item 7 lists the route as a limit (dependencies are trusted code). The hook refuses
   the routes that raise events, now including `_winapi.CreateProcess`. Web stays one uvicorn
   process (#77).
+
+## Note, 2026-11-09 (#167): the worker's `/metrics` listener
+
+- **One listener outside the egress package.** `ownvitals.metrics_server` serves the worker's
+  Prometheus metrics. The static guard admits `asyncio.start_server` and the stream types
+  (`StreamReader`, `StreamWriter`, `Server`) in that module only (`LISTENER_MODULE`,
+  `LISTENER_NAMES`, `LISTENER_ATTRIBUTES` in `tests/egress_classified.py`); everywhere else they
+  stay refused, and every other asyncio network method stays refused there too
+  (`tests/test_egress_guard.py` pins the exemption to exactly that module). It lives outside
+  `ownvitals.egress` because it is inbound: the package is for outbound calls and its host lists.
+- **What the hook sees.** The listener binds an IP literal, so asyncio resolves nothing (no
+  `socket.getaddrinfo` event); `bind`, `listen` and `accept` stay unchecked (Decision item 4), and
+  the listener never connects. `check_bind` refuses everything but loopback and RFC 1918 or ULA
+  literals in their canonical spelling: host names, wildcards, `0.0.0.0/8`, broadcast,
+  link-local, IPv4-mapped and 6to4 IPv6 and zone ids. It is never routed through SWAG.
+- **No client library.** The registry stays in-repo (`ownvitals.metrics`) rather than
+  `prometheus_client`: that library also ships a push-gateway client (`urllib` connections out)
+  and a threaded HTTP server that binds every interface by default, both of which the guard
+  would have to classify and keep refused, and its labels are open strings where ours are
+  closed vocabularies. Nothing is added to `pyproject.toml` or `uv.lock`.

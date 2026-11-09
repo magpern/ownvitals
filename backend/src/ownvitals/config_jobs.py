@@ -22,3 +22,9 @@ class JobSettings(BaseSettings):
     jobs_per_user: int = Field(default=2, ge=1, le=100)
     # ``operation_busy`` requeues per phase that cost no attempt; after that each one counts.
     job_busy_requeue_limit: int = Field(default=5, ge=0, le=100)
+    # The worker's /metrics listener (#167): a loopback or private IP literal to bind (checked by
+    # ownvitals.metrics_server at start), or None for no listener. Never routed through SWAG.
+    metrics_bind: str | None = None
+    metrics_port: int = Field(default=9464, ge=1, le=65535)
+    # The database-derived gauges are refreshed every this many seconds.
+    metrics_refresh_seconds: float = Field(default=30.0, ge=5, le=3600)

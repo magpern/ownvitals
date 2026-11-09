@@ -13,7 +13,9 @@ only one whose sockets the hook sees.
 
 It runs the Withings kinds (``ownvitals.worker.kinds.worker_registry``), re-checks a job's
 webhook-secret target (``WORKER_TARGETS``) and schedules the poll and the reconciliation
-(``SCHEDULES``).
+(``SCHEDULES``). Beside the loop it serves ``/metrics`` on ``metrics_bind`` when that is set and
+refreshes the database-derived gauges (``ownvitals.worker.metrics``, #167); a bind address that
+is not loopback or private refuses the start like the checks above.
 """
 
 import asyncio
@@ -36,8 +38,10 @@ from ownvitals.egress import (
     worker_allowlist_installed,
 )
 from ownvitals.log import configure_logging
+from ownvitals.metrics_server import BindRefused
 from ownvitals.worker.kinds import SCHEDULES, WORKER_TARGETS, worker_registry
 from ownvitals.worker.loop import create_worker_engine, run_worker, verify_startup
+from ownvitals.worker.metrics import metrics_running
 
 logger = logging.getLogger("ownvitals.worker")
 
@@ -64,20 +68,22 @@ async def _run(settings: Settings) -> None:
         # Kept, on this engine: a missing or malformed KEK raises here; an unreachable
         # database leaves the ring unverified. The loop claims and reaps nothing until
         # that ring's check has passed (a swapped key then stops the worker).
-        ring = await load_keyring(create_session_factory(engine), settings, role="worker")
+        factory = create_session_factory(engine)
+        ring = await load_keyring(factory, settings, role="worker")
         stop = asyncio.Event()
         # Before "worker started" is logged, so a signal after that line is always handled.
         _install_signal_handlers(asyncio.get_running_loop(), stop)
-        await run_worker(
-            settings,
-            stop,
-            registry=worker_registry(),
-            accounts=ACCOUNTS,
-            engine=engine,
-            keyring=ring,
-            targets=WORKER_TARGETS,
-            schedules=SCHEDULES,
-        )
+        async with metrics_running(settings, factory, stop):
+            await run_worker(
+                settings,
+                stop,
+                registry=worker_registry(),
+                accounts=ACCOUNTS,
+                engine=engine,
+                keyring=ring,
+                targets=WORKER_TARGETS,
+                schedules=SCHEDULES,
+            )
     finally:
         await engine.dispose()
 
@@ -89,7 +95,7 @@ def main() -> int:
     install_worker_allowlist(ai_enabled=settings.ai_insights)
     try:
         asyncio.run(_run(settings), loop_factory=event_loop_factory())
-    except (DatabaseRoleError, KeyRingError, WorkerStartupError) as refused:
+    except (DatabaseRoleError, KeyRingError, WorkerStartupError, BindRefused) as refused:
         # The message names roles and objects only, never a credential.
         logger.error("worker refused to run", extra={"reason": str(refused)})
         return 2

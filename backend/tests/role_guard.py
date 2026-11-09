@@ -8,7 +8,9 @@ a privilege of a kind nobody thought of still fails.
 ``docker/postgres/queue/20-queue.sql`` grants, and ``ownvitals_app`` may ``EXECUTE`` the queue
 functions. When ``docker/postgres/withings/40-withings.sql`` has run, the webhook NOLOGIN roles
 and ``ensure_month_partitions`` hold exactly the grants that script creates, and the app role
-may ``EXECUTE`` those three functions as well and no other function. The admin role
+may ``EXECUTE`` those functions as well and no other function; the metrics role
+``ownvitals_metrics`` (#167) has exactly its attributes and column grants and owns the two
+metrics aggregates. The admin role
 ``ownvitals_maint`` (#12) is an allowed grantee; guard 11 (``tests/test_maint_privileges.py``)
 checks that it holds exactly its allowlist, so its column privileges are left out of the column
 check here. Maint is not granted the client secret or ``webhook_secrets``. When
@@ -21,6 +23,8 @@ creates, owns the four AI budget functions, and the app role may ``EXECUTE`` the
 holds ``SELECT`` only on ``ai_spend`` and ``ai_reservations`` and nothing on ``ai_spend_global``.
 Any other grantee fails.
 """
+
+from collections.abc import Callable
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -81,7 +85,11 @@ QUEUE_EXECUTE = {
 # 40-withings.sql: two NOLOGIN roles, table grants, and the owner of each function.
 SECRETS = "ownvitals_webhook_secrets"
 EVENTS = "ownvitals_webhook_events"
-WITHINGS_ROLES = {SECRETS, EVENTS}
+# #167: the metrics aggregates' owner. Read-only: column SELECT, BYPASSRLS, NOLOGIN.
+METRICS = "ownvitals_metrics"
+WITHINGS_ROLES = {SECRETS, EVENTS, METRICS}
+# rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
+METRICS_ATTRIBUTES = (False, False, False, False, False, True, False)
 WITHINGS_RELATIONS: dict[str, dict[str, set[str]]] = {
     "admin_audit:r": {SECRETS: {"INSERT"}},
     "admin_audit_id_seq:S": {SECRETS: {"USAGE"}},
@@ -92,6 +100,8 @@ WITHINGS_FUNCTIONS = {
     "webhook_secrets_apply": SECRETS,
     "webhook_event_insert": EVENTS,
     "webhook_events_purge_owner": EVENTS,
+    "metrics_withings_aggregates": METRICS,
+    "metrics_webhook_ages": METRICS,
 }
 # rate.sql (#23): the app role may EXECUTE these and no other new function. Same owner.
 RATE_FUNCTIONS = {
@@ -186,9 +196,22 @@ WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("connections", "status"): {(EVENTS, "SELECT")},
     # Account deletion matches notification rows to this owner (ADR 0002 section 3).
     ("connections", "owner_id"): {(EVENTS, "SELECT")},
-    ("webhook_events", "app_id"): {(EVENTS, "SELECT")},
-    ("webhook_events", "withings_userid"): {(EVENTS, "SELECT")},
+    ("webhook_events", "app_id"): {(EVENTS, "SELECT"), (METRICS, "SELECT")},
+    ("webhook_events", "withings_userid"): {(EVENTS, "SELECT"), (METRICS, "SELECT")},
+    # The metrics aggregates (#167): counts and ages. No credential, owner or payload column.
+    ("connections", "public"): {(METRICS, "SELECT")},
+    ("sync_cursors", "connection_id"): {(METRICS, "SELECT")},
+    ("sync_cursors", "stream"): {(METRICS, "SELECT")},
+    ("sync_cursors", "capability"): {(METRICS, "SELECT")},
+    ("sync_cursors", "backfill_state"): {(METRICS, "SELECT")},
+    ("sync_cursors", "last_ok_at"): {(METRICS, "SELECT")},
+    ("webhook_events", "enddate"): {(METRICS, "SELECT")},
+    ("webhook_events", "received_at"): {(METRICS, "SELECT")},
+    ("jobs", "state"): {(METRICS, "SELECT")},
+    ("jobs", "available_at"): {(METRICS, "SELECT")},
 }
+for _column in ("id", "app_id", "withings_userid", "status"):
+    WITHINGS_COLUMNS[("connections", _column)] |= {(METRICS, "SELECT")}
 SEQUENCE_PRIVILEGES = {"USAGE", "SELECT"}
 # Built-in languages that PUBLIC may use (Postgres' own default).
 BUILTIN_LANGUAGES = {"plpgsql", "sql", "internal", "c"}
@@ -219,6 +242,43 @@ def _bare_signature(obj: str) -> str:
     signature = obj.split(":", 1)[0]
     name, sep, args = signature.partition("(")
     return name.rsplit(".", 1)[-1] + sep + args
+
+
+def _check_metrics_role(conn: Connection, need: Callable[[bool, str], None]) -> None:
+    """40-withings.sql's ownvitals_metrics (#167): exactly its attributes, a member of nothing,
+    no settings or default privileges, and the owner of exactly the two aggregates."""
+    row = conn.execute(
+        text(
+            "SELECT r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, "
+            "r.rolbypassrls, r.rolinherit, r.oid FROM pg_roles r WHERE r.rolname = :m"
+        ),
+        {"m": METRICS},
+    ).one()
+    need(
+        tuple(row[:7]) == METRICS_ATTRIBUTES,
+        f"{METRICS} must be NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
+        "BYPASSRLS NOINHERIT",
+    )
+    others = conn.execute(
+        text(
+            "SELECT (SELECT count(*) FROM pg_auth_members WHERE :oid IN (member, roleid)) "
+            "+ (SELECT count(*) FROM pg_db_role_setting WHERE setrole = :oid) "
+            "+ (SELECT count(*) FROM pg_default_acl WHERE defaclrole = :oid)"
+        ),
+        {"oid": row.oid},
+    ).scalar_one()
+    need(others == 0, f"{METRICS}: no memberships, settings or default privileges")
+    owned = conn.execute(
+        text(
+            "SELECT coalesce(p.proname, s.classid::regclass::text) FROM pg_shdepend s "
+            "LEFT JOIN pg_proc p ON p.oid = s.objid AND s.classid = CAST('pg_proc' AS regclass) "
+            "WHERE s.refobjid = :oid AND s.deptype = 'o'"
+        ),
+        {"oid": row.oid},
+    ).scalars()
+    expected = sorted(n for n, owner in WITHINGS_FUNCTIONS.items() if owner == METRICS)
+    found = sorted(str(name) for name in owned)
+    need(found == expected, f"{METRICS} must own exactly {expected}, owns {found}")
 
 
 def check_roles(conn: Connection) -> list[str]:
@@ -348,16 +408,17 @@ def check_roles(conn: Connection) -> list[str]:
     present_webhook_roles = {
         str(name)
         for (name,) in conn.execute(
-            text("SELECT rolname FROM pg_roles WHERE rolname IN (:secrets, :events)"),
-            {"secrets": SECRETS, "events": EVENTS},
+            text("SELECT rolname FROM pg_roles WHERE rolname IN (:secrets, :events, :metrics)"),
+            {"secrets": SECRETS, "events": EVENTS, "metrics": METRICS},
         )
     }
     withings_installed = bool(present_webhook_roles)
     if withings_installed:
         need(
             present_webhook_roles == WITHINGS_ROLES,
-            "ownvitals_webhook_secrets and ownvitals_webhook_events must exist together",
+            f"{SECRETS}, {EVENTS} and {METRICS} must exist together",
         )
+        _check_metrics_role(conn, need)
     # 50-outbox.sql: absent until that script runs, then exactly its role and grants.
     outbox_role = conn.execute(
         text(

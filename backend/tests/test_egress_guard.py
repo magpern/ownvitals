@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from egress_classified import TABLE
+from egress_classified import LISTENER_ATTRIBUTES, LISTENER_MODULE, LISTENER_NAMES, TABLE
 from egress_scan import (
     EGRESS_SUBMODULES,
     WORKER_ROLE_MODULES,
@@ -394,6 +394,47 @@ def test_only_in_pins_mail_the_worker_hostname_and_db_functions_psycopg() -> Non
     assert not TABLE["socket"].exceptions
     assert TABLE["smtplib"].names == {"SMTP", "SMTP_SSL"}
     assert TABLE["smtplib"].exceptions
+
+
+# The one listener (#167, ADR 0009 note of 2026-11-09): a server socket outside the egress package
+# only in ownvitals.metrics_server, and there only through asyncio.start_server.
+LISTENER_SOURCES = (
+    "import asyncio\nasyncio.start_server(h, '127.0.0.1', 0)",
+    "from asyncio import start_server\nstart_server(h, '127.0.0.1', 0)",
+    "import asyncio\nasync def f(r: asyncio.StreamReader, w: asyncio.StreamWriter): ...",
+    "import asyncio\nx: asyncio.Server",
+    "loop.start_server(h)",
+)
+
+
+def test_the_listener_exemption_is_exactly_one_module() -> None:
+    assert LISTENER_MODULE == "ownvitals.metrics_server"
+    assert {
+        "asyncio": frozenset({"Server", "StreamReader", "StreamWriter", "start_server"})
+    } == LISTENER_NAMES
+    assert frozenset({"start_server"}) == LISTENER_ATTRIBUTES
+    modules = [name for name, _ in sources(SRC)]
+    assert LISTENER_MODULE in modules
+    for source in LISTENER_SOURCES:
+        assert scan_source(source, LISTENER_MODULE) == [], source
+        for module in modules:
+            if module != LISTENER_MODULE and not module.startswith("ownvitals.egress"):
+                assert scan_source(source, module) != [], (module, source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import asyncio\nasyncio.get_running_loop().create_server(f, '127.0.0.1', 0)",
+        "import asyncio\nasyncio.open_connection('127.0.0.1', 1)",
+        "import asyncio\nasyncio.start_unix_server(f, '/tmp/x')",
+        "import socket\nsocket.socket()",
+        "import asyncio\nasyncio.base_events.Server",
+        "import asyncio\nasyncio.streams.start_server",
+    ],
+)
+def test_the_listener_may_not_connect_or_open_other_servers(source: str) -> None:
+    assert scan_source(source, LISTENER_MODULE) != []
 
 
 WEBAUTHN = (

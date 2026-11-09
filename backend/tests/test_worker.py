@@ -176,6 +176,23 @@ def test_main_refuses_a_missing_kek(
 
 
 @pytest.mark.usefixtures("restore_logging", "queue_schema")
+@pytest.mark.parametrize("bind", ["0.0.0.0", "::", "metrics.example.test", "8.8.8.8"])  # noqa: S104
+def test_main_refuses_a_metrics_bind_that_is_not_internal(
+    monkeypatch: pytest.MonkeyPatch,
+    app_database_url: str,
+    secrets_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+    bind: str,
+) -> None:
+    """#167: the /metrics listener binds a loopback or private literal only; else exit 2."""
+    monkeypatch.setenv("OWNVITALS_DATABASE_URL", app_database_url)
+    monkeypatch.setenv("OWNVITALS_METRICS_BIND", bind)
+    monkeypatch.setattr("ownvitals.worker.__main__.run_worker", _must_not_claim)
+    assert main() == 2
+    assert "metrics bind" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("restore_logging", "queue_schema")
 def test_main_refuses_a_malformed_kek(
     monkeypatch: pytest.MonkeyPatch,
     app_database_url: str,

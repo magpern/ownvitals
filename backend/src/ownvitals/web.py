@@ -35,6 +35,7 @@ from ownvitals.views.days_routes import router as days_router
 from ownvitals.views.findings_routes import router as findings_router
 from ownvitals.views.metrics_routes import router as metrics_router
 from ownvitals.views.nerve_routes import router as nerve_router
+from ownvitals.views.profile_routes import router as profile_router
 from ownvitals.views.scores_routes import router as scores_router
 from ownvitals.views.status_routes import router as status_router
 from ownvitals.withings.webhooks import WebhookMiddleware, load_cache
@@ -69,6 +70,7 @@ FEATURE_ROUTERS = (
     metrics_router,
     days_router,
     nerve_router,
+    profile_router,
     scores_router,
 )
 

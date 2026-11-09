@@ -24,6 +24,8 @@ DROP FUNCTION IF EXISTS public.webhook_secrets_apply(
 DROP FUNCTION IF EXISTS public.webhook_event_insert(
     integer, bigint, integer, bigint, bigint, text, uuid);
 DROP FUNCTION IF EXISTS public.webhook_events_purge_owner();
+DROP FUNCTION IF EXISTS public.metrics_withings_aggregates();
+DROP FUNCTION IF EXISTS public.metrics_webhook_ages(timestamptz);
 """
 
 
@@ -34,7 +36,7 @@ def install(url: str) -> None:
 def uninstall(url: str) -> None:
     with engine_for(url, isolation_level="AUTOCOMMIT") as engine, engine.connect() as conn:
         conn.execute(text(_DROP))
-        for role in ("ownvitals_webhook_secrets", "ownvitals_webhook_events"):
+        for role in ("ownvitals_webhook_secrets", "ownvitals_webhook_events", "ownvitals_metrics"):
             exists = conn.execute(
                 text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": role}
             ).first()
