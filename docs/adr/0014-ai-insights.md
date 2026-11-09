@@ -4,7 +4,7 @@ Status: Proposed (#204). Security-critical (PLAN-operations §10.1: AI egress). 
 the owner are listed at the end with the default that applies until they are answered. Its
 companion for M7's reports is [ADR 0013](0013-reports-and-export.md).
 
-Note (2026-11-09, #207, PR #327): two departures in the model client, both recorded here, the
+Note (2026-11-09, #207, PR #327): three departures in the model client, all recorded here, the
 decision unchanged otherwise. (1) **No provider SDK**: the egress guard (`tests/test_egress_guard.py`)
 refuses the SDK in `src`, `AsyncAnthropic(http_client=model_async_client())` included, so
 `ownvitals.ai.client` posts the Messages API's JSON itself through `model_async_client()`; the
@@ -12,7 +12,10 @@ egress property of §5 holds (worker only, `api.anthropic.com` only, through the
 The request and usage shapes, the meaning of 429 and 529 and `retry-after` in seconds are
 documented assumptions until a real call confirms them. (2) **The log line of a call omits the
 cost and the two fingerprints** that §6's row holds (stricter than "the same fields", following
-`ai.budget`'s rule of no amounts tied to a user in logs).
+`ai.budget`'s rule of no amounts tied to a user in logs). (3) **A lost lease leaves a log line
+and no `ai_audit` row**: the row is written with the settle or release in the job's fenced
+transaction, so a worker that lost its lease writes no row (the attempt is no longer its own);
+the reaper (`ai_settle_lost()`) charges the reservation at its full amount.
 
 ## Context
 

@@ -39,6 +39,8 @@ Only `ownvitals.auth` touches the account tables (`tests/auth_tables_scan.py`,
 | `owners` | `ACCOUNTS` | `ownvitals.worker` |
 | `purge` | `purge_expired` | `ownvitals.worker.loop` |
 | `operator` | `AccountError`, `create_invite`, `grant_admin`, `mfa_reset`, `revoke_admin` | `ownvitals.cli` |
+| `exports` | `export_account`, `record_event`, `ACCOUNT_COLUMNS` and the detail models | the export builder and routes (#211, [reports.md](reports.md)) |
+| `deps` | `reserve_export_request` | the export request's 3-per-24-hours limit (#211) |
 
 Classbeat re-exported these names lazily from the package (PEP 562). ownvitals cannot: the egress
 guard refuses dynamic imports, and an eager package would load the web's sign-in and mail
@@ -117,6 +119,8 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 |---|---|
 | Connect, reconnect, disconnect Withings (#13); delete the account; change or set the password; change the email; link or unlink Google; add or remove a passkey (ADR 0011) | `require_sensitive` |
 | Replace or remove (reset) the TOTP; new recovery codes; log out everywhere | `require_stepup` |
+| Request the JSON/CSV export (#211, ADR 0013 §4) | `require_sensitive` |
+| Download an export (#211) | `require_stepup`, checked in the route after `Sec-Fetch-Site` |
 | Admin writes (#12) | `require_admin_stepup` |
 | First enrolment | the sign-in itself (no factor to step up with) |
 

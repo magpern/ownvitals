@@ -98,7 +98,14 @@ export const settings = {
   'data.export.help':
     'JSON and CSV, every reading and finding with its provenance. Needs your authenticator code.',
   'data.export.button': 'Export…',
-  'data.export.later': 'The export comes in a later release.',
+  'data.export.purpose': 'Exporting your data',
+  'data.export.downloadPurpose': 'Downloading your export',
+  'data.export.preparing': 'Preparing your export. This can take a few minutes.',
+  'data.export.ready': 'Your export is ready ({size} MB). Download it before {until}; it can be downloaded once.',
+  'data.export.download': 'Download',
+  'data.export.failed': 'The export could not be prepared. Try again.',
+  'data.export.tooLarge': 'The export is larger than the limit. The largest part was {part}.',
+  'data.export.downloaded': 'Downloaded. The file is now deleted from ownvitals; start a new export for a fresh copy.',
   'data.delete.label': 'Delete your account',
   'data.delete.help':
     "Revokes ownvitals' access at Withings, then deletes your account and every reading. Needs your password and authenticator code.",

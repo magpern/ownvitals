@@ -170,7 +170,7 @@ SELECT 'REVOKE INSERT, UPDATE, DELETE ON TABLE public.ai_reservations FROM ownvi
  WHERE to_regclass('public.ai_reservations') IS NOT NULL \gexec
 SELECT 'REVOKE ALL ON TABLE public.ai_spend_global FROM ownvitals_app'
  WHERE to_regclass('public.ai_spend_global') IS NOT NULL \gexec
--- The AI audit log (#207, migration 0022, ADR 0014 section 6): append-only for the app role.
+-- The AI audit log (#207, migration 0023, ADR 0014 section 6): append-only for the app role.
 SELECT 'REVOKE UPDATE, DELETE ON TABLE public.ai_audit FROM ownvitals_app'
  WHERE to_regclass('public.ai_audit') IS NOT NULL \gexec
 SELECT format('REVOKE ALL ON TABLE %s FROM ownvitals_app, PUBLIC', c.oid::regclass)

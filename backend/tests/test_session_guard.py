@@ -44,6 +44,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.views.profile_store",
             "ownvitals.derived.check_cli",
             "ownvitals.ai.consent",
+            "ownvitals.reports.export_store",
         ),
     )
     system = Allowlist(
@@ -158,6 +159,14 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.ai.consent", True, False),
         ("ownvitals.ai.tools", False, False),
         ("ownvitals.ai.consent_routes", False, False),
+        # The export (#211): the store opens the user's sessions; the builder, its readers and
+        # the routes open none.
+        ("ownvitals.reports.export_store", True, False),
+        ("ownvitals.reports.export", False, False),
+        ("ownvitals.reports.export_read", False, False),
+        ("ownvitals.reports.export_ecg", False, False),
+        ("ownvitals.reports.export_routes", False, False),
+        ("ownvitals.reports", False, False),
         # The metrics refresh (#167): that exact module; the loop and the kinds open none.
         ("ownvitals.worker.metrics", False, True),
         ("ownvitals.worker.loop", False, False),

@@ -11,7 +11,7 @@ spec uses is made up per run. M0's "done when" (PLAN §11) is the login-and-TOTP
 | `e2e/fake-withings/` | the stand-in for Withings (`server.py`, Python standard library, runs `backend/tests/withingscore.py`) |
 | `e2e/scripts/` | `stack-up.sh`, `stack-prepare.sh`, `stack-checks.sh`, `stack-down.sh` |
 | `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps), `ratelimit.ts` (empties the rate-limit buckets) |
-| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login`, `onboarding` |
+| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login`, `onboarding`, `export` |
 
 ## Run it
 
@@ -120,6 +120,9 @@ trust bundle (the worker needs it for the Withings calls of M1).
   account with a password gets `reauth_use_password` at the start ([auth-reauth.md](auth-reauth.md)).
 - `step-up`: Security → "Sign out everywhere…" → "Confirm it's you" with a fresh code → signed out
   everywhere. A wrong code changes nothing.
+- `export` (#211, ADR 0013 §4): Your data → "Export…" → "Confirm it's you" with a fresh code →
+  the worker builds the archive → "Download" saves one zip (its entry names checked) → the row
+  offers a new export. An account without Withings data.
 - `passkeys` (#180, ADR 0011 §8): a CDP virtual authenticator (CTAP2, internal, resident key, user
   verification): add a passkey behind "Confirm it's you" (code), sign out, "Sign in with a
   passkey", the code prompt, then remove it behind the dialog (password, then code).

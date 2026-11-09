@@ -1,7 +1,7 @@
 """The AI audit log with redacted content (ADR 0014 section 6; #207)
 
-Revision ID: 0022_ai_audit
-Revises: 0021_ai_consent
+Revision ID: 0023_ai_audit
+Revises: 0022_exports
 Create Date: 2026-11-09
 
 ``ai_audit`` (owned, forced RLS): one row per model call the worker made: the job, the kind
@@ -28,8 +28,8 @@ from alembic import op
 
 from ownvitals.db.rls import enable_owner_rls
 
-revision: str = "0022_ai_audit"
-down_revision: str | Sequence[str] | None = "0021_ai_consent"
+revision: str = "0023_ai_audit"
+down_revision: str | Sequence[str] | None = "0022_exports"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

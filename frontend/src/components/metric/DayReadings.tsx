@@ -37,9 +37,9 @@ export function DayValueCard({ view }: { view: DayView }) {
         <p className="ov-muted">{t('detail.day.dailyNone')}</p>
       ) : (
         <>
-          <Value size="large" value={f.number(daily.value, 1)} unit={view.unit} />
+          <Value size="large" value={f.quantity(daily.value, view.unit, 1)} unit={f.unit(view.unit)} />
           <p className="ov-small ov-muted">
-            {`${t(daily.method === 'morning' ? 'detail.day.method.morning' : 'detail.day.method.median')} · ${t('detail.day.spread', { min: f.number(daily.minimum, 1), max: f.number(daily.maximum, 1) })}`}
+            {`${t(daily.method === 'morning' ? 'detail.day.method.morning' : 'detail.day.method.median')} · ${t('detail.day.spread', { min: f.quantity(daily.minimum, view.unit, 1), max: f.quantity(daily.maximum, view.unit, 1) })}`}
           </p>
         </>
       )}
@@ -82,7 +82,7 @@ export function ReadingsTable({ view, selected }: { view: DayView; selected: str
                     <Num>{reading.localTime}</Num>
                   </td>
                   <td className="ov-r">
-                    <Num>{f.number(reading.value, 1)}</Num> {view.unit}
+                    <Num>{f.quantity(reading.value, view.unit, 1)}</Num> {f.unit(view.unit)}
                   </td>
                   <td>
                     <Status reading={reading} />

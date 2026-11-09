@@ -1,4 +1,7 @@
-import { DEFAULT_RANGE, decodeMetricDetail, isRange, metricPath, type MetricDetail, type Range } from '../api/metrics'
+import { useDisplay } from '../display/DisplayContext'
+import { startRange } from '../lib/display'
+import { convertDetail } from '../lib/displayDetail'
+import { DEFAULT_RANGE, RANGES, decodeMetricDetail, isRange, metricPath, type MetricDetail, type Range } from '../api/metrics'
 import { useResource } from '../api/useResource'
 import { MethodCard } from '../components/metric/MethodCard'
 import { MetricChartCard } from '../components/metric/MetricChartCard'
@@ -68,9 +71,10 @@ function MetricBody({ detail, range }: { detail: MetricDetail; range: Range }) {
 }
 
 export function MetricPage() {
+  const { settings, chartRange, settled } = useDisplay()
   const { metric } = useMetricParams()
   const asked = useQuery().get('range')
-  const range = isRange(asked) ? asked : DEFAULT_RANGE
-  const resource = useResource(metric === null ? null : metricPath(metric, range), decodeMetricDetail)
-  return <ResourceView resource={resource}>{(detail) => <MetricBody detail={detail} range={range} />}</ResourceView>
+  const range = isRange(asked) ? asked : startRange(chartRange, RANGES, DEFAULT_RANGE)
+  const resource = useResource(metric === null || (asked === null && !settled) ? null : metricPath(metric, range), decodeMetricDetail)
+  return <ResourceView resource={resource}>{(detail) => <MetricBody detail={convertDetail(detail, settings)} range={range} />}</ResourceView>
 }

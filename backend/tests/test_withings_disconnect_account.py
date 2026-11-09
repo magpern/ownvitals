@@ -284,6 +284,10 @@ def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
         "INSERT INTO ai_conversations (owner_id) VALUES (:o)",
         "INSERT INTO ai_messages (owner_id, conversation_id, role, content) SELECT :o, id, "
         "'user', 'synthetic question' FROM ai_conversations WHERE owner_id = :o",
+        # #211: an expired export record and one synthetic chunk of it.
+        "INSERT INTO exports (owner_id, kind, state) VALUES (:o, 'data', 'expired')",
+        "INSERT INTO export_chunks (owner_id, export_id, seq, bytes) SELECT :o, id, 0, "
+        "decode('5a', 'hex') FROM exports WHERE owner_id = :o",
     ):
         conn.execute(text(sql), {"o": owner_id, "h": digest})
 
@@ -353,6 +357,8 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
         "data_revisions",
         "devices",
         "ecg_recordings",
+        "export_chunks",
+        "exports",
         "findings",
         "intraday",
         "job_events",
@@ -467,6 +473,7 @@ async def test_delete_imported_removes_only_that_owners_rows(
         "ai_audit",
     }
     assert {"ai_messages", "ai_conversations"} <= purged
+    assert {"exports", "export_chunks"} <= purged
     _partitions(database_url, True)
     try:
         _plant(database_url, linked.ctx.user_id, linked.connection_id, "c")

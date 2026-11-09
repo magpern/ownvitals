@@ -14,9 +14,9 @@ export const RANGES = ['30d', '90d', '1y', 'all'] as const
 export type RangeId = (typeof RANGES)[number]
 export const DEFAULT_RANGE: RangeId = '90d'
 
-/** The `?range=` of the address, or the default for anything else. */
-export function parseRange(value: string | null): RangeId {
-  return RANGES.find((r) => r === value) ?? DEFAULT_RANGE
+/** The `?range=` of the address, else the saved range if the screen offers it, else the default. */
+export function parseRange(value: string | null, saved: string | null = null): RangeId {
+  return RANGES.find((r) => r === value) ?? RANGES.find((r) => r === saved) ?? DEFAULT_RANGE
 }
 
 /** The data state of the design for an API state. `not_connected` reads as "not available". */
@@ -69,7 +69,7 @@ export function detailKey(state: string): MessageKey {
 
 /** Decimals of a metric's number (an index or a count is whole). */
 export function digitsOf(key: string): number {
-  return ['heart_pulse', 'vascular_age', 'visceral_fat', 'nerve_health_score'].includes(key) ? 0 : 1
+  return ['heart_pulse', 'vascular_age', 'visceral_fat', 'metabolic_age', 'nerve_health_score'].includes(key) ? 0 : 1
 }
 
 /** The tiles of each part of the overview, by metric key; blood pressure is one tile of two keys. */

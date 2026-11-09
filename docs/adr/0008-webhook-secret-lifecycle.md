@@ -151,3 +151,38 @@ and never kept) stay in ADR 0004's Alternatives.
 Made in place above and marked "amended 2026-10-31, #78": the reading notes of §1 name the
 rotation lock as this ADR's §2, so that a bare section reference there still means ADR 0004
 (the #73 review's non-blocking finding 4). §1's list and §2 are unchanged.
+
+### 2026-11-09 (#280): receiver error paths, quotas and role pins
+
+Notes from the #280 hardening; §1 and §2 above are unchanged. Each is the safest reversible
+default the Developer took; the Architect confirms or revises it.
+
+- **The ingest role** `ownvitals_webhook_events` keeps `BYPASSRLS` and column `SELECT` on
+  `connections (id, app_id, withings_userid, status, owner_id)` (ADR 0002 §4, Architect-confirmed
+  in #280). It is `NOLOGIN`, `NOINHERIT`, a member of nothing, with no settings or default
+  privileges; guard 2 now pins those attributes, and `NOBYPASSRLS` for
+  `ownvitals_webhook_secrets`. It must hold `EXECUTE` on `queue_enqueue` while
+  `webhook_event_insert` exists, and nothing else there: the worker's queue check, guard 9 and
+  guard 2 require the grant, and `20-queue.sql` run on its own keeps it.
+- **Webhook quotas** (PLAN §4.4, ADR 0005 §8): `webhook_event_insert` adds no job when the
+  connection (`app_id`, `withings_userid`) already has 60 job-bearing events in the last hour, or
+  the app 1000. The event is still recorded (`job_id` null), the outcome is `over_quota`, the
+  receiver logs it at most once a minute per app and answers the generic 200; the poll catches
+  up. The limits are constants in the function, so changing one changes its pinned digest. The
+  counts stop at the limit but use no index (none exists on `received_at`); they are soft under
+  concurrent deliveries. An index is a follow-up if volume needs it.
+- **Error answers.** The generic 200 for a failed store is **not** adopted (Architect, #280):
+  after a secret matched, a failure to store the notification answers 500, as before, because
+  PLAN §4.4 requires the event and job committed before any 200 and the 500 lets Withings
+  retry. Telling a 500 apart from the generic 200 needs a live 256-bit secret already, so it
+  is no guessing oracle. The warning carries the error type and SQLSTATE only. A replay (stored
+  before) still answers 200, recognised only by `webhook_event_insert`'s SQLSTATE `22023` with
+  the exact message `duplicate`.
+- **Append lead.** `append_secret` refuses an `active_from` less than the entry-cache TTL after
+  now (§1 routine step 1), before it mints or writes anything. The database function does not
+  check it: it does not know web's TTL.
+- **Cache TTL.** 60 s (`webhook_cache.CACHE_TTL`); `Cache.ttl` and `append_secret(cache_ttl=)`
+  take it as a parameter. Reading it from `Settings` waits for the `config.py` lock.
+- **Retired seeds.** The key ring's `seed_for` returns a retired seed as a plain `WebhookSeed`;
+  `subscriptions.wrap_seed` makes the current/retired distinction and `mint` refuses a
+  `RetiredWebhookSeed`. Callers must go through `wrap_seed`; unchanged by #280.

@@ -114,6 +114,19 @@ VIEWS: Final = COMMON | {"daily_summary"}
 # names another text than the current one.
 AI: Final = COMMON | {"ai_not_enabled", "ai_consent_outdated", "step_up_required"}
 
+# ``detail.reason`` of /api/exports (#211, ADR 0013 section 4); the download's cross-site refusal
+# is a page that names its code in ``X-Ownvitals-Reason``.
+EXPORTS: Final = COMMON | {
+    "export_in_progress",
+    "export_not_ready",
+    "export_expired",
+    "export_download_spent",
+    "download_same_origin_required",
+    "rate_limited",
+    "reauth_required",
+    "step_up_required",
+}
+
 FAMILIES: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
     {
         "auth": AUTH,
@@ -122,6 +135,7 @@ FAMILIES: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
         "connections": CONNECTIONS,
         "views": VIEWS,
         "ai": AI,
+        "exports": EXPORTS,
     }
 )
 

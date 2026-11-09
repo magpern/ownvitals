@@ -16,6 +16,7 @@ from ownvitals.derived.tables import DERIVED_OWNED
 from ownvitals.ingest.tables import INGEST_OWNED
 from ownvitals.notify.outbox import OUTBOX_TABLES
 from ownvitals.notify.tables import NOTIFY_OWNED
+from ownvitals.reports.tables import EXPORT_OWNED
 from ownvitals.withings.tables import WITHINGS_OWNED
 from rls_guard import GLOBAL_UNIQUE_INDEXES, check_tables
 
@@ -63,6 +64,7 @@ def test_the_migrated_schema_meets_the_contract(database_url: str) -> None:
                 *AI_OWNED,
                 *NOTIFY_OWNED,
                 *AI_CONSENT_OWNED,
+                *EXPORT_OWNED,
                 *AI_AUDIT_OWNED,
             }
     finally:

@@ -19,7 +19,7 @@ QUEUE_DIGESTS: dict[str, str] = {
         # md5(pg_get_functiondef) of this function body
         "f59b7611527b9d4f44abab6afe5b73d9"
     ),
-    "webhook_event_insert": "9baca62363fe3c9930aa56f111fefaef",
+    "webhook_event_insert": "f7c01ecb27fb4004976633226b19f936",
     "webhook_events_purge_owner": "8e27869239fd878b54f03554f81d8bd9",
     "metrics_withings_aggregates": "a8aea3437e9abe31643d761c6279efe9",
     "metrics_webhook_ages": "e06d394857678e78d84a0736b3164659",

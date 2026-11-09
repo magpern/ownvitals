@@ -9,7 +9,8 @@ deletion enqueues, ``ownvitals.auth.purge``, #163), and the analysis chain
 ``derive_normalize``, ``derive_daily``, ``derive_evaluate`` and ``derive_scores`` (#185, #186,
 #187, #188), the ECG ``estimated`` recompute ``ecg_recompute`` (#191; the nightly
 reconciliation queues it as the sweep after a module version bump, ADR 0006 section 15), and the
-finding notifications ``notify_findings`` (#195), queued after each evaluation and recompute. Only
+finding notifications ``notify_findings`` (#195), queued after each evaluation and recompute,
+and the user's JSON/CSV export ``export_build`` (#211, ADR 0013 section 4). Only
 ``python -m ownvitals.worker`` builds it. The API's registry (``ownvitals.jobs.KINDS``) stays
 empty, so ``POST /api/jobs`` still refuses every kind and the web process registers no handler
 (web imports ``ownvitals.auth.purge`` for the routes, which defines the disconnect handler but
@@ -45,6 +46,7 @@ from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
 from ownvitals.jobs.withings import ConnectInput, SecretTargets
 from ownvitals.notify.findings_job import register_notify_kind, then_notify
+from ownvitals.reports.export import register_export_kind
 from ownvitals.withings.client import WithingsClient
 from ownvitals.withings.reconcile import execute_nightly
 from ownvitals.withings.subscriptions import callback_url, derive_secret
@@ -182,4 +184,5 @@ def worker_registry() -> KindRegistry:
     for kind in followed:
         registry.register(then_notify(kind))
     register_notify_kind(registry)
+    register_export_kind(registry)  # #211: the user's JSON/CSV export (ADR 0013 section 4)
     return registry

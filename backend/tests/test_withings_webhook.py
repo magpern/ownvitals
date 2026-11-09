@@ -229,6 +229,7 @@ async def test_both_secrets_work_during_overlap_and_the_retired_one_is_ignored(
         pepper=PEPPER_BYTES,
         pepper_id=PEPPER,
         active_from=WHEN - timedelta(minutes=1),
+        now=WHEN - timedelta(minutes=2),
     )
     # The append cleared the request. A second live secret is the overlap.
     with engine_for(database_url) as engine, engine.begin() as admin:
@@ -246,6 +247,7 @@ async def test_both_secrets_work_during_overlap_and_the_retired_one_is_ignored(
         pepper=PEPPER_BYTES,
         pepper_id=PEPPER,
         active_from=WHEN - timedelta(minutes=1),
+        now=WHEN - timedelta(minutes=2),
     )
     stored = _stored(database_url, app_id)
     cache = Cache(
@@ -364,6 +366,7 @@ async def test_a_held_lock_and_cancelled_repoint_jobs_raise_the_stall_alert(
         pepper=PEPPER_BYTES,
         pepper_id=PEPPER,
         active_from=WHEN - timedelta(minutes=1),
+        now=WHEN - timedelta(minutes=2),
     )
     secret_id = UUID(str(_stored(database_url, app_id)[-1]["secret_id"]))
     with engine_for(app_database_url) as engine, engine.begin() as conn:
@@ -415,6 +418,7 @@ async def test_step_late_follows_the_newest_secret_not_the_original(
         pepper=PEPPER_BYTES,
         pepper_id=PEPPER,
         active_from=now - bound - timedelta(hours=1),
+        now=now - bound - timedelta(hours=2),
     )
     _request_rotation(database_url, app_id)
     await append_secret(

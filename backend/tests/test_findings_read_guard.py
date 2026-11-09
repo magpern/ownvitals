@@ -75,6 +75,9 @@ ALLOWED: dict[str, str] = {
     # #195: the notification step's state moves (notify_state, notified_at) and the ids of the
     # findings still waiting; what the step shows or hides comes only through the read function.
     "ownvitals.notify.findings_state": "the notification state of a finding (#195)",
+    # #211: the export's reader of the recordings (Withings' values and the signal, the columns
+    # of the export allowlist); the findings and estimates come only through the read function.
+    "ownvitals.reports.export_ecg": "the export reads the recordings' Withings values (#211)",
 }
 # Strings outside ``ALLOWED`` that hold a word and were reviewed as no read: exact, by module,
 # with how many times each occurs there.
@@ -91,6 +94,16 @@ REVIEWED_STRINGS: dict[tuple[str, str], int] = {
     # the tool table and in the output allowlist. The tool reads through the read function.
     ("ownvitals.ai.tools", "findings"): 1,
     ("ownvitals.ai.tools_model", "findings"): 2,
+    # The export's allowlist (#211, ADR 0013 section 1): the two specially read tables, named
+    # once each (their file stems and allowlist keys), the recordings' column that is not
+    # exported, and the label of the estimates' file (ADR 0013 section 2). It reads nothing.
+    ("ownvitals.reports.export_allowlist", "ecg_recordings"): 1,
+    ("ownvitals.reports.export_allowlist", "findings"): 1,
+    ("ownvitals.reports.export_allowlist", "estimated"): 1,
+    (
+        "ownvitals.reports.export_allowlist",
+        "Estimated by ownvitals from the raw signal; not a Withings measurement",
+    ): 1,
 }
 TABLES = frozenset({"findings", "ecg_recordings"})
 _WORD = re.compile(
@@ -228,6 +241,7 @@ def test_the_allow_list_is_exact() -> None:
         "ownvitals.derived.findings_ecg",
         "ownvitals.derived.ecg_recompute",
         "ownvitals.notify.findings_state",
+        "ownvitals.reports.export_ecg",
     }
     paths = {module_name(path): path for path in _modules()}
     for module in ALLOWED:

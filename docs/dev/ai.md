@@ -205,7 +205,7 @@ the worker, inside a job run (`JobRun`), never in web.
 | `backend/src/ownvitals/ai/client.py` | `call_model`: the order of checks, the attempts within one reservation, settle or release, the audit row |
 | `backend/src/ownvitals/ai/turn.py` | `run_turn`: tool requests run through `ai.tools.run_tool` as the job's user, at most 8 per turn |
 | `backend/src/ownvitals/ai/audit.py` | the `ai_audit` row and log line, the `ai-audit` HKDF key, the fingerprints |
-| `backend/migrations/versions/0022_ai_audit.py` | `ai_audit` (owned, forced RLS, the app role `SELECT` and `INSERT` only; token counts in `*_token_count` columns) |
+| `backend/migrations/versions/0023_ai_audit.py` | `ai_audit` (owned, forced RLS, the app role `SELECT` and `INSERT` only; token counts in `*_token_count` columns) |
 | `backend/tests/fakemodel.py` | the fake Messages API every AI test uses (the `inner` transport of the egress client) |
 
 ### Settings and secrets

@@ -33,6 +33,7 @@ from ownvitals.flags.routes import router as flags_router
 from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
 from ownvitals.notify import sender as outbox_sender
+from ownvitals.reports.export_routes import router as exports_router
 from ownvitals.views.days_routes import router as days_router
 from ownvitals.views.ecg_routes import router as ecg_router
 from ownvitals.views.findings_routes import router as findings_router
@@ -80,6 +81,7 @@ FEATURE_ROUTERS = (
     scores_router,
     notifications_router,
     ai_consent_router,
+    exports_router,
 )
 
 

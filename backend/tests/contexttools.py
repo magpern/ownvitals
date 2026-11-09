@@ -149,6 +149,12 @@ ROWS: Final[Mapping[str, str]] = {
     "ai_messages": "INSERT INTO public.ai_messages (owner_id, conversation_id, role, content) "
     "VALUES (:owner, (SELECT c.id FROM public.ai_conversations c WHERE c.owner_id = :owner "
     "ORDER BY c.created_at, c.id LIMIT 1), 'user', 'synthetic_ctx_message') RETURNING id",
+    # The export (#211): an expired export record and a chunk of the owner's first export.
+    "exports": "INSERT INTO public.exports (owner_id, kind, state) VALUES (:owner, 'data', "
+    "'expired') RETURNING id",
+    "export_chunks": "INSERT INTO public.export_chunks (owner_id, export_id, seq, bytes) VALUES "
+    "(:owner, (SELECT e.id FROM public.exports e WHERE e.owner_id = :owner ORDER BY e.created_at, "
+    "e.id LIMIT 1), :n, :hash) RETURNING id",
     "ai_reservations": "INSERT INTO public.ai_reservations (owner_id, month, amount, actual, "
     "state, job_id, lease_version, ended_at) VALUES (:owner, DATE '2026-01-01', :n, :n, "
     "'settled', :job, 0, :ts) RETURNING id",

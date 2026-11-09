@@ -172,7 +172,10 @@ ALLOWED: dict[str, Allowed] = {
     ),
     "__dict__": Allowed("a log record's extra fields", _forms("read"), LOG),
     "__version__": Allowed(
-        "the package version", _forms("define", "import", "name"), _modules("__init__.py", "web.py")
+        # web.py: /api/health; reports/export.py: the export manifest's app_version (#211).
+        "the package version",
+        _forms("define", "import", "name"),
+        _modules("__init__.py", "web.py", "reports/export.py"),
     ),
     "__file__": Allowed(
         "the locale manifest's path, found from the package's own location (ADR 0015 section 1, "

@@ -56,7 +56,7 @@ RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
     # nothing; every write is a definer function of 50-ai.sql. ai_spend_global is NO_APP_ACCESS.
     "ai_spend": {"SELECT"},
     "ai_reservations": {"SELECT"},
-    # Migration 0022 (#207, ADR 0014 section 6): the AI audit log is append-only for the app.
+    # Migration 0023 (#207, ADR 0014 section 6): the AI audit log is append-only for the app.
     "ai_audit": {"SELECT", "INSERT"},
 }
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
@@ -92,11 +92,19 @@ METRICS = "ownvitals_metrics"
 WITHINGS_ROLES = {SECRETS, EVENTS, METRICS}
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 METRICS_ATTRIBUTES = (False, False, False, False, False, True, False)
+# The webhook roles (#280): the secrets role has no BYPASSRLS (ADR 0002 section 3); the ingest
+# role has it for the cross-owner connection lookup (ADR 0002 section 4). Both are NOLOGIN.
+WEBHOOK_ATTRIBUTES = {
+    SECRETS: ((False, False, False, False, False, False, False), "NOBYPASSRLS"),
+    EVENTS: ((False, False, False, False, False, True, False), "BYPASSRLS"),
+}
 WITHINGS_RELATIONS: dict[str, dict[str, set[str]]] = {
     "admin_audit:r": {SECRETS: {"INSERT"}},
     "admin_audit_id_seq:S": {SECRETS: {"USAGE"}},
     "webhook_events:r": {EVENTS: {"INSERT", "DELETE"}},
 }
+# The tables ensure_month_partitions may partition (its p_table allowlist in 40-withings.sql).
+MONTH_PARTITIONED = frozenset({"sleep_series", "intraday", "observations"})
 WITHINGS_FUNCTIONS = {
     "ensure_month_partitions": OWNER,
     "webhook_secrets_apply": SECRETS,
@@ -200,6 +208,8 @@ WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("connections", "owner_id"): {(EVENTS, "SELECT")},
     ("webhook_events", "app_id"): {(EVENTS, "SELECT"), (METRICS, "SELECT")},
     ("webhook_events", "withings_userid"): {(EVENTS, "SELECT"), (METRICS, "SELECT")},
+    # The webhook quotas count the job-bearing events of the last hour (#280).
+    ("webhook_events", "job_id"): {(EVENTS, "SELECT")},
     # The metrics aggregates (#167): counts and ages. No credential, owner or payload column.
     ("connections", "public"): {(METRICS, "SELECT")},
     ("sync_cursors", "connection_id"): {(METRICS, "SELECT")},
@@ -208,7 +218,7 @@ WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("sync_cursors", "backfill_state"): {(METRICS, "SELECT")},
     ("sync_cursors", "last_ok_at"): {(METRICS, "SELECT")},
     ("webhook_events", "enddate"): {(METRICS, "SELECT")},
-    ("webhook_events", "received_at"): {(METRICS, "SELECT")},
+    ("webhook_events", "received_at"): {(EVENTS, "SELECT"), (METRICS, "SELECT")},
     ("jobs", "state"): {(METRICS, "SELECT")},
     ("jobs", "available_at"): {(METRICS, "SELECT")},
 }
@@ -244,6 +254,36 @@ def _bare_signature(obj: str) -> str:
     signature = obj.split(":", 1)[0]
     name, sep, args = signature.partition("(")
     return name.rsplit(".", 1)[-1] + sep + args
+
+
+def _check_webhook_roles(conn: Connection, need: Callable[[bool, str], None]) -> None:
+    """40-withings.sql's two webhook roles: exactly their attributes, a member of nothing and
+    with no members, no settings and no default privileges (#280)."""
+    for name, (attributes, bypass) in WEBHOOK_ATTRIBUTES.items():
+        row = conn.execute(
+            text(
+                "SELECT r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, "
+                "r.rolreplication, r.rolbypassrls, r.rolinherit, r.oid "
+                "FROM pg_roles r WHERE r.rolname = :r"
+            ),
+            {"r": name},
+        ).first()
+        if row is None:
+            continue  # reported as "must exist together"
+        need(
+            tuple(row[:7]) == attributes,
+            f"{name} must be NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
+            f"{bypass} NOINHERIT",
+        )
+        others = conn.execute(
+            text(
+                "SELECT (SELECT count(*) FROM pg_auth_members WHERE :oid IN (member, roleid)) "
+                "+ (SELECT count(*) FROM pg_db_role_setting WHERE setrole = :oid) "
+                "+ (SELECT count(*) FROM pg_default_acl WHERE defaclrole = :oid)"
+            ),
+            {"oid": row.oid},
+        ).scalar_one()
+        need(others == 0, f"{name}: no memberships, settings or default privileges")
 
 
 def _check_metrics_role(conn: Connection, need: Callable[[bool, str], None]) -> None:
@@ -421,6 +461,7 @@ def check_roles(conn: Connection) -> list[str]:
             f"{SECRETS}, {EVENTS} and {METRICS} must exist together",
         )
         _check_metrics_role(conn, need)
+        _check_webhook_roles(conn, need)
     # 50-outbox.sql: absent until that script runs, then exactly its role and grants.
     outbox_role = conn.execute(
         text(
@@ -583,10 +624,26 @@ def check_roles(conn: Connection) -> list[str]:
         "ELSE CAST('r' AS \"char\") END, c.relowner))) a "
         "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')",
     )
+    # Month partitions of ensure_month_partitions' tables (40-withings.sql): that function
+    # revokes every privilege of the app role and PUBLIC on each one, so the app role reaches
+    # the rows only through the parent, under its policy (#280).
+    month_partitions = {
+        f"{name}:r"
+        for (name,) in conn.execute(
+            text(
+                "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "JOIN pg_inherits i ON i.inhrelid = c.oid "
+                "JOIN pg_class p ON p.oid = i.inhparent "
+                "WHERE n.nspname = 'public' AND c.relispartition AND c.relkind = 'r' "
+                "AND p.relname = ANY(:parents) AND p.relkind = 'p'"
+            ),
+            {"parents": sorted(MONTH_PARTITIONED)},
+        )
+    }
     for obj in sorted({o for o, *_ in relations}):
         expected = SEQUENCE_PRIVILEGES if obj.endswith(":S") else TABLE_PRIVILEGES
         expected = RESTRICTED_APP_PRIVILEGES.get(obj.split(":")[0], expected)
-        if obj.split(":")[0] in NO_APP_ACCESS:
+        if obj.split(":")[0] in NO_APP_ACCESS or obj in month_partitions:
             expected = set()
         need(
             _privileges(relations, APP, obj) == expected,
@@ -728,11 +785,14 @@ def check_roles(conn: Connection) -> list[str]:
                 _privileges(functions, QUEUE, obj) == {"EXECUTE"},
                 f"{obj}: ownvitals_queue EXECUTE only",
             )
-            if EVENTS in _grantees(functions, obj):
+            if signature.startswith("queue_enqueue(") and withings_installed:
+                # Required, not just allowed: without it every notification fails (#280).
                 need(
                     _privileges(functions, EVENTS, obj) == {"EXECUTE"},
-                    f"{obj}: {EVENTS} EXECUTE only",
+                    f"{obj}: {EVENTS} must have EXECUTE and nothing else",
                 )
+            else:
+                need(EVENTS not in _grantees(functions, obj), f"{obj}: {EVENTS} must hold nothing")
             need(_grantees(functions, obj) <= allowed_execute, f"{obj}: unexpected grantee")
             need(
                 obj.endswith(f":{QUEUE}:true"),

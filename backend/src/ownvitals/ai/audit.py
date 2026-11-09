@@ -1,14 +1,17 @@
 """The AI audit log with redacted content (ADR 0014 section 6; #207).
 
-One ``ai_audit`` row per model call (migration 0022), written in the job's fenced transaction
-(the owner's session, forced RLS; the app role may only ``SELECT`` and ``INSERT``), and one log
-line with the same fields but the cost and the fingerprints. A row holds the job, kind, model,
-prompt and tool-set versions, the names of the tools the answer asked for with their closed
-arguments, the token counts, the cost, the reservation, the latency, attempts, status, a closed
-error category, the HTTP status, the settlement and two fingerprints: HMAC-SHA-256 of the exact
-request bytes and of the answer bytes under the key derived from ``app_secret_key`` with HKDF
-label ``ai-audit`` (ADR 0003 section 1). A row can be matched to a body we hold; a guessed
-message cannot be confirmed from the row alone.
+One ``ai_audit`` row per model call (migration 0023), written in the job's fenced transaction
+together with the reservation's settle or release (the owner's session, forced RLS; the app role
+may only ``SELECT`` and ``INSERT``), and one log line with the same fields but the cost and the
+fingerprints. When the lease is lost, the call leaves the log line only and no ``ai_audit`` row:
+the attempt is no longer this worker's, and the reaper (``ai_settle_lost``) charges the
+reservation at its full amount. A row holds the job, kind, model, prompt and tool-set versions,
+the names of the tools the answer asked for with their closed arguments, the token counts, the
+cost, the reservation, the latency, attempts, status, a closed error category, the HTTP status,
+the settlement and two fingerprints: HMAC-SHA-256 of the exact request bytes and of the answer
+bytes under the key derived from ``app_secret_key`` with HKDF label ``ai-audit`` (ADR 0003
+section 1). A row can be matched to a body we hold; a guessed message cannot be confirmed from
+the row alone.
 
 **Never** in a row or a log line: message text, tool results, the system prompt, the API key.
 Nothing here takes free text: ``AuditEntry`` holds counts, closed codes and fingerprints, and
