@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import SecretStr, ValidationInfo, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
@@ -125,6 +125,11 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings
     # ``webhook_pepper_<id>``. Optional in M0, required from M1 (ADR 0004 section 4).
     webhook_seed_id: str = "seed-1"
     webhook_pepper_id: str = "pep-1"
+    # How long web's copy of the webhook-secret HMACs stays usable after the read that made it;
+    # past it the receiver answers 503 (ADR 0008). Web re-reads it every quarter of this. At most
+    # 60 s, the lead ``append_secret`` gives a new entry (``webhook_cache.CACHE_TTL``), so every
+    # web process holds an entry before it opens: it can be shortened, never lengthened.
+    webhook_cache_ttl_seconds: int = Field(default=60, ge=4, le=60)
 
     # From the file ``smtp_password`` (never the environment).
     smtp_password: SecretStr | None = None

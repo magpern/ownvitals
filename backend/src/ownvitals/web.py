@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -44,7 +45,8 @@ from ownvitals.views.notifications_routes import router as notifications_router
 from ownvitals.views.profile_routes import router as profile_router
 from ownvitals.views.scores_routes import router as scores_router
 from ownvitals.views.status_routes import router as status_router
-from ownvitals.withings.webhooks import WebhookMiddleware, load_cache
+from ownvitals.withings import webhook_refresh
+from ownvitals.withings.webhooks import WebhookMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +162,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         install_queue_check(engine)  # every new connection, before the first one is opened
         admin_db: AdminDb | None = None
         outbox_task = None
+        refresh_task = None
         try:
             await verify_database_role(engine)
             session_factory = create_session_factory(engine)
@@ -179,13 +182,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if admin_db is not None:
                 await admin_db.verify()
             app.state.admin_db = admin_db
-            # A failed read leaves the cache empty: POST answers 503 until one succeeds.
-            try:
-                await load_cache(app)
-            except Exception as exc:
-                logger.warning("webhook cache not loaded", extra={"error_type": type(exc).__name__})
+            # Web's copy of the webhook-secret HMACs (ADR 0008), re-read every quarter of its
+            # TTL. A failed read leaves the previous copy, or none: once the copy is older than
+            # the TTL, POST answers 503 until a read succeeds.
+            ttl = timedelta(seconds=settings.webhook_cache_ttl_seconds)
+            refresh_task = webhook_refresh.start(app, ttl)
+            await webhook_refresh.refresh_once(app, webhook_refresh.interval_for(ttl))
             yield
         finally:
+            await webhook_refresh.stop(refresh_task)
             await outbox_sender.stop(outbox_task)
             app.state.admin_db = None
             if admin_db is not None:
