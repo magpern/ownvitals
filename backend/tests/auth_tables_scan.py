@@ -74,7 +74,8 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     "ownvitals.auth.setup": frozenset({"attach_state", "detach_state", "install"}),
     # the jobs API: the signed-in user and the event stream's session check; the step-up
     # dependencies (#11) for the connections layer (#13) and the admin writes; the admin
-    # gate (#12): current_context, current_session and request_ip
+    # gate (#12): current_context, current_session and request_ip; the Withings connect start's
+    # per-IP OAuth limit (#296): reserve_oauth_start
     "ownvitals.auth.deps": frozenset(
         {
             "Probe",
@@ -85,6 +86,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "require_sensitive",
             "require_stepup",
             "require_user",
+            "reserve_oauth_start",
             "session_probe",
         }
     ),

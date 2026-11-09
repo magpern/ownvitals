@@ -343,3 +343,23 @@ async def test_neither_the_code_nor_the_state_is_logged_or_echoed(
         assert response.content == b""
     assert values["code"] not in caplog.text
     assert values["state"] not in caplog.text
+
+
+async def test_start_counts_against_the_per_ip_oauth_start_limit(
+    env: Env, owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0004 section 7: the start is limited per IP as well as per user. A two-slot window
+    here (the real one is 30 per 15 minutes, shared with Google's start); the per-user state
+    limit (30) is far away, so the third start is refused by the IP limit alone."""
+    from ownvitals.auth import deps
+    from ownvitals.auth.ratelimit import OAUTH_IP, Limit
+
+    monkeypatch.setattr(deps, "OAUTH_IP", Limit(OAUTH_IP.action, OAUTH_IP.scope, 2, 900))
+    await _app(env, owner)
+    browser = await signed_in(env)
+    for _ in range(2):
+        assert (await browser.post(START, {})).status_code == 200
+    refused = await browser.post(START, {})
+    assert refused.status_code == 429
+    assert "retry-after" in refused.headers
+    assert "authorize_url" not in refused.text

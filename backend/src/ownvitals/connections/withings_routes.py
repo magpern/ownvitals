@@ -22,18 +22,20 @@ import hashlib
 import json
 import logging
 import secrets
-from typing import Annotated, Final
+from typing import Annotated, Final, Protocol
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from ownvitals.auth.clientip import bucket_ip
-from ownvitals.auth.deps import current_context, current_session, request_ip, require_sensitive
-from ownvitals.auth.flowtools import reserve
-from ownvitals.auth.ratelimit import OAUTH_IP, Bucket
-from ownvitals.auth.session_model import SessionInfo
+from ownvitals.auth.deps import (
+    current_context,
+    current_session,
+    require_sensitive,
+    reserve_oauth_start,
+)
 from ownvitals.connections.errors import ConnectionFailure
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
@@ -62,6 +64,16 @@ _ACTIVE_JOBS = text(
     "FROM jobs WHERE owner_id = :o AND state IN ('queued', 'running')"
 )
 _START_STATUS = {"step_up_required": 403, "rate_limited": 429}
+
+
+class SessionInfo(Protocol):
+    """The signed-in session (``auth.deps.current_session``): its id and recent step-up."""
+
+    @property
+    def id(self) -> UUID: ...
+
+    @property
+    def recent_stepup(self) -> bool: ...
 
 
 class StartOut(BaseModel):
@@ -101,7 +113,7 @@ async def start_withings(
 ) -> JSONResponse:
     if info is None:  # require_sensitive already refused this; kept for the type
         raise HTTPException(status_code=401, detail={"reason": "not_authenticated"})
-    await reserve(request, [Bucket(OAUTH_IP, bucket_ip(request_ip(request)))])
+    await reserve_oauth_start(request)
     app_id = await current_app_id(request, ctx)
     if app_id is None:
         raise HTTPException(status_code=503, detail={"reason": "withings_not_configured"})
@@ -168,9 +180,8 @@ async def _queue_connect(request: Request, ctx: UserContext, connection_id: obje
         logger.info("withings connect job not queued", extra={"reason": created.reason})
 
 
-async def _outcome(request: Request, info: SessionInfo | None) -> str:
+async def _outcome(request: Request, info: SessionInfo | None, ctx: UserContext | None) -> str:
     state = _param(request, "state")
-    ctx = await current_context(request, info)
     if ctx is None or info is None or state is None:
         return "state_rejected"
     store = state_store(request)
@@ -202,9 +213,11 @@ async def _outcome(request: Request, info: SessionInfo | None) -> str:
 
 @router.get(CALLBACK_PATH, include_in_schema=False)
 async def withings_callback(
-    request: Request, info: Annotated[SessionInfo | None, Depends(current_session)]
+    request: Request,
+    info: Annotated[SessionInfo | None, Depends(current_session)],
+    ctx: Annotated[UserContext | None, Depends(current_context)],
 ) -> RedirectResponse:
-    outcome = await _outcome(request, info)
+    outcome = await _outcome(request, info, ctx)
     if outcome != CONNECTED:
         logger.info("withings callback refused", extra={"reason": outcome})
     response = RedirectResponse(f"{RETURN_PATH}?withings={outcome}", status_code=303)
