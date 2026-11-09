@@ -8,6 +8,7 @@ import { connections } from './connections'
 import { detail } from './detail'
 import { ecg } from './ecg'
 import { errors } from './errors'
+import { findings } from './findings'
 import { health } from './health'
 import { overview } from './overview'
 import { passkeys } from './passkeys'
@@ -18,7 +19,7 @@ import { ui } from './ui'
 
 // The Swedish catalogue: its own chunk, loaded when the language is chosen (../store.ts).
 
-export const SV_AREAS = { common, errors, codes, detail, health, auth, account, security, shell, ui, overview, settings, passkeys, connections, ecg }
+export const SV_AREAS = { common, errors, codes, detail, health, auth, account, security, shell, ui, overview, settings, passkeys, connections, ecg, findings }
 
 export const SV: Messages = {
   ...prefixed('common', common),
@@ -36,4 +37,5 @@ export const SV: Messages = {
   ...prefixed('passkeys', passkeys),
   ...prefixed('connections', connections),
   ...prefixed('ecg', ecg),
+  ...prefixed('findings', findings),
 }

@@ -5,6 +5,7 @@ import { useT } from '../i18n'
 import { AdminPage } from './AdminPage'
 import { ConnectionsPage } from './ConnectionsPage'
 import { ECG_PAGES } from './ecgPages'
+import { FINDINGS_PAGES } from './findingsPages'
 import { OVERVIEW_PAGES } from './overviewPages'
 import { SecurityPage } from './SecurityPage'
 import { METRIC_PAGES } from './metricPages'
@@ -25,6 +26,7 @@ const BUILT: Partial<Record<RouteId, ComponentType>> = {
   ...OVERVIEW_PAGES,
   ...METRIC_PAGES,
   ...ECG_PAGES,
+  ...FINDINGS_PAGES,
   ...SETTINGS_PAGES,
 }
 

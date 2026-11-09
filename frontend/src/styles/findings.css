@@ -1,0 +1,149 @@
+/* The findings inbox (docs/design/mockups/src/Findings.dc.html; issue 200). Tokens only. */
+
+.ov-ffilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ov-space-3);
+}
+
+.ov-ffilters__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ov-space-2);
+}
+
+.ov-ffilters__area {
+  width: auto;
+  min-width: 11rem;
+}
+
+.ov-findings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--ov-space-5);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .ov-findings-grid {
+    grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
+  }
+}
+
+.ov-findings-grid__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-3);
+}
+
+.ov-flist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov-fcard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-2);
+  padding: var(--ov-space-3) var(--ov-space-4);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+  background: var(--ov-surface);
+  color: var(--ov-text);
+  text-decoration: none;
+}
+
+.ov-fcard[data-selected='true'] {
+  border-color: var(--ov-brand);
+  box-shadow: 0 0 0 1px var(--ov-brand);
+}
+
+.ov-fcard[data-tier='experimental'] {
+  border-style: dashed;
+  border-color: var(--ov-exp);
+}
+
+.ov-fcard:focus-visible {
+  outline: 2px solid var(--ov-brand);
+  outline-offset: 2px;
+}
+
+.ov-fcard__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ov-space-2);
+}
+
+.ov-fcard__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ov-space-2);
+}
+
+.ov-fcard__state {
+  color: var(--ov-muted);
+  font-size: var(--ov-text-sm);
+}
+
+.ov-fcard__state[data-new='true'] {
+  padding: 0 var(--ov-space-2);
+  border-radius: var(--ov-radius-tag);
+  background: var(--ov-attn-soft);
+  color: var(--ov-text);
+  font-size: var(--ov-text-xs);
+}
+
+.ov-fcard__name {
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-fcard__meta {
+  font-size: var(--ov-text-sm);
+}
+
+.ov-fdetail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-4);
+}
+
+.ov-fdetail__rule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ov-space-3);
+}
+
+.ov-fdetail__title {
+  margin: 0;
+  font-size: var(--ov-text-xl);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-fdetail__sub {
+  margin: 0 0 var(--ov-space-1);
+  font-size: var(--ov-text-md);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-fdetail p {
+  margin: 0;
+}
+
+.ov-fdetail .ov-btn {
+  text-decoration: none;
+}
+
+.ov-fchart {
+  padding: var(--ov-space-3);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+}
