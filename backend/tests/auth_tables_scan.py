@@ -87,6 +87,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "require_stepup",
             "require_user",
             "reserve_export_request",
+            "reserve_doctor_request",
             "reserve_oauth_start",
             "session_probe",
         }
@@ -122,6 +123,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "ACCOUNT_COLUMNS",
             "AccountExport",
             "Downloaded",
+            "ExportEventKind",
             "Expired",
             "Failed",
             "Ready",

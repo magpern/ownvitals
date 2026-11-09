@@ -46,6 +46,7 @@ from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
 from ownvitals.jobs.withings import ConnectInput, SecretTargets
 from ownvitals.notify.findings_job import register_notify_kind, then_notify
+from ownvitals.reports.doctor import register_doctor_kind
 from ownvitals.reports.export import register_export_kind
 from ownvitals.withings.client import WithingsClient
 from ownvitals.withings.reconcile import execute_nightly
@@ -185,4 +186,5 @@ def worker_registry() -> KindRegistry:
         registry.register(then_notify(kind))
     register_notify_kind(registry)
     register_export_kind(registry)  # #211: the user's JSON/CSV export (ADR 0013 section 4)
+    register_doctor_kind(registry)  # issue 210: the doctor PDF (ADR 0013 section 6)
     return registry

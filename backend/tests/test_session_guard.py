@@ -166,6 +166,9 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.reports.export_read", False, False),
         ("ownvitals.reports.export_ecg", False, False),
         ("ownvitals.reports.export_routes", False, False),
+        ("ownvitals.reports.doctor", False, False),
+        ("ownvitals.reports.doctor_routes", False, False),
+        ("ownvitals.reports.doctor_read", False, False),
         ("ownvitals.reports", False, False),
         # The metrics refresh (#167): that exact module; the loop and the kinds open none.
         ("ownvitals.worker.metrics", False, True),

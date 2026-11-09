@@ -24,10 +24,10 @@ its owner opens the export list, requests or downloads (``docs/dev/reports.md``,
 import hashlib
 import json
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from sqlalchemy import text
@@ -63,20 +63,20 @@ _DROP_OLD = text(
     "AND created_at < now() - interval '90 days'"
 )
 _BUILDING = text(
-    "SELECT count(*) FROM exports WHERE owner_id = :owner AND kind = 'data' AND state = 'building'"
+    "SELECT count(*) FROM exports WHERE owner_id = :owner AND kind = :kind AND state = 'building'"
 )
 _INSERT = text(
     "INSERT INTO exports (id, owner_id, kind, state, job_id) "
-    "VALUES (:id, :owner, 'data', 'building', :job)"
+    "VALUES (:id, :owner, :kind, 'building', :job)"
 )
 _LIST = text(
     "SELECT id, state, created_at, ready_at, expires_at, size, failure, largest, "
-    "download_attempts FROM exports WHERE owner_id = :owner AND kind = 'data' "
+    "download_attempts FROM exports WHERE owner_id = :owner AND kind = :kind "
     "ORDER BY created_at DESC, id LIMIT :limit"
 )
 _LOCK = text(
     "SELECT state, expires_at > now() AS live, download_attempts, size FROM exports "
-    "WHERE id = :id AND owner_id = :owner AND kind = 'data' FOR UPDATE"
+    "WHERE id = :id AND owner_id = :owner AND kind = :kind FOR UPDATE"
 )
 _ATTEMPT = text(
     "UPDATE exports SET download_attempts = download_attempts + 1 "
@@ -164,14 +164,19 @@ async def request(
     *,
     job_limit: int,
     reserve: Callable[[], Awaitable[None]],
+    kind: str = "data",
+    job_kind: str = KIND,
+    job_input: Mapping[str, Any] | None = None,
 ) -> Requested:
-    """A new export and its build job, or ``Refused``. ``reserve`` takes the 24-hour slot (it
-    raises above the limit); it runs only once nothing else refuses."""
+    """A new export (of ``kind``) and its build job, or ``Refused``. ``reserve`` takes the
+    24-hour slot (it raises above the limit); it runs only once nothing else refuses.
+    ``job_input`` is added to the job's input beside the export id (the doctor PDF's choices)."""
     require_context(ctx)
     export_id = uuid.uuid4()
-    body = json.dumps({"export_id": str(export_id)}, sort_keys=True, separators=(",", ":"))
+    fields = {**(job_input or {}), "export_id": str(export_id)}
+    body = json.dumps(fields, sort_keys=True, separators=(",", ":"), default=str)
     new = user_jobs.NewJob(
-        kind=KIND,
+        kind=job_kind,
         input=body,
         idempotency_key=f"export-{export_id.hex}",
         request_hash=hashlib.sha256(body.encode()).digest(),
@@ -181,7 +186,7 @@ async def request(
         async with user_session(factory, ctx) as db:
             await user_jobs.lock_owner(db, ctx)
             tidied = await tidy(db, ctx)  # committed with a refusal too
-            if (await db.execute(_BUILDING, {"owner": ctx.user_id})).scalar_one():
+            if (await db.execute(_BUILDING, {"owner": ctx.user_id, "kind": kind})).scalar_one():
                 refusal = "export_in_progress"
             elif await user_jobs.active_jobs(db, ctx) >= job_limit:
                 refusal = "busy"
@@ -190,7 +195,12 @@ async def request(
                 created = await user_jobs.create(db, ctx, new, limit=job_limit)
                 if created.job_id is None:  # the owner lock makes this unreachable
                     raise Refused("busy")
-                params = {"id": export_id, "owner": ctx.user_id, "job": created.job_id}
+                params = {
+                    "id": export_id,
+                    "owner": ctx.user_id,
+                    "job": created.job_id,
+                    "kind": kind,
+                }
                 await db.execute(_INSERT, params)
     except IntegrityError as error:
         name = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
@@ -202,11 +212,15 @@ async def request(
     return Requested(export_id, tidied)
 
 
-async def list_exports(factory: Factory, ctx: UserContext) -> tuple[list[ExportView], Tidied]:
-    """The user's latest exports, newest first, after ``tidy``; and what the tidy changed."""
+async def list_exports(
+    factory: Factory, ctx: UserContext, kind: str = "data"
+) -> tuple[list[ExportView], Tidied]:
+    """The user's latest exports of ``kind``, newest first, after ``tidy``; and what it changed."""
     async with user_session(factory, ctx) as db:
         tidied = await tidy(db, ctx)
-        rows = (await db.execute(_LIST, {"owner": ctx.user_id, "limit": LIST_LIMIT})).all()
+        rows = (
+            await db.execute(_LIST, {"owner": ctx.user_id, "limit": LIST_LIMIT, "kind": kind})
+        ).all()
     views = [
         ExportView(
             id=r.id,
@@ -224,11 +238,13 @@ async def list_exports(factory: Factory, ctx: UserContext) -> tuple[list[ExportV
     return views, tidied
 
 
-async def begin_download(factory: Factory, ctx: UserContext, export_id: UUID) -> Download:
-    """Count one download attempt of a ready, live export, or raise ``Refused``."""
+async def begin_download(
+    factory: Factory, ctx: UserContext, export_id: UUID, kind: str = "data"
+) -> Download:
+    """Count one download attempt of a ready, live export of ``kind``, or raise ``Refused``."""
     params = {"id": export_id, "owner": ctx.user_id}
     async with user_session(factory, ctx) as db:
-        row = (await db.execute(_LOCK, params)).first()
+        row = (await db.execute(_LOCK, {**params, "kind": kind})).first()
         if row is None:
             raise Refused("not_found")
         if row.state == "ready" and not row.live:

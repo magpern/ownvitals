@@ -66,7 +66,13 @@ ACCOUNT_TABLES_NOT_EXPORTED: Final[Mapping[str, str]] = {
 }
 
 ExportEventKind = Literal[
-    "export_requested", "export_ready", "export_failed", "export_downloaded", "export_expired"
+    "export_requested",
+    "export_ready",
+    "export_failed",
+    "export_downloaded",
+    "export_expired",
+    "doctor_pdf_requested",
+    "doctor_pdf_downloaded",
 ]
 EXPORT_EVENT_KINDS: Final[tuple[str, ...]] = (
     "export_requested",
@@ -74,6 +80,8 @@ EXPORT_EVENT_KINDS: Final[tuple[str, ...]] = (
     "export_failed",
     "export_downloaded",
     "export_expired",
+    "doctor_pdf_requested",
+    "doctor_pdf_downloaded",
 )
 
 
@@ -81,7 +89,7 @@ class _Detail(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     export_id: UUID
-    export_kind: Literal["data"] = "data"
+    export_kind: Literal["data", "doctor_pdf"] = "data"
 
 
 class Requested(_Detail):
@@ -111,6 +119,10 @@ DETAILS: Final[Mapping[str, type[_Detail]]] = {
     "export_failed": Failed,
     "export_downloaded": Downloaded,
     "export_expired": Expired,
+    # The doctor PDF (ADR 0013 section 6) shares the models; its details say export_kind
+    # "doctor_pdf", and its build records export_ready and export_failed the same way.
+    "doctor_pdf_requested": Requested,
+    "doctor_pdf_downloaded": Downloaded,
 }
 
 
