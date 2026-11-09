@@ -326,6 +326,14 @@ millimetre-exact), fpdf2 (fewer guarantees on stream determinism). The layout
 (`reports/ecg_pdf.py`) only draws them. Tests measure both the operations and the PDF's own path
 operators (`tests/pdftools.py`).
 
+**Hardening (#301).** The route builds the PDF with `asyncio.to_thread` (about 1.2 s of CPU; same
+bytes, `build_pdf` is pure), proven by `tests/test_ecg_pdf_route_offloop.py`. The renderer clips
+each trace to its own row's grid (plus and minus 2 mV, a PDF clip path inside `q`/`Q`), so a large
+excursion never runs over a neighbouring row or the header; the layout still places every sample
+unscaled and the clip only cuts the line at the edge (`test_a_trace_beyond_2_mv_is_clipped...`).
+`tests/test_ecg_pdf_guard.py` is an AST guard: the ECG and doctor PDF modules make no image or
+link calls (`drawImage`, `linkURL`, platypus, URL literals), with planted mutations that must fail.
+
 ## Rules E1 to E4 and E6, and the `estimated` recompute (#191)
 
 ADR 0006 §11 and §15, ADR 0010 §7 "ECG". Status IMPLEMENTED: synthetic tests only; nothing here is

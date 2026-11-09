@@ -15,8 +15,11 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
 
 from ownvitals.reports.ecg_layout import (
+    GRID_X0,
     PAGE_H,
     PAGE_W,
+    ROW_H,
+    ROW_W,
     Op,
     Page,
     Polyline,
@@ -39,7 +42,10 @@ def local_time_label(at: datetime, zone: str) -> str:
     return f"{at.astimezone(tz):%Y-%m-%d %H:%M:%S %Z} ({zone})"
 
 
-def _draw(canvas: Canvas, op: Op) -> None:
+def _draw(canvas: Canvas, op: Op, band: float | None = None) -> None:
+    """``band`` is the baseline of the row a trace belongs to: the trace is clipped to that
+    row's grid (plus and minus 2 mV), so a large excursion never runs over a neighbouring row
+    or the header. The clip cuts the line at the edge; no value is rescaled."""
     if isinstance(op, Segments):
         canvas.setStrokeColorRGB(*op.rgb)
         canvas.setLineWidth(op.width_mm * mm)
@@ -49,6 +55,11 @@ def _draw(canvas: Canvas, op: Op) -> None:
             path.lineTo(x2 * mm, y2 * mm)
         canvas.drawPath(path, stroke=1, fill=0)
     elif isinstance(op, Polyline):
+        if op.role == "trace" and band is not None:
+            canvas.saveState()
+            clip = canvas.beginPath()
+            clip.rect(GRID_X0 * mm, (band - ROW_H / 2) * mm, ROW_W * mm, ROW_H * mm)
+            canvas.clipPath(clip, stroke=0, fill=0)
         canvas.setStrokeColorRGB(*op.rgb)
         canvas.setLineWidth(op.width_mm * mm)
         canvas.setLineJoin(1)
@@ -58,6 +69,8 @@ def _draw(canvas: Canvas, op: Op) -> None:
         for x, y in rest:
             path.lineTo(x * mm, y * mm)
         canvas.drawPath(path, stroke=1, fill=0)
+        if op.role == "trace" and band is not None:
+            canvas.restoreState()
     else:
         canvas.setFillColorRGB(0, 0, 0)
         canvas.setFont("Helvetica-Bold" if op.bold else "Helvetica", op.size_pt)
@@ -69,8 +82,11 @@ def render(pages: tuple[Page, ...], title: str) -> bytes:
     canvas = Canvas(out, pagesize=PAGE_SIZE, invariant=1, pageCompression=1)
     canvas.setTitle(title)
     for page in pages:
+        band: float | None = None
         for op in page.ops:
-            _draw(canvas, op)
+            if isinstance(op, Polyline) and op.role == "calibration":
+                band = op.points[0][1]  # the row's baseline; its trace follows
+            _draw(canvas, op, band)
         canvas.showPage()
     canvas.save()
     return out.getvalue()

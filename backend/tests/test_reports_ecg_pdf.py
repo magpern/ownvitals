@@ -7,6 +7,7 @@ the PDF's own path operations, so the drawing units are what a printer at 100 % 
 import dataclasses
 import inspect
 import math
+import re
 from itertools import pairwise
 
 import pytest
@@ -17,6 +18,7 @@ from ownvitals.reports.ecg_layout import (
     GRID_X0,
     MM_PER_MV,
     MM_PER_S,
+    ROW_H,
     ROW_W,
     Polyline,
     ReportFacts,
@@ -88,6 +90,33 @@ def test_one_millivolt_in_the_signal_is_10_mm_and_only_the_median_is_removed() -
     base = 210.0 - 42.0 - 20.0
     assert min(ys) == pytest.approx(base)  # the median (500) sits on the baseline
     assert max(ys) == pytest.approx(base + 10.0)  # never rescaled or clipped
+
+
+def test_a_trace_beyond_2_mv_is_clipped_to_its_own_row_in_the_pdf() -> None:
+    samples = (500,) * RATE + (3500,) * RATE + (500,) * (18 * RATE)  # a 3 mV step, two rows
+    page = layout(facts((samples,)))[0]
+    base = 210.0 - 42.0 - 20.0
+    ys = [y for _, y in polylines(page, "trace")[0].points]
+    assert max(ys) - base == pytest.approx(30.0)  # the layout never rescales (3 mV = 30 mm) ...
+    stream = pdftools.streams(ecg_pdf.build_pdf(facts((samples,))))[0]
+    blocks = re.findall(
+        r"^q\nn (-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+) re W\* n\n(.*?)^S\nQ$",
+        stream,
+        re.M | re.S,
+    )
+    assert len(blocks) == 2  # q, the row's clip, the row's trace, Q: once per row
+    for k, (cx, cy, cw, ch, body) in enumerate(blocks):
+        row_base = base - k * ROW_H  # row k sits k rows lower
+        x, y, w, h = (float(v) / pdftools.PT_PER_MM for v in (cx, cy, cw, ch))
+        assert (x, w, h) == pytest.approx((GRID_X0, ROW_W, ROW_H))
+        assert y == pytest.approx(row_base - ROW_H / 2)  # plus and minus 2 mV around its baseline
+        points = [
+            (float(px) / pdftools.PT_PER_MM, float(py) / pdftools.PT_PER_MM)
+            for px, py in re.findall(r"(-?[\d.]+) (-?[\d.]+) [ml]\b", body)
+        ]
+        assert len(points) > RATE  # the trace itself is inside this clip, before the Q
+        assert points[0][1] == pytest.approx(row_base)  # and it is this row's trace
+    assert max(ys) > base + ROW_H / 2  # row 1's excursion passes its clip top: the clip cuts
 
 
 def test_the_grid_is_1_mm_with_5_mm_majors_over_the_whole_row() -> None:

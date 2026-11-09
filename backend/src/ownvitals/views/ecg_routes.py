@@ -13,6 +13,7 @@ Another user's recording answers 404, like a missing one. Nothing here logs a sa
 Responses are ``no-store`` (the auth middleware sets it on every ``/api`` answer).
 """
 
+import asyncio
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -167,7 +168,8 @@ async def ecg_pdf(
     if r.leads is None or r.sampling_hz is None:
         raise HTTPException(status_code=404)
     try:
-        body = build_pdf(facts_for(r, r.leads, r.sampling_hz))
+        # about 1.2 s of CPU: off the event loop, same bytes (the module is pure)
+        body = await asyncio.to_thread(build_pdf, facts_for(r, r.leads, r.sampling_hz))
     except TooLong:
         raise HTTPException(status_code=422) from None
     return Response(
