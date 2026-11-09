@@ -2,7 +2,7 @@ import type { MetricDetail } from '../api/metrics'
 import { convertQuantity, type DisplaySettings } from './display'
 
 /**
- * A metric in the unit the person chose (#305). Values are converted; slopes and shifts are
+ * A metric in the unit the person chose (issue 305). Values are converted; slopes and shifts are
  * differences, so they only scale (a Fahrenheit offset does not apply to them). The flags and the
  * analysis are the API's and are not touched. Pure.
  */

@@ -2,7 +2,7 @@ import type { Locale } from '../i18n/locale'
 import { formatDay } from './format'
 import type { ChartRange, DatetimeFormat, TemperatureUnit, WeightUnit } from '../api/profile'
 
-// The saved display settings (units, date format) applied to what the screens show (#305). The
+// The saved display settings (units, date format) applied to what the screens show (issue 305). The
 // stored and analysed values stay SI: only what is shown is converted, and only here. Pure.
 
 export interface DisplaySettings {

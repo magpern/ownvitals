@@ -7,7 +7,7 @@ import { getThemePreference, setThemePreference } from '../theme/theme'
 // The signed-in user's saved display settings for every screen of the app frame: units, date
 // format, the range the charts open on, and the theme. The shell reads the profile once; Settings
 // hands a saved profile to `apply`. An answer that was requested before a save but arrives after it
-// is older than the save and is ignored (#305), so it cannot bring an old theme back.
+// is older than the save and is ignored (issue 305), so it cannot bring an old theme back.
 
 export interface DisplayState {
   settings: DisplaySettings
