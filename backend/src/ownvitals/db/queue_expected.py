@@ -4,20 +4,15 @@ queue role's attributes, dependencies and privileges, and the one catalogue quer
 all. ``ownvitals.db.queue_check`` re-exports every public name here.
 """
 
-from ownvitals.db.queue_families import (  # noqa: F401 (re-exported)
+from ownvitals.db.queue_expected_extra import (
     AI_FUNCTION_NAMES,
-    AI_PINS,
-    AI_ROLE,
-    AI_VERSION,
     OUTBOX_FUNCTION_NAMES,
-    OUTBOX_PINS,
-    OUTBOX_ROLE,
-    OUTBOX_VERSION,
-    SEARCH_PATH,
+    RATE_FUNCTION_NAMES,
 )
 
 QUEUE_ROLE = "ownvitals_queue"
 QUEUE_VERSION = "ownvitals-queue v2"
+SEARCH_PATH = "search_path=pg_catalog, pg_temp"
 # name -> identity arguments, as pg_get_function_identity_arguments renders them.
 QUEUE_FUNCTIONS: dict[str, str] = {
     "queue_claim": "p_worker text, p_lease_seconds integer, p_kinds text[]",
@@ -84,31 +79,6 @@ WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
         "ownvitals_metrics",
         "search_path=pg_catalog, pg_temp",
         "ownvitals_app=X/ownvitals_metrics,ownvitals_metrics=X/ownvitals_metrics",
-    ),
-}
-# Admitted with the Withings functions (20-queue.sql, rate.sql). Absent until the migration
-# and rate.sql have run; once present, pinned the same way.
-RATE_FUNCTION_NAMES = (
-    "withings_rate_claim",
-    "withings_rate_release",
-    "withings_rate_pause",
-)
-RATE_VERSION = "ownvitals-rate v1"
-_RATE_CONFIG = "search_path=pg_catalog, pg_temp;TimeZone=UTC"
-_RATE_ACL = "ownvitals_app=X/ownvitals_owner,ownvitals_owner=X/ownvitals_owner"
-RATE_PINS: dict[str, tuple[str, str, str, str]] = {
-    "withings_rate_claim": (
-        "p_app_id integer, p_account_id uuid, p_lane integer, p_lease_seconds integer",
-        "ownvitals_owner",
-        _RATE_CONFIG,
-        _RATE_ACL,
-    ),
-    "withings_rate_release": ("p_lease_id uuid", "ownvitals_owner", _RATE_CONFIG, _RATE_ACL),
-    "withings_rate_pause": (
-        "p_app_id integer, p_wait_seconds double precision",
-        "ownvitals_owner",
-        _RATE_CONFIG,
-        _RATE_ACL,
     ),
 }
 EXPECTED_ACL = "ownvitals_app=X/ownvitals_queue,ownvitals_queue=X/ownvitals_queue"

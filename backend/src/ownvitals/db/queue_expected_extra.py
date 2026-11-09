@@ -1,10 +1,36 @@
-"""The pins of the definer families owned by their own NOLOGIN roles beside the queue: the mail
-outbox's (``docker/postgres/notify/50-outbox.sql``) and the AI cost cap's
-(``docker/postgres/ai/50-ai.sql``). Moved out of ``ownvitals.db.queue_expected``, which
-re-exports every name here; the queue check (``ownvitals.db.queue_check``) reads them there.
+"""The rate functions, the mail outbox's and the AI cost cap's expectations of the queue check
+(``ownvitals.db.queue_check``, ADR 0005 section 3, guard 9): names, versions, owners and pins of
+the functions admitted beside the queue. Split from ``ownvitals.db.queue_expected``; no logic
+change. ``ownvitals.db.queue_check`` re-exports every public name here.
 """
 
-SEARCH_PATH = "search_path=pg_catalog, pg_temp"
+SEARCH_PATH = "search_path=pg_catalog, pg_temp"  # same value as queue_expected.SEARCH_PATH
+
+# Admitted with the Withings functions (20-queue.sql, rate.sql). Absent until the migration
+# and rate.sql have run; once present, pinned the same way.
+RATE_FUNCTION_NAMES = (
+    "withings_rate_claim",
+    "withings_rate_release",
+    "withings_rate_pause",
+)
+RATE_VERSION = "ownvitals-rate v1"
+_RATE_CONFIG = "search_path=pg_catalog, pg_temp;TimeZone=UTC"
+_RATE_ACL = "ownvitals_app=X/ownvitals_owner,ownvitals_owner=X/ownvitals_owner"
+RATE_PINS: dict[str, tuple[str, str, str, str]] = {
+    "withings_rate_claim": (
+        "p_app_id integer, p_account_id uuid, p_lane integer, p_lease_seconds integer",
+        "ownvitals_owner",
+        _RATE_CONFIG,
+        _RATE_ACL,
+    ),
+    "withings_rate_release": ("p_lease_id uuid", "ownvitals_owner", _RATE_CONFIG, _RATE_ACL),
+    "withings_rate_pause": (
+        "p_app_id integer, p_wait_seconds double precision",
+        "ownvitals_owner",
+        _RATE_CONFIG,
+        _RATE_ACL,
+    ),
+}
 # The mail outbox's family (docker/postgres/notify/50-outbox.sql, ADR 0007 section 3; #194),
 # owned by its own NOLOGIN role. Absent until db-functions has run that script; once present,
 # pinned the same way.

@@ -24,14 +24,14 @@ describe('the app frame', () => {
     const rail = screen.getByRole('navigation', { name: 'Main' })
     expect(within(rail).getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('navigation', { name: 'Main tabs' })).toBeInTheDocument()
-    expect(within(screen.getByRole('main')).getByText('Coming later')).toBeInTheDocument()
+    expect(await within(screen.getByRole('main')).findByText('Needs a look')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /ann@example\.test/ })).toBeInTheDocument()
     // The top bar's logo (the phone's brand) goes home, too.
     expect(within(screen.getByRole('banner')).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/')
   })
 
   // The screens built so far (src/pages/appPages.tsx) have their own tests.
-  const BUILT_SCREENS = new Set(['security'])
+  const BUILT_SCREENS = new Set(['security', 'overview', 'heart', 'sleep', 'activity'])
 
   it.each(APP_ROUTES.filter((route) => !BUILT_SCREENS.has(route.id)).map((route) => [route.id, route] as const))(
     'shows the page header and "Coming later" on the %s screen',

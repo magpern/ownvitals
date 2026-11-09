@@ -42,7 +42,7 @@ test('switch language signed out, sign in, change it in Settings, reload, get Sw
   // The activity page, in Swedish.
   await page.goto('/activity')
   await expect(page.getByRole('heading', { name: 'Aktivitet', level: 1 })).toBeVisible()
-  await expect(page.getByText('Aktivitetssidan kommer i M6.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Aktivitet', level: 2 })).toBeVisible()
 
   // Mail goes out in the account's language: the reset mail for this address.
   await page.getByRole('button', { name: account.email }).click()
