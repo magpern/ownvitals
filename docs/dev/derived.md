@@ -481,3 +481,11 @@ activity field names and units are assumptions until the owner's probe confirms 
 
 **Tests.** `tests/analysis/scores/` (pure), `tests/test_derived_scores_db.py` (database: idempotence,
 one row per kind and day, the switch, the purge and ingest races, isolation).
+
+**Scores: trigger, day, stale (#188 fix round).** An owner with only sleep or activity data has no
+measures pass, so `derive_normalize` queues `derive_scores` itself when the `sleep_summary` or
+`activity_daily` pass wrote or was current and `measures` did not. The pass's "today" follows
+ADR 0010 §1 (`findings_gather._today`: the fixed zone, else the zone of the latest usable
+reading, else UTC). `GET /api/scores` marks a row `stale` when the summed stream revisions differ
+from its `input_revision` (the fingerprint is not recomputed on a read). Assumption: the last
+sleep summary of a wake-up day wins, so a nap on the same day replaces the main night.

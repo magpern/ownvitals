@@ -97,8 +97,13 @@ def _around(day: date) -> tuple[datetime, datetime]:
 
 
 _LATEST_SCORES = text(
-    "SELECT DISTINCT ON (kind) kind, day, value, components, algo_version FROM scores "
+    "SELECT DISTINCT ON (kind) kind, day, value, components, algo_version, input_revision "
+    "FROM scores "
     "WHERE owner_id = :o ORDER BY kind, day DESC"
+)
+_SCORE_REVISION = text(
+    "SELECT COALESCE(sum(revision), 0) FROM data_revisions WHERE owner_id = :o "
+    "AND stream IN ('measures', 'sleep_summary', 'activity_daily')"
 )
 
 
@@ -248,12 +253,15 @@ class Reader:
             device_firmware=r.fw,
         )
 
-    async def latest_scores(self, *, settings: Settings) -> list[Any]:
-        """The latest stored row of each score kind (#188). ``his`` (experimental tier) only
+    async def latest_scores(self, *, settings: Settings) -> list[tuple[Any, bool]]:
+        """The latest stored row of each score kind with its stale state (#188): stale when the
+        summed stream revisions are no longer the row's ``input_revision`` (data changed or was
+        purged since; ADR 0012 §1, the pass has not caught up). ``his`` (experimental tier) only
         while the owner-only switch is on, whatever is stored."""
         switch = await effective.experimental_findings(self._db, settings)
         rows = (await self._db.execute(_LATEST_SCORES, {"o": self._owner})).all()
-        return [r for r in rows if switch or r.kind != "his"]
+        current = int((await self._db.execute(_SCORE_REVISION, {"o": self._owner})).scalar_one())
+        return [(r, int(r.input_revision) != current) for r in rows if switch or r.kind != "his"]
 
 
 @asynccontextmanager

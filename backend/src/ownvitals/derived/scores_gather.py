@@ -1,7 +1,8 @@
 """The read side of the scores pass (#188): everything one pass reads, in one transaction.
 
-Every statement filters ``owner_id`` itself and runs under forced RLS. The two stream revisions
-(``measures``, ``sleep_summary``) are read first; ``input_revision`` of a written row is their sum
+Every statement filters ``owner_id`` itself and runs under forced RLS. The three stream revisions
+(``measures``, ``sleep_summary``, ``activity_daily``) are read first; ``input_revision`` of a
+written row is their sum
 (``docs/dev/derived.md``). ``behind`` when a daily row or a sleep or activity observation carries
 another revision than the stream's (the normaliser or the daily pass has not caught up).
 """
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ownvitals.analysis.daily import DailyMethod, DailyValue
 from ownvitals.config import Settings
 from ownvitals.derived.daily_db import read_day_tz
+from ownvitals.derived.findings_gather import _today
 from ownvitals.derived.scores_compute import (
     DAILY_KEYS,
     OBSERVATION_KEYS,
@@ -51,6 +53,11 @@ _POINTS = text(
 _BEHIND_POINTS = text(
     "SELECT count(*) FROM observations WHERE owner_id = :o AND source_type IS NULL "
     "AND metric_key LIKE :pattern AND input_revision <> :r"
+)
+_LATEST_ZONE = text(
+    "SELECT source_tz FROM observations WHERE owner_id = :o AND source_type IS NULL "
+    "AND NOT (quality_flags && ARRAY['unconfirmed','implausible','duplicate']) "
+    "ORDER BY ts DESC, source_grpid DESC NULLS LAST LIMIT 1"
 )
 _PROFILE = text("SELECT birth_year, sex FROM user_profiles WHERE owner_id = :o")
 
@@ -133,9 +140,9 @@ async def gather(
     points = _points(
         (await db.execute(_POINTS, {"o": owner, "keys": list(OBSERVATION_KEYS)})).all(), day_tz
     )
-    zone = day_tz or "UTC"
+    latest = (await db.execute(_LATEST_ZONE, {"o": owner})).first()
     inputs = ScoreInputs(
-        day=now.astimezone(ZoneInfo(zone)).date(),
+        day=_today(now, day_tz, None if latest is None else str(latest.source_tz)),
         daily=daily,
         points=points,
         birth_year=None if profile is None else profile.birth_year,

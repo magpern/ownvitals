@@ -3,9 +3,10 @@
 One ``user_session`` (forced RLS; every statement also filters ``owner_id``). A kind with no row
 is absent; the page shows "not computed yet" then. ``status`` is one of ``computed``,
 ``insufficient_data``, ``not_available``, ``not_supported``, ``not_set``; ``value`` is set only
-when computed. ``his`` is in the experimental tier (D9): it is listed only while the owner-only
-switch is on, whatever is stored. The response carries text keys, never words: the page holds
-the text, and none of it names a quality.
+when computed; ``stale`` is true when the data changed since the row was written. ``his`` is in
+the experimental tier (D9): it is listed only while the owner-only switch is on, whatever is
+stored. The response carries text keys, never words: the page holds the text, and none of it
+names a quality.
 """
 
 from datetime import date
@@ -27,6 +28,7 @@ class ScoreOut(BaseModel):
     status: str
     value: float | None
     tier: str
+    stale: bool
     algo_version: str
     how_key: str | None
     components: dict[str, Any]
@@ -54,10 +56,11 @@ async def list_scores(
                 status=str(r.components["status"]),
                 value=None if r.value is None else float(r.value),
                 tier=_tier(r.kind),
+                stale=stale,
                 algo_version=r.algo_version,
                 how_key=r.components.get("text_key"),
                 components=dict(r.components),
             )
-            for r in rows
+            for r, stale in rows
         ]
     )
