@@ -153,10 +153,15 @@ def test_a_crashed_call_keeps_its_token_and_frees_its_slot_at_expiry(
             assert got.granted
             assert got.lease_id is not None
             leases.append(got.lease_id)
+    before_busy = _remaining(database_url, app_id)
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
         blocked = claim(conn, app_id, account, LANE_SYNC_NOW)
         assert blocked.reason == "busy"
         assert not blocked.granted
     held = _remaining(database_url, app_id)
+    # A busy claim spends no token (#278): only the refill since the grants can move it, by
+    # far less than one token in this short run.
+    assert before_busy <= held < before_busy + 0.5
     with engine_for(database_url) as engine, engine.begin() as conn:
         conn.execute(
             text(
