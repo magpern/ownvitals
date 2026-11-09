@@ -31,6 +31,7 @@ from ownvitals.derived.evaluate import (
     Inputs,
     fingerprint,
 )
+from ownvitals.derived.findings_ecg import read_ecg
 from ownvitals.derived.findings_q1 import STREAM, q1_state
 from ownvitals.flags import effective
 
@@ -226,6 +227,7 @@ async def gather(
             readings[str(row.metric_key)].append(reading)
 
     latest = max(usable, key=lambda o: (o.ts, o.source_grpid), default=None)
+    recordings, sex = await read_ecg(db, owner, day_tz=day_tz)
     inputs = Inputs(
         today=_today(now, day_tz, None if latest is None else latest.source_tz),
         experimental=await effective.experimental_findings(db, settings),
@@ -234,6 +236,8 @@ async def gather(
         readings={k: tuple(v) for k, v in readings.items()},
         segments=tuple(segments),
         q1=await q1_state(db, owner),
+        recordings=recordings,
+        sex=sex,
     )
     return Gathered(revision, fingerprint(inputs), inputs)
 

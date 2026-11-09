@@ -65,8 +65,9 @@ def inputs(**kw: Any) -> Inputs:
 def test_the_writer_owns_exactly_the_v1_rules_and_q1_is_not_replayed() -> None:
     assert set(OWNED_RULES) == set(SPECS)
     assert set(Q1_RULES) == {r for r in SPECS if SPECS[r].tier is Tier.SYSTEM}
-    assert {"B1", "B3", "C1x"} == EXPERIMENTAL_RULES
-    assert not any(r.startswith("E") for r in OWNED_RULES)  # ADR 0006's writer, M5
+    assert {"B1", "B3", "C1x", "E4"} == EXPERIMENTAL_RULES
+    assert {r for r in OWNED_RULES if r.startswith("E")} == {"E1", "E2", "E3", "E4", "E6"}  # #191
+    assert "E5" not in OWNED_RULES  # deferred (ADR 0006 section 12): never touched
     assert rule_version("C1x") == "rules/1.1"
 
 
@@ -161,10 +162,11 @@ def test_experimental_rules_are_not_computed_without_the_switch() -> None:
         "weight": tuple(dv(START + timedelta(i), 80) for i in range(150)),
         "extracellular_water": tuple(dv(START + timedelta(i), 17) for i in range(150)),
     }
-    off = evaluate(inputs(daily=daily))
+    readings = {"qtc_interval": (reading(900, START, 510),)}  # above every QTc band: E4
+    off = evaluate(inputs(daily=daily, readings=readings))
     assert not set(off.evaluated) & EXPERIMENTAL_RULES
     assert not [e for e in off.episodes if e.tier == "experimental"]
-    on = evaluate(inputs(daily=daily, experimental=True))
+    on = evaluate(inputs(daily=daily, readings=readings, experimental=True))
     assert set(on.evaluated) >= EXPERIMENTAL_RULES
     (c1x,) = [e for e in on.episodes if e.rule_id == "C1x"]
     assert (c1x.tier, c1x.reference_day, c1x.status) == (

@@ -7,7 +7,8 @@ section 8, ADR 0008).
 ``token_refresh_recover`` and ``withings_disconnect`` (the revoke a disconnect or an account
 deletion enqueues, ``ownvitals.auth.purge``, #163), and the analysis chain
 ``derive_normalize``, ``derive_daily``, ``derive_evaluate`` and ``derive_scores`` (#185, #186,
-#187, #188). Only
+#187, #188), and the ECG ``estimated`` recompute ``ecg_recompute`` (#191; the nightly
+reconciliation queues it as the sweep after a module version bump, ADR 0006 section 15). Only
 ``python -m ownvitals.worker`` builds it. The API's registry (``ownvitals.jobs.KINDS``) stays
 empty, so ``POST /api/jobs`` still refuses every kind and the web process registers no handler
 (web imports ``ownvitals.auth.purge`` for the routes, which defines the disconnect handler but
@@ -35,6 +36,7 @@ from sqlalchemy import text
 from ownvitals.auth.purge import register_disconnect_kind
 from ownvitals.crypto.keks import KeyRing, KeyRingError, KeyUnavailable
 from ownvitals.derived.daily_job import register_daily_kind
+from ownvitals.derived.ecg_recompute import enqueue_recompute, register_recompute_kind
 from ownvitals.derived.evaluate_job import register_evaluate_kind
 from ownvitals.derived.normalize_job import enqueue_normalize, register_normalize_kind
 from ownvitals.derived.scores_job import register_scores_kind
@@ -141,6 +143,7 @@ async def run_reconcile(job: JobRun) -> Complete:
     async with WithingsClient.open(app) as client:
         await execute_nightly(job, account, client, callback_base=base, current_url=current)
     await enqueue_normalize(job.factory, parsed.connection_id, "live")
+    await enqueue_recompute(job.factory, parsed.connection_id)  # the sweep (section 15)
     return Complete()
 
 
@@ -171,4 +174,5 @@ def worker_registry() -> KindRegistry:
     register_daily_kind(registry)
     register_evaluate_kind(registry)
     register_scores_kind(registry)
+    register_recompute_kind(registry)
     return registry

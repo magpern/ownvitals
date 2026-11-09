@@ -67,6 +67,11 @@ ALLOWED: dict[str, str] = {
     # the stored rows with a recompute and prints counts only.
     "ownvitals.derived.findings_store": "the rules engine's writer of findings (#187)",
     "ownvitals.derived.check_cli": "ownvitals analysis check (#187) compares the stored rows",
+    # #191: the rules engine's ECG inputs (the Withings fields E1 to E3 read, never the signal or
+    # estimated) and the estimated recompute with its sweep (ADR 0006 section 15), both allowed by
+    # section 11 by name.
+    "ownvitals.derived.findings_ecg": "the rules engine reads the recordings' Withings fields",
+    "ownvitals.derived.ecg_recompute": "the estimated recompute and its sweep (§15) write it",
 }
 # Strings outside ``ALLOWED`` that hold a word and were reviewed as no read: exact, by module,
 # with how many times each occurs there.
@@ -213,6 +218,8 @@ def test_the_allow_list_is_exact() -> None:
         "ownvitals.views.ecg_read",
         "ownvitals.derived.findings_store",
         "ownvitals.derived.check_cli",
+        "ownvitals.derived.findings_ecg",
+        "ownvitals.derived.ecg_recompute",
     }
     paths = {module_name(path): path for path in _modules()}
     for module in ALLOWED:
