@@ -9,7 +9,8 @@ try {
   // no .env: the defaults in helpers/env.ts apply
 }
 
-const base = `http://127.0.0.1:${process.env.WEB_PORT ?? '8000'}`
+// localhost, as OWNVITALS_PUBLIC_BASE_URL in compose.e2e.yaml: passkeys need a host name.
+const base = `http://localhost:${process.env.WEB_PORT ?? '8000'}`
 
 export default defineConfig({
   testDir: './specs',

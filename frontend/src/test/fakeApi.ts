@@ -65,7 +65,7 @@ export const QR_SVG =
 /**
  * Stubs `fetch` with a table of `"METHOD /path"` handlers. A handler returns a Response or any
  * JSON value (answered 200); a missing route fails the test loudly. By default the session is
- * anonymous, the account has two-factor on and no OAuth provider is enabled.
+ * anonymous, the account has two-factor on, no OAuth provider is enabled and no passkey is saved.
  */
 export function fakeApi(routes: Record<string, Handler | object | string>) {
   rememberCsrfToken(null)
@@ -74,6 +74,7 @@ export function fakeApi(routes: Record<string, Handler | object | string>) {
     'GET /api/auth/session': ANONYMOUS,
     'GET /api/auth/mfa': MFA_ON,
     'GET /api/auth/oauth/providers': { providers: [] },
+    'GET /api/auth/passkeys': { passkeys: [], limit: 10 },
     ...OVERVIEW_ROUTES,
     ...PROFILE_ROUTES,
     ...routes,

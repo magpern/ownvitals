@@ -4,6 +4,7 @@ import { errorMessage } from '../api/messages'
 import { SIGN_IN_PATH } from '../auth/access'
 import { useSession } from '../auth/SessionContext'
 import { Notice } from '../components/forms'
+import { PasskeyList } from '../components/PasskeyList'
 import { Cancelled, useProtected } from '../components/StepUp'
 import { Button } from '../components/ui/Button'
 import { Card, ComingLater } from '../components/ui/Card'
@@ -18,8 +19,9 @@ import { SettingsTabs } from './settings/SettingsTabs'
 // "Sign-in and security" (/settings/security; docs/design/mockups/src/Security.dc.html). #11
 // builds the lock band, "Where you're signed in" (with "Sign out everywhere…" behind the shared
 // "Confirm it's you" dialog) and nothing else: the other cards of the mock-up stay "Coming later"
-// until their issue (Architect, #11). The account's language (ADR 0015 section 2, issue 249) is a
-// row of Settings → Profile and display (issue 203).
+// until their issue (Architect, #11). Issue 180 adds the passkeys (`PasskeyList`) and the "Approve
+// sign-ins from your phone" row of "How you sign in" (ADR 0011 section 10). The account's language
+// (ADR 0015 section 2, issue 249) is a row of Settings → Profile and display (issue 203).
 
 /** "Firefox on Windows", from the browser's user agent (shown only to its own user). */
 export function deviceName(userAgent: string | null): string {
@@ -76,6 +78,15 @@ export function SecurityPage() {
         <Icon name="lock" />
         {t('security.band')}
       </p>
+      <Card title={t('passkeys.card.title')}>
+        <PasskeyList />
+        <div className="ov-setting">
+          <div className="ov-setting__what">
+            <span className="ov-setting__label">{t('passkeys.approveRow.label')}</span>
+            <p>{t('passkeys.approveRow.text')}</p>
+          </div>
+        </div>
+      </Card>
       <Card>
         <ComingLater label={t('security.laterLabel')}>{t('security.later')}</ComingLater>
       </Card>
