@@ -7,6 +7,7 @@ the PDF's own path operations, so the drawing units are what a printer at 100 % 
 import dataclasses
 import inspect
 import math
+import re
 from itertools import pairwise
 
 import pytest
@@ -17,6 +18,7 @@ from ownvitals.reports.ecg_layout import (
     GRID_X0,
     MM_PER_MV,
     MM_PER_S,
+    ROW_H,
     ROW_W,
     Polyline,
     ReportFacts,
@@ -88,6 +90,22 @@ def test_one_millivolt_in_the_signal_is_10_mm_and_only_the_median_is_removed() -
     base = 210.0 - 42.0 - 20.0
     assert min(ys) == pytest.approx(base)  # the median (500) sits on the baseline
     assert max(ys) == pytest.approx(base + 10.0)  # never rescaled or clipped
+
+
+def test_a_trace_beyond_2_mv_is_clipped_to_its_own_row_in_the_pdf() -> None:
+    samples = (500,) * RATE + (3500,) * RATE + (500,) * (18 * RATE)  # a 3 mV step, two rows
+    page = layout(facts((samples,)))[0]
+    base = 210.0 - 42.0 - 20.0
+    ys = [y for _, y in polylines(page, "trace")[0].points]
+    assert max(ys) - base == pytest.approx(30.0)  # the layout never rescales (3 mV = 30 mm) ...
+    stream = pdftools.streams(ecg_pdf.build_pdf(facts((samples,))))[0]
+    clips = re.findall(r"^n (-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+) re W\* n$", stream, re.M)
+    assert len(clips) == 2  # ... the PDF cuts each trace at its own row: one clip per row
+    x, y, w, h = (float(v) / pdftools.PT_PER_MM for v in clips[0])
+    assert (x, w, h) == pytest.approx((GRID_X0, ROW_W, ROW_H))
+    assert y == pytest.approx(base - ROW_H / 2)  # plus and minus 2 mV around the baseline
+    assert stream.count("\nq\n") >= 2  # each clip is inside a saved state, so it ends with it
+    assert stream.count("\nQ\n") >= 2
 
 
 def test_the_grid_is_1_mm_with_5_mm_majors_over_the_whole_row() -> None:
