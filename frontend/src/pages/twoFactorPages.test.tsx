@@ -181,7 +181,7 @@ describe('the code prompt after sign-in', () => {
     expect(screen.getByRole('button', { name: 'Verify' })).toBeDisabled()
     typeCode('123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
-    expect(await screen.findByText('The dashboard comes in M6.')).toBeInTheDocument()
+    expect(await screen.findByText('Needs a look')).toBeInTheDocument()
     expect(here()).toBe('/')
     expect(api.to('POST', '/api/auth/mfa/verify')[0]?.body).toEqual({ code: '123456' })
   })

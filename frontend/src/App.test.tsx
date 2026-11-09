@@ -36,12 +36,12 @@ describe('the page frame', () => {
     expect(within(menu).getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument()
   })
 
-  it('shows the Overview placeholder for a signed-in user: the page header and Coming later', async () => {
+  it('shows the overview for a signed-in user: the page header and what needs a look', async () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/')
     expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument()
-    expect(screen.getByText('The dashboard comes in M6.')).toBeInTheDocument()
-    expect(screen.getByText('Coming later')).toBeInTheDocument()
+    expect(await screen.findByText('Needs a look')).toBeInTheDocument()
+    expect(screen.queryByText('Coming later')).toBeNull()
   })
 
   it('has a page for an unknown address', async () => {

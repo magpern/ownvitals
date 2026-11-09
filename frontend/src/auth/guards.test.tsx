@@ -39,7 +39,7 @@ describe('signed-out visitors', () => {
     renderAt('/')
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
     expect(here()).toBe('/signin')
-    expect(screen.queryByText('The dashboard comes in M6.')).toBeNull()
+    expect(screen.queryByText('Needs a look')).toBeNull()
   })
 
   it('go to sign-in, with the page to come back to, from any guarded page', async () => {
@@ -75,7 +75,7 @@ describe('a session without TOTP', () => {
     renderAt('/')
     expect(await screen.findByRole('heading', { name: 'Set up your authenticator app' })).toBeInTheDocument()
     expect(here()).toBe('/two-factor/setup')
-    expect(screen.queryByText('The dashboard comes in M6.')).toBeNull()
+    expect(screen.queryByText('Needs a look')).toBeNull()
   })
 
   it('goes to enrolment from a guarded page, even when the session says it passed the code', async () => {
@@ -126,7 +126,7 @@ describe('a session through its second factor', () => {
   it('sees the guarded page', async () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/')
-    expect(await screen.findByText('The dashboard comes in M6.')).toBeInTheDocument()
+    expect(await screen.findByText('Needs a look')).toBeInTheDocument()
     expect(here()).toBe('/')
   })
 
@@ -198,7 +198,7 @@ describe('an API refusal with two_factor_required', () => {
       },
     })
     renderAt('/')
-    expect(await screen.findByText('The dashboard comes in M6.')).toBeInTheDocument()
+    expect(await screen.findByText('Needs a look')).toBeInTheDocument()
     const reads = api.to('GET', '/api/auth/session').length
 
     await expect(post('/api/x')).rejects.toMatchObject({ status: 403, reason: 'two_factor_required' })
