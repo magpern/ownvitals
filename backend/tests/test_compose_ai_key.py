@@ -9,6 +9,7 @@ Reads the parsed YAML (merge keys resolved, so the shared ``x-app`` anchor count
 that uses it). Fails closed: a host bind source it cannot place under the repository is refused.
 The file contents are synthetic placeholders; no key is read."""
 
+import posixpath
 from pathlib import Path
 from typing import Any
 
@@ -53,14 +54,21 @@ def _bind_source(entry: Any) -> str | None:
     return source if source.startswith((".", "/", "~", "$")) or len(source) == 1 else None
 
 
-def _exposes_secrets(source: str) -> bool:
-    """A bind source that is, holds or may hold ``./secrets``: only ``./<dir>/...`` paths whose
-    first directory is not ``secrets`` are known not to."""
-    parts = source.replace("\\", "/").split("/")
-    if parts[0] != "." or len(parts) < 2:
+def _exposes_secrets(source: str, root: Path = ROOT) -> bool:
+    """A bind source that is, holds or may hold ``./secrets``. Only a ``./...`` path is read; it is
+    normalised first (``./e2e/../secrets`` is ``secrets``) and resolved against the repository, so
+    a symlink there counts too. Known not to: a path inside the repository, not ``.`` itself, and
+    neither ``secrets/`` nor inside it."""
+    text = source.replace("\\", "/")
+    if not text.startswith("./") or "$" in text or "~" in text:
         return True  # absolute, home, variable, drive letter, `..`, `.`, bare relative
-    first = next((p for p in parts[1:] if p not in ("", ".")), "")
-    return first in ("", "..", "secrets")
+    normal = posixpath.normpath(text)
+    parts = normal.split("/")
+    if normal == "." or parts[0] in ("..", "secrets"):
+        return True
+    resolved = (root / normal).resolve()
+    top, secrets = root.resolve(), (root / "secrets").resolve()
+    return resolved == top or not resolved.is_relative_to(top) or resolved.is_relative_to(secrets)
 
 
 def _secret_entry(entry: Any) -> tuple[str, str]:
@@ -83,6 +91,10 @@ def key_leaks(text: str) -> list[str]:
             leaks.append(f"secret {name}: only `file: {KEY_FILE}`")
         elif name != KEY and _mentions_key(spec):
             leaks.append(f"secret {name}: an alias over the key")
+        # Compose bind-mounts a file secret's source as it is: a directory, `.`, a variable or a
+        # path elsewhere would hand the service secrets/ (the key included). Exactly its own file.
+        if isinstance(spec, dict) and "file" in spec and spec["file"] != f"./secrets/{name}":
+            leaks.append(f"secret {name}: file is not ./secrets/{name}")
     services = loaded.get("services") or {}
     assert isinstance(services, dict)
     for service, spec in services.items():
@@ -174,6 +186,46 @@ REFUSED = {
         WEB_SMTP,
         WEB_SMTP + f"    volumes:\n      - {KEY_FILE}:/run/k:ro\n",
     ),
+    "the secrets directory via .. in web": (
+        WEB_SMTP,
+        WEB_SMTP + "    volumes:\n      - ./e2e/../secrets:/s:ro\n",
+    ),
+    "the key file via .. in web": (
+        WEB_SMTP,
+        WEB_SMTP + f"    volumes:\n      - ./docker/../secrets/{KEY}:/k:ro\n",
+    ),
+    "a secret over the secrets directory in web": (
+        DEFINITION,
+        DEFINITION + "  sdir:\n    file: ./secrets\n",
+        WEB_SECRETS,
+        WEB_SECRETS + "      - sdir\n",
+    ),
+    "a secret over the secrets directory with a slash": (
+        DEFINITION,
+        DEFINITION + "  sdir:\n    file: ./secrets/\n",
+        WEB_SECRETS,
+        WEB_SECRETS + "      - sdir\n",
+    ),
+    "a secret over the repository in web": (
+        DEFINITION,
+        DEFINITION + "  sdir:\n    file: .\n",
+        WEB_SECRETS,
+        WEB_SECRETS + "      - sdir\n",
+    ),
+    "a secret over a variable path in web": (
+        DEFINITION,
+        DEFINITION + "  sdir:\n    file: ${SECRETS_DIR}\n",
+        WEB_SECRETS,
+        WEB_SECRETS + "      - sdir\n",
+    ),
+    "a secret over another secret's file": (
+        DEFINITION,
+        DEFINITION + "  kek2:\n    file: ./secrets/connection_kek\n",
+    ),
+    "a secret via .. onto the key": (
+        DEFINITION,
+        DEFINITION + "  other:\n    file: ./secrets/../secrets/other\n",
+    ),
     "the repository in web": (WEB_SMTP, WEB_SMTP + "    volumes:\n      - .:/repo:ro\n"),
     "a parent in web": (WEB_SMTP, WEB_SMTP + "    volumes:\n      - ../:/up:ro\n"),
     "a variable path in web": (WEB_SMTP, WEB_SMTP + "    volumes:\n      - ${PWD}:/r\n"),
@@ -209,6 +261,14 @@ NEAR_MISSES = {
     "a repository directory in web": (
         WEB_SMTP,
         WEB_SMTP + "    volumes:\n      - ./e2e/.certs/cacert.pem:/c.pem:ro\n",
+    ),
+    "a repository path with a harmless ..": (
+        WEB_SMTP,
+        WEB_SMTP + "    volumes:\n      - ./e2e/../docker/postgres/init:/i:ro\n",
+    ),
+    "a secret over its own file": (
+        DEFINITION,
+        DEFINITION + "  extra:\n    file: ./secrets/extra\n",
     ),
     "a named volume in web": (WEB_SMTP, WEB_SMTP + "    volumes:\n      - db-data:/d\n"),
     "the key by its long name in the worker": (
