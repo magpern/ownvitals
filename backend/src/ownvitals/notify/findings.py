@@ -39,7 +39,7 @@ The job kind and when it is queued are ``notify.findings_job``.
 import logging
 from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
@@ -81,7 +81,7 @@ _CURSORS = text(
 )
 _SYNCS = text(
     "SELECT input->>'connection_id' AS connection, started_at FROM jobs "
-    "WHERE owner_id = :o AND state = 'completed' AND started_at IS NOT NULL "
+    "WHERE owner_id = :o AND state = 'completed' AND started_at >= :since "
     "AND (kind = 'ecg_fetch' OR (kind = ANY(CAST(:kinds AS text[])) "
     "AND input->>'stream' = 'ecg'))"
 )
@@ -132,13 +132,17 @@ async def _preferences(db: AsyncSession, owner: UUID) -> Preferences:
     return Preferences(email=bool(row.notify_email), tiers=frozenset(row.notify_tiers or ()))
 
 
-async def _facts(db: AsyncSession, owner: UUID) -> EcgFacts:
+async def _facts(db: AsyncSession, owner: UUID, since: datetime | None) -> EcgFacts:
+    """The ``ecg`` cursors, and the completed ``ecg`` syncs that started at or after ``since``
+    (the oldest open hold's revision start; none when no hold was open: a hold started or
+    restarted in this pass counts only syncs that start after it)."""
     streams = {
         row.connection_id: EcgStream(row.capability, row.status == "complete", row.last_ok_at)
         for row in (await db.execute(_CURSORS, {"o": owner})).all()
     }
     syncs: list[EcgSync] = []
-    for row in (await db.execute(_SYNCS, {"o": owner, "kinds": list(ECG_SYNC_KINDS)})).all():
+    params = {"o": owner, "kinds": list(ECG_SYNC_KINDS), "since": since}
+    for row in (await db.execute(_SYNCS, params)).all() if since is not None else ():
         connection = _uuid(row.connection)
         if connection is not None:
             syncs.append(EcgSync(connection, row.started_at))
@@ -212,7 +216,8 @@ async def _pass(
             counts.dropped += 1
     prefs = await _preferences(db, owner)
     holds = await _holds(db, owner)
-    facts = await _facts(db, owner)
+    since = min((h.revision_at for h in holds.values()), default=None)
+    facts = await _facts(db, owner, since)
     for candidate in sorted(candidates, key=lambda c: c.finding.id):  # one lock order
         view = candidate.finding
         if view.origin != "live" or view.notify_state not in ("pending", "held"):
@@ -236,9 +241,7 @@ async def _pass(
             hold = Hold(now, now, view.last_seen, tuple(groups))
         elif new_revision(hold, view.last_seen, groups):
             await db.execute(_RESTART, params)
-            hold = replace(
-                hold, revision_at=now, revision_seen=view.last_seen, revision_groups=tuple(groups)
-            )
+            hold = Hold(hold.started_at, now, view.last_seen, tuple(groups))
         decision = decide(
             rule_id=view.rule_id,
             hidden=view.hidden,

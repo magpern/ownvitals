@@ -140,6 +140,14 @@ result), `hidden` (the gate failed: nothing is sent, ever, whatever a later reco
 stored" (it is never earlier, so the hold can only be longer); `jobs.started_at` is the first
 attempt's start; the nightly `withings_reconcile` is not counted as an `ecg` sync.
 
+**The hold's clock.** A hold starts at the first notification pass that sees the finding, not at
+the rules engine's write (the pass is queued right after it). A notify job that is dead-lettered
+therefore delays the start, and with it the 24 h bound, until the next pass (the next poll
+chain, about 6 h). E6's `last_seen` moves forward with each daily evaluation that still fires,
+so its hold restarts daily (the `ecg` sync must then start after the latest revision), while
+the bound keeps counting from the first revision. The step reads completed `ecg` sync jobs only
+from the oldest open hold's revision start, and none when no hold is open.
+
 ## The in-app list
 
 `GET /api/notifications` (`views.notifications_routes`): the user's sent live findings, through
