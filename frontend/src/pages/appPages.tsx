@@ -6,6 +6,7 @@ import { AdminPage } from './AdminPage'
 import { OVERVIEW_PAGES } from './overviewPages'
 import { SecurityPage } from './SecurityPage'
 import { METRIC_PAGES } from './metricPages'
+import { SETTINGS_PAGES } from './settingsPages'
 
 // The screens of the signed-in app. A screen that is not built yet shows the "Coming later"
 // pattern under its page header (the frame supplies the header). The issue that builds a screen
@@ -19,6 +20,7 @@ const BUILT: Partial<Record<RouteId, ComponentType>> = {
   security: SecurityPage,
   ...OVERVIEW_PAGES,
   ...METRIC_PAGES,
+  ...SETTINGS_PAGES,
 }
 
 function ComingLaterPage({ route }: { route: AppRoute }) {
