@@ -147,9 +147,11 @@ async def test_anonymous_callers_get_nothing(off: Env) -> None:
 # --- giving consent ------------------------------------------------------------------------------
 
 
-async def test_giving_consent_needs_the_flag(off: Env) -> None:
+@pytest.mark.parametrize("changes", [{}, {"sha256": "0" * 64}, {"version": 2}])
+async def test_giving_consent_needs_the_flag(off: Env, changes: dict[str, Any]) -> None:
     browser, owner = await _user(off, "synthetic-b@example.com")
-    response = await browser.post("/api/ai/consent", _body())
+    response = await browser.post("/api/ai/consent", _body(**changes))
+    # With the flag off the answer is "not enabled" whatever the text.
     assert (response.status_code, reason(response)) == (409, "ai_not_enabled")
     assert _count("ai_consents", owner) == 0
 
@@ -261,6 +263,9 @@ async def test_withdrawal_deletes_history_cancels_jobs_and_keeps_the_ledger(on: 
     response = await browser.request("DELETE", "/api/ai/consent")
     assert response.status_code == 200, response.text
     assert response.json() == {"withdrawn": True, "cancelled_jobs": 2, "deleted_messages": 4}
+    # The running job's cancel is already requested: a second withdrawal counts nothing.
+    again = await browser.request("DELETE", "/api/ai/consent")
+    assert again.json() == {"withdrawn": False, "cancelled_jobs": 0, "deleted_messages": 0}
 
     assert (_count("ai_messages", owner), _count("ai_conversations", owner)) == (0, 0)
     assert _count("ai_spend", owner) == 1  # the spend ledger stays (no content)
@@ -298,7 +303,7 @@ async def test_withdrawal_needs_no_step_up_and_works_while_the_flag_is_off(
     assert response.status_code == 200, response.text
     assert _count("ai_messages", owner) == 0
     assert _scalar("SELECT state FROM jobs WHERE id = :i", i=queued) == "cancelled"
-    again = await signed_off.request("DELETE", "/api/ai/consent")  # idempotent
+    again = await signed_off.request("DELETE", "/api/ai/consent")  # idempotent, counted once
     assert again.json() == {"withdrawn": False, "cancelled_jobs": 0, "deleted_messages": 0}
 
 

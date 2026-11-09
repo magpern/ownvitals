@@ -8,10 +8,11 @@ import { useI18n } from '../../i18n'
 import { Row, Toggle } from './controls'
 
 // The AI row of "Your data" (issue 206, ADR 0014 section 3). While AI insights are not available
-// for the account it is the read-only switch of the mock-up. Once they are: the consent text as
-// the server sends it (plain text, one paragraph per block), an unticked box, and "Give consent"
-// behind the step-up dialog; with consent given, "Withdraw consent" (no step-up) stops AI at once
-// and deletes the conversation history. The consent screen is not in the mock-ups: its shape
+// and no consent is live, it is the read-only switch of the mock-up. Once they are: the consent
+// text as the server sends it (plain text, one paragraph per block), an unticked box, and "Give
+// consent" behind the step-up dialog. Whenever a consent is live (given or for an older text),
+// whatever the flag, "Withdraw consent" (no step-up) stops AI at once and deletes the
+// conversation history. The consent screen is not in the mock-ups: its shape
 // follows the other rows of this tab (Architect, see the PR).
 
 function Unavailable() {
@@ -136,8 +137,9 @@ export function AiSection({ available }: { available: boolean }) {
   const [withdrawn, setWithdrawn] = useState(false)
   const [reload, setReload] = useState(0)
 
+  // Read even while AI is not available: a consent given before the flag went off must still be
+  // withdrawable (leaving is always possible, ADR 0014 section 3).
   useEffect(() => {
-    if (!available) return
     const controller = new AbortController()
     getAiConsent(locale, controller.signal).then(
       (found) => {
@@ -151,25 +153,29 @@ export function AiSection({ available }: { available: boolean }) {
     return () => {
       controller.abort()
     }
-  }, [available, locale, reload])
+  }, [locale, reload])
 
-  if (!available) return <Unavailable />
-  if (failed) return <Row label={t('settings.flags.ai.label')} help={t('settings.ai.loadFailed')} />
-  if (consent === null) return <Row label={t('settings.flags.ai.label')} help={t('common.loadingDots')} />
-  if (!consent.enabled && consent.state !== 'given') return <Unavailable />
+  if (consent === null) {
+    if (!available) return <Unavailable />
+    return <Row label={t('settings.flags.ai.label')} help={t(failed ? 'settings.ai.loadFailed' : 'common.loadingDots')} />
+  }
+  const live = consent.state !== 'none' // given or outdated: withdrawal is always offered
+  // One place for the notice, so it stays mounted while the row below it changes.
+  const done = withdrawn ? <Notice kind="success">{t('settings.ai.withdraw.done')}</Notice> : null
+  if (!live && !(available && consent.enabled)) {
+    return (
+      <>
+        {done}
+        <Unavailable />
+      </>
+    )
+  }
 
   const given = consent.state === 'given'
+  const offerConsent = consent.enabled && consent.state !== 'given'
   const below = (
     <>
-      {withdrawn ? <Notice kind="success">{t('settings.ai.withdraw.done')}</Notice> : null}
-      {given ? (
-        <Withdraw
-          onWithdrawn={() => {
-            setWithdrawn(true)
-            setReload((n) => n + 1)
-          }}
-        />
-      ) : (
+      {offerConsent ? (
         <ConsentForm
           consent={consent}
           onGiven={(next) => {
@@ -177,16 +183,27 @@ export function AiSection({ available }: { available: boolean }) {
             setConsent(next)
           }}
         />
-      )}
+      ) : null}
+      {live ? (
+        <Withdraw
+          onWithdrawn={() => {
+            setWithdrawn(true)
+            setReload((n) => n + 1)
+          }}
+        />
+      ) : null}
     </>
   )
   return (
-    <Row
-      label={t('settings.flags.ai.label')}
-      help={given ? t('settings.ai.on') : t('settings.ai.off')}
-      below={below}
-    >
-      <Toggle label={t('settings.flags.ai.label')} checked={given} disabled />
-    </Row>
+    <>
+      {done}
+      <Row
+        label={t('settings.flags.ai.label')}
+        help={given && consent.enabled ? t('settings.ai.on') : t('settings.ai.off')}
+        below={below}
+      >
+        <Toggle label={t('settings.flags.ai.label')} checked={given && consent.enabled} disabled />
+      </Row>
+    </>
   )
 }

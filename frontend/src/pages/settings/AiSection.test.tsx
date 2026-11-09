@@ -18,7 +18,9 @@ function consent(state: 'none' | 'given' | 'outdated', enabled = true) {
   }
 }
 
-function aiApi(start: ReturnType<typeof consent>, available = true) {
+/** The profile's `ai_available` is the effective flag, the same the consent's `enabled` reports. */
+function aiApi(start: ReturnType<typeof consent>) {
+  const available = start.enabled
   let current = start
   return fakeApi({
     'GET /api/auth/session': SIGNED_IN,
@@ -36,13 +38,14 @@ function aiApi(start: ReturnType<typeof consent>, available = true) {
 }
 
 describe('AI insights in Your data', () => {
-  it('stays the read-only switch and asks nothing while AI is not available', async () => {
-    const api = aiApi(consent('none'), false)
+  it('stays the read-only switch while AI is off and no consent is live', async () => {
+    aiApi(consent('none', false))
     renderAt('/settings/data')
     const toggle = await screen.findByRole('switch', { name: 'AI insights' })
     expect(toggle).toBeDisabled()
     expect(toggle).not.toBeChecked()
-    expect(api.to('GET', '/api/ai/consent?locale=en')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Give consent' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Withdraw consent' })).toBeNull()
   })
 
   it('shows the text as plain text and gives consent only after the box is ticked', async () => {
@@ -66,11 +69,13 @@ describe('AI insights in Your data', () => {
     expect(screen.getByRole('switch', { name: 'AI insights' })).toBeChecked()
   })
 
-  it('asks for consent again when the text changed', async () => {
+  it('asks for consent again when the text changed, and still offers withdrawal', async () => {
     aiApi(consent('outdated'))
     renderAt('/settings/data')
     expect(await screen.findByText(/The consent text has changed since you agreed/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Give consent' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Withdraw consent' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'AI insights' })).not.toBeChecked()
   })
 
   it('withdraws after a confirmation, without a step-up, and says the history is deleted', async () => {
@@ -84,9 +89,18 @@ describe('AI insights in Your data', () => {
     expect(await screen.findByRole('button', { name: 'Give consent' })).toBeInTheDocument()
   })
 
-  it('still offers withdrawal when AI was switched off after consent', async () => {
-    aiApi(consent('given', false))
-    renderAt('/settings/data')
-    expect(await screen.findByRole('button', { name: 'Withdraw consent' })).toBeInTheDocument()
-  })
+  it.each(['given', 'outdated'] as const)(
+    'offers withdrawal of a %s consent while AI is switched off, and no new consent',
+    async (state) => {
+      const api = aiApi(consent(state, false))
+      renderAt('/settings/data')
+      fireEvent.click(await screen.findByRole('button', { name: 'Withdraw consent' }))
+      expect(screen.queryByRole('button', { name: 'Give consent' })).toBeNull()
+      expect(screen.getByRole('switch', { name: 'AI insights' })).not.toBeChecked()
+      fireEvent.click(screen.getByRole('button', { name: 'Withdraw and delete history' }))
+      expect(await screen.findByText('Consent withdrawn. Your AI conversation history is deleted.')).toBeInTheDocument()
+      expect(api.to('DELETE', '/api/ai/consent')).toHaveLength(1)
+      expect(screen.getByRole('switch', { name: 'AI insights' })).toBeDisabled()
+    },
+  )
 })

@@ -124,9 +124,14 @@ the user has a live consent to the current text. Every AI entry point checks bot
   user's consent is then `outdated` and AI is off for them until they consent again. Version 1's
   retention paragraph is a placeholder until the owner records the provider review (ADR 0014
   §2); AI stays off until then (lock 2), and the recorded answer comes as version 2.
+- **Why the backend serves a sentence**: responses carry codes, not sentences (ADR 0015 §6),
+  with this one exception. The consent records the SHA-256 of the exact text the user saw, so
+  the text must come from the one place that hashes it; the frontend shows it as plain text and
+  words everything around it from its own catalogue.
 - **Give**: `POST /api/ai/consent` with `version`, `locale`, `sha256` and `agree: true`. Needs a
   **step-up** (`require_stepup`). 409 `ai_not_enabled` while the flag is off, 409
-  `ai_consent_outdated` for any other text. A live consent to an older text is closed and
+  `ai_consent_outdated` for any other text (the flag is checked first, so with the flag off the
+  answer is `ai_not_enabled` whatever the text). A live consent to an older text is closed and
   replaced.
 - **Withdraw**: `DELETE /api/ai/consent`, a full session only (no step-up), also while the flag
   is off. One transaction: close the live row (its lock first), cancel the user's queued and
@@ -173,7 +178,7 @@ output.
 | `test_ai_tools_schema.py` | the pinned output schema (any extra field fails), `check_fields`, closed arguments, refusals, and no planted identifier or text in any output over every tool and argument |
 | `test_ai_tools_tiers.py` | experimental items for each combination of the switch and the setting, a stored "off", hidden findings, `not_enabled` without the flag, without consent and with an outdated consent |
 | `test_ai_tools_isolation.py` | two users, in the request context and in a worker job run by the runner: no row of the other user |
-| `frontend/src/pages/settings/AiSection.test.tsx` | the read-only state, plain-text consent text, the unticked box, the request body, outdated, withdrawal |
+| `frontend/src/pages/settings/AiSection.test.tsx` | the read-only state, plain-text consent text, the unticked box, the request body, outdated (consent again or withdraw), withdrawal, and withdrawal of a given or outdated consent while the flag is off |
 
 ### Known gaps (consent and tools)
 

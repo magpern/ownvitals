@@ -65,8 +65,8 @@ _INSERT = text(
     "RETURNING id"
 )
 _AI_JOBS = text(
-    "SELECT id FROM jobs WHERE owner_id = :o AND kind = ANY(CAST(:kinds AS text[])) "
-    "AND state IN ('queued', 'running') ORDER BY id"
+    "SELECT id, cancel_requested_at FROM jobs WHERE owner_id = :o "
+    "AND kind = ANY(CAST(:kinds AS text[])) AND state IN ('queued', 'running') ORDER BY id"
 )
 
 
@@ -153,12 +153,13 @@ async def give(
     digest: bytes,
 ) -> ConsentState:
     """Record consent to the current text in ``locale``. ``AiNotEnabled("feature_off")`` while
-    the flag is off; ``ConsentMismatch`` for any other text."""
-    if not consent_text.matches(version, locale, digest):
-        raise ConsentMismatch
+    the flag is off (checked first, whatever the text); ``ConsentMismatch`` for any other
+    text."""
     async with user_session(factory, ctx) as db:
         if not await effective.ai_insights(db, settings):
             raise AiNotEnabled("feature_off")
+        if not consent_text.matches(version, locale, digest):
+            raise ConsentMismatch
         params = {"o": ctx.user_id}
         live = (await db.execute(_LIVE_FOR_UPDATE, params)).first()
         same = live is not None and (
@@ -187,10 +188,15 @@ async def withdraw(factory: Factory, ctx: UserContext) -> Withdrawn:
     deleted: dict[str, int] = {}
     async with user_session(factory, ctx) as db:
         closed = (await db.execute(_CLOSE, params)).first() is not None
-        jobs = (await db.execute(_AI_JOBS, {**params, "kinds": list(AI_JOB_KINDS)})).scalars()
+        jobs = (await db.execute(_AI_JOBS, {**params, "kinds": list(AI_JOB_KINDS)})).all()
         cancelled = 0
-        for job_id in list(jobs):
-            if await user_jobs.cancel(db, ctx, job_id) is not None:
+        for job in jobs:
+            # Counted only when this withdrawal cancels it: a running job whose cancel was
+            # already requested is not counted again.
+            if (
+                await user_jobs.cancel(db, ctx, job.id) is not None
+                and job.cancel_requested_at is None
+            ):
                 cancelled += 1
         for table in HISTORY_TABLES:
             result = await db.execute(delete(table).where(table.c.owner_id == ctx.user_id))
