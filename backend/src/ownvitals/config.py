@@ -36,6 +36,7 @@ from ownvitals.config_secrets import (  # noqa: F401 (re-exported)
     read_secret_files,
     secrets_dir,
 )
+from ownvitals.config_webhooks import WebhookSettings
 from ownvitals.emailnorm import normalize_email
 
 DATABASE_DRIVER = "postgresql+psycopg"
@@ -96,7 +97,7 @@ class WithoutSecretsSource(PydanticBaseSettingsSource):
         return {k: v for k, v in self._inner().items() if k not in SECRET_FILE_FIELDS}
 
 
-class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings):
+class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, WebhookSettings, BaseSettings):
     """All configuration of the web app and the worker.
 
     Everything that can carry a credential is a ``SecretStr``: it is masked in ``repr``,
@@ -146,12 +147,6 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings
     # ``connection_kek`` (read by the crypto package, never the environment); retired keys are
     # ``connection_kek_<id>``.
     connection_kek_id: str = "kek-1"
-    # The ids of the current webhook-secret seed (worker only) and pepper (web and worker). The
-    # keys are the secret files ``webhook_seed`` and ``webhook_pepper`` (read by the crypto
-    # package, never the environment); retired ones are ``webhook_seed_<id>`` and
-    # ``webhook_pepper_<id>``. Optional in M0, required from M1 (ADR 0004 section 4).
-    webhook_seed_id: str = "seed-1"
-    webhook_pepper_id: str = "pep-1"
     # How long web's copy of the webhook-secret HMACs stays usable after the read that made it;
     # past it the receiver answers 503 (ADR 0008). Web re-reads it every quarter of this. At most
     # 60 s, the lead ``append_secret`` gives a new entry (``webhook_cache.CACHE_TTL``), so every
