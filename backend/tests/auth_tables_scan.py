@@ -162,6 +162,7 @@ SUBMODULES = frozenset(
         "event_origin",
         "events",
         "flowtools",
+        "gate",
         "hooks",
         "identity_routes",
         "keys",

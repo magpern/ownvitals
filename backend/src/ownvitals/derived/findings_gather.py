@@ -20,9 +20,7 @@ from ownvitals.analysis.daily import DailyMethod, DailyValue
 from ownvitals.analysis.quality import EXCLUDING, Reading
 from ownvitals.analysis.rules.body import Segment
 from ownvitals.analysis.rules.core import Provenance
-from ownvitals.analysis.rules.system import ConnectionState, DeviceState, StreamState
 from ownvitals.config import Settings
-from ownvitals.connections.state import live_connections
 from ownvitals.derived import daily
 from ownvitals.derived.daily_db import read_day_tz, read_observations
 from ownvitals.derived.evaluate import (
@@ -31,20 +29,16 @@ from ownvitals.derived.evaluate import (
     READING_KEYS,
     SEGMENT_TYPE,
     Inputs,
-    Q1State,
     fingerprint,
 )
+from ownvitals.derived.findings_q1 import STREAM, q1_state
 from ownvitals.flags import effective
 
-STREAM: Final = "measures"
-SUPPORTED: Final = "supported"
 # The extra measure types read as readings, not daily values: B6's segmental muscle, N5's feet.
 EXTRA_TYPES: Final = (
     SEGMENT_TYPE,
     *sorted({int(key.removeprefix("meastype_")) for pair in FOOT_PAIRS.values() for key in pair}),
 )
-# A sync job that is importing a connection's history (Q1's "not while importing").
-IMPORT_KINDS: Final = ("withings_backfill", "withings_connect")
 _EXCLUDING = frozenset(flag.value for flag in EXCLUDING)
 
 _REVISION = text("SELECT revision FROM data_revisions WHERE owner_id = :o AND stream = :s")
@@ -73,19 +67,6 @@ _DAILY = text(
 _ATTRIB = text(
     "SELECT grpid, max(attrib) AS attrib FROM measure_groups WHERE owner_id = :o "
     "AND deleted_at IS NULL AND grpid = ANY(CAST(:g AS bigint[])) GROUP BY grpid"
-)
-_CURSORS = text(
-    "SELECT connection_id, stream, capability, backfill_state->>'status' AS state "
-    "FROM sync_cursors WHERE owner_id = :o AND connection_id = ANY(CAST(:c AS uuid[]))"
-)
-_DEVICES = text(
-    "SELECT hash_deviceid, battery FROM devices WHERE owner_id = :o "
-    "AND connection_id = ANY(CAST(:c AS uuid[]))"
-)
-_IMPORTING = text(
-    "SELECT input->>'connection_id' AS connection, input->>'stream' AS stream FROM jobs "
-    "WHERE owner_id = :o AND state IN ('queued', 'running') "
-    "AND kind = ANY(CAST(:kinds AS text[]))"
 )
 
 
@@ -140,50 +121,6 @@ def _today(now: datetime, day_tz: str | None, latest_zone: str | None) -> date:
         return now.astimezone(ZoneInfo(zone)).date()
     except (ValueError, KeyError, OSError):
         return now.astimezone(UTC).date()
-
-
-async def _q1_state(db: AsyncSession, owner: UUID) -> Q1State:
-    connections = await live_connections(db, owner)
-    ids = [r.id for r in connections]
-    if not ids:
-        return Q1State()
-    cursors = (await db.execute(_CURSORS, {"o": owner, "c": ids})).all()
-    devices = (await db.execute(_DEVICES, {"o": owner, "c": ids})).all()
-    jobs = (await db.execute(_IMPORTING, {"o": owner, "kinds": list(IMPORT_KINDS)})).all()
-    importing = {(j.connection, j.stream) for j in jobs}
-    reconnect = any(r.status == "needs_reconnect" for r in connections)
-    status = "needs_reconnect" if reconnect else "connected"
-    by_stream: dict[str, list[Any]] = defaultdict(list)
-    for cursor in cursors:
-        by_stream[str(cursor.stream)].append(cursor)
-    streams: list[StreamState] = []
-    for name, rows in sorted(by_stream.items()):
-        supported = [r for r in rows if r.capability == SUPPORTED]
-        capability = SUPPORTED if supported else (rows[0].capability if len(rows) == 1 else None)
-        streams.append(
-            StreamState(
-                stream=name,
-                capability=capability,
-                complete=all(r.state == "complete" for r in supported or rows),
-                importing=any(
-                    (str(r.connection_id), name) in importing
-                    or (str(r.connection_id), None) in importing
-                    for r in rows
-                ),
-            )
-        )
-    measures = next((s for s in streams if s.stream == STREAM), None)
-    batteries: dict[str, str | None] = {}
-    for device in devices:
-        name = str(device.hash_deviceid)
-        if batteries.get(name) != "low":  # one device on two connections: low wins
-            batteries[name] = None if device.battery is None else str(device.battery)
-    return Q1State(
-        weight_capability=None if measures is None else measures.capability,
-        connection=ConnectionState(status),
-        devices=tuple(DeviceState(name, battery) for name, battery in sorted(batteries.items())),
-        streams=tuple(streams),
-    )
 
 
 type DailyByKey = dict[str, tuple[DailyValue, ...]]
@@ -296,7 +233,7 @@ async def gather(
         provenance=provenance,
         readings={k: tuple(v) for k, v in readings.items()},
         segments=tuple(segments),
-        q1=await _q1_state(db, owner),
+        q1=await q1_state(db, owner),
     )
     return Gathered(revision, fingerprint(inputs), inputs)
 

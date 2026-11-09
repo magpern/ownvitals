@@ -8,7 +8,6 @@ NEEDLE = "webhook_secrets_apply"
 ALLOWED = frozenset(
     {
         "withings/webhooks.py",
-        "db/queue_check.py",
         "db/queue_expected.py",
         "db/queue_digests.py",
     }

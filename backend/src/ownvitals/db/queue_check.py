@@ -9,9 +9,8 @@ exactly the fixed ``search_path``, the version comment, the shipped ``md5(pg_get
 (``ownvitals.db.queue_digests``) and the ACL ``{ownvitals_queue=X/ownvitals_queue,
 ownvitals_app=X/ownvitals_queue}``; the role has exactly its attributes, no memberships either way,
 no settings, no default privileges and exactly its privileges; no other user-defined function,
-procedure, aggregate or operator exists in any schema, except the Withings functions
-``ensure_month_partitions``, ``webhook_secrets_apply``, ``webhook_event_insert`` and
-``webhook_events_purge_owner`` admitted by name in ``20-queue.sql``, and the rate functions
+procedure, aggregate or operator exists in any schema, except the Withings partition, webhook-secret
+and webhook-event functions admitted by name in ``20-queue.sql``, and the rate functions
 ``withings_rate_claim``,
 ``withings_rate_release`` and ``withings_rate_pause`` admitted the same way, and the mail outbox's
 ``mail_outbox_claim``, ``mail_outbox_mark`` and ``owner_notice_queue`` (#194, ADR 0007 section 3;
@@ -49,32 +48,34 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from ownvitals.db.outbox_digests import OUTBOX_DIGESTS
 from ownvitals.db.queue_digests import QUEUE_DIGESTS
 from ownvitals.db.queue_expected import (  # noqa: F401 (re-exported)
-    AI_FUNCTION_NAMES,
-    AI_PINS,
-    AI_ROLE,
-    AI_VERSION,
     COLUMN_COUNT,
     ENQUEUE_INGEST_ACL,
     EXPECTED_ACL,
     EXPECTED_ATTRIBUTES,
     EXPECTED_DEPENDENCIES,
     EXPECTED_PRIVILEGES,
-    OUTBOX_FUNCTION_NAMES,
-    OUTBOX_PINS,
-    OUTBOX_ROLE,
-    OUTBOX_VERSION,
     QUEUE_FUNCTIONS,
     QUEUE_QUERY,
     QUEUE_ROLE,
     QUEUE_VERSION,
-    RATE_FUNCTION_NAMES,
-    RATE_PINS,
-    RATE_VERSION,
     SEARCH_PATH,
     SQL_TEXT_BUILTINS,
     WITHINGS_FUNCTION_NAMES,
     WITHINGS_PINS,
     WITHINGS_VERSION,
+)
+from ownvitals.db.queue_expected_extra import (  # noqa: F401 (re-exported)
+    AI_FUNCTION_NAMES,
+    AI_PINS,
+    AI_ROLE,
+    AI_VERSION,
+    OUTBOX_FUNCTION_NAMES,
+    OUTBOX_PINS,
+    OUTBOX_ROLE,
+    OUTBOX_VERSION,
+    RATE_FUNCTION_NAMES,
+    RATE_PINS,
+    RATE_VERSION,
 )
 from ownvitals.db.role_check import DatabaseRoleError, is_authentication_failure
 
