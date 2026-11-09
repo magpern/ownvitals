@@ -1,0 +1,147 @@
+/* The ECG list and viewer (docs/design/mockups/src/ECG.dc.html). Tokens only. */
+
+.ov-ecg__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-2);
+  margin: 0 0 var(--ov-space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.ov-ecg__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-1);
+  padding: var(--ov-space-3) var(--ov-space-4);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+  background: var(--ov-surface);
+  color: var(--ov-text);
+  text-decoration: none;
+}
+
+.ov-ecg__row p {
+  margin: 0;
+}
+
+.ov-ecg__row[data-positive='true'] {
+  border-color: var(--ov-urgent);
+}
+
+.ov-ecg__row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ov-space-3);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-ecg__result {
+  margin: 0;
+}
+
+.ov-ecg__result[data-positive='true'],
+.ov-ecg__row[data-positive='true'] .ov-ecg__result {
+  color: var(--ov-urgent);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-ecg__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ov-space-3);
+}
+
+.ov-ecg__head p {
+  margin: 0;
+}
+
+.ov-ecg__values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: var(--ov-space-3);
+  margin: var(--ov-space-3) 0;
+}
+
+.ov-ecg__values dt,
+.ov-ecg__values dd {
+  margin: 0;
+}
+
+.ov-ecg__number {
+  font-family: var(--ov-font-mono);
+  font-size: var(--ov-text-lg);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-ecg__number--est {
+  font-style: italic;
+  text-decoration: underline dotted;
+}
+
+.ov-ecg__source,
+.ov-ecg__estimate-label {
+  margin: 0;
+}
+
+.ov-ecg__estimate-label {
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-ecg__reasons {
+  margin: 0 0 var(--ov-space-3);
+  padding-left: var(--ov-space-5);
+}
+
+.ov-ecg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-3);
+  margin: 0;
+}
+
+.ov-ecg__bar,
+.ov-ecg__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ov-space-3);
+}
+
+.ov-ecg__group {
+  display: flex;
+  gap: var(--ov-space-2);
+}
+
+.ov-ecg__scroll {
+  overflow-x: auto;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-sm);
+}
+
+.ov-ecg__scroll canvas {
+  display: block;
+  max-width: none;
+}
+
+.ov-ecg__overview {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-sm);
+  cursor: pointer;
+}
+
+.ov-ecg__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ov-space-2);
+  min-height: var(--ov-target);
+}
+
+.ov-ecg__note {
+  margin: 0;
+}

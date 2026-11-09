@@ -4,6 +4,7 @@ import { Card, ComingLater } from '../components/ui/Card'
 import { useT } from '../i18n'
 import { AdminPage } from './AdminPage'
 import { ConnectionsPage } from './ConnectionsPage'
+import { ECG_PAGES } from './ecgPages'
 import { OVERVIEW_PAGES } from './overviewPages'
 import { SecurityPage } from './SecurityPage'
 import { METRIC_PAGES } from './metricPages'
@@ -23,6 +24,7 @@ const BUILT: Partial<Record<RouteId, ComponentType>> = {
   connections: ConnectionsPage,
   ...OVERVIEW_PAGES,
   ...METRIC_PAGES,
+  ...ECG_PAGES,
   ...SETTINGS_PAGES,
 }
 

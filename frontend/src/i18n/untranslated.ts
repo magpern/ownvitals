@@ -7,6 +7,13 @@ export const UNTRANSLATED: readonly string[] = []
 // Keys whose Swedish is the same word as the English one. Each entry is a key with its reason;
 // catalogue.test.ts fails when a listed key differs and when an unlisted key is equal.
 export const SAME_IN_SV: Readonly<Record<string, string>> = {
+  'ecg.scale': 'units and numbers only, the same in Swedish',
+  'ecg.gain.option': 'units and numbers only, the same in Swedish',
+  'ecg.zoom': 'a number and a percent sign, the same in Swedish',
+  'ecg.interval.qrs': 'a clinical abbreviation, the same in Swedish: QRS',
+  'ecg.interval.pr': 'a clinical abbreviation, the same in Swedish: PR',
+  'ecg.interval.qt': 'a clinical abbreviation, the same in Swedish: QT',
+  'ecg.interval.qtc': 'a clinical abbreviation, the same in Swedish: QTc',
   'health.tier.trend': 'the same word in Swedish: trend',
   'connections.withings.title': 'a brand name, the same in Swedish: Withings',
   'ui.tier.trend': 'the same word in Swedish: trend',
