@@ -30,10 +30,9 @@ in guard 9 (``tests/queue_guard.py``) and in ``20-queue.sql`` (``function schema
 Every grant or ownership naming a role is recorded in ``pg_shdepend``, so comparing that list with
 the expected one catches a privilege of any kind, in any database of the cluster.
 
-Where it runs (#9): the worker (``ownvitals.worker``) and ``python -m ownvitals jobs stats``. The
-web process does not refuse on a drifted queue yet: it calls no queue function, and its startup
-check comes with the test harness change of #77 (item 3), a recorded gap against ADR 0005 section
-3.
+Where it runs: the worker (``ownvitals.worker``, #9), ``python -m ownvitals jobs stats`` and
+``jobs replay``, and web (#77): its lifespan installs the per-connection check before the first
+connection and calls ``verify_queue`` before it serves, so web refuses a drifted queue too.
 """
 
 import logging

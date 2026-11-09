@@ -34,9 +34,9 @@ function is `SECURITY DEFINER` with `search_path = pg_catalog, pg_temp`, the com
 | `queue_claim(worker, lease_seconds, kinds)` | claims the next claimable job of one of `kinds` (`SKIP LOCKED`), bumps `attempt` and `lease_version`, writes the `claimed` event | `(job_id, owner_id, lease_version)` or nothing |
 | `queue_reap(limit)` | requeues (with backoff), dead-letters (`lease_lost`) or cancels expired leases, bumping the token; fails queued jobs whose attempts are spent (`internal`) | the count |
 | `queue_stats()` | counts per state, across users, including `dead_letter` | `(metric, total)`: no ids |
-| `queue_enqueue(...)` | webhook or scheduler job owned by the connection's owner; a queued singleton collapses and its `available_at` moves 30 s out (namespace 1) | the job id |
-| `queue_cancel_for_secret(kind, secret_id)` | cancels queued jobs of that kind for that webhook secret, any owner | the count |
-| `queue_replay(id)` | a new queued job from a dead-lettered one; the terminal row stays | `(job_id, owner_id)` |
+| `queue_enqueue(...)` | webhook or scheduler job owned by the connection's owner; a queued singleton collapses and its `available_at` moves 30 s out, a follow-up of a running one is queued 30 s out too, and an insert that meets a queued row of the key (one handed back after the check) collapses into it (namespace 1); a job whose input names a `secret_id` (`notify_update` must) has the same id in `target_secret_id`, or is refused `invalid target` | the job id |
+| `queue_cancel_for_secret(kind, secret_id)` | cancels queued jobs of that kind for that webhook secret, any owner; waits for a queued row another transaction holds (never skips it), and any error fails the call | the count |
+| `queue_replay(id)` | a new queued job from a dead-lettered one, under the owner's job-creation lock (namespace 1); the terminal row stays | `(job_id, owner_id)` |
 | `queue_schedule(kind, interval_seconds)` | the scheduler (#164): through `queue_enqueue`, one `withings_poll` or `withings_reconcile` job (origin `scheduler`) for every `connected` connection with none queued or running and none created in the last `interval_seconds` (3600 to 604800); at most 500 per call | the count |
 
 No user code may run as `ownvitals_queue`: the script, the queue check and guard 9 all refuse
@@ -112,9 +112,8 @@ startup is checked on its first connection. Drift anywhere (the background check
 run's connection, a heartbeat, maintenance) stops the worker, never a job's attempt; running
 jobs are handed back first. The check names objects, never data or credentials.
 
-**Gap against ADR 0005 §3 (#77 item 3):** web does not run the queue check yet. Its lifespan
-runs only the event hub and the stream limiter; the web refusal of a drifted queue comes with
-#77.
+Web runs it too (#77): its lifespan installs the per-connection check before the first
+connection and calls `verify_queue` before it serves.
 
 ## Leases and the fence
 
@@ -160,7 +159,10 @@ validated against its model when written and again when sent (`jobs/events.py`).
 
 `python -m ownvitals jobs stats` prints `<metric> <count>` per state, including `jobs_dead_letter`.
 `python -m ownvitals jobs replay <id>` queues a new job with the same kind and input (origin
-`operator`) and writes an `admin_audit` row `job.replay`. The dead-lettered row is not changed.
+`operator`) and writes an `admin_audit` row `job.replay` before the new job commits: if the row
+fails, nothing is queued (#278). The dead-lettered row is not changed. `POST
+/api/jobs/{id}/cancel` answers 409 `not_cancellable` for a `completed`, `failed` or
+`dead_letter` job.
 A job with `target_secret_id` set is cancelled when it runs unless a target check confirms the
 entry is still active (`NoTargets` confirms none; the worker process passes `WebhookTargets`).
 

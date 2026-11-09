@@ -10,9 +10,9 @@ QUEUE_DIGESTS: dict[str, str] = {
     "queue_claim": "5f6d02ac57d23c793739faf4b2c08780",
     "queue_reap": "a2106e6d476c7f3e32241471ad4b85d2",
     "queue_stats": "104be4dcfca72f92bee036b4a3b5182b",
-    "queue_enqueue": "88da8ab4f77093ab917245eda09e4750",
-    "queue_cancel_for_secret": "c0faa144a840ef7684ae750d56e47efd",
-    "queue_replay": "fc433c0d2b737b70510a681219d17684",
+    "queue_enqueue": "7d38c78ebf3c6a283a52761e8879dee0",
+    "queue_cancel_for_secret": "3c636c9a296eb48f31700e60618ccea5",
+    "queue_replay": "a67d043bfec77b4610deb8671aad1846",
     "queue_schedule": "90ff11344c5e69c710635daa26babaac",
     "ensure_month_partitions": "a9ac3a83947bf5ffee3cd23f87440474",
     "webhook_secrets_apply": (

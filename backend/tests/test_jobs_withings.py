@@ -117,6 +117,7 @@ def test_duplicate_singleton_enqueues_collapse_and_debounce(admin: Connection, a
     owner = new_user()
     row = connect_row(admin, owner)
     first = enqueue(app, row)
+    assert seconds_until(admin, first) < 2  # nothing running for the key: due at once
     assert enqueue(app, row) == first
     assert admin.execute(text("SELECT count(*) FROM jobs")).scalar_one() == 1
     assert 29 < seconds_until(admin, first) <= 31
@@ -133,7 +134,7 @@ def test_duplicate_singleton_enqueues_collapse_and_debounce(admin: Connection, a
     assert follow != first
     assert job(admin, follow).state == "queued"
     assert job(admin, first).state == "running"
-    assert seconds_until(admin, follow) < 2
+    assert 29 < seconds_until(admin, follow) <= 31  # the follow-up is debounced too (#278)
     assert enqueue(app, row) == follow
     assert admin.execute(text("SELECT count(*) FROM jobs")).scalar_one() == 2
     assert 29 < seconds_until(admin, follow) <= 31
