@@ -18,7 +18,9 @@ from ownvitals.withings.webhook_cache import Cache, load_cache
 
 logger = logging.getLogger(__name__)
 
-# Reads per TTL: a copy survives this many minus one failed reads in a row.
+# Reads per TTL. Up to three reads in a row that fail fast still leave a fresh copy; a read
+# that hangs holds the next one back for up to one interval, so with hanging reads only one
+# failure in a row is survivable before the copy goes stale.
 READS_PER_TTL = 4
 
 

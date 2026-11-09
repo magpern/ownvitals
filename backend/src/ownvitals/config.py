@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
+from pydantic import SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
@@ -147,11 +147,6 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, WebhookSetti
     # ``connection_kek`` (read by the crypto package, never the environment); retired keys are
     # ``connection_kek_<id>``.
     connection_kek_id: str = "kek-1"
-    # How long web's copy of the webhook-secret HMACs stays usable after the read that made it;
-    # past it the receiver answers 503 (ADR 0008). Web re-reads it every quarter of this. At most
-    # 60 s, the lead ``append_secret`` gives a new entry (``webhook_cache.CACHE_TTL``), so every
-    # web process holds an entry before it opens: it can be shortened, never lengthened.
-    webhook_cache_ttl_seconds: int = Field(default=60, ge=4, le=60)
 
     # From the file ``smtp_password`` (never the environment).
     smtp_password: SecretStr | None = None

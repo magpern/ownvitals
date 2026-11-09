@@ -110,6 +110,7 @@ async def test_a_failed_read_keeps_the_copy_and_logs_the_error_class_only(
     assert record.getMessage() == "webhook cache not refreshed"
     assert record.__dict__["error_type"] == "RuntimeError"
     assert LEAK not in caplog.text
+    assert all(LEAK not in repr(value) for value in record.__dict__.values())
 
 
 async def test_a_read_that_hangs_is_abandoned_and_the_copy_kept(
@@ -217,3 +218,29 @@ async def test_a_stale_copy_still_answers_503(
         assert await _post(app, clock.now) == 503
         await until(lambda: len(failures) >= 2, seconds=5)  # rounds ran and failed
         assert await _post(app, clock.now) == 503
+
+
+@pytest.mark.usefixtures("clean_auth")
+async def test_the_lifespan_stops_the_refresh_task_on_shutdown(
+    app_database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: list[asyncio.Task[None]] = []
+    stopped: list[asyncio.Task[None] | None] = []
+    real_start, real_stop = webhook_refresh.start, webhook_refresh.stop
+
+    def start(app: FastAPI, ttl: timedelta) -> asyncio.Task[None]:
+        started.append(real_start(app, ttl))
+        return started[-1]
+
+    async def stop(task: asyncio.Task[None] | None) -> None:
+        stopped.append(task)
+        await real_stop(task)
+
+    monkeypatch.setattr(webhook_refresh, "start", start)
+    monkeypatch.setattr(webhook_refresh, "stop", stop)
+    app = create_app(make_settings(app_database_url, webhook_cache_ttl_seconds=4))
+    async with app.router.lifespan_context(app):
+        (task,) = started
+        assert not task.done()
+    assert stopped == [task]
+    assert task.cancelled()
