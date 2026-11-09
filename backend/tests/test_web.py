@@ -258,6 +258,7 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
     from ownvitals.admin.routes import router as admin
     from ownvitals.auth.routes import router as auth
     from ownvitals.connections.routes import router as connections
+    from ownvitals.connections.withings_routes import router as withings_connect
     from ownvitals.flags.routes import router as flags
     from ownvitals.jobs.routes import router as jobs
     from ownvitals.views.days_routes import router as days
@@ -270,6 +271,7 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
 
     routers = (
         connections,
+        withings_connect,
         flags,
         jobs,
         admin,
