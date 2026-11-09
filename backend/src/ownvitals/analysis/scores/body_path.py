@@ -89,7 +89,7 @@ def evaluate_body_path(metric_key: str, daily: Iterable[DailyValue], *, day: dat
             else changes.as_dict()
         ),
         "data_quality": quality.as_dict(),
-        "modules": {"trend": fit.algo_version},
+        "algo_parts": {"trend": fit.algo_version},
         "text_key": "score.body_path.how",
     }
     return result(kind, ALGO_VERSION, Status.COMPUTED, components, horizons["30"]["centre"])
