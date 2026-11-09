@@ -261,6 +261,7 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
     from ownvitals.flags.routes import router as flags
     from ownvitals.jobs.routes import router as jobs
     from ownvitals.views.days_routes import router as days
+    from ownvitals.views.ecg_routes import router as ecg
     from ownvitals.views.findings_routes import router as findings
     from ownvitals.views.metrics_routes import router as metrics
     from ownvitals.views.nerve_routes import router as nerve
@@ -278,6 +279,7 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
         metrics,
         days,
         nerve,
+        ecg,
         profile,
         scores,
     )

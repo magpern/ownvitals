@@ -32,6 +32,7 @@ from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
 from ownvitals.notify import sender as outbox_sender
 from ownvitals.views.days_routes import router as days_router
+from ownvitals.views.ecg_routes import router as ecg_router
 from ownvitals.views.findings_routes import router as findings_router
 from ownvitals.views.metrics_routes import router as metrics_router
 from ownvitals.views.nerve_routes import router as nerve_router
@@ -70,6 +71,7 @@ FEATURE_ROUTERS = (
     metrics_router,
     days_router,
     nerve_router,
+    ecg_router,
     profile_router,
     scores_router,
 )
