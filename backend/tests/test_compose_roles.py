@@ -214,6 +214,7 @@ def test_the_image_carries_the_functions_and_their_entrypoint() -> None:
         "COPY --chmod=0555 docker/postgres/withings/rate.sql /app/db-functions/",
         "COPY --chmod=0555 docker/postgres/notify/50-outbox.sql /app/db-functions/",
         "COPY --chmod=0555 docker/postgres/ai/50-ai.sql /app/db-functions/",
+        "COPY --chmod=0555 docker/postgres/exports/60-exports.sql /app/db-functions/",
     ]
     user = dockerfile.index("\nUSER ownvitals\n")
     assert all(dockerfile.index(copy) < user for copy in copies)
@@ -295,14 +296,15 @@ def test_the_maint_url_check_fails_when_the_worker_would_inherit_it(compose: str
 
 
 def test_db_functions_installs_maint_after_the_queue() -> None:
-    """The six files go to install_functions, queue first, in the one transaction it runs."""
+    """The seven files go to install_functions, queue first, in the one transaction it runs."""
     script = DB_FUNCTIONS_SCRIPT.read_text(encoding="utf-8")
     assert script.rstrip("\n").endswith(
         "exec python -m ownvitals.db.install_functions \\\n"
         '  "host=db port=5432 dbname=ownvitals user=postgres" \\\n'
         "  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \\\n"
         "  /app/db-functions/40-withings.sql /app/db-functions/rate.sql \\\n"
-        "  /app/db-functions/50-outbox.sql /app/db-functions/50-ai.sql"
+        "  /app/db-functions/50-outbox.sql /app/db-functions/50-ai.sql \\\n"
+        "  /app/db-functions/60-exports.sql"
     )
     assert "psql" not in script
     from ownvitals.db.install_functions import read_scripts
@@ -315,6 +317,7 @@ def test_db_functions_installs_maint_after_the_queue() -> None:
             str(ROOT / "docker" / "postgres" / "withings" / "rate.sql"),
             str(ROOT / "docker" / "postgres" / "notify" / "50-outbox.sql"),
             str(ROOT / "docker" / "postgres" / "ai" / "50-ai.sql"),
+            str(ROOT / "docker" / "postgres" / "exports" / "60-exports.sql"),
         ]
     )
     assert sql.index("ownvitals_queue") < sql.index("ownvitals_maint")
@@ -327,6 +330,10 @@ def test_db_functions_installs_maint_after_the_queue() -> None:
     )
     assert sql.index("CREATE OR REPLACE FUNCTION public.mail_outbox_claim") < sql.index(
         "CREATE OR REPLACE FUNCTION public.ai_reserve"
+    )
+    # The export purge (#333) last.
+    assert sql.index("CREATE OR REPLACE FUNCTION public.ai_audit_purge") < sql.index(
+        "CREATE OR REPLACE FUNCTION public.exports_purge_expired"
     )
 
 

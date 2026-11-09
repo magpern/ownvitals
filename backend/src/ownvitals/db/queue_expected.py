@@ -6,6 +6,7 @@ all. ``ownvitals.db.queue_check`` re-exports every public name here.
 
 from ownvitals.db.queue_expected_extra import (
     AI_FUNCTION_NAMES,
+    EXPORTS_FUNCTION_NAMES,
     OUTBOX_FUNCTION_NAMES,
     RATE_FUNCTION_NAMES,
 )
@@ -144,6 +145,7 @@ _NAMES = ", ".join(
         *RATE_FUNCTION_NAMES,
         *OUTBOX_FUNCTION_NAMES,
         *AI_FUNCTION_NAMES,
+        *EXPORTS_FUNCTION_NAMES,
     )
 )
 

@@ -22,7 +22,10 @@ the NOLOGIN role ``ownvitals_ai`` has exactly its attributes and the column gran
 creates, with ``DELETE`` on ``ai_audit`` for the retention purge (#331) as its only table
 privilege, owns the five AI functions, and the app role may ``EXECUTE`` them. The app role
 holds ``SELECT`` only on ``ai_spend`` and ``ai_reservations`` and nothing on ``ai_spend_global``.
-Any other grantee fails.
+When ``docker/postgres/exports/60-exports.sql`` has run (#333, ADR 0013 section 4), the NOLOGIN
+role ``ownvitals_exports`` has exactly its attributes, the column grants that script creates and
+``DELETE`` on ``exports`` and ``export_chunks`` as its only table privileges, owns
+``exports_purge_expired``, and the app role may ``EXECUTE`` it. Any other grantee fails.
 """
 
 from collections.abc import Callable
@@ -198,7 +201,40 @@ AI_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
 }
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 AI_ATTRIBUTES = (False, False, False, False, False, True, False)
-_CALLABLE = {**WITHINGS_FUNCTIONS, **RATE_FUNCTIONS, **OUTBOX_FUNCTIONS, **AI_FUNCTIONS}
+# 60-exports.sql (#333): the export purge, owned by its own NOLOGIN role.
+EXPORTS = "ownvitals_exports"
+EXPORTS_FUNCTIONS = {"exports_purge_expired": EXPORTS}
+# Its table-level privileges: DELETE of exports past their 90 days and of spent chunks.
+EXPORTS_RELATIONS = {"exports:r": {"DELETE"}, "export_chunks:r": {"DELETE"}}
+# Its column grants: what the purge reads and changes of exports, the join of a chunk to its
+# export, whether a build's job has ended, and the audit rows it writes (owner, kind, detail).
+EXPORTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
+    ("exports", "id"): {(EXPORTS, "SELECT")},
+    ("exports", "owner_id"): {(EXPORTS, "SELECT")},
+    ("exports", "kind"): {(EXPORTS, "SELECT")},
+    ("exports", "state"): {(EXPORTS, "SELECT"), (EXPORTS, "UPDATE")},
+    ("exports", "job_id"): {(EXPORTS, "SELECT")},
+    ("exports", "created_at"): {(EXPORTS, "SELECT")},
+    ("exports", "expires_at"): {(EXPORTS, "SELECT")},
+    ("exports", "failure"): {(EXPORTS, "UPDATE")},
+    ("export_chunks", "id"): {(EXPORTS, "SELECT")},
+    ("export_chunks", "owner_id"): {(EXPORTS, "SELECT")},
+    ("export_chunks", "export_id"): {(EXPORTS, "SELECT")},
+    ("jobs", "id"): {(EXPORTS, "SELECT")},
+    ("jobs", "owner_id"): {(EXPORTS, "SELECT")},
+    ("jobs", "state"): {(EXPORTS, "SELECT")},
+    ("auth_events", "user_id"): {(EXPORTS, "INSERT")},
+    ("auth_events", "kind"): {(EXPORTS, "INSERT")},
+    ("auth_events", "detail"): {(EXPORTS, "INSERT")},
+}
+EXPORTS_ATTRIBUTES = (False, False, False, False, False, True, False)
+_CALLABLE = {
+    **WITHINGS_FUNCTIONS,
+    **RATE_FUNCTIONS,
+    **OUTBOX_FUNCTIONS,
+    **AI_FUNCTIONS,
+    **EXPORTS_FUNCTIONS,
+}
 # Column grants of ownvitals_webhook_secrets. Not maint, and not the client secret.
 WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("withings_apps", "id"): {(SECRETS, "SELECT")},
@@ -330,6 +366,65 @@ def _check_metrics_role(conn: Connection, need: Callable[[bool, str], None]) -> 
     need(found == expected, f"{METRICS} must own exactly {expected}, owns {found}")
 
 
+def _definer_role(
+    need: Callable[[bool, str], None],
+    conn: Connection,
+    role: str,
+    attributes: tuple[bool, ...],
+    functions: dict[str, str],
+) -> bool:
+    """Whether the NOLOGIN definer ``role`` exists; if it does, that it has exactly
+    ``attributes``, no memberships either way, no settings, no default privileges, and owns
+    exactly ``functions`` (the pattern of the AI role's checks above, for the export purge)."""
+    row = conn.execute(
+        text(
+            "SELECT r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, "
+            "r.rolbypassrls, r.rolinherit, r.oid FROM pg_roles r WHERE r.rolname = :a"
+        ),
+        {"a": role},
+    ).first()
+    if row is None:
+        return False
+    need(
+        tuple(row[:7]) == attributes,
+        f"{role} must be NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
+        "BYPASSRLS NOINHERIT",
+    )
+    memberships = conn.execute(
+        text("SELECT count(*) FROM pg_auth_members WHERE :oid IN (member, roleid)"),
+        {"oid": row.oid},
+    ).scalar_one()
+    need(memberships == 0, f"{role} must be a member of no role and have no members")
+    settings = conn.execute(
+        text(
+            "SELECT (SELECT count(*) FROM pg_db_role_setting WHERE setrole = :oid) "
+            "+ (SELECT count(*) FROM pg_default_acl WHERE defaclrole = :oid)"
+        ),
+        {"oid": row.oid},
+    ).scalar_one()
+    need(settings == 0, f"{role} must have no settings and no default privileges")
+    owned = (
+        conn.execute(
+            text(
+                "SELECT p.proname FROM pg_shdepend s JOIN pg_proc p ON p.oid = s.objid "
+                "WHERE s.refobjid = :oid AND s.deptype = 'o' "
+                "AND s.classid = CAST('pg_proc' AS regclass) "
+                "UNION ALL SELECT s.classid::regclass::text FROM pg_shdepend s "
+                "WHERE s.refobjid = :oid AND s.deptype = 'o' "
+                "AND s.classid <> CAST('pg_proc' AS regclass)"
+            ),
+            {"oid": row.oid},
+        )
+        .scalars()
+        .all()
+    )
+    need(
+        sorted(owned) == sorted(functions),
+        f"{role} must own exactly {sorted(functions)}, owns {sorted(owned)}",
+    )
+    return True
+
+
 def check_roles(conn: Connection) -> list[str]:
     problems: list[str] = []
 
@@ -439,6 +534,7 @@ def check_roles(conn: Connection) -> list[str]:
     need(QUEUE not in _grantees(databases), "ownvitals_queue must hold nothing on the database")
     need(OUTBOX not in _grantees(databases), f"{OUTBOX} must hold nothing on the database")
     need(AI not in _grantees(databases), f"{AI} must hold nothing on the database")
+    need(EXPORTS not in _grantees(databases), f"{EXPORTS} must hold nothing on the database")
     need(
         not (WITHINGS_ROLES & _grantees(databases)),
         "webhook roles must hold nothing on the database",
@@ -563,6 +659,8 @@ def check_roles(conn: Connection) -> list[str]:
             sorted(ai_owned) == sorted(AI_FUNCTIONS),
             f"{AI} must own exactly the AI functions, owns {sorted(ai_owned)}",
         )
+    # 60-exports.sql: absent until that script runs, then exactly its role and grants.
+    exports_installed = _definer_role(need, conn, EXPORTS, EXPORTS_ATTRIBUTES, EXPORTS_FUNCTIONS)
 
     # Schemas.
     schemas = _acl(
@@ -598,6 +696,13 @@ def check_roles(conn: Connection) -> list[str]:
         need(_privileges(schemas, AI, "public") == {"USAGE"}, f"{AI}: USAGE only on public")
     else:
         need(AI not in _grantees(schemas), f"{AI} must not be a schema grantee")
+    if exports_installed:
+        need(
+            _privileges(schemas, EXPORTS, "public") == {"USAGE"},
+            f"{EXPORTS}: USAGE only on public",
+        )
+    else:
+        need(EXPORTS not in _grantees(schemas), f"{EXPORTS} must not be a schema grantee")
     need(not _privileges(schemas, "PUBLIC", "public"), "PUBLIC must have no privilege on public")
     need(
         {"USAGE", "CREATE"} <= _privileges(schemas, OWNER, "public"),
@@ -610,8 +715,10 @@ def check_roles(conn: Connection) -> list[str]:
         schema_grantees |= {OUTBOX}
     if ai_installed:
         schema_grantees |= {AI}
+    if exports_installed:
+        schema_grantees |= {EXPORTS}
     need(_grantees(schemas) <= schema_grantees, "unexpected grantee on a schema")
-    elsewhere = {APP, "PUBLIC", QUEUE, OUTBOX, AI} | WITHINGS_ROLES
+    elsewhere = {APP, "PUBLIC", QUEUE, OUTBOX, AI, EXPORTS} | WITHINGS_ROLES
     need(
         not [1 for o, g, _, _ in schemas if o != "public" and g in elsewhere],
         "no privilege for the app, PUBLIC, the queue or a webhook role on another schema",
@@ -695,6 +802,18 @@ def check_roles(conn: Connection) -> list[str]:
             )
         else:
             need(AI not in _grantees(relations, obj), f"{obj}: {AI} must hold no table privilege")
+        # The export purge's role: column grants (below) and DELETE on its two tables.
+        if exports_installed and obj in EXPORTS_RELATIONS:
+            allowed.add(EXPORTS)
+            need(
+                _privileges(relations, EXPORTS, obj) == EXPORTS_RELATIONS[obj],
+                f"{obj}: {EXPORTS} privileges must be exactly {sorted(EXPORTS_RELATIONS[obj])}",
+            )
+        else:
+            need(
+                EXPORTS not in _grantees(relations, obj),
+                f"{obj}: {EXPORTS} must hold no table privilege",
+            )
         need(_grantees(relations, obj) <= allowed, f"{obj}: unexpected grantee")
     need(
         not [1 for *_, grantable in relations if grantable], "no grantable privilege on a relation"
@@ -744,6 +863,10 @@ def check_roles(conn: Connection) -> list[str]:
         for key, extra in AI_COLUMNS.items():
             if key[0] in present:
                 expected_columns[key] = set(expected_columns.get(key, ())) | extra
+    if exports_installed:
+        for key, extra in EXPORTS_COLUMNS.items():
+            if key[0] in present:
+                expected_columns[key] = set(expected_columns.get(key, ())) | extra
     need(
         found_columns == expected_columns,
         f"column-level privileges in public must be exactly {expected_columns}, "
@@ -784,6 +907,10 @@ def check_roles(conn: Connection) -> list[str]:
         found_names = {signature.partition("(")[0] for signature in signatures}
         missing = set(AI_FUNCTIONS) - found_names
         need(not missing, f"AI budget functions missing: {sorted(missing)}")
+    if exports_installed:
+        found_names = {signature.partition("(")[0] for signature in signatures}
+        missing = set(EXPORTS_FUNCTIONS) - found_names
+        need(not missing, f"export purge missing: {sorted(missing)}")
     for obj in sorted({o for o, *_ in functions}):
         signature = _bare_signature(obj)
         if queue_installed and signature in QUEUE_EXECUTE:
@@ -821,6 +948,7 @@ def check_roles(conn: Connection) -> list[str]:
             or (signature.partition("(")[0] in WITHINGS_FUNCTIONS and withings_installed)
             or (signature.partition("(")[0] in OUTBOX_FUNCTIONS and outbox_installed)
             or (signature.partition("(")[0] in AI_FUNCTIONS and ai_installed)
+            or (signature.partition("(")[0] in EXPORTS_FUNCTIONS and exports_installed)
         ):
             owner = _CALLABLE[signature.partition("(")[0]]
             need(

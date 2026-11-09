@@ -1,7 +1,8 @@
-"""The rate functions, the mail outbox's and the AI cost cap's expectations of the queue check
-(``ownvitals.db.queue_check``, ADR 0005 section 3, guard 9): names, versions, owners and pins of
-the functions admitted beside the queue. Split from ``ownvitals.db.queue_expected``; no logic
-change. ``ownvitals.db.queue_check`` re-exports every public name here.
+"""The rate functions', the mail outbox's, the AI cost cap's and the export purge's expectations
+of the queue check (``ownvitals.db.queue_check``, ADR 0005 section 3, guard 9): names, versions,
+owners and pins of the functions admitted beside the queue. Split from
+``ownvitals.db.queue_expected``; no logic change. ``ownvitals.db.queue_check`` re-exports every
+public name here.
 """
 
 SEARCH_PATH = "search_path=pg_catalog, pg_temp"  # same value as queue_expected.SEARCH_PATH
@@ -82,4 +83,20 @@ AI_PINS: dict[str, tuple[str, str, str, str]] = {
     "ai_release": ("p_id uuid", AI_ROLE, SEARCH_PATH, _AI_ACL),
     "ai_settle_lost": ("p_limit integer", AI_ROLE, SEARCH_PATH, _AI_ACL),
     "ai_audit_purge": ("p_months integer, p_limit integer", AI_ROLE, SEARCH_PATH, _AI_ACL),
+}
+# The export's cross-user purge (docker/postgres/exports/60-exports.sql, ADR 0013 section 4;
+# #333), owned by its own NOLOGIN role. Absent until db-functions has run that script; once
+# present, pinned the same way (its digest in queue_digests.py with the others).
+EXPORTS_ROLE = "ownvitals_exports"
+EXPORTS_FUNCTION_NAMES = ("exports_purge_expired",)
+EXPORTS_VERSION = "ownvitals-exports v1"
+# Sorted as the query sorts the entries: "ownvitals_app" comes before "ownvitals_exports".
+_EXPORTS_ACL = f"ownvitals_app=X/{EXPORTS_ROLE},{EXPORTS_ROLE}=X/{EXPORTS_ROLE}"
+EXPORTS_PINS: dict[str, tuple[str, str, str, str]] = {
+    "exports_purge_expired": (
+        "OUT expired integer, OUT failed integer, OUT chunks integer, OUT deleted integer",
+        EXPORTS_ROLE,
+        SEARCH_PATH,
+        _EXPORTS_ACL,
+    ),
 }
