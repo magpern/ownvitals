@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Decides which CI jobs a change needs. Writes backend/frontend/stack/all (true|false) to
 # $GITHUB_OUTPUT, or to stdout when that is unset (local use). Ported from classbeat
-# (d8060510) without the merge queue and shard handling.
+# (d8060510) without the merge queue.
 #
 #   EVENT_NAME  github.event_name; pull_request diffs, anything else means "run everything"
 #   BASE_SHA    the pull request's base commit
@@ -16,7 +16,7 @@ set -euo pipefail
 out="${GITHUB_OUTPUT:-/dev/stdout}"
 
 # Path filters (extended regexes, matched against each whole path).
-re_all='^(\.github/|\.gitattributes$|scripts/(ci-changes|ci-gate|test-ci-gate)\.sh$)'
+re_all='^(\.github/|\.gitattributes$|scripts/(ci-changes|ci-gate|ci-shards|test-ci-gate)\.sh$)'
 # The image and compose files (docker-compose*.yml and override files too, which Compose merges)
 # and .env.example or a force-added .env (COMPOSE_FILE) count as backend: the backend job's tests guard them (the
 # Dockerfile's digest pins, compose's roles, db-functions and host-SQL checks, the Postgres digest).
