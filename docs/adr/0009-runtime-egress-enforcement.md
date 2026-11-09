@@ -7,7 +7,8 @@ criterion of #77. Amended on 2026-11-01 by the Architect after `Agent review (Op
 e1feee9` (findings N3, N4 and N5): process creation and sockets of other families are refused,
 and the inherited scope is stated (see "Amendment, 2026-11-01"). Noted on 2026-11-09 (#167): the
 worker's `/metrics` listener is the one server socket outside the egress package (see "Note,
-2026-11-09").
+2026-11-09"). Amended on 2026-11-09 (#284): `migrate` installs the hook, the libpq wording is
+corrected, and chains past an allowed name are refused (see "Amendment, 2026-11-09").
 
 ## Context
 
@@ -63,12 +64,19 @@ in CI and pins the standard loop's rows.
 ## Decision
 
 1. **The hook.** `ownvitals.egress.install_egress_hook(kind, settings)`, with `kind` one of
-   `web`, `worker` and `cli`, adds one audit hook per process. A second call with the same kind
-   does nothing; another kind raises. It is called first thing in each entry point, before the
-   app's other modules can connect: `ownvitals/worker/__main__.py`, the CLI's `run_command`
-   (`ownvitals/cli.py`), and web's startup (#77). `db-functions` is exempt from the runtime hook
-   (decided on #118): the one-shot runner reads no settings and connects only through libpq,
-   which the hook cannot see. An audit hook cannot be removed. It returns at once for an event
+   `web`, `worker`, `cli` and `migrate`, adds one audit hook per process. A second call with the
+   same kind does nothing; another kind raises. It is called first thing in each entry point,
+   before the app's other modules can connect: `ownvitals/worker/__main__.py`, the CLI's
+   `run_command` (`ownvitals/cli.py`), web's startup (#77), and `backend/migrations/env.py` for
+   `migrate` (`alembic upgrade head`), when alembic's command line runs it (#284; an in-process
+   `alembic.command` caller keeps its own process's hook). `db-functions` is exempt from the
+   runtime hook (decided on #118, reasons restated on #284): the one-shot runner reads no
+   settings, so the hook would have no configuration but the host on its own command line,
+   which the image's fixed script writes. Its one lookup is psycopg's `socket.getaddrinfo` of
+   that host, which a hook would see; its connect is libpq's, in C, which no hook sees. The
+   static guard pins it to `psycopg.connect`, two error classes and two `psycopg.conninfo`
+   functions (chains past them refused), so a hook there would check only the host it is given.
+   An audit hook cannot be removed. It returns at once for an event
    that does not start with `socket.`, so its cost elsewhere is one prefix check.
 2. **Resolution** (`socket.getaddrinfo`, `socket.gethostbyname`): allowed only for a host in the
    process kind's resolvable set, else `EgressRefused`:
@@ -77,7 +85,7 @@ in CI and pins the standard loop's rows.
    - worker: its list, once `install_worker_allowlist` installed it (Withings, and the model
      host only with AI enabled); the CLI too, once its probe command (#29) installs it;
    - every kind: the configured database hosts (the host and the query's `host` of each
-     database URL);
+     database URL); `migrate` resolves only these;
    - web and the CLI: the configured SMTP host.
 
    No context is required: asyncio resolves in an executor thread, where context variables do
@@ -125,10 +133,12 @@ in CI and pins the standard loop's rows.
    **Any future change of event loop, of uvicorn's loop setting or of the asyncio
    implementation re-runs the probe first** and updates this ADR.
 7. **What the hook cannot see**, stated plainly:
-   - C extensions that open sockets without Python's `socket` module. libpq (psycopg's binary
-     driver) is one, by design: it connects only to the configured database. A new dependency
-     with native networking is caught by dependency review (the locked `pyproject.toml`), not by
-     the hook.
+   - C extensions that open sockets without Python's `socket` module. libpq's TCP connect
+     (psycopg's driver) is one, by design: it connects only to the configured database. Its
+     lookup is not: psycopg 3 resolves a host name in Python (`socket.getaddrinfo`, sync and
+     async) and hands libpq the address, so the hook checks the host (`test_egress_migrate.py`
+     pins it). A new dependency with native networking is caught by dependency review (the
+     locked `pyproject.toml`), not by the hook.
    - `ctypes`, and an attacker who already runs code in the process. The hook is a control on
      our code and our libraries, not a sandbox. `ctypes` (and `_ctypes`) is refused statically
      in `src/` under any name, as is a module lookup through `sys.modules` (#122); a
@@ -157,7 +167,9 @@ in CI and pins the standard loop's rows.
 8. **The static guard's role.** It stays: closed-world for **direct** imports (a capable module
    `src/` imports or references must be classified), the per-module rules (only `mail` uses
    smtplib; only the entry points install the worker list or the hook; only `mail` opens an
-   SMTP session), and the early warning in review. Function-level imports of non-seed modules
+   SMTP session), and the early warning in review. A chain past an allowed name is judged step
+   by step: each step is a reviewed dotted name of its own, else refused (#284). It scans `src/`
+   and `migrations/env.py`, not the revisions under `migrations/versions`. Function-level imports of non-seed modules
    (lazy library fetchers such as numpy's `_datasource`) are a recorded static limit that the
    hook covers in every process.
 
@@ -236,3 +248,21 @@ in CI and pins the standard loop's rows.
   and a threaded HTTP server that binds every interface by default, both of which the guard
   would have to classify and keep refused, and its labels are open strings where ours are
   closed vocabularies. Nothing is added to `pyproject.toml` or `uv.lock`.
+
+## Amendment, 2026-11-09 (#284, from the #149 review)
+
+- **libpq wording.** Decision items 1 and 7 said libpq is invisible to the hook. Only its TCP
+  connect is: psycopg 3.3 resolves the host in Python (`socket.getaddrinfo`, in an executor
+  thread for the async driver) before libpq connects to the address, so an installed hook checks
+  the database host. The policy already allows the configured database hosts (item 2).
+- **Chains past an allowed name.** The guard checked only the first name after an allowed
+  module, so `psycopg.connect.cursor` or `psycopg.connect.__self__` passed it (guard 5 refuses
+  only the dunders). Each further step now needs a dotted name of its own in the reviewed table
+  (`SMTP._get_socket` for mail's handshake deadline, the webauthn enum members and
+  `KeySet.import_key_set` that `src/` uses), else it is refused (`tests/test_egress_chains.py`).
+- **migrate.** `alembic upgrade head` installed no hook and its `env.py` was not scanned. It now
+  installs kind `migrate` (the configured database hosts; no SMTP, Google or Withings host) from
+  alembic's command line and checks the standard loop first in its online run; the guard scans
+  `env.py` as `migrations.env`, the only module that may use `alembic.context`
+  (`tests/test_egress_migrate.py` runs alembic's command line in fresh interpreters, offline
+  and against the test database). `db-functions` stays exempt (item 1).
