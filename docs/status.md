@@ -38,14 +38,16 @@ G2), and each issue owns its own area file.
 
 ## Active
 
-Reconciled 2026-11-09 against `gh api repos/magpern/ownvitals/pulls?state=open` (`main` at `b2e6558`).
+Reconciled 2026-11-09 against `gh api repos/magpern/ownvitals/pulls?state=open` (`main` at `b2e6558`): #298, #299 and #300 plus this PR.
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #199 | ECG list and calibrated canvas viewer with PDF download (`frontend/src/pages/Ecg*.tsx`, `components/ecg/**`, `api/ecg.ts`, `pages/appPages.tsx`, `i18n/*/ecg.ts`) | Developer | #298 (head `ed5dab1`) | open, review pending |
+| #199 | ECG list and calibrated canvas viewer with PDF download (`frontend/src/pages/Ecg*.tsx`, `components/ecg/**`, `api/ecg.ts`, `pages/appPages.tsx`, `i18n/*/ecg.ts`) | Developer | #298 (head `cd37fc8`) | open, review pending |
+| #191 | ECG rules E1-E4 and E6, and the estimated recompute sweep (`analysis/rules/{core,ecg,ecg_intervals}.py`, `derived/{evaluate*,findings_*,ecg_recompute}.py`, `withings/sync_kinds.py`, `worker/kinds.py`) | Developer | #299 (head `96f513a`) | open, awaiting review |
+| #296 | Withings connect web routes (`connections/withings_routes.py`, `web.py`, `tests/test_web.py`, `withings/oauth.py`, fake-withings e2e) | Developer | #300 (head `e665a71`) | open, awaiting review |
 | — | Housekeeping (this PR, docs only: status, issue labels, hardening issues #301-#305) | Developer | this PR | open |
 
-Ready to start (every `Depends on` is closed; labels refreshed 2026-11-09): #191 (ECG rules E1-E4, E6), #200 (findings inbox), #201 (body composition), #202 (nerve health), #206 (AI consent and tool set), #210 (doctor PDF), #211 (export), #294 (backfill fan-out), #296 (Withings connect web routes), the hardening issues #277, #279, #281, #282, #283, #284 and the new #301 (ECG PDF), #302 (scores), #303 (metrics), #304 and #305 (UI). Blocked on an open issue: #195 (needs #191), #207 (needs #206), #208, #209, and #280 (needs #278's queue hardening, `blocked-deps`); #278 is ready. Labels are not authoritative, this table is.
+Heads are from the API at 2026-11-09 and may move. Ready to start (every `Depends on` is closed; labels refreshed 2026-11-09): #200 (findings inbox), #201 (body composition), #202 (nerve health), #206 (AI consent and tool set), #210 (doctor PDF), #211 (export), #294 (backfill fan-out), the hardening issues #277, #279, #281, #282, #283, #284 and the new #301 (ECG PDF), #302 (scores), #303 (metrics), #304 and #305 (UI). Blocked on an open issue: #195 (needs #191), #207 (needs #206), #208, #209, and #280 (needs #278's queue hardening, `blocked-deps`); #278 is ready. Labels are not authoritative, this table is.
 
 Merged on 2026-11-09 (`main` now `b2e6558`), all IMPLEMENTED (synthetic tests only; verdict comments are on the PRs): #285 (docs, reconcile and the #165 split), #286 (#257, hardening from the #242 review), #287 (#197, overview dashboard), #288 (#198, metric detail and day view), #289 (#203, settings), #290 (#167, `/metrics` from the worker), #291 (M1 done-when flow, failure injection, RLS context tests), #292 (#188, scores job), #293 (#180, passkey and QR approve-login UI), #295 (onboarding and connections screen) and #297 (#192, ECG list and signal API, ECG PDF). Their assumptions are in the table below and the non-blocking findings are #294, #296 and #301-#305.
 
@@ -76,6 +78,8 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | File | Held by |
 |---|---|
 | `frontend/src/pages/appPages.tsx`, `frontend/src/i18n/{en,sv}/index.ts` and `untranslated.ts` (the ECG lines), `docs/design/README.md` | #199 (PR #298) |
+| `backend/src/ownvitals/web.py`, `backend/tests/test_web.py`, `connections/withings_routes.py`, `withings/oauth.py` | #296 (PR #300) |
+| `backend/src/ownvitals/worker/kinds.py`, `analysis/rules/core.py`, `withings/sync_kinds.py`, `derived/evaluate*.py`, `derived/findings_store.py` | #191 (PR #299) |
 | `backend/pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `frontend/package.json` and lock, `frontend/src/main.tsx`, `config.py` | — (free now); the issues that need them take the lock when they start (planner's note: `appPages.tsx` is held by #199 now, one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds; the next free migration number is 0020; 0018 is H4 and 0019 is H3) |
 | `docs/status.md`, `docs/status/completed.md` | Architect |
 | everything else | — (released) |
