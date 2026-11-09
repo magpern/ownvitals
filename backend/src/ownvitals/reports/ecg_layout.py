@@ -24,7 +24,6 @@ UV_PER_MM: Final = 1000.0 / MM_PER_MV
 ROW_SECONDS: Final = 10
 ROW_W: Final = ROW_SECONDS * MM_PER_S  # 250 mm
 ROW_H: Final = 40.0  # eight major squares: plus and minus 2 mV around the baseline
-HALF: Final = 20.0  # a trace is clamped to its row: plus and minus 2 mV
 GRID_X0: Final = (PAGE_W - ROW_W) / 2
 PULSE_MV: Final = 1.0
 PULSE_S: Final = 0.2
@@ -141,7 +140,7 @@ def trace(
     pts = tuple(
         (
             round(GRID_X0 + (i - start) / rate * MM_PER_S, 4),
-            round(base + max(-HALF, min(HALF, (samples[i] - median) / UV_PER_MM)), 4),
+            round(base + (samples[i] - median) / UV_PER_MM, 4),
         )
         for i in range(start, stop + 1)
     )

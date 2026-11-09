@@ -212,7 +212,9 @@ def test_no_text_lies_inside_a_rows_grid_on_any_page() -> None:
                     assert not (top - ecg_layout.ROW_H <= op.y <= top), op.text
 
 
-def test_a_trace_is_clamped_to_its_row() -> None:
-    page = layout(facts(((500,) * 499 + (90_000,),)))[0]
-    ys = [y for _, y in polylines(page, "trace")[0].points]
-    assert max(ys) - min(ys) <= 20.0 + 1e-6
+def test_multi_array_rows_are_captioned_by_array() -> None:
+    pages = layout(facts((strip(10), strip(10))))
+    captions = [
+        op.text for p in pages for op in p.ops if isinstance(op, Text) and op.text.endswith(" s")
+    ]
+    assert captions == ["array 1, 0-10 s", "array 2, 0-10 s"]
