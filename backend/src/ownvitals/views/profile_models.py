@@ -36,7 +36,7 @@ def known_zone(name: str) -> bool:
 class ProfileIn(BaseModel):
     """What the Settings screen saves: every field, as one document."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     birth_year: int | None = Field(ge=FIRST_BIRTH_YEAR, le=2100)
     sex: Sex | None
