@@ -111,3 +111,40 @@ Real PostgreSQL ([backend.md](backend.md)), synthetic accounts only:
   browser holds the whole archive in memory once.
 - Tables are paged on `id` (keyset), so a file is in id order, not time order, and the pages are
   not one snapshot: a row written during the build may or may not be in it.
+
+## The doctor PDF (issue 210, ADR 0013 section 6)
+
+A second `exports` kind, `doctor_pdf`, in the same tables (no migration): `reports/doctor_routes.py`
+(`/api/reports/doctor`: `POST`, `GET`, `GET /{id}/file`) uses the export's step-up, rate limit,
+one-build-per-owner, single-use download and chunk storage (`export_store` takes the kind;
+`export_routes.serve_download` is the shared download). Audit kinds are `doctor_pdf_requested` and
+`doctor_pdf_downloaded`. The worker job is `doctor_pdf_build` (`reports/doctor.py`).
+
+| Module | Role |
+|---|---|
+| `doctor_input.py` | the request body and job input: period (at most 12 months), metric keys, at most 10 recording ids; `extra="forbid"` so no name or free text travels |
+| `doctor_read.py` | the reads, all through the user's context: daily series, birth year, device-tier findings, ECG strips (via `ecg_facts.py`) |
+| `doctor_model.py` | pure: the `Report`, monthly rows, the footer and range wording, device-finding text (E1 to E3) |
+| `doctor_layout.py` / `doctor_pdf.py` | pure page layout and the reportlab build (`invariant=1`, deterministic bytes); ECG strips reuse `ecg_pdf.py` at 25 mm/s and 10 mm/mV |
+
+What the PDF holds: header with period, generation date and birth year if set, a blank
+"Name: ______" line; per metric a chart with the personal typical range ("from your own last 90
+days; not a clinical reference range"), a monthly table (median, min, max, days, "entered
+manually"; attrib 2 and 4 drawn hollow); Withings' device findings, attributed to Withings;
+chosen ECG strips; a footer on every page. Never in it: estimates, experimental or trend findings,
+scores, AI text, attrib 1 readings, hidden findings. Findings come only from `views.findings_read`.
+
+Tests: `test_reports_doctor_pdf.py` (extracted text has no estimate or experimental finding,
+strip geometry, determinism, input limits) and `test_reports_doctor_api.py` (step-up, RLS and 404
+across users, single use, rate limit). Frontend: `components/reports/DoctorReport.test.tsx`.
+
+Known gaps:
+
+- The doctor audit kinds are not in the activity list's allowlist; the tidy job's audited
+  `export_failed` and `export_expired` for doctor rows carry `export_kind` "data".
+- The cross-user purge above is still not built, for doctor rows too.
+- ECG pages keep their own "Page i of k".
+- A month's min and max are the min and max of the daily minimums and maximums.
+- A metric whose typical range cannot be computed prints "No typical range yet"; one with no data
+  prints "No readings in this period."
+- An ECG that is too long or has no signal gets a note on the findings page instead of a strip.

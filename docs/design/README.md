@@ -260,3 +260,11 @@ Built from existing components and tokens; the Architect accepts them here.
 - The area filter is a select, not chips; the list pages by "Older findings".
 - Hidden findings are absent and an experimental finding appears only when the API sends it, marked
   "Only you see this".
+
+## Report for your doctor (issue 210)
+
+No mock-up covers this Settings → Your data row. It reuses the export row's pattern (`Row`, the
+step-up dialog, a "Preparing…" status, a single-use "Download"), with date fields for the period
+and filter chips for the metrics and up to 10 ECG recordings. Uncovered, and for the owner to
+confirm: the placement of the choices below the row and the disabled state of "Create report…"
+until a metric is chosen.
