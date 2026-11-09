@@ -180,3 +180,25 @@ Built from existing components and tokens; the Architect accepts them here.
 - The two PDF buttons of the mock-up are one "Download PDF" link.
 - The All / AFib / Inconclusive filter chips are not built; the list pages by "Older recordings".
 - The filtered 0.5-40 Hz view is an opt-in checkbox, off by default, labelled display-only.
+
+## Findings inbox built beyond the mock-up (#200)
+
+Built from existing components and tokens; the Architect accepts them here.
+
+- The route is `/findings`. The tab (`tab=history`), the tier (`tier=`), the area (`area=`) and the
+  chosen finding (`id=`) are in the address, so a deep link and the back button work; defaults are
+  left out.
+- The API sends no titles, counts or status line, so the mock-up's per-tab counts, its "N findings
+  need a look" line and its filter totals are not built. Names and "why" texts come from the
+  `health.rule.*` catalogue, worded from the finding's evidence; a text whose numbers the evidence
+  lacks is not shown.
+- "Seen" and "New" follow the API's `seen_at`; the screen does not mark a finding seen (no write
+  endpoint). A backfill finding shows "From history" instead.
+- "What it isn't" is one fixed text per tier (`findings.isnt.*`, health wording).
+- The evidence chart is the metric's own daily series from the metric endpoint, cut to the 28 days
+  before the window through the day after it, with the typical range. The mock-up's shaded window
+  is not drawn. "Open <metric>" and "Readings on <day>" link to the metric and day screens.
+- The "Provenance" block of the mock-up is the Data quality, Confidence and Sources rows.
+- The area filter is a select, not chips; the list pages by "Older findings".
+- Hidden findings are absent and an experimental finding appears only when the API sends it, marked
+  "Only you see this".
