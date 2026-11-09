@@ -26,6 +26,29 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 8 (2026-11-09, owner): the `main` ruleset no longer requires branches to be up to date
+
+- **Changes:** PLAN-operations §10.5 (the `main` ruleset) required the checks `ci` and `pr-title`
+  "with branches up to date" (`strict_required_status_checks_policy`). That one setting is
+  dropped; everything else in §10.5 is unchanged (pull request required, squash only, linear
+  history, no direct pushes, no force pushes, zero required approvals, protected `v*` tags). A
+  PR is merged on its own head when `ci` and `pr-title` are green on that SHA and the `PASS` is
+  for that SHA. The merge-only update rule (AGENTS.md review gate, item 3) stays for the cases
+  that still need a branch update: a real conflict, or `main` changing a module the PR changes
+  or calls.
+- **Evidence:** the owner's decision of 2026-11-09, after the G and H run of 2026-11-08: every
+  merge made each other open PR "behind", and each update cost a full backend CI run (about 20
+  minutes) before the PR could merge. classbeat took the same decision on 2026-11-04 (its
+  `AGENTS.md`, "Merging").
+- **Safety net:** the full CI run on `main` after every merge (a `push` trigger on `main` in
+  `ci.yml`, added by the PR that shards the backend tests). A red `main` is fixed forward
+  first, before any other merge. The file locks and the wave plan in `docs/status.md` keep the
+  open PRs' file sets disjoint, which is what makes the stale-base risk small. The risk that
+  remains is two PRs that are each green alone and break `main` together; the post-merge run
+  catches it.
+- **Not changed:** `--match-head-commit`, the review gate, the Architect's integration review
+  and every status level.
+
 ### Amendment 7 (2026-11-08, owner): groundwork and hardening carried over from classbeat
 
 - **Changes:** PLAN §11 gains two milestones that run **before the M6 screens**: **G
