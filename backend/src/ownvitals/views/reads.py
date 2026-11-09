@@ -20,6 +20,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.analysis.quality import EXCLUDING
 from ownvitals.config import Settings
 from ownvitals.connections.repository import list_connections
 from ownvitals.context import UserContext
@@ -27,7 +28,13 @@ from ownvitals.db import user_session
 from ownvitals.derived.scores_revision import revision_digest
 from ownvitals.flags import effective
 from ownvitals.views.catalog import STATUS_STREAMS
-from ownvitals.views.read_records import DailyRecord, DayReading, ReadingDetail, StatusFacts
+from ownvitals.views.read_records import (
+    DailyRecord,
+    DayReading,
+    ReadingDetail,
+    SegmentalRecord,
+    StatusFacts,
+)
 from ownvitals.views.states import ConnectionFacts, StreamFacts
 from ownvitals.withings.streams import stream_named, windows
 
@@ -51,6 +58,12 @@ _DAILY = text(
     "FROM metric_daily WHERE owner_id = :o AND metric_key = ANY(CAST(:keys AS text[])) "
     "AND day >= :lo AND day <= :hi ORDER BY metric_key, day"
 )
+_SEGMENTAL = text(
+    "SELECT DISTINCT ON (metric_key) metric_key, CAST(ts AT TIME ZONE source_tz AS date) AS day, "
+    "value FROM observations WHERE owner_id = :o AND starts_with(metric_key, :prefix) "
+    "AND NOT (quality_flags && CAST(:excluding AS text[])) ORDER BY metric_key, ts DESC, id"
+)
+_EXCLUDING = sorted(flag.value for flag in EXCLUDING)
 _UNCONFIRMED = text(
     "SELECT CAST(ts AT TIME ZONE source_tz AS date) AS day, count(*) AS n FROM observations "
     "WHERE owner_id = :o AND metric_key = :k AND ts >= :lo AND ts < :hi "
@@ -198,6 +211,17 @@ class Reader:
                 )
             )
         return found
+
+    async def segmental_latest(self, key: str) -> list[SegmentalRecord]:
+        """The newest usable reading of each body position of a segmental metric (``key`` is the
+        part before the colon): segmental values have no daily value (ADR 0010), so the tile is
+        the latest reading itself."""
+        rows = (
+            await self._db.execute(
+                _SEGMENTAL, {"o": self._owner, "prefix": f"{key}:", "excluding": _EXCLUDING}
+            )
+        ).all()
+        return [SegmentalRecord(r.metric_key, r.day, r.value) for r in rows]
 
     async def unconfirmed_days(self, key: str, first: date, last: date) -> dict[date, int]:
         lo, _ = _around(first)

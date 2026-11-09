@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from ownvitals.analysis.quality import METRICS
 from ownvitals.auth.deps import require_user
 from ownvitals.context import UserContext
-from ownvitals.views import assemble, assemble_detail
+from ownvitals.views import assemble, assemble_detail, assemble_segmental
 from ownvitals.views.catalog import DEFAULT_RANGE, RANGES, STREAM_OF
 from ownvitals.views.deps import Now, settle
 from ownvitals.views.reads import DailyRecord, reading
@@ -40,6 +40,7 @@ async def list_metrics(
         facts = await r.status_facts(now)
         daily = await r.daily(keys)
         revision = await r.measures_revision()
+        segments = await r.segmental_latest(assemble_segmental.SEGMENT_KEY)
     today = now.date()
     return MetricsOut(
         as_of=now,
@@ -53,7 +54,8 @@ async def list_metrics(
                 window_days=None if range is None else _window_days(range, daily[key], today),
             )
             for key in keys
-        ],
+        ]
+        + assemble_segmental.tiles(segments, settle(facts, assemble_segmental.STREAM, now)),
     )
 
 

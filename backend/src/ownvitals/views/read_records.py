@@ -27,6 +27,15 @@ class DailyRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class SegmentalRecord:
+    """The latest usable reading of one body position (``segmental_muscle_mass:left_arm``)."""
+
+    metric_key: str
+    day: date
+    value: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class DayReading:
     id: UUID
     ts: datetime
