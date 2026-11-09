@@ -69,6 +69,25 @@ def scalar(url: str, sql: str, **params: object) -> Any:
         engine.dispose()
 
 
+def refill(url: str) -> None:
+    """Test-only: hand the app's rate-limit bucket its full budget back and make delayed retries
+    due, so a backfill that the real limiter (100 calls a minute) would spread over minutes ends
+    in seconds. The limiter itself is covered by test_withings_rate.py."""
+    engine = create_engine(url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE withings_rate_buckets SET remaining = budget, paused_until = NULL")
+            )
+            conn.execute(
+                text(
+                    "UPDATE jobs SET available_at = now() WHERE state = 'queued' AND available_at > now()"
+                )
+            )
+    finally:
+        engine.dispose()
+
+
 @contextlib.asynccontextmanager
 async def running_worker(
     app_database_url: str, *, lease_seconds: int = 60

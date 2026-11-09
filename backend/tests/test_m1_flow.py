@@ -27,6 +27,7 @@ from m1tools import (
     REDIRECT,
     SECRET,
     receiver,
+    refill,
     running_worker,
     scalar,
     through_fake,
@@ -93,7 +94,12 @@ _SUMMARY = (
 async def _settled(url: str, kind: str) -> None:
     """Until no job of ``kind`` is queued or running (a chain of per-stream jobs has ended)."""
     pending = "SELECT count(*) FROM jobs WHERE kind = :k AND state IN ('queued', 'running')"
-    await until(lambda: not scalar(url, pending, k=kind), seconds=90)
+
+    def check() -> bool:
+        refill(url)
+        return not scalar(url, pending, k=kind)
+
+    await until(check, seconds=90)
 
 
 async def _done(url: str, kind: str, stream: str | None = None) -> None:
@@ -104,6 +110,7 @@ async def _done(url: str, kind: str, stream: str | None = None) -> None:
     match = "kind = :k AND (CAST(:s AS text) IS NULL OR input->>'stream' = :s)"
 
     def check() -> bool:
+        refill(url)
         broken = scalar(url, _BROKEN.replace("{where}", match), **params)
         assert not broken, f"{kind} {stream or ''} did not complete: {broken}"
         return bool(scalar(url, _COMPLETED.replace("{where}", match), **params))
