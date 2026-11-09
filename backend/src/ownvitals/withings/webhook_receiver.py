@@ -2,7 +2,9 @@
 
 The receiver checks the request before the secret, then ``webhook_event_insert`` stores the
 event and the singleton sync job in one transaction. The job names a connection and a stream;
-the sync fetches from the API. Unknown and retired secrets get the same 200 and create nothing.
+the sync fetches from the API. Unknown and retired secrets get the same 200 and create nothing;
+so does a matched one whose notification could not be stored (#280), and one over quota gets
+it with the event recorded and no job.
 """
 
 import logging
@@ -133,6 +135,25 @@ async def _body(request: Request) -> bytes | None:
     return b"".join(chunks)
 
 
+# webhook_event_insert raises 'duplicate' with this SQLSTATE for a replayed dedupe key.
+DUPLICATE_SQLSTATE = "22023"
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    orig = exc.orig if isinstance(exc, DBAPIError) else None
+    state = getattr(orig, "sqlstate", None)
+    return state if isinstance(state, str) else None
+
+
+def _is_duplicate(exc: BaseException) -> bool:
+    """The replay error only: its SQLSTATE and its exact message, never a substring of
+    another error's text."""
+    if _sqlstate(exc) != DUPLICATE_SQLSTATE:
+        return False
+    diag = getattr(getattr(exc, "orig", None), "diag", None)
+    return getattr(diag, "message_primary", None) == "duplicate"
+
+
 def _log(request: Request, status: int) -> None:
     # The formatter redacts the path. The secret never reaches another field.
     logger.info("webhook", extra={"path": request.url.path, "status": status})
@@ -192,14 +213,17 @@ async def handle(request: Request, presented: str) -> Response:
         return Response(status_code=200)
     try:
         outcome = await _ingest(request.app.state.session_factory, entry, fields)
-    except DBAPIError as exc:
-        if "duplicate" not in str(exc):
-            logger.warning("webhook not stored", extra={"error_type": type(exc).__name__})
-            _log(request, 500)
-            return Response(status_code=500)
-        outcome = "duplicate"
-    if outcome == "unknown_user":
-        _note_unknown(request, entry.app_id)
+    except Exception as exc:
+        # Not stored. The answer is the forged secret's: an empty 200, so no status or body
+        # says the secret matched. The poll catches up; the warning is the alert.
+        outcome = "duplicate" if _is_duplicate(exc) else None
+        if outcome is None:
+            logger.warning(
+                "webhook not stored",
+                extra={"error_type": type(exc).__name__, "sqlstate": _sqlstate(exc)},
+            )
+    if outcome in ("unknown_user", "over_quota"):
+        _note(request, outcome, entry.app_id)
     if getattr(request.app.state, "webhook_crash_after_commit", False):
         request.app.state.webhook_crash_after_commit = False
         _log(request, 500)
@@ -208,15 +232,22 @@ async def handle(request: Request, presented: str) -> Response:
     return Response(status_code=200)
 
 
-def _note_unknown(request: Request, app_id: int) -> None:
-    seen: dict[int, datetime] = getattr(request.app.state, "webhook_unknown_at", {})
+_NOTES = {
+    "unknown_user": "webhook user is not linked",
+    "over_quota": "webhook over quota",
+}
+
+
+def _note(request: Request, outcome: str, app_id: int) -> None:
+    """At most one line a minute per outcome and app (PLAN section 4.4)."""
+    seen: dict[tuple[str, int], datetime] = getattr(request.app.state, "webhook_noted_at", {})
     now = _now(request.app)
-    previous = seen.get(app_id)
+    previous = seen.get((outcome, app_id))
     if previous is not None and now - previous < timedelta(minutes=1):
         return
-    seen[app_id] = now
-    request.app.state.webhook_unknown_at = seen
-    logger.info("webhook user is not linked", extra={"app_id": app_id})
+    seen[(outcome, app_id)] = now
+    request.app.state.webhook_noted_at = seen
+    logger.info(_NOTES[outcome], extra={"app_id": app_id})
 
 
 class WebhookMiddleware(BaseHTTPMiddleware):
