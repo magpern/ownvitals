@@ -1,7 +1,8 @@
 """Read and write connection rows. The only path from a row to plaintext tokens.
 
 Every function takes a user context and runs in that user's session. Token writes go through
-``write_tokens``: the generation must be the one just read, or the write changes nothing.
+``write_tokens``: the generation must be the one just read, and the row must not be
+disconnected unless the write is a reconnect, or the write changes nothing.
 Plaintext never appears in a log record or an exception.
 
 The reads without credentials live in ``rows.py`` and the opening and clearing of credentials
@@ -58,19 +59,28 @@ async def write_tokens(
     *,
     public: dict[str, Any],
     expires_at: datetime | None,
+    reconnect: bool = False,
 ) -> bool:
     """Store a new payload and raise the generation by one, or change nothing.
 
     ``False`` means ``generation`` is not the row's current one: a newer write won, and this
     one gives up (ADR 0004 section 6). The payload columns and the generation move together.
+
+    A disconnect does not raise the generation, so a refresh that read the row before the
+    disconnect still holds the current one. Only ``reconnect`` (a new grant from the user,
+    ``store_grant``) may write a ``disconnected`` row; every other write then changes nothing,
+    checked in the same statement, under the row lock the update takes.
     """
+    filters = [
+        _C.id == connection_id,
+        _C.owner_id == ctx.user_id,
+        _C.token_generation == generation,
+    ]
+    if not reconnect:
+        filters.append(_C.status != DISCONNECTED)
     result = await db.execute(
         update(connections)
-        .where(
-            _C.id == connection_id,
-            _C.owner_id == ctx.user_id,
-            _C.token_generation == generation,
-        )
+        .where(*filters)
         .values(
             status=_CONNECTED,
             last_error=None,
@@ -195,7 +205,8 @@ async def disconnect(
     ``revoke_failed`` stores that category on the row (ADR 0004 section 8). Otherwise
     ``last_error`` is cleared. ``False`` when the user has no live row for ``provider``
     (the route still answers 204). The generation is a token-write counter, so a
-    disconnect does not change it.
+    disconnect does not change it (ADR 0004 section 6); ``write_tokens`` and the refresh's
+    give-up refuse a disconnected row instead.
 
     ``connection_id`` limits it to that row, and ``generation`` to that token generation:
     a revoke that finishes late then leaves a newer connection (or the same row after a

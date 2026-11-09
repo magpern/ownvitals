@@ -11,7 +11,10 @@ here sends mail. Every ``requesttoken`` that does not store a new pair counts as
 failure, and a recovery that does store one as a recovery (PLAN section 4.4).
 
 Two callers that race take the same lock. The one that finds the generation already moved
-returns the stored token and does not call Withings.
+returns the stored token and does not call Withings. A reconnect does not take that lock: when
+it stores a new grant while ``requesttoken`` is out, the compare-and-swap loses, the issued pair
+is dropped and the caller gets the reconnect's token (``current``), or ``not_connected`` when
+the row was disconnected meanwhile. ``current`` always carries a token.
 """
 
 from collections.abc import Callable
@@ -62,6 +65,27 @@ class RefreshResult:
 
 def _current(view: OpenWithings) -> RefreshResult:
     return RefreshResult("current", view.generation, view.access_token)
+
+
+async def _stored(
+    factory: Factory, ring: KeyRing, ctx: UserContext, connection_id: UUID, generation: int
+) -> RefreshResult:
+    """The pair another write stored: ``current`` with its token, or ``not_connected``."""
+    try:
+        return _current(await open_withings(factory, ring, ctx, connection_id))
+    except ConnectionFailure as failure:
+        if failure.category == "not_connected":
+            return RefreshResult("not_connected", generation)
+        raise
+
+
+async def _give_up(
+    factory: Factory, ring: KeyRing, ctx: UserContext, view: OpenWithings, lease: Lease | None
+) -> RefreshResult:
+    """``needs_reconnect``, unless a reconnect or a disconnect changed the row meanwhile."""
+    if await give_up(factory, ctx, view.id, view.generation, lease):
+        return RefreshResult("needs_reconnect", view.generation)
+    return await _stored(factory, ring, ctx, view.id, view.generation)
 
 
 async def _apply(
@@ -115,10 +139,11 @@ async def _apply(
             return RefreshResult(
                 "refreshed", view.generation + 1, issued.access_token.get_secret_value()
             )
-        return RefreshResult("current", view.generation)
+        # The compare-and-swap lost: a reconnect wrote a newer generation, or the row was
+        # disconnected. The issued pair is dropped; the caller gets the winner's token.
+        return await _stored(factory, ring, ctx, view.id, view.generation)
     if invalid or (recovery and (ambiguous or other)):
-        await give_up(factory, ctx, view.id, view.generation, lease)
-        return RefreshResult("needs_reconnect", view.generation)
+        return await _give_up(factory, ring, ctx, view, lease)
     if ambiguous:
         return RefreshResult("recover", view.generation)
     await clear_intent(factory, ctx, view.id, view.generation, lease)
@@ -136,8 +161,7 @@ async def _resolve(
     after_commit: Callable[[], None] | None,
 ) -> RefreshResult:
     if view.stale_intent:
-        await give_up(factory, ctx, view.id, view.generation, lease)
-        return RefreshResult("needs_reconnect", view.generation)
+        return await _give_up(factory, ring, ctx, view, lease)
     return await _apply(
         factory,
         ring,
@@ -191,7 +215,7 @@ async def refresh_tokens(
         if marked == "cancelled":
             return RefreshResult("not_connected", view.generation)
         if marked != "marked":
-            return _current(await open_withings(factory, ring, ctx, connection_id))
+            return await _stored(factory, ring, ctx, connection_id, view.generation)
         return await _apply(
             factory,
             ring,

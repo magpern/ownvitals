@@ -33,9 +33,7 @@ from ownvitals.connections.providers.withings_payload import PROVIDER as PROVIDE
 from ownvitals.connections.providers.withings_refresh import clear_intent as clear_intent
 from ownvitals.connections.providers.withings_refresh import commit_refresh as commit_refresh
 from ownvitals.connections.providers.withings_refresh import give_up as give_up
-from ownvitals.connections.providers.withings_refresh import (
-    hold_refresh_lock as hold_refresh_lock,
-)
+from ownvitals.connections.providers.withings_refresh import hold_refresh_lock as hold_refresh_lock
 from ownvitals.connections.providers.withings_refresh import mark_intent as mark_intent
 from ownvitals.connections.repository import write_tokens
 from ownvitals.connections.tables import DISCONNECTED, connections
@@ -255,6 +253,7 @@ async def store_grant(
                 sealed,
                 public=public,
                 expires_at=datetime.now(UTC) + _REFRESH_TTL,
+                reconnect=True,
             ):
                 stored = StoredGrant(target.id, int(target.token_generation) + 1, "connected")
             else:

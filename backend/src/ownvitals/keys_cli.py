@@ -4,7 +4,10 @@ Prints counts only. Rewrap runs as the app role: one context per account, one ro
 transaction, then the authenticator wraps. Wipe runs as the owner role, with no KEK, after
 web and worker are stopped::
 
-    docker compose --profile maint run --rm maint python -m ownvitals keys wipe --confirm
+    docker compose run --rm --no-deps migrate python -m ownvitals keys wipe --confirm
+
+(``migrate`` holds the owner role's URL and password; pass web's SMTP settings with ``-e``,
+``docs/dev/connections.md``.)
 
 It refuses while the app role still has a session, or while the configured KEK id already
 has a check row. Per account, credentials are removed and the row kept, the authenticator
@@ -62,8 +65,9 @@ def add_keys_subcommands(sub: Any) -> None:
         "wipe",
         help="after a suspected KEK compromise: remove credentials and reset every authenticator",
         description=(
-            "Run in the maint service with web and worker stopped: docker compose --profile "
-            "maint run --rm maint python -m ownvitals keys wipe --confirm. If CHECKPOINT is "
+            "Run in the migrate service with web and worker stopped: docker compose run --rm "
+            "--no-deps migrate python -m ownvitals keys wipe --confirm (pass the SMTP settings "
+            "with -e, docs/dev/connections.md). If CHECKPOINT is "
             f"refused, finish it this way: {CHECKPOINT_STEP}"
         ),
     )

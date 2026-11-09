@@ -1,8 +1,10 @@
 """The token generation compare-and-swap (ADR 0004 section 6). Synthetic tokens only."""
 
+from sqlalchemy import text
+
 from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture  # noqa: F401
 from ctx import make_context
-from ownvitals.connections.repository import connect, open_credentials, write_tokens
+from ownvitals.connections.repository import connect, disconnect, open_credentials, write_tokens
 from ownvitals.crypto.envelope import canonical_json, connection_aad, connection_wrap_aad, seal
 from ownvitals.db import user_session
 
@@ -41,3 +43,35 @@ async def test_a_stale_generation_cannot_overwrite_tokens(env: Env) -> None:
     assert opened.generation == 2
     assert opened.credentials.access_token == REPLACED
     assert ACCESS not in repr(opened.credentials)
+
+
+async def test_a_token_write_cannot_bring_back_a_disconnected_row(env: Env) -> None:
+    """A disconnect keeps the generation (ADR 0004 section 6), so the generation alone does not
+    stop a writer that read the row before it; the status does. Only a reconnect may (#279)."""
+    user_id = await env.user("generation-disconnected@example.com")
+    ctx = make_context(user_id)
+    ring = env.app.state.keyring
+    info = await connect(env.factory, ring, ctx, "test", ACCESS, REFRESH)
+    assert await disconnect(env.factory, ctx, "test")
+    async with user_session(env.factory, ctx) as db:
+        kek = await ring.current(db)
+    sealed = seal(
+        canonical_json({"access_token": REPLACED, "refresh_token": REFRESH}),
+        connection_aad(user_id, "test", info.id),
+        kek,
+        connection_wrap_aad(kek.key_id, user_id, "test", info.id),
+    )
+    async with user_session(env.factory, ctx) as db:
+        late = await write_tokens(db, ctx, info.id, 1, sealed, public={}, expires_at=None)
+        status = (
+            await db.execute(text("SELECT status FROM connections WHERE id = :i"), {"i": info.id})
+        ).scalar_one()
+    assert late is False
+    assert status == "disconnected"
+    async with user_session(env.factory, ctx) as db:
+        again = await write_tokens(
+            db, ctx, info.id, 1, sealed, public={}, expires_at=None, reconnect=True
+        )
+    assert again is True
+    opened = await open_credentials(env.factory, ring, ctx, info.id)
+    assert (opened.generation, opened.credentials.access_token) == (2, REPLACED)

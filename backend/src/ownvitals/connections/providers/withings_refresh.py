@@ -26,7 +26,7 @@ from ownvitals.connections.providers.withings_payload import (
     _token,
 )
 from ownvitals.connections.repository import write_tokens
-from ownvitals.connections.tables import connections
+from ownvitals.connections.tables import DISCONNECTED, connections
 from ownvitals.context import UserContext
 from ownvitals.crypto.envelope import connection_aad, connection_wrap_aad, seal
 from ownvitals.crypto.keks import KeyRing
@@ -150,7 +150,8 @@ async def give_up(
 ) -> bool:
     """``needs_reconnect`` and the in-app notice, plus the owner notice in the mail outbox, in
     the same transaction (PLAN section 4.3 step 4, ADR 0007 section 4). Credentials stay. The
-    worker opens no SMTP connection: web sends the notice."""
+    worker opens no SMTP connection: web sends the notice. A row disconnected meanwhile keeps
+    its generation, so it is refused by status: it stays disconnected and gets no notice."""
     async with _writes(factory, ctx, lease) as (db, _fenced):
         given = (
             await db.execute(
@@ -159,6 +160,7 @@ async def give_up(
                     _C.id == connection_id,
                     _C.owner_id == _actor(ctx, lease).user_id,
                     _C.token_generation == generation,
+                    _C.status != DISCONNECTED,
                 )
                 .values(
                     status="needs_reconnect",
