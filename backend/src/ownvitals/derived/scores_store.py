@@ -12,9 +12,9 @@ as running under forced RLS.
    nothing is written (``stale``). The purge-race pattern of ``daily_db`` and ``findings_store``.
 
 One row per ``(owner_id, kind, day)``: an upsert, so a recompute of the same data gives the same
-row and an earlier day stays as history. ``input_revision`` is the sum of the counters of the
-streams read. When the owner-only switch is off the pass writes no ``his`` row and deletes the
-stored ones, like the experimental findings.
+row and an earlier day stays as history. ``input_revision`` is the digest of the counters of the
+streams read (``scores_revision``). When the owner-only switch is off the pass writes no ``his``
+row and deletes the stored ones, like the experimental findings.
 """
 
 import json
