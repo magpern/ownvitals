@@ -39,6 +39,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.jobs.progress",
             "ownvitals.ecg_validate",
             "ownvitals.views.findings_read",
+            "ownvitals.views.ecg_read",
             "ownvitals.views.reads",
             "ownvitals.views.profile_store",
             "ownvitals.derived.check_cli",
@@ -95,6 +96,8 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
         "ownvitals.views.findings_routes",
         "ownvitals.views.findings_read.other",
         "ownvitals.views.reads.other",
+        "ownvitals.views.ecg_read.other",
+        "ownvitals.views.ecg_routes",
         "ownvitals.views.status_routes",
         "ownvitals.views.metrics_routes",
         "ownvitals.views.days_routes",
@@ -121,6 +124,8 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.ecg_validate", True, False),
         # The one findings read function (#190): that exact module, not its routes.
         ("ownvitals.views.findings_read", True, False),
+        # The ECG screen's recordings reader (#192): that exact module, not its routes.
+        ("ownvitals.views.ecg_read", True, False),
         # The read API's reader (#189): that exact module, not its routes.
         ("ownvitals.views.reads", True, False),
         # The caller's own profile row (#203): that exact module, not its routes.

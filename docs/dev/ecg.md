@@ -297,3 +297,31 @@ when one did, or when the user id or the V4 flags are refused. V2 is report-only
 | `V5` | pass when recomputing `estimated` matches the stored JSON byte for byte (`canonical_json`), including the stored input revision and fingerprint. A row with neither a signal nor an estimate is not compared |
 
 The command was not run on a real account. Tests use labelled synthetic values only.
+
+## ECG list, signal and PDF (#192, ADR 0006 section 3)
+
+| Route | Answers |
+|---|---|
+| `GET /api/ecg?limit=&offset=` | The user's recordings, newest first: local time with zone, device, Withings' classification (attributed), reported heart rate and the linked 135-138 values ("not reported" is an absent value, never 0) |
+| `GET /api/ecg/{id}` | The same plus the stored signal (int32 µV per lead, unfiltered), the sampling rate and the lead label ("lead unverified", A2). `ownvitals_estimate` is `null` without the owner-only flag; with it, it holds our estimate from `read_ecg_estimates`, labelled "Estimated by ownvitals from the raw signal; not a Withings measurement" |
+| `GET /api/ecg/{id}.pdf` | The true-scale A4 landscape PDF, as an attachment. 404 when there is no signal, 422 over 120 s |
+
+Another user's recording answers 404 (forced RLS plus an explicit `owner_id` filter). The signal
+is decoded in `views/ecg_read.py` and never logged; a frame that does not decode is logged by
+exception class only and reads as "no signal".
+
+**PDF.** 10 s rows of 250 mm, 25 mm/s and 10 mm/mV, a 1 mm grid with 5 mm majors, a 1 mV 200 ms
+calibration pulse per row, four rows to a page, the median level of each lead as its baseline.
+It carries local time with zone, device, rate, the lead label, Withings' values with attribution
+and the "not a medical device" line. It has **no estimate and nothing experimental**: the
+document's input (`ReportFacts`) has no field for one and the route never calls
+`read_ecg_estimates`. A strip longer than 120 s (`MAX_SECONDS`, our limit, not Withings') is
+refused.
+
+**Renderer: reportlab 5.1.0** (BSD-3-Clause; brings pillow and charset-normalizer). Server side,
+no network, built-in Helvetica, no fonts or images fetched, `invariant=1` so the bytes are
+deterministic. Alternatives not taken: WeasyPrint (system libraries, CSS layout is not
+millimetre-exact), fpdf2 (fewer guarantees on stream determinism). The layout
+(`reports/ecg_layout.py`) is pure and emits drawing operations in millimetres; the renderer
+(`reports/ecg_pdf.py`) only draws them. Tests measure both the operations and the PDF's own path
+operators (`tests/pdftools.py`).
