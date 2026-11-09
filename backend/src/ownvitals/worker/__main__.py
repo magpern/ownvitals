@@ -91,7 +91,10 @@ async def _run(settings: Settings) -> None:
 def main() -> int:
     settings = Settings()
     configure_logging(settings.log_level)
-    install_egress_hook("worker", settings)  # before anything can connect (ADR 0009)
+    # Both first, before ``_run`` makes the engine or runs the role, queue and key ring checks:
+    # nothing in this process connects anywhere before them (ADR 0009). ``_run`` refuses to go
+    # on if the allowlist is missing.
+    install_egress_hook("worker", settings)
     install_worker_allowlist(ai_enabled=settings.ai_insights)
     try:
         asyncio.run(_run(settings), loop_factory=event_loop_factory())
