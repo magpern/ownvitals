@@ -18,3 +18,7 @@ class AiSettings(BaseSettings):
     # authoritative caps; the worker passes them on every reservation and nothing stores them.
     ai_user_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
     ai_global_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
+    # Experimental findings and scores (the HIS) to the model (ADR 0014 section 4, open question
+    # 4): only for an account that passes the experimental gate (the owner-only switch) **and**
+    # only when this is true. Default false: the owner opts in explicitly.
+    ai_include_experimental: bool = False

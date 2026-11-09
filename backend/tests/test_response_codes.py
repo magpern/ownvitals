@@ -37,6 +37,7 @@ ROUTE_FILES = {
     ),
     "jobs": ["jobs/routes.py", "jobs/events_routes.py"],
     "connections": ["connections/routes.py"],
+    "ai": ["ai/consent_routes.py"],
 }
 
 

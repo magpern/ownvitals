@@ -153,3 +153,29 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* The AI consent text of "Your data" (issue 206): the server's plain text, one paragraph per block,
+   in a bordered panel that scrolls when long. */
+.ov-ai-consent {
+  display: grid;
+  gap: var(--ov-space-3);
+  margin-top: var(--ov-space-3);
+}
+
+.ov-ai-consent__text {
+  max-height: 22rem;
+  overflow-y: auto;
+  padding: var(--ov-space-3);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+}
+
+.ov-ai-consent__text p {
+  margin: 0 0 var(--ov-space-2);
+}
+
+.ov-ai-consent__agree {
+  display: flex;
+  gap: var(--ov-space-2);
+  align-items: center;
+}

@@ -268,6 +268,12 @@ def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
         "INSERT INTO notify_holds (owner_id, finding_id, rule_id, started_at, revision_at, "
         "revision_seen) VALUES (:o, gen_random_uuid(), 'E4', '2026-11-02 08:00:00+00', "
         "'2026-11-02 08:00:00+00', '2026-11-02 08:00:00+00')",
+        # #206: a live AI consent and one conversation with a synthetic message.
+        "INSERT INTO ai_consents (owner_id, consent_version, locale, text_sha256) "
+        "VALUES (:o, 1, 'en', :h)",
+        "INSERT INTO ai_conversations (owner_id) VALUES (:o)",
+        "INSERT INTO ai_messages (owner_id, conversation_id, role, content) SELECT :o, id, "
+        "'user', 'synthetic question' FROM ai_conversations WHERE owner_id = :o",
     ):
         conn.execute(text(sql), {"o": owner_id, "h": digest})
 
@@ -327,6 +333,9 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
     names = {name for name, _ in catalog}
     assert names == {
         "activity_daily",
+        "ai_consents",
+        "ai_conversations",
+        "ai_messages",
         "ai_reservations",
         "ai_spend",
         "connections",
@@ -438,7 +447,8 @@ async def test_delete_imported_removes_only_that_owners_rows(
     names = {str(name) for name, _ in _rows(database_url, _OWNED)}
     assert names == purged | kept
     assert {"observations", "metric_daily", "findings", "scores"} <= purged
-    assert kept == {"user_profiles", "mail_outbox", "ai_spend", "ai_reservations"}
+    assert kept == {"user_profiles", "mail_outbox", "ai_spend", "ai_reservations", "ai_consents"}
+    assert {"ai_messages", "ai_conversations"} <= purged
     _partitions(database_url, True)
     try:
         _plant(database_url, linked.ctx.user_id, linked.connection_id, "c")

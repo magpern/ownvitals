@@ -23,4 +23,11 @@ export function fakeProfile(more: Record<string, unknown> = {}) {
   }
 }
 
-export const PROFILE_ROUTES = { 'GET /api/profile': fakeProfile() }
+// The AI consent of an account without AI (the flag off, no consent): synthetic.
+export const AI_CONSENT_NONE = {
+  enabled: false,
+  consent: { state: 'none', version: null, given_at: null },
+  consent_text: { version: 1, locale: 'en', text: 'Synthetic consent text.', sha256: '0'.repeat(64) },
+}
+
+export const PROFILE_ROUTES = { 'GET /api/profile': fakeProfile(), 'GET /api/ai/consent?locale=en': AI_CONSENT_NONE }

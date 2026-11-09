@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 
 from dbtools import PARENT, drop_tables, migrated, owner_connection, run_rls_helper
 from ownvitals.ai.budget import AI_OWNED
+from ownvitals.ai.tables import AI_CONSENT_OWNED
 from ownvitals.db import SYSTEM_TABLES
 from ownvitals.derived.tables import DERIVED_OWNED
 from ownvitals.ingest.tables import INGEST_OWNED
@@ -48,8 +49,8 @@ def test_the_migrated_schema_meets_the_contract(database_url: str) -> None:
             ).scalars()
             # Owned so far: the job tables (0003), connections (0007), the Withings
             # tables (0009), the derived tables (0011), the mail outbox (0012), the AI cost cap
-            # (0013) and the notification holds (0020). System tables include withings_apps,
-            # webhook_events, owner_notices and ai_spend_global.
+            # (0013), the notification holds (0020) and AI consent and history (0021). System
+            # tables include withings_apps, webhook_events, owner_notices and ai_spend_global.
             assert set(tables) == set(SYSTEM_TABLES) | {
                 "jobs",
                 "job_events",
@@ -60,6 +61,7 @@ def test_the_migrated_schema_meets_the_contract(database_url: str) -> None:
                 *OUTBOX_TABLES,
                 *AI_OWNED,
                 *NOTIFY_OWNED,
+                *AI_CONSENT_OWNED,
             }
     finally:
         engine.dispose()

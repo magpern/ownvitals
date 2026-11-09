@@ -140,6 +140,15 @@ ROWS: Final[Mapping[str, str]] = {
     "notify_holds": "INSERT INTO public.notify_holds (owner_id, finding_id, rule_id, started_at, "
     "revision_at, revision_seen, ended_at, reason, outcome) VALUES (:owner, gen_random_uuid(), "
     "'E4', :ts, :ts, :ts, :ts, 'timeout', 'sent_not_evaluated') RETURNING id",
+    # AI consent and history (#206): a withdrawn consent (so the one-live-per-owner index never
+    # collides), a conversation, and a message in the owner's own conversation.
+    "ai_consents": "INSERT INTO public.ai_consents (owner_id, consent_version, locale, "
+    "text_sha256, given_at, withdrawn_at) VALUES (:owner, 1, 'en', :hash, :ts, :ts) RETURNING id",
+    "ai_conversations": "INSERT INTO public.ai_conversations (owner_id, created_at, updated_at) "
+    "VALUES (:owner, :ts, :ts) RETURNING id",
+    "ai_messages": "INSERT INTO public.ai_messages (owner_id, conversation_id, role, content) "
+    "VALUES (:owner, (SELECT c.id FROM public.ai_conversations c WHERE c.owner_id = :owner "
+    "ORDER BY c.created_at, c.id LIMIT 1), 'user', 'synthetic_ctx_message') RETURNING id",
     "ai_reservations": "INSERT INTO public.ai_reservations (owner_id, month, amount, actual, "
     "state, job_id, lease_version, ended_at) VALUES (:owner, DATE '2026-01-01', :n, :n, "
     "'settled', :job, 0, :ts) RETURNING id",

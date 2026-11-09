@@ -67,6 +67,7 @@ ADDED = frozenset(
         "metrics_bind",  # issue 167: the worker's /metrics listener
         "metrics_port",
         "metrics_refresh_seconds",
+        "ai_include_experimental",  # issue 206: experimental items to the model (ADR 0014 §4)
     }
 )
 

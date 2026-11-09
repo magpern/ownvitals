@@ -87,6 +87,10 @@ REVIEWED_STRINGS: dict[tuple[str, str], int] = {
     ("ownvitals.notify.outbox", "/findings"): 1,
     # The API's own prefix; the routes read through the read function.
     ("ownvitals.views.findings_routes", "/api/findings"): 1,
+    # The AI tool named ``findings`` (ADR 0014 section 4, #206): its key in the handler map, in
+    # the tool table and in the output allowlist. The tool reads through the read function.
+    ("ownvitals.ai.tools", "findings"): 1,
+    ("ownvitals.ai.tools_model", "findings"): 2,
 }
 TABLES = frozenset({"findings", "ecg_recordings"})
 _WORD = re.compile(

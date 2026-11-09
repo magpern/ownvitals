@@ -23,7 +23,10 @@ Each has its own allowlist, of packages (the package and everything under it) an
   reads and writes the caller's own
   ``user_profiles`` row. The exact module
   ``ownvitals.derived.check_cli`` (#187) reads one named owner's daily values and findings for
-  ``ownvitals analysis check`` (read only, counts and versions out). **The rest of
+  ``ownvitals analysis check`` (read only, counts and versions out). The exact module
+  ``ownvitals.ai.consent`` (#206) reads and writes the caller's own AI consent rows, cancels the
+  caller's AI jobs and deletes their conversation history on withdrawal; the AI tools read only
+  through ``views.reads`` and ``views.findings_read``. **The rest of
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
   through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
@@ -87,6 +90,10 @@ VIEWS_USER_SESSION = (
 # values and findings for the operator command; the rest of ``ownvitals.derived`` writes only
 # through the fence.
 DERIVED_USER_SESSION = ("ownvitals.derived.check_cli",)
+# AI consent (#206): the caller's own consent rows, the withdrawal's job cancels and history
+# delete, and the enabled check every AI entry point makes. The tools read only through
+# ``views.reads`` and ``views.findings_read``.
+AI_USER_SESSION = ("ownvitals.ai.consent",)
 JOBS_SYSTEM_SESSION = ("ownvitals.jobs.queue",)
 # The key ring's startup check (#8), the one module of ``ownvitals.crypto`` that may.
 KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
@@ -108,6 +115,7 @@ USER_SESSION = Allowlist(
         *ECG_USER_SESSION,
         *VIEWS_USER_SESSION,
         *DERIVED_USER_SESSION,
+        *AI_USER_SESSION,
     ),
 )
 SYSTEM_SESSION = Allowlist(

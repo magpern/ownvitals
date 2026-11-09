@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import Column, MetaData, Table, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.ai.tables import ai_conversations, ai_messages
 from ownvitals.connections.repository import delete_disconnected_row
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
@@ -59,6 +60,10 @@ IMPORTED = (
     findings,
     notify_holds,  # #195: the notification holds of those findings (rule ids and times only)
     scores,
+    # #206: the AI conversation history is text about this data, so it goes with it (messages
+    # before their conversations). The consent itself is kept (``KEPT``).
+    ai_messages,
+    ai_conversations,
     _JOBS,
 )
 # Owned tables this option deliberately keeps, because they hold no imported or derived health
@@ -66,11 +71,13 @@ IMPORTED = (
 # route and its send state, ADR 0007; Architect decision on #225), and the AI cost cap's
 # ``ai_spend`` and ``ai_reservations`` (micro-USD accounting, ADR 0014 section 7; #205): spend
 # that was billed must stay counted, or deleting imported data would reset the month's budget.
+# ``ai_consents`` (#206): the record of the user's AI consent and its withdrawal, no content;
+# deleting data is not withdrawing consent (withdrawal is its own action, ``ai.consent``).
 # All go with the account through the ``owner_id`` cascade. The connection row is removed by
 # ``delete_disconnected_row`` and ``job_events`` follow their job, so neither is listed here or
 # in ``IMPORTED``. A test enumerates every owned table against these lists, so a new owned table
 # must be added to one of them.
-KEPT = ("user_profiles", "mail_outbox", "ai_spend", "ai_reservations")
+KEPT = ("user_profiles", "mail_outbox", "ai_spend", "ai_reservations", "ai_consents")
 
 
 async def purge_imported(factory: Factory, ctx: UserContext) -> None:

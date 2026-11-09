@@ -21,6 +21,8 @@ export const errors = {
   'reason.provider_disabled': 'Den inloggningsmetoden är inte tillgänglig.',
   'reason.forbidden': 'Ditt konto har inte behörighet att göra det.',
   'reason.two_factor_required': 'Ange en kod från din autentiseringsapp för att fortsätta.',
+  'reason.ai_not_enabled': 'AI-insikter är inte tillgängliga.',
+  'reason.ai_consent_outdated': 'Samtyckestexten har ändrats. Läs den igen och godkänn den nya versionen.',
   'reason.step_up_required': 'Det här kräver en ny kod från din autentiseringsapp.',
   'reason.reauth_required': 'Det här kräver ditt lösenord igen.',
   'reason.reauth_stale': 'Inloggningen hos Google var inte tillräckligt färsk. Försök igen.',
