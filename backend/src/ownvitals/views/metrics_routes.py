@@ -8,6 +8,8 @@ no sparkline, and a blocked stream (not supported, not shared, not available, ne
 Withings+ needed, not connected) says so instead of "no data".
 """
 
+from collections.abc import Sequence
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -18,7 +20,7 @@ from ownvitals.context import UserContext
 from ownvitals.views import assemble, assemble_detail
 from ownvitals.views.catalog import DEFAULT_RANGE, RANGES, STREAM_OF
 from ownvitals.views.deps import Now, settle
-from ownvitals.views.reads import reading
+from ownvitals.views.reads import DailyRecord, reading
 from ownvitals.views.schemas import MetricDetailOut, MetricsOut
 
 router = APIRouter(prefix="/api/metrics")
@@ -28,7 +30,10 @@ Range = Annotated[str, Query(pattern="^(" + "|".join(RANGES) + ")$")]
 
 @router.get("", response_model=MetricsOut)
 async def list_metrics(
-    request: Request, ctx: Annotated[UserContext, Depends(require_user)], now: Now
+    request: Request,
+    ctx: Annotated[UserContext, Depends(require_user)],
+    now: Now,
+    range: Range | None = None,
 ) -> MetricsOut:
     keys = tuple(sorted(METRICS))
     async with reading(request.app.state.session_factory, ctx) as r:
@@ -45,10 +50,16 @@ async def list_metrics(
                 settle(facts, STREAM_OF[key], now),
                 today=today,
                 revision=revision,
+                window_days=None if range is None else _window_days(range, daily[key], today),
             )
             for key in keys
         ],
     )
+
+
+def _window_days(range_name: str, records: Sequence[DailyRecord], today: date) -> int:
+    values = assemble.to_daily(records)
+    return assemble_detail.window_for(range_name, values, assemble.anchor_day(values, today))[1]
 
 
 @router.get("/{key}", response_model=MetricDetailOut)
