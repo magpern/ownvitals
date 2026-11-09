@@ -8,7 +8,7 @@ real loop with the real registry; only the network is the in-process fake. Synth
 import json
 import urllib.request
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
@@ -35,6 +35,7 @@ from m1tools import (
 from ownvitals.connections.purge import purge_connection
 from ownvitals.egress import core, install_worker_allowlist
 from ownvitals.jobs.queue import enqueue
+from ownvitals.withings import streams
 from ownvitals.withings.apps import create_app
 from ownvitals.withings.disconnect import disconnect_withings
 from ownvitals.withings.oauth import SessionProof, StateStore, callback, start
@@ -158,6 +159,9 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     )
     install_worker_allowlist(ai_enabled=False)
     through_fake(monkeypatch, fake)
+    # The synthetic history is 30 days: walk 45, not 17 years of windows, so the backfill is a
+    # handful of calls per stream.
+    monkeypatch.setattr(streams, "FLOOR", datetime.now(UTC) - timedelta(days=45))
 
     def measure_count() -> int:
         return int(
