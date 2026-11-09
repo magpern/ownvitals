@@ -75,9 +75,17 @@ async def _queue(env: Env, connection: UUID, kind: str) -> None:
 
 _BROKEN = (
     "SELECT coalesce(string_agg(state || ':' || coalesce(error_category, '-'), ','), '') "
-    "FROM jobs WHERE {where} AND state IN ('failed', 'dead_letter')"
+    "FROM jobs WHERE {where} AND "
+    "(state IN ('failed', 'dead_letter') OR (state = 'queued' AND attempt > 0))"
 )
 _COMPLETED = "SELECT count(*) FROM jobs WHERE {where} AND state = 'completed'"
+
+
+_SUMMARY = (
+    "SELECT coalesce(string_agg(kind || '/' || origin || '/' || state || '/' || attempt::text "
+    "|| '/' || coalesce(error_category, '-') || '/' || (available_at > now())::text, '; '), '') "
+    "FROM jobs"
+)
 
 
 async def _done(url: str, kind: str, stream: str | None = None) -> None:
@@ -92,7 +100,11 @@ async def _done(url: str, kind: str, stream: str | None = None) -> None:
         assert not broken, f"{kind} {stream or ''} did not complete: {broken}"
         return bool(scalar(url, _COMPLETED.replace("{where}", match), **params))
 
-    await until(check, seconds=60)
+    try:
+        await until(check, seconds=60)
+    except AssertionError:
+        seen = scalar(url, _SUMMARY)
+        raise AssertionError(f"timed out waiting for {kind}; jobs now: {seen}") from None
 
 
 def _states(url: str, kind: str) -> list[str]:
@@ -172,6 +184,11 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
                 )
                 assert answer.status_code == 200
         assert scalar(database_url, "SELECT count(*) FROM webhook_events") == 1
+        # A known user's notification must have queued a job (a null job_id is unknown_user).
+        assert (
+            scalar(database_url, "SELECT count(*) FROM webhook_events WHERE job_id IS NOT NULL")
+            == 1
+        )
         await _done(database_url, "withings_sync")
         assert not {"failed", "dead_letter"} & set(_states(database_url, "withings_sync"))
         assert scalar(
