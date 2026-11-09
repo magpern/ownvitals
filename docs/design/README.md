@@ -141,3 +141,24 @@ Each screen is `mockups/src/<Name>.dc.html`, `mockups/html/<Name>.html` and
 - M6 is split into issues by screen group (shell and tokens first, then overview, metric and
   day, ECG, findings, connections and onboarding, settings and security). The UI parts of #10,
   #11 and #12 (sign-in, second factor, step-up, admin) follow `Auth`, `Security` and `Admin`.
+
+## Gaps found building Connections and Onboarding (issue 196)
+
+For the Architect to accept or send to the owner. Each was built from existing components and tokens.
+
+- **No devices list.** The API has no devices route, so "Devices" is the "Coming later" marker with
+  the Withings-app note. Battery and last-reading columns come with that route.
+- **No "Sync now" or "Import 90 more days".** No web route exists for either; the buttons are not
+  drawn rather than drawn dead.
+- **No "Imported" range column** in "What we import": the status API has no range field. The table
+  has Stream, Available, Last sync and State.
+- **Dates inside the notices are dropped** (for example the "since" date of Needs reconnect): the
+  status API does not carry them.
+- **The disconnect code is asked by the shared step-up dialog**, after "Disconnect", not by a field
+  inside the disconnect dialog.
+- **Connect needs a route that is not in the API yet.** The screens use `POST
+  /api/connections/withings/start` answering `{authorize_url}`, and expect the callback to return
+  to `/onboarding?withings=<outcome>`. This is an assumption to confirm.
+- **New classes** `ov-callout` (neutral, urgent, attn, info), `ov-kv`, `ov-choice` and `ov-steps` in
+  `styles/connections.css`, built only from existing tokens.
+- **Onboarding's phone "overview" step** is the real overview page: the last step links to it.
