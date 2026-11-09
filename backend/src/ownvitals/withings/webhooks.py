@@ -22,9 +22,9 @@ from ownvitals.withings.subscriptions import (
     mint,
     pepper_hmac,
 )
+from ownvitals.withings.webhook_cache import CACHE_TTL, Factory, _entries, _when
 from ownvitals.withings.webhook_cache import Cache as Cache
 from ownvitals.withings.webhook_cache import CachedEntry as CachedEntry
-from ownvitals.withings.webhook_cache import Factory, _entries, _when
 from ownvitals.withings.webhook_cache import WebhookTargets as WebhookTargets
 from ownvitals.withings.webhook_cache import load_cache as load_cache
 from ownvitals.withings.webhook_receiver import PREFIX as PREFIX
@@ -73,8 +73,15 @@ async def append_secret(
     pepper: bytes,
     pepper_id: str,
     active_from: datetime,
+    now: datetime | None = None,
+    cache_ttl: timedelta = CACHE_TTL,
 ) -> str:
-    """Append one entry. ``active_from`` is at least the cache TTL ahead for a real rotation."""
+    """Append one entry. ``active_from`` must be at least the entry-cache TTL after ``now``
+    (ADR 0008 routine step 1), so every web process holds the entry before any subscription
+    points at it. Refused before anything is minted or written."""
+    clock = now if now is not None else datetime.now(UTC)
+    if active_from.tzinfo is None or active_from < clock + cache_ttl:
+        raise ValueError("active_from must be at least the webhook cache TTL ahead")
     secret_id = uuid4()
     presented = mint(seed, app_id, secret_id)
     session = factory()
