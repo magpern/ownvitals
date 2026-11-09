@@ -20,7 +20,7 @@ interface Props {
   /** Microvolts, as stored. */
   microvolts: readonly number[]
   rate: number
-  /** Experimental R-peaks (seconds): drawn only when the page was given an estimate. */
+  /** Experimental R-peaks as sample positions, not seconds: drawn only when the page was given an estimate. */
   markers?: readonly number[] | null
 }
 
@@ -48,6 +48,9 @@ export function EcgCanvas({ microvolts, rate, markers }: Props) {
     const ctx = element?.getContext('2d') ?? null
     if (element === null || ctx === null) return
     const ratio = window.devicePixelRatio || 1
+    // CSSOM, not a style attribute: the content security policy blocks the attribute.
+    element.style.width = `${String(width)}px`
+    element.style.height = `${String(height)}px`
     element.width = Math.round(width * ratio)
     element.height = Math.round(height * ratio)
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
@@ -65,7 +68,7 @@ export function EcgCanvas({ microvolts, rate, markers }: Props) {
         </span>
       </div>
       <div className="ov-ecg__scroll">
-        <canvas ref={canvas} role="img" aria-label={t('ecg.strip.label', { gain: f.number(gain) })} style={{ width, height }} />
+        <canvas ref={canvas} role="img" aria-label={t('ecg.strip.label', { gain: f.number(gain) })} />
       </div>
       <Overview samples={shown} rate={rate} start={start} onPick={(s) => setWindowIndex(Math.floor(s / ROW_SECONDS))} />
       <div className="ov-ecg__controls">

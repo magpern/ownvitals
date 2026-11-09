@@ -37,7 +37,7 @@ export interface RowInput {
   scale: Scale
   /** The largest absolute millivolt of the whole recording: the row is tall enough for it. */
   peak: number
-  /** Experimental R-peaks in seconds; absent unless the estimate is shown. */
+  /** Experimental R-peaks as sample positions (ADR 0006 section 8), not seconds; absent unless the estimate is shown. */
   markers?: readonly number[]
 }
 
@@ -105,7 +105,8 @@ export function drawRow(ctx: CanvasRenderingContext2D, input: RowInput, colours:
     ctx.lineWidth = 1
     ctx.setLineDash([4, 3])
     ctx.beginPath()
-    for (const t of markers) {
+    for (const position of markers) {
+      const t = position / rate
       if (t < start || t > start + ROW_SECONDS) continue
       const x = xOf(scale, t - start)
       ctx.moveTo(x, 0)

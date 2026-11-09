@@ -36,7 +36,7 @@ export function syntheticEstimate(overrides: Record<string, unknown> = {}) {
     reasons: [],
     hr_bpm: 63.5,
     hrv: { rmssd_ms: 41, sdnn_ms: 52, pnn50_pct: 18 },
-    rpeaks: [1.5, 2.4],
+    rpeaks: [750, 1200], // sample positions (at 500 Hz: 1.5 s and 2.4 s)
     windows: [],
     ...overrides,
   }

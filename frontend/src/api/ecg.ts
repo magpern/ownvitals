@@ -32,6 +32,7 @@ export interface Estimate {
   reasons: string[]
   hrBpm: number | null
   hrv: { rmssd: number | null; sdnn: number | null; pnn50: number | null } | null
+  /** R-peak positions in samples at the signal's rate (ADR 0006 section 8), not seconds. */
   rpeaks: number[] | null
 }
 

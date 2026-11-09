@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { drawRow, type Colours } from './drawStrip'
 import { bandpass } from './filter'
-import { MM_PER_SECOND, PX_PER_MM, rowHeightMm, scaleOf } from './geometry'
+import { MM_PER_SECOND, PX_PER_MM, rowHeightMm, scaleOf, xOf } from './geometry'
 
 // Synthetic signals only. The renderer is checked through the calls it makes on a fake 2D context.
 
@@ -106,6 +106,14 @@ describe('gain and clipping', () => {
     const b = fake()
     drawRow(b.ctx, { samples: [0, 0, 0], rate: 100, start: 0, scale: scaleOf(1, 10), peak: 0, markers: [0.01] }, COLOURS)
     expect(b.dashes).toBe(1)
+  })
+
+  it('places a marker by its sample position, not as seconds', () => {
+    const f = fake()
+    // Sample 500 at 500 Hz is 1 s: 25 mm from the row start. Read as seconds it would be off the row.
+    drawRow(f.ctx, { samples: [0, 0, 0], rate: 500, start: 0, scale: scaleOf(1, 10), peak: 0, markers: [500] }, COLOURS)
+    const dashed = f.paths.find((p) => p.style === COLOURS.marker)
+    expect(dashed?.move[0]?.[0]).toBeCloseTo(xOf(scaleOf(1, 10), 1), 6)
   })
 })
 
