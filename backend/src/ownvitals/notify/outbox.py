@@ -3,8 +3,9 @@ web's sender claims and marks rows.
 
 A row holds a fixed ``kind``, its recipient (an owned row's ``owner_id``, or no one for an owner
 notice, which goes to the admins) and a route key from ``ROUTE_PATHS``: never an address, a
-subject, free text, a value or finding text. The database checks every kind and route (migration
-``0012_outbox``), and these lists are the same (``tests/test_notify_outbox.py``).
+subject, free text, a value or finding text. The database checks every kind and route (migrations
+``0012_outbox`` and ``0024_outbox_export_ready``), and these lists are the same
+(``tests/test_notify_outbox.py``).
 
 - **Mail to a user** (``queue_user_mail``): an owned ``mail_outbox`` row, written in its owner's
   session (inside a job, a fenced write, ADR 0005 section 4), so the policy's ``WITH CHECK``
@@ -34,9 +35,9 @@ from ownvitals.db import system_session
 
 Factory = async_sessionmaker[AsyncSession]
 
-UserKind = Literal["findings_waiting", "connection_attention"]
+UserKind = Literal["findings_waiting", "connection_attention", "export_ready"]
 OwnerNoticeKind = Literal["connection_needs_reconnect"]
-UserRoute = Literal["overview", "findings", "connections"]
+UserRoute = Literal["overview", "findings", "connections", "settings_data"]
 Outcome = Literal["sent", "failed", "retry"]
 
 USER_KINDS: Final[tuple[str, ...]] = get_args(UserKind)
@@ -49,7 +50,13 @@ OWNER_NOTICE_ROUTES: Final[Mapping[str, str]] = MappingProxyType(
 # Route key -> the app's path (``frontend/src/router/appRoutes.ts``). The link in a mail is
 # ``public_base_url`` plus this path (T12): the row never holds a URL.
 ROUTE_PATHS: Final[Mapping[str, str]] = MappingProxyType(
-    {"overview": "/", "findings": "/findings", "connections": "/connections", "admin": "/admin"}
+    {
+        "overview": "/",
+        "findings": "/findings",
+        "connections": "/connections",
+        "settings_data": "/settings/data",
+        "admin": "/admin",
+    }
 )
 OUTCOMES: Final[tuple[str, ...]] = get_args(Outcome)
 # The two tables (migration 0012): the owned one and the system one.

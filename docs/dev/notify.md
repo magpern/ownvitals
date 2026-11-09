@@ -7,7 +7,7 @@ row, and web sends it. Owner notices (mail to the admins) go the same way.
 
 | Table | Kind | Recipient | Route key |
 |---|---|---|---|
-| `mail_outbox` (owned, forced RLS) | `findings_waiting`, `connection_attention` | its `owner_id` | `overview`, `findings`, `connections` |
+| `mail_outbox` (owned, forced RLS) | `findings_waiting`, `connection_attention`, `export_ready` (#333, migration 0024) | its `owner_id` | `overview`, `findings`, `connections`, `settings_data` |
 | `owner_notices` (system; no app-role privilege) | `connection_needs_reconnect` | the admins (no column) | `admin` (fixed per kind) |
 
 Besides those, only the send state: `state` (`pending`, `claimed`, `sent`, `failed`), `attempts`,

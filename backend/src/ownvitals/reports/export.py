@@ -17,7 +17,9 @@ fenced transaction, so a worker that lost its lease writes nothing more. A new a
 deletes the chunks of the one before. Over ``export_max_bytes`` the build stops, deletes its
 chunks and marks the export ``failed`` with ``export_too_large`` and the largest part. On success
 the row becomes ``ready`` with its size, SHA-256 and expiry (``export_ttl_hours``) in one fenced
-transaction, and the audit events ``export_ready`` or ``export_failed`` follow.
+transaction, which also queues the ``export_ready`` mail (ADR 0007's outbox, the owner's own row:
+it says only that something is waiting and links to Settings, never to the file, T59; web sends
+it, never the worker), and the audit events ``export_ready`` or ``export_failed`` follow.
 
 **Visibility follows the screen** (section 2): estimates and experimental findings are read only
 behind the owner-only switch (the read function decides); without it they are absent and the
@@ -46,6 +48,7 @@ from ownvitals.auth.exports import (
 from ownvitals.config import Settings
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
+from ownvitals.notify.outbox import queue_user_mail
 from ownvitals.reports.export_allowlist import (
     ESTIMATES_FILE,
     ESTIMATES_LABEL,
@@ -85,7 +88,7 @@ INSERT_CHUNK = text(
 MARK_READY = text(
     "UPDATE exports SET state = 'ready', ready_at = now(), "
     "expires_at = now() + make_interval(hours => :ttl), size = :size, sha256 = :sha "
-    "WHERE id = :id AND owner_id = :owner AND state = 'building'"
+    "WHERE id = :id AND owner_id = :owner AND state = 'building' RETURNING id"
 )
 MARK_FAILED = text(
     "UPDATE exports SET state = 'failed', failure = :failure, largest = :largest "
@@ -249,7 +252,8 @@ async def run_export(job: JobRun, settings: Settings | None = None) -> Complete:
     ttl = settings.export_ttl_hours
     async with job.fenced() as fs:
         params = {**owner, "ttl": ttl, "size": build.archive.size, "sha": build.archive.sha256}
-        await fs.db.execute(MARK_READY, params)
+        if (await fs.db.execute(MARK_READY, params)).first() is not None:
+            await queue_user_mail(fs.db, job.ctx.user_id, "export_ready", "settings_data")
     await record_event(
         job.factory, job.ctx, "export_ready", Ready(export_id=export_id, size=build.archive.size)
     )
