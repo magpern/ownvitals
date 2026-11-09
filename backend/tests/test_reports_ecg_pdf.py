@@ -99,13 +99,24 @@ def test_a_trace_beyond_2_mv_is_clipped_to_its_own_row_in_the_pdf() -> None:
     ys = [y for _, y in polylines(page, "trace")[0].points]
     assert max(ys) - base == pytest.approx(30.0)  # the layout never rescales (3 mV = 30 mm) ...
     stream = pdftools.streams(ecg_pdf.build_pdf(facts((samples,))))[0]
-    clips = re.findall(r"^n (-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+) re W\* n$", stream, re.M)
-    assert len(clips) == 2  # ... the PDF cuts each trace at its own row: one clip per row
-    x, y, w, h = (float(v) / pdftools.PT_PER_MM for v in clips[0])
-    assert (x, w, h) == pytest.approx((GRID_X0, ROW_W, ROW_H))
-    assert y == pytest.approx(base - ROW_H / 2)  # plus and minus 2 mV around the baseline
-    assert stream.count("\nq\n") >= 2  # each clip is inside a saved state, so it ends with it
-    assert stream.count("\nQ\n") >= 2
+    blocks = re.findall(
+        r"^q\nn (-?[\d.]+) (-?[\d.]+) ([\d.]+) ([\d.]+) re W\* n\n(.*?)^S\nQ$",
+        stream,
+        re.M | re.S,
+    )
+    assert len(blocks) == 2  # q, the row's clip, the row's trace, Q: once per row
+    for k, (cx, cy, cw, ch, body) in enumerate(blocks):
+        row_base = base - k * ROW_H  # row k sits k rows lower
+        x, y, w, h = (float(v) / pdftools.PT_PER_MM for v in (cx, cy, cw, ch))
+        assert (x, w, h) == pytest.approx((GRID_X0, ROW_W, ROW_H))
+        assert y == pytest.approx(row_base - ROW_H / 2)  # plus and minus 2 mV around its baseline
+        points = [
+            (float(px) / pdftools.PT_PER_MM, float(py) / pdftools.PT_PER_MM)
+            for px, py in re.findall(r"(-?[\d.]+) (-?[\d.]+) [ml]\b", body)
+        ]
+        assert len(points) > RATE  # the trace itself is inside this clip, before the Q
+        assert points[0][1] == pytest.approx(row_base)  # and it is this row's trace
+    assert max(ys) > base + ROW_H / 2  # row 1's excursion passes its clip top: the clip cuts
 
 
 def test_the_grid_is_1_mm_with_5_mm_majors_over_the_whole_row() -> None:
