@@ -107,10 +107,14 @@ WORKER_ROLE_MODULES: dict[str, str] = {
     "ownvitals.worker.__main__": "the worker process's entry point (#9)",
     "ownvitals.withings.probe": "the probe CLI, a worker-side one-off (#29, never the model host)",
 }
-# The runtime egress hook (ADR 0009): installed only by the process entry points (web's: #77), and
-# the SMTP session's connection scope opened only by the mail module.
+# The runtime egress hook (ADR 0009): installed only by the process entry points (web's: #77;
+# migrate's: alembic's env.py, #284), and the SMTP session's connection scope opened only by the
+# mail module.
 INSTALL_HOOK = f"{EGRESS}.install_egress_hook"
-HOOK_INSTALLERS = frozenset({"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web"})
+MIGRATIONS_ENV = "migrations.env"  # backend/migrations/env.py, scanned with src (#284)
+HOOK_INSTALLERS = frozenset(
+    {"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web", MIGRATIONS_ENV}
+)
 SMTP_SESSION = f"{EGRESS}.smtp_session"
 # Builtins resolved where nothing rebinds them: ``__import__`` (an importer), the evaluators.
 _BUILTIN_NAMES = {
@@ -249,11 +253,19 @@ def classify(dotted: str, scanning: str, verb: str, used: set[str] | None = None
         if entry.kind == "denied":
             return [f"{verb} {dotted}: {module} is denied ({entry.reason})"]
         if entry.kind == "allowed" and rest:
-            if rest[0] not in allowed_names(module, entry, scanning):
+            names = allowed_names(module, entry, scanning)
+            if rest[0] not in names:
                 return [f"{verb} {dotted}: {rest[0]} is not an allowed name of {module}"]
+            # Past an allowed name (``psycopg.connect.cursor``) each step is a reviewed name of
+            # its own (``"SMTP._get_socket"``), else nothing judged it (#284).
+            chains = [".".join(rest[:depth]) for depth in range(2, len(rest) + 1)]
+            past = next((chain for chain in chains if chain not in names), None)
+            if past is not None:
+                return [f"{verb} {dotted}: {past} is past an allowed name of {module}"]
             if used is not None:
                 listener = scanning == LISTENER_MODULE and rest[0] not in entry.names
                 used.add(f"listener:{module}:{rest[0]}" if listener else f"{key}:{rest[0]}")
+                used.update(f"{key}:{chain}" for chain in chains)
     return []
 
 
@@ -476,11 +488,17 @@ def module_name(path: Path, src: Path) -> str:
 
 
 def sources(src: Path) -> list[tuple[str, str]]:
-    """``(module, source)`` of every module of the ``ownvitals`` package under ``src``."""
-    return [
+    """``(module, source)`` of every module of the ``ownvitals`` package under ``src``, and of
+    alembic's ``env.py`` next to it (``migrations.env``: migrate's entry point, #284). The
+    revisions under ``migrations/versions`` are not scanned (``docs/dev/egress.md``)."""
+    found = [
         (module_name(p, src), p.read_text(encoding="utf-8"))
         for p in sorted((src / "ownvitals").rglob("*.py"))
     ]
+    env = src.parent / "migrations" / "env.py"
+    if env.is_file():
+        found.append((MIGRATIONS_ENV, env.read_text(encoding="utf-8")))
+    return found
 
 
 def scan_tree(src: Path, used: set[str] | None = None) -> list[tuple[str, int, str]]:

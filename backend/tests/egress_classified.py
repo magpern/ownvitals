@@ -11,7 +11,9 @@ file is a security-critical change.
 - **allowed**: only ``names`` (and, with ``exceptions``, the module's own exception classes) may
   be referenced from it, by an import, a call, a bare reference, an attribute value, an alias, a
   ``partial`` argument or a chain; anything else in the module is refused, so a new connection
-  API in it is refused by default.
+  API in it is refused by default. A chain past an allowed name (``psycopg.connect.cursor``)
+  needs each step as a dotted name of its own (``"SMTP._get_socket"``), else it is refused
+  (#284).
 
 A key ending in ``.*`` covers the package and its submodules; the most specific key wins.
 ``only_in`` limits an entry to those modules (elsewhere the module is unclassified).
@@ -103,6 +105,7 @@ TABLE: dict[str, Entry] = {
     "smtplib": _allowed(
         "account mail, web only (roadmap Amendment 1): the two clients and their errors",
         "SMTP",
+        "SMTP._get_socket",  # the TCP connection under mail's handshake deadline, in its scope
         "SMTP_SSL",
         exceptions=True,
         only_in=("ownvitals.mail",),
@@ -155,6 +158,19 @@ TABLE: dict[str, Entry] = {
     "alembic.op": _allowed(
         "SQL on the migration's connection to the configured database", "execute"
     ),
+    # migrate's entry point (#284): alembic runs env.py, which installs the egress hook before
+    # its engine connects (ADR 0009). The guard scans env.py as ``migrations.env``.
+    "alembic.context": _allowed(
+        "the migration context of alembic upgrade: configure it on the configured database's "
+        "connection and run the migrations; cmd_opts tells alembic's command line from a caller",
+        "begin_transaction",
+        "config",
+        "config.cmd_opts",
+        "configure",
+        "is_offline_mode",
+        "run_migrations",
+        only_in=("migrations.env",),
+    ),
     # The queue's one-shot runner (#101, ADR 0005 section 3): one libpq connection to the stack's
     # database, by host, port, database and user from its argument (password from PGPASSFILE).
     # No egress hook: docs/dev/deploy.md, "db-functions and the egress hook".
@@ -182,6 +198,7 @@ TABLE: dict[str, Entry] = {
     "joserfc.jwk": _allowed(
         "builds a key set from the JWKS document ownvitals.egress fetched; it fetches nothing",
         "KeySet",
+        "KeySet.import_key_set",  # the classmethod that builds it from the fetched document
     ),
     "segno": _allowed(
         "renders the TOTP enrolment QR code as an SVG string in memory (classbeat ADR 0003 "
@@ -235,19 +252,31 @@ TABLE: dict[str, Entry] = {
     "webauthn.helpers.cose": _allowed(
         "the COSE algorithm numbers of the allowed list (ES256, EdDSA, RS256)",
         "COSEAlgorithmIdentifier",
+        "COSEAlgorithmIdentifier.ECDSA_SHA_256",
+        "COSEAlgorithmIdentifier.EDDSA",
+        "COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256",
         only_in=("ownvitals.auth.passkey_ceremonies",),
     ),
     "webauthn.helpers.structs": _allowed(
         "the option and response data classes and enums; plain data",
         "AttestationConveyancePreference",
+        "AttestationConveyancePreference.NONE",
         "AttestationFormat",
+        "AttestationFormat.NONE",
         "AuthenticatorSelectionCriteria",
         "AuthenticatorTransport",
         "ClientDataType",
+        "ClientDataType.WEBAUTHN_CREATE",
+        "ClientDataType.WEBAUTHN_CREATE.value",
+        "ClientDataType.WEBAUTHN_GET",
+        "ClientDataType.WEBAUTHN_GET.value",
         "CredentialDeviceType",
+        "CredentialDeviceType.MULTI_DEVICE",
         "PublicKeyCredentialDescriptor",
         "ResidentKeyRequirement",
+        "ResidentKeyRequirement.REQUIRED",
         "UserVerificationRequirement",
+        "UserVerificationRequirement.REQUIRED",
         only_in=("ownvitals.auth.passkey_ceremonies",),
     ),
 }
