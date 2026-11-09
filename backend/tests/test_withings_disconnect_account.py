@@ -242,6 +242,16 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
                 ),
                 {"o": owner_id, "j": job},
             )
+            # The AI audit log (#207): one redacted row of a completed call.
+            conn.execute(
+                text(
+                    "INSERT INTO ai_audit (owner_id, job_id, kind, model, prompt_version, "
+                    "toolset_version, cost_microusd, reservation_id, latency_ms, attempts, "
+                    "status, settlement, request_hmac) VALUES (:o, :j, 'chat', 'synthetic-model', "
+                    "'1', '1', 5, gen_random_uuid(), 0, 1, 'completed', 'settled', :h)"
+                ),
+                {"o": owner_id, "j": job, "h": b"\x5a" * 32},
+            )
     finally:
         engine.dispose()
 
@@ -333,6 +343,7 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
     names = {name for name, _ in catalog}
     assert names == {
         "activity_daily",
+        "ai_audit",
         "ai_consents",
         "ai_conversations",
         "ai_messages",
@@ -447,7 +458,14 @@ async def test_delete_imported_removes_only_that_owners_rows(
     names = {str(name) for name, _ in _rows(database_url, _OWNED)}
     assert names == purged | kept
     assert {"observations", "metric_daily", "findings", "scores"} <= purged
-    assert kept == {"user_profiles", "mail_outbox", "ai_spend", "ai_reservations", "ai_consents"}
+    assert kept == {
+        "user_profiles",
+        "mail_outbox",
+        "ai_spend",
+        "ai_reservations",
+        "ai_consents",
+        "ai_audit",
+    }
     assert {"ai_messages", "ai_conversations"} <= purged
     _partitions(database_url, True)
     try:

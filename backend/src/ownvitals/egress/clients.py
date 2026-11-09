@@ -66,6 +66,14 @@ GOOGLE_TOTAL_SECONDS: Final = 10.0
 # package's own total deadline. Anything else a call raises is not a transport failure.
 TRANSPORT_ERRORS: Final[tuple[type[Exception], ...]] = (httpx.RequestError, RequestDeadline)
 TIMEOUT_ERRORS: Final[tuple[type[Exception], ...]] = (httpx.TimeoutException, RequestDeadline)
+# The transport errors raised before any byte of the request was sent (no connection was made,
+# or none was free in the pool): a caller may treat the request as never sent (the AI budget
+# releases its reservation then, ADR 0014 section 7). Every other transport error may have sent it.
+CONNECT_ERRORS: Final[tuple[type[Exception], ...]] = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+)
 
 
 def _network_transport() -> httpx.AsyncHTTPTransport:

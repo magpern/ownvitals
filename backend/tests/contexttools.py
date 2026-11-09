@@ -152,6 +152,11 @@ ROWS: Final[Mapping[str, str]] = {
     "ai_reservations": "INSERT INTO public.ai_reservations (owner_id, month, amount, actual, "
     "state, job_id, lease_version, ended_at) VALUES (:owner, DATE '2026-01-01', :n, :n, "
     "'settled', :job, 0, :ts) RETURNING id",
+    # The AI audit log (#207): a failed call's redacted row (codes, counts, fingerprints).
+    "ai_audit": "INSERT INTO public.ai_audit (owner_id, job_id, kind, model, prompt_version, "
+    "toolset_version, cost_microusd, reservation_id, latency_ms, attempts, status, error, "
+    "settlement, request_hmac) VALUES (:owner, :job, 'chat', 'synthetic-model', '1', '1', :n, "
+    "gen_random_uuid(), 0, 1, 'failed', 'not_sent', 'released', :hash) RETURNING id",
 }
 # Tables with one row per owner (a unique key on ``owner_id`` alone): the own-insert control
 # first removes the context's own row, in the same rolled-back savepoint, or the planted row

@@ -22,3 +22,11 @@ class AiSettings(BaseSettings):
     # 4): only for an account that passes the experimental gate (the owner-only switch) **and**
     # only when this is true. Default false: the owner opts in explicitly.
     ai_include_experimental: bool = False
+    # The locks the owner sets (ADR 0014 sections 1 and 5; agents never set them). Each is empty
+    # by default, so no model call is made: the pinned model id (open question 3), the reference
+    # of the recorded provider review (lock 2) and the evaluation reference (lock 3), exactly
+    # ``<model>/<prompt version>/<tool-set version>`` as the owner's evaluation run passed it
+    # (``ownvitals.ai.requests.eval_ref``).
+    ai_model: str = Field(default="", max_length=100, pattern=r"^([a-z0-9][a-z0-9.\-]*)?$")
+    ai_provider_review_ref: str = Field(default="", max_length=500)
+    ai_eval_ref: str = Field(default="", max_length=200)

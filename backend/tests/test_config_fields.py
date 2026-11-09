@@ -68,6 +68,9 @@ ADDED = frozenset(
         "metrics_port",
         "metrics_refresh_seconds",
         "ai_include_experimental",  # issue 206: experimental items to the model (ADR 0014 §4)
+        "ai_model",  # issue 207: the pinned model id and the owner's locks 2 and 3 (ADR 0014 §1)
+        "ai_provider_review_ref",
+        "ai_eval_ref",
     }
 )
 

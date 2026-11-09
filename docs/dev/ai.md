@@ -2,8 +2,9 @@
 
 How ownvitals bounds what AI insights cost ([ADR 0014 §7](../adr/0014-ai-insights.md), D11,
 PLAN §7.4; #205), how a user consents and withdraws (§3), and the data-minimised tools the model
-may call (§4; #206). The model client, the jobs and the audit log come with their own M7 issues
-and extend this file. Consent and tools are [below](#consent-and-withdrawal).
+may call (§4; #206), and the model client with its redacted audit log (§1, §5, §6; #207). The
+chat and digest jobs come with their own M7 issues and extend this file. Consent and tools are
+[below](#consent-and-withdrawal), the client [after them](#the-model-client-and-the-audit-log).
 
 ## The pieces
 
@@ -189,3 +190,105 @@ output.
   findings is not returned.
 - `ai_purge_expired()` (90-day conversation retention) and `ai_digests` are not built.
 - ADR 0003 §4's step-up table does not list "Give AI consent" yet (ADR 0014 Consequences).
+
+## The model client and the audit log
+
+ADR 0014 §1, §5, §6, §7, #207. `ai.client.call_model(job, settings, kind=..., messages=...)` is the
+only code that sends a model request; `ai.turn.run_turn` is the tool loop around it. Both run in
+the worker, inside a job run (`JobRun`), never in web.
+
+| Path | What |
+|---|---|
+| `backend/src/ownvitals/ai/requests.py` | the fixed system prompt (`PROMPT_VERSION`), `MAX_TOKENS` (chat 1,024, digest 2,048), the closed message blocks, `build_request`, `serialize`, `check_body`, `eval_ref` (pure) |
+| `backend/src/ownvitals/ai/responses.py` | `parse_reply`: text and tool requests only, the usage (pure) |
+| `backend/src/ownvitals/ai/gates.py` | `check_locks` (the owner's locks in the settings), `read_api_key`, `ModelRefused`, `ModelFailed` |
+| `backend/src/ownvitals/ai/client.py` | `call_model`: the order of checks, the attempts within one reservation, settle or release, the audit row |
+| `backend/src/ownvitals/ai/turn.py` | `run_turn`: tool requests run through `ai.tools.run_tool` as the job's user, at most 8 per turn |
+| `backend/src/ownvitals/ai/audit.py` | the `ai_audit` row and log line, the `ai-audit` HKDF key, the fingerprints |
+| `backend/migrations/versions/0022_ai_audit.py` | `ai_audit` (owned, forced RLS, the app role `SELECT` and `INSERT` only) |
+| `backend/tests/fakemodel.py` | the fake Messages API every AI test uses (the `inner` transport of the egress client) |
+
+### Settings and secrets
+
+All empty by default, so **no call is made** until the owner sets every one (ADR 0014 open
+questions 1, 3 and 6). Agents never set them.
+
+- `OWNVITALS_AI_MODEL`: the pinned model id (lower case, digits, `.` and `-`). It must also be in
+  `ai.pricing.PRICES`, which is empty until the owner picks the model (`ai_model_unpriced`).
+- `OWNVITALS_AI_PROVIDER_REVIEW_REF`: the reference of the recorded provider review (lock 2).
+- `OWNVITALS_AI_EVAL_REF`: exactly `<model>/<PROMPT_VERSION>/<TOOLSET_VERSION>` as the owner's
+  evaluation run passed it (lock 3). Changing the model, the prompt or the tool set makes it stale,
+  and AI is off again until a new run passes.
+- The secret file `anthropic_api_key` (never the environment, never a setting): read by the client
+  at call time from the secrets directory; without it `ai_not_configured`. `app_secret_key` must
+  be present too (the audit key); without it `ai_not_configured`.
+
+### The order of one call
+
+1. `egress.model_async_client()` is built first: outside a worker installed with AI on it raises,
+   and the call is `ModelRefused("outbound_blocked")` before any database or network socket.
+2. `check_locks`: `ai_insights` (environment), `ai_model`, the review and evaluation references,
+   the price; then the API key file and the audit key. No I/O but the key file.
+3. `build_request` and `check_body`: the bytes hold no UUID, email address, API key or app secret
+   (`identifier_in_request`, `email_in_request`, `secret_in_request`); then the bound.
+4. One fenced transaction: the job's cancel, `consent.require_enabled` (the stored flag and the
+   live consent `FOR SHARE`) and `budget.reserve`. It commits before the call. Refused:
+   `cancelled`, `ai_not_enabled` or `ai_budget_exhausted`, and nothing was sent or kept reserved.
+5. Up to three attempts under that one reservation, each in `job.provider_call` (the lease
+   outlasts the 300 s total deadline). Only a connection failure before sending, a 429 or a 529
+   is retried (after `retry-after` up to 30 s, else 2 s then 8 s), and a later attempt re-checks
+   cancel, flag and consent first. Anything else ends the call.
+6. Settle at the usage's cost (`settled` or `overrun`), release (`released`: not sent, 400, 401,
+   403, 404, 413, 429, 529, a withdrawal or cancel between attempts) or charge the reserved amount
+   (`charged`: a timeout, a broken connection after sending, any other status, a malformed
+   answer). A lost lease leaves the reservation to the reaper (`lost`). Then one `ai_audit` row
+   and one `ai call` log line.
+
+`ModelRefused(code)`: nothing was sent and nothing stays reserved. `ModelFailed(code)`: a request
+was made and failed; `code` is the audit's error category (`rate_limited`, `overloaded`,
+`refused`, `server_error`, `http_other`, `timeout`, `transport`, `not_sent`, `bad_response`,
+`consent`, `cancelled`). The chat and digest jobs map them to their job outcome.
+
+### The request
+
+Exactly `model`, `max_tokens`, `system`, `tools` and `messages`: no `metadata`, no user id. The
+messages are the conversation's last 20 text messages (`history_window`, starting with the user)
+and, in a turn, the tool exchanges. A tool call is echoed back with our id (`call_<n>`) and its
+**validated** arguments only (invalid ones become `{}`); a tool result must validate as that
+tool's output model or `ToolError` (`tool_result_off_schema`). Text is 1 to 16,000 characters.
+The API key is only in the `x-api-key` header.
+
+### The answer and the tool loop
+
+`parse_reply` keeps `text` and `tool_use` blocks and the usage (four non-negative integers);
+anything malformed is `bad_response` and charged. `run_turn` runs each requested tool for the
+job's user through `run_tool` (which re-checks the flag and consent itself) and sends the results
+back. An unknown tool name ends the turn with `unknown_tool`, more than 8 tool calls with
+`tool_limit`; neither stores an answer. Nothing the model says authorises anything else.
+
+### The audit row
+
+`ai_audit`: job, kind (`chat`, `digest`; the table also admits `eval` for ADR 0014 §9), model,
+prompt and tool-set versions, the requested tools' names with their validated arguments, token
+counts, cost in micro-USD, reservation, latency, attempts, status, error category, HTTP status,
+settlement, and HMAC-SHA-256 of the request bytes and of the answer bytes under
+HKDF(`app_secret_key`, `ai-audit`). Never message text, tool results, the system prompt or the key.
+The log line carries the same fields without the cost and the fingerprints. The app role may only
+read and insert (append-only; `10-roles.sql` restores it). It survives withdrawal and "delete
+imported data" (`KEPT`) and goes with the account.
+
+| Test file | Covers |
+|---|---|
+| `test_ai_client.py` | from web, AI off in the worker, no or outdated consent, the flag off (environment and stored), over either cap, each owner lock, unpriced, no key file, a cancelled job, a body failing the scan: zero requests, no reservation, no audit row; one call settled at its cost; retries within one reservation (429, 529, connect); the retry limit; 400 to 413 released; 500, 502, timeout and a malformed answer charged; withdrawal or cancel between attempts; overrun; a lost lease; the audit append-only |
+| `test_ai_client_requests.py` | the body's fields and prompt, the history window, malformed messages, closed tool arguments and our ids, results off schema, the tool-call limit, the scan, answer parsing |
+| `test_ai_egress_scan.py` | every tool and argument set on a planted account through `run_turn`: no secret, id, email, Withings text, stored message or sample in any body the fake receives; the key only in its header; unknown tool and tool limit end the turn |
+| `test_ai_client_redaction.py` | a planted question, tool result and answer reach no log line and no `ai_audit` column; the fingerprints are keyed |
+
+### Known gaps (client)
+
+- `compose.yaml` does not yet mount `anthropic_api_key` (and `app_secret_key`) into the worker
+  (ADR 0014 Consequences; `compose.yaml` is a shared lock). With the defaults AI is off anyway.
+- No SDK: the guard refuses the provider's SDK in `src`, so the client posts the Messages API's
+  JSON itself through `model_async_client` (`anthropic-version: 2023-06-01`). The request and
+  answer shapes are from the public API documentation, not verified against the provider.
+- The 12-month audit retention purge and the `eval` kind's writer (ADR 0014 §9) are not built.
