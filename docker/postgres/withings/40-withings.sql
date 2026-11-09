@@ -9,7 +9,8 @@
 -- ownvitals_webhook_events inserts webhook_events. When the caller passes no job id it also
 -- resolves (app_id, withings_userid) and enqueues the singleton sync through queue_enqueue
 -- (ADR 0002 section 4). That read needs BYPASSRLS and column SELECT only: id, app_id,
--- withings_userid, status and owner_id. It never reads a credential column.
+-- withings_userid, status and owner_id. It never reads a credential column. Its quotas (#280,
+-- ADR 0008 amendment of 2026-11-09) read job_id and received_at of webhook_events.
 -- ownvitals_metrics (#167, PLAN section 4.4 "Observability") owns the two metrics aggregates,
 -- metrics_withings_aggregates and metrics_webhook_ages: BYPASSRLS, because they count across
 -- owners, and column SELECT only on the columns they read. They return counts and ages, never
@@ -108,7 +109,9 @@ GRANT USAGE ON SEQUENCE public.admin_audit_id_seq TO ownvitals_webhook_secrets;
 
 REVOKE ALL ON TABLE public.webhook_events FROM ownvitals_webhook_events;
 GRANT INSERT, DELETE ON TABLE public.webhook_events TO ownvitals_webhook_events;
-GRANT SELECT (app_id, withings_userid)
+-- job_id and received_at: the webhook quotas count the job-bearing events of the last hour
+-- (PLAN section 4.4, ADR 0005 section 8; #280).
+GRANT SELECT (app_id, withings_userid, job_id, received_at)
   ON TABLE public.webhook_events TO ownvitals_webhook_events;
 
 -- The connection lookup. Column SELECT only; credential columns stay revoked.
@@ -428,6 +431,12 @@ DECLARE
   v_conn uuid;
   v_stream text;
   v_singleton text;
+  v_outcome text;
+  -- Webhook quotas (PLAN section 4.4, ADR 0005 section 8; #280): at most this many
+  -- job-bearing events per connection, and per app, in the last hour. Over quota the event is
+  -- recorded without a job and the receiver still answers 200; the poll catches up.
+  c_per_connection constant integer := 60;
+  c_per_app constant integer := 1000;
 BEGIN
   IF p_dedupe_key IS NULL OR p_dedupe_key !~ '^[A-Za-z0-9._:-]{1,200}$' THEN
     RAISE EXCEPTION 'bad_dedupe_key' USING ERRCODE = '22023';
@@ -449,17 +458,33 @@ BEGIN
     IF v_conn IS NOT NULL AND v_stream IS NOT NULL
        AND to_regprocedure(
              'public.queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)') IS NOT NULL THEN
-      v_singleton := pg_catalog.replace(v_conn::text, '-', '') || ':' || v_stream;
-      v_job := public.queue_enqueue(
-        v_conn, 'withings_sync', 'webhook',
-        pg_catalog.jsonb_build_object('connection_id', v_conn, 'stream', v_stream),
-        v_singleton, 3, NULL);
+      -- Bounded counts: each stops at its quota, so a flood never counts the whole table.
+      IF (SELECT count(*) FROM (
+            SELECT 1 FROM public.webhook_events e
+             WHERE e.app_id = p_app_id AND e.withings_userid = p_withings_userid
+               AND e.job_id IS NOT NULL
+               AND e.received_at > pg_catalog.now() - interval '1 hour'
+             LIMIT c_per_connection) q) >= c_per_connection
+         OR (SELECT count(*) FROM (
+            SELECT 1 FROM public.webhook_events e
+             WHERE e.app_id = p_app_id AND e.job_id IS NOT NULL
+               AND e.received_at > pg_catalog.now() - interval '1 hour'
+             LIMIT c_per_app) q) >= c_per_app THEN
+        v_outcome := 'over_quota';
+      ELSE
+        v_singleton := pg_catalog.replace(v_conn::text, '-', '') || ':' || v_stream;
+        v_job := public.queue_enqueue(
+          v_conn, 'withings_sync', 'webhook',
+          pg_catalog.jsonb_build_object('connection_id', v_conn, 'stream', v_stream),
+          v_singleton, 3, NULL);
+      END IF;
     END IF;
   END IF;
   -- Tells the receiver which 200 this was. Not a secret, and gone when the transaction ends.
   PERFORM pg_catalog.set_config(
     'ownvitals.webhook_outcome',
-    CASE WHEN v_job IS NULL THEN 'unknown_user' ELSE 'queued' END, true);
+    CASE WHEN v_outcome IS NOT NULL THEN v_outcome
+         WHEN v_job IS NULL THEN 'unknown_user' ELSE 'queued' END, true);
   v_id := pg_catalog.gen_random_uuid();
   INSERT INTO public.webhook_events (
       id, app_id, withings_userid, appli, startdate, enddate, dedupe_key, job_id)

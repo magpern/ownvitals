@@ -681,7 +681,8 @@ BEGIN
 END $$;
 
 -- Owner, ACL and version of each function. Every grantee but the owner is revoked first, so the
--- ACL ends exactly {ownvitals_queue=X/ownvitals_queue, ownvitals_app=X/ownvitals_queue}.
+-- ACL ends exactly {ownvitals_queue=X/ownvitals_queue, ownvitals_app=X/ownvitals_queue}, plus
+-- the ingest role on queue_enqueue once 40-withings.sql has run (below).
 DO $$
 DECLARE
   f text;
@@ -709,4 +710,13 @@ BEGIN
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO ownvitals_app', f);
     EXECUTE format('COMMENT ON FUNCTION %s IS %L', f, 'ownvitals-queue v2');
   END LOOP;
+  -- Once 40-withings.sql has installed the ingest, its role keeps EXECUTE on queue_enqueue, so
+  -- this script run on its own never cuts the notification from its job (#280). The queue
+  -- check and guard 9 require exactly this grant while webhook_event_insert exists.
+  IF to_regprocedure(
+       'public.webhook_event_insert(integer,bigint,integer,bigint,bigint,text,uuid)') IS NOT NULL
+     AND EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_webhook_events') THEN
+    GRANT EXECUTE ON FUNCTION public.queue_enqueue(uuid, text, text, jsonb, text, integer, uuid)
+      TO ownvitals_webhook_events;
+  END IF;
 END $$;

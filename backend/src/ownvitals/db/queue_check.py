@@ -123,7 +123,9 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
             found.append(f"public.{name} must exist exactly once, found {len(rows)}")
             continue
         acl = EXPECTED_ACL
-        if name == "queue_enqueue" and rows[0][-1] == ENQUEUE_INGEST_ACL:
+        # Once 40-withings.sql has installed the ingest, it must reach queue_enqueue: without
+        # the grant every notification fails after its secret matched (#280).
+        if name == "queue_enqueue" and by_name.get("webhook_event_insert"):
             acl = ENQUEUE_INGEST_ACL
         expected = [
             name,
