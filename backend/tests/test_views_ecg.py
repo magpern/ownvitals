@@ -133,9 +133,7 @@ async def test_withings_intervals_are_linked_to_the_recording(env: Env) -> None:
     assert "pr_interval" not in shown  # not reported: absent, never zero
 
 
-async def test_the_estimate_is_absent_without_the_flag_and_apart_with_it(
-    env: Env, owner_env: Env
-) -> None:
+async def test_the_estimate_is_absent_without_the_flag(env: Env) -> None:
     alice, alice_id = await _user(env, "alice@example.com")
     mine = plant(alice_id, plant_user(alice_id), 1)
     off = (await alice.get(f"/api/ecg/{mine}")).json()

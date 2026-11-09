@@ -68,8 +68,6 @@ def render(pages: tuple[Page, ...], title: str) -> bytes:
     out = BytesIO()
     canvas = Canvas(out, pagesize=PAGE_SIZE, invariant=1, pageCompression=1)
     canvas.setTitle(title)
-    canvas.setAuthor("ownvitals")
-    canvas.setCreator("ownvitals")
     for page in pages:
         for op in page.ops:
             _draw(canvas, op)

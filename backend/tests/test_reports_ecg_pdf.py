@@ -101,14 +101,14 @@ def test_the_grid_is_1_mm_with_5_mm_majors_over_the_whole_row() -> None:
     assert major_x[0] == pytest.approx(GRID_X0)
 
 
-def test_rows_are_10_s_four_to_a_page_with_a_pulse_in_each() -> None:
+def test_rows_are_10_s_three_to_a_page_with_a_pulse_in_each() -> None:
     pages = layout(facts((strip(30),)))
     assert len(pages) == 1  # 30 s is three rows
     assert len(polylines(pages[0], "calibration")) == 3
     traces = polylines(pages[0], "trace")
     assert [t.points[0][0] for t in traces] == [pytest.approx(GRID_X0)] * 3
-    two = layout(facts((strip(30), strip(30))))  # six rows: two pages
-    assert [len(polylines(p, "trace")) for p in two] == [4, 2]
+    two = layout(facts((strip(30), strip(30))))  # six rows: two pages of three
+    assert [len(polylines(p, "trace")) for p in two] == [3, 3]
     assert "Page 2 of 2" in [op.text for op in two[1].ops if isinstance(op, Text)]
 
 
@@ -196,3 +196,23 @@ def test_local_time_names_the_zone_and_falls_back_to_utc() -> None:
 
 def test_the_repr_of_the_facts_holds_no_values() -> None:
     assert repr(facts((strip(1),))) == "ReportFacts redacted"
+
+
+def test_no_text_lies_inside_a_rows_grid_on_any_page() -> None:
+    """Header, captions' neighbours, footer and page number stay out of every grid; only the
+    row's own 1 mV label and caption (drawn inside it) are exempt."""
+    for pages in (layout(facts((strip(100),))), layout(facts((strip(30), strip(30), strip(20))))):
+        for page in pages:
+            rows = len(polylines(page, "trace"))
+            tops = [ecg_layout.GRID_TOP - k * ecg_layout.ROW_H for k in range(rows)]
+            for op in page.ops:
+                if not isinstance(op, Text) or op.text.endswith(" s") or op.text == "1 mV":
+                    continue
+                for top in tops:
+                    assert not (top - ecg_layout.ROW_H <= op.y <= top), op.text
+
+
+def test_a_trace_is_clamped_to_its_row() -> None:
+    page = layout(facts(((500,) * 499 + (90_000,),)))[0]
+    ys = [y for _, y in polylines(page, "trace")[0].points]
+    assert max(ys) - min(ys) <= 20.0 + 1e-6

@@ -311,7 +311,7 @@ is decoded in `views/ecg_read.py` and never logged; a frame that does not decode
 exception class only and reads as "no signal".
 
 **PDF.** 10 s rows of 250 mm, 25 mm/s and 10 mm/mV, a 1 mm grid with 5 mm majors, a 1 mV 200 ms
-calibration pulse per row, four rows to a page, the median level of each lead as its baseline.
+calibration pulse per row, three rows to a page, the median level of each lead as its baseline.
 It carries local time with zone, device, rate, the lead label, Withings' values with attribution
 and the "not a medical device" line. It has **no estimate and nothing experimental**: the
 document's input (`ReportFacts`) has no field for one and the route never calls

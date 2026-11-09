@@ -24,12 +24,13 @@ UV_PER_MM: Final = 1000.0 / MM_PER_MV
 ROW_SECONDS: Final = 10
 ROW_W: Final = ROW_SECONDS * MM_PER_S  # 250 mm
 ROW_H: Final = 40.0  # eight major squares: plus and minus 2 mV around the baseline
+HALF: Final = 20.0  # a trace is clamped to its row: plus and minus 2 mV
 GRID_X0: Final = (PAGE_W - ROW_W) / 2
 PULSE_MV: Final = 1.0
 PULSE_S: Final = 0.2
 PULSE_X: Final = 8.5
 PULSE_LEAD: Final = 2.5  # flat line before and after the pulse
-ROWS_PER_PAGE: Final = 4
+ROWS_PER_PAGE: Final = 3  # 168 mm down to 48 mm; the footer (y 8 to 12 mm) stays clear
 GRID_TOP: Final = 168.0  # the top of the first row; the header is above it
 MAX_SECONDS: Final = 120  # refuse rather than print a very long strip
 MINOR: Final = (0.98, 0.78, 0.78)
@@ -140,7 +141,7 @@ def trace(
     pts = tuple(
         (
             round(GRID_X0 + (i - start) / rate * MM_PER_S, 4),
-            round(base + (samples[i] - median) / UV_PER_MM, 4),
+            round(base + max(-HALF, min(HALF, (samples[i] - median) / UV_PER_MM)), 4),
         )
         for i in range(start, stop + 1)
     )
@@ -174,15 +175,16 @@ def _footer(facts: ReportFacts, number: int, count: int) -> list[Op]:
 
 
 def layout(facts: ReportFacts) -> tuple[Page, ...]:
-    """The pages: rows of 10 s, one lead after another, four rows to a page."""
+    """The pages: rows of 10 s, one lead after another, three rows to a page."""
     rate = facts.sampling_hz
     rows: list[_Row] = []
-    for lead in facts.leads:
+    for k, lead in enumerate(facts.leads):
         if len(lead) / rate > MAX_SECONDS:
             raise TooLong
         median = float(statistics.median(lead))
         for r in range(max(1, ceil(len(lead) / (ROW_SECONDS * rate)))):
-            caption = f"{r * ROW_SECONDS}-{(r + 1) * ROW_SECONDS} s"
+            span = f"{r * ROW_SECONDS}-{(r + 1) * ROW_SECONDS} s"
+            caption = span if len(facts.leads) == 1 else f"array {k + 1}, {span}"
             rows.append(_Row(caption, lead, r * ROW_SECONDS * rate, median))
     chunks = [rows[i : i + ROWS_PER_PAGE] for i in range(0, len(rows), ROWS_PER_PAGE)]
     pages: list[Page] = []
