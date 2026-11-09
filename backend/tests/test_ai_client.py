@@ -6,12 +6,13 @@ release rule, with retries only within the reservation.
 Synthetic owners and jobs, the fake model behind the real egress client; no network.
 """
 
+import logging
 from typing import Any
 
 import pytest
 from sqlalchemy import text
 
-from fakemodel import API_KEY, CONNECT, TIMEOUT, status
+from fakemodel import API_KEY, CONNECT, PROTOCOL_ERROR, READ_ERROR, TIMEOUT, status
 from fakemodel import text as answer
 from ownvitals.ai.client import MAX_ATTEMPTS
 from ownvitals.ai.gates import ModelFailed, ModelRefused
@@ -181,7 +182,7 @@ async def test_all_locks_open_one_call_settled_at_its_cost(aicall: AiCall) -> No
         "settled",
         cost,
     )
-    assert (row.input_tokens, row.output_tokens, row.attempts, row.http_status) == (
+    assert (row.input_token_count, row.output_token_count, row.attempts, row.http_status) == (
         1000,
         100,
         1,
@@ -289,14 +290,60 @@ async def test_an_overrun_is_charged_in_full_and_recorded(aicall: AiCall) -> Non
     assert aicall.audit()[0].settlement == "overrun"
 
 
-async def test_a_lost_lease_leaves_the_reservation_to_the_reaper(aicall: AiCall) -> None:
+async def test_a_lost_lease_leaves_the_reservation_to_the_reaper(
+    aicall: AiCall, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="ownvitals.ai.audit")
+
     async def take_over(_: Any) -> None:
         aicall.sql("UPDATE jobs SET lease_version = 2 WHERE id = :j", j=aicall.job.lease.job_id)
 
     aicall.fake.before = take_over
     await aicall.call()
     assert [r.state for r in aicall.reservations()] == ["reserved"]
-    assert aicall.audit()[0].settlement == "lost"
+    assert aicall.audit() == []  # the attempt is no longer ours: no row, the log line only
+    record = next(r for r in caplog.records if r.getMessage() == "ai call")
+    assert getattr(record, "settlement", None) == "lost"
+
+
+async def test_a_lease_lost_at_a_recheck_after_a_sent_attempt_is_logged(
+    aicall: AiCall, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="ownvitals.ai.audit")
+
+    async def take_over(_: Any) -> None:
+        aicall.sql("UPDATE jobs SET lease_version = 2 WHERE id = :j", j=aicall.job.lease.job_id)
+
+    aicall.fake.before = take_over
+    aicall.fake.script = [status(429), answer()]
+    with pytest.raises(RunStopped, match="lost"):
+        await aicall.call()
+    assert aicall.fake.attempts == 1
+    assert [r.state for r in aicall.reservations()] == ["reserved"]  # the reaper charges it
+    record = next(r for r in caplog.records if r.getMessage() == "ai call")
+    assert (getattr(record, "settlement", None), getattr(record, "http_status", None)) == (
+        "lost",
+        429,
+    )
+
+
+@pytest.mark.parametrize("step", [READ_ERROR, PROTOCOL_ERROR])
+async def test_a_transport_error_after_the_send_is_charged_not_retried(
+    aicall: AiCall, step: str
+) -> None:
+    aicall.fake.script = [step, answer()]
+    with pytest.raises(ModelFailed, match="transport"):
+        await aicall.call()
+    assert aicall.fake.attempts == 1  # it may have been billed: never retried
+    [(state, amount, actual)] = aicall.reservations()
+    assert (state, actual) == ("settled", amount)
+    [row] = aicall.audit()
+    assert (row.status, row.error, row.settlement, row.cost_microusd) == (
+        "failed",
+        "transport",
+        "charged",
+        amount,
+    )
 
 
 async def test_the_audit_is_append_only_for_the_app_role(aicall: AiCall) -> None:

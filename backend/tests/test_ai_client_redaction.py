@@ -121,3 +121,44 @@ async def test_no_content_reaches_a_log_line_or_an_audit_row(
         assert row["request_hmac"] == hmac.new(key, seen.body, hashlib.sha256).digest()
         assert row["request_hmac"] != hashlib.sha256(seen.body).digest()
         assert row["status"] == "completed"
+
+
+async def test_free_text_in_a_tool_request_reaches_no_audit_column_or_log_line(
+    ai_env: Env, planted: Planted, tmp_path: Path, logs: pytest.LogCaptureFixture
+) -> None:
+    """The model's ``tool_use`` input is text the provider controls (it can echo the user): only
+    a known tool's name and its validated arguments are recorded, an unknown name as
+    ``unknown``, invalid arguments as ``null``."""
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    (secrets / "anthropic_api_key").write_text(API_KEY)
+    settings = ai_settings(ai_env.settings)
+    echoed = {"metric": "weight", "period": 30, "note": QUESTION}
+    for script, stopped in (
+        ([tools(("daily_values", echoed)), text(ANSWER)], "answered"),
+        ([tools((QUESTION, {"q": QUESTION}))], "unknown_tool"),
+    ):
+        job = job_run(ai_env.factory, planted.ctx.user_id, _job(planted.ctx.user_id))
+        fake = FakeModel(script=script)
+        turn = await run_turn(
+            job,
+            settings,
+            kind="chat",
+            history=[Message("user", (Text("synthetic question"),))],
+            now=NOW,
+            prices=PRICES,
+            inner=fake.transport,
+            secrets_directory=secrets,
+        )
+        assert turn.stopped == stopped
+    rows = _audit_rows(planted.ctx.user_id)
+    assert [r["tools"] for r in rows] == [
+        [{"name": "daily_values", "arguments": None}],
+        [],
+        [{"name": "unknown", "arguments": None}],
+    ]
+    stored = json.dumps(rows, default=lambda v: v.hex() if isinstance(v, bytes) else str(v))
+    for haystack in (stored, logs.text):
+        assert QUESTION not in haystack
+        assert "Q" * 20 not in haystack
+        assert ANSWER not in haystack

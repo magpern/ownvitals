@@ -48,12 +48,14 @@ CREATE TABLE public.ai_audit (
         jsonb_typeof(tools) = 'array' AND jsonb_array_length(tools) <= 16
         AND octet_length(tools::text) <= 4096
     ),
-    input_tokens bigint NOT NULL DEFAULT 0 CONSTRAINT ai_audit_input CHECK (input_tokens >= 0),
-    output_tokens bigint NOT NULL DEFAULT 0 CONSTRAINT ai_audit_output CHECK (output_tokens >= 0),
-    cache_write_tokens bigint NOT NULL DEFAULT 0
-        CONSTRAINT ai_audit_cache_write CHECK (cache_write_tokens >= 0),
-    cache_read_tokens bigint NOT NULL DEFAULT 0
-        CONSTRAINT ai_audit_cache_read CHECK (cache_read_tokens >= 0),
+    input_token_count bigint NOT NULL DEFAULT 0
+        CONSTRAINT ai_audit_input CHECK (input_token_count >= 0),
+    output_token_count bigint NOT NULL DEFAULT 0
+        CONSTRAINT ai_audit_output CHECK (output_token_count >= 0),
+    cache_write_token_count bigint NOT NULL DEFAULT 0
+        CONSTRAINT ai_audit_cache_write CHECK (cache_write_token_count >= 0),
+    cache_read_token_count bigint NOT NULL DEFAULT 0
+        CONSTRAINT ai_audit_cache_read CHECK (cache_read_token_count >= 0),
     cost_microusd bigint NOT NULL CONSTRAINT ai_audit_cost CHECK (cost_microusd >= 0),
     reservation_id uuid NOT NULL,
     latency_ms integer NOT NULL CONSTRAINT ai_audit_latency CHECK (latency_ms >= 0),

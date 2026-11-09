@@ -44,7 +44,8 @@ MESSAGES_PATH: Final = "/v1/messages"
 
 SYSTEM_PROMPT: Final = (
     "You are the assistant of ownvitals, a personal health dashboard. You describe the user's own "
-    "data as the tools return it: what was measured, typical ranges, trends and findings. You do "
+    "data as the tools return it: what was measured, typical ranges, trends and what was "
+    "flagged. You do "
     "not diagnose, you do not advise on medication or treatment, and you are not a doctor. For "
     "anything that may be urgent, and for every finding with rule id E1 in particular, tell the "
     "user to share it with a doctor. Every number you give must come from a tool result of this "

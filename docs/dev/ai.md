@@ -205,7 +205,7 @@ the worker, inside a job run (`JobRun`), never in web.
 | `backend/src/ownvitals/ai/client.py` | `call_model`: the order of checks, the attempts within one reservation, settle or release, the audit row |
 | `backend/src/ownvitals/ai/turn.py` | `run_turn`: tool requests run through `ai.tools.run_tool` as the job's user, at most 8 per turn |
 | `backend/src/ownvitals/ai/audit.py` | the `ai_audit` row and log line, the `ai-audit` HKDF key, the fingerprints |
-| `backend/migrations/versions/0022_ai_audit.py` | `ai_audit` (owned, forced RLS, the app role `SELECT` and `INSERT` only) |
+| `backend/migrations/versions/0022_ai_audit.py` | `ai_audit` (owned, forced RLS, the app role `SELECT` and `INSERT` only; token counts in `*_token_count` columns) |
 | `backend/tests/fakemodel.py` | the fake Messages API every AI test uses (the `inner` transport of the egress client) |
 
 ### Settings and secrets
@@ -241,8 +241,10 @@ questions 1, 3 and 6). Agents never set them.
 6. Settle at the usage's cost (`settled` or `overrun`), release (`released`: not sent, 400, 401,
    403, 404, 413, 429, 529, a withdrawal or cancel between attempts) or charge the reserved amount
    (`charged`: a timeout, a broken connection after sending, any other status, a malformed
-   answer). A lost lease leaves the reservation to the reaper (`lost`). Then one `ai_audit` row
-   and one `ai call` log line.
+   answer). The settlement and the `ai_audit` row commit together in one fenced transaction
+   (the session guard's reviewed path for job writes), with one `ai call` log line. A lease lost
+   before or at that point (during a re-check too) leaves the reservation to the reaper and
+   writes the log line only (`settlement: lost`): the attempt is no longer this worker's.
 
 `ModelRefused(code)`: nothing was sent and nothing stays reserved. `ModelFailed(code)`: a request
 was made and failed; `code` is the audit's error category (`rate_limited`, `overloaded`,
@@ -292,3 +294,7 @@ imported data" (`KEPT`) and goes with the account.
   JSON itself through `model_async_client` (`anthropic-version: 2023-06-01`). The request and
   answer shapes are from the public API documentation, not verified against the provider.
 - The 12-month audit retention purge and the `eval` kind's writer (ADR 0014 §9) are not built.
+- The app role may insert its own `ai_audit` rows (forgery of one's own audit only; threat model
+  T103a).
+- Guard registrations: `ownvitals.auth.keys.derive_key` is on `auth_tables_scan.PUBLIC_ENTRY_POINTS`
+  (the `ai-audit` key; no table, no other name). The system prompt avoids the guarded table words.

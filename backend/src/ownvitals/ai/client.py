@@ -20,8 +20,8 @@ It runs in the worker only, inside a job run, and in this order:
    ``MAX_ATTEMPTS`` attempts under the **same reservation**, but only after an attempt that
    provably was not processed (not sent, 429, 529), and each later attempt re-checks consent,
    flag and cancel first. Every other failure ends the call.
-6. **Settle or release** (``budget.may_release``) in a new fenced transaction, then one
-   ``ai_audit`` row and one log line (``ai.audit``), whatever the outcome.
+6. **Settle or release** (``budget.may_release``) and write the ``ai_audit`` row in one new
+   fenced transaction, with one log line (``ai.audit``); with the lease lost, the log line only.
 
 The API key goes only into the ``x-api-key`` header; the body never holds it (checked). The
 answer is a proposal (``ai.responses``): nothing here acts on it.
@@ -62,7 +62,7 @@ from ownvitals.ai.requests import (
 from ownvitals.ai.responses import BadResponse, Reply, parse_reply
 from ownvitals.ai.tools_model import TOOLSET_VERSION
 from ownvitals.config import Settings
-from ownvitals.jobs import JobRun, LeaseLost, RunStopped
+from ownvitals.jobs import FencedSession, JobRun, LeaseLost, RunStopped
 
 if TYPE_CHECKING:
     import httpx
@@ -138,20 +138,18 @@ async def _reserve(job: JobRun, settings: Settings, amount: int) -> budget.Reser
     return held
 
 
-async def _finish(
-    job: JobRun, held: budget.Reservation, mode: Literal["settle", "charge", "release"], actual: int
+Mode = Literal["settle", "charge", "release"]
+
+
+async def _apply(
+    fs: FencedSession, held: budget.Reservation, mode: Mode, actual: int
 ) -> tuple[Settlement, int]:
     """Settle at ``actual``, charge the reserved amount, or release; the settlement and the
-    amount charged by this call."""
-    try:
-        async with job.fenced() as fs:
-            if mode == "release":
-                released = await budget.release(fs, held)
-                return ("released" if released else "unchanged"), 0
-            charged = held.amount if mode == "charge" else actual
-            outcome = await budget.settle(fs, held, charged)
-    except LeaseLost:
-        return "lost", held.amount  # the reaper charges it at the reserved amount
+    amount this call was charged."""
+    if mode == "release":
+        return ("released" if await budget.release(fs, held) else "unchanged"), 0
+    charged = held.amount if mode == "charge" else actual
+    outcome = await budget.settle(fs, held, charged)
     if outcome is budget.Settled.UNCHANGED:
         return "unchanged", 0
     if outcome is budget.Settled.OVERRUN:
@@ -217,6 +215,8 @@ async def call_model(
             failure = ModelFailed("bad_response")
         except RunStopped as exc:  # cancelled, shut down or lost before a send
             stopped, failure = exc, ModelFailed("cancelled")
+        except LeaseLost:  # lost during a re-check, after an earlier attempt was sent
+            stopped, failure = RunStopped("lost"), ModelFailed("cancelled")
         latency = int((time.monotonic() - started) * 1000)
         return await _settle_and_audit(
             call, held, key, raw, reply, failure, stopped, latency, prices
@@ -235,49 +235,62 @@ async def _settle_and_audit(
     prices: Mapping[str, Price],
 ) -> Reply:
     usage = reply.usage if reply is not None else None
+    mode: Mode
     if reply is not None and usage is not None:
-        actual = usage_cost(
-            call.model,
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            cache_write_tokens=usage.cache_write_tokens,
-            cache_read_tokens=usage.cache_read_tokens,
-            prices=prices,
+        mode, actual = (
+            "settle",
+            usage_cost(
+                call.model,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                cache_write_tokens=usage.cache_write_tokens,
+                cache_read_tokens=usage.cache_read_tokens,
+                prices=prices,
+            ),
         )
-        settlement, cost = await _finish(call.job, held, "settle", actual)
     else:
         assert failure is not None  # noqa: S101 - a call ends with an answer or a failure
         unprocessed = failure.code in {"not_sent", "consent", "cancelled"} or (
             call.status is not None and budget.may_release(sent=True, status=call.status)
         )
-        if failure.code == "cancelled" and stopped is not None and stopped.reason == "lost":
-            settlement, cost = "lost", held.amount
-        else:
-            mode: Literal["charge", "release"] = "release" if unprocessed else "charge"
-            settlement, cost = await _finish(call.job, held, mode, held.amount)
-    entry = AuditEntry(
-        job_id=call.job.lease.job_id,
-        kind=call.kind,
-        model=call.model,
-        prompt_version=PROMPT_VERSION,
-        toolset_version=TOOLSET_VERSION,
-        reservation_id=held.id,
-        request_hmac=audit.fingerprint(key, raw),
-        response_hmac=None if call.answer is None else audit.fingerprint(key, call.answer),
-        status="completed" if failure is None else "failed",
-        error=None if failure is None else failure.code,
-        http_status=call.status,
-        settlement=settlement,
-        latency_ms=latency,
-        attempts=max(call.attempts, 1),
-        cost_microusd=cost,
-        tools=audit.tool_names(reply.tool_requests) if reply is not None else [],
-        input_tokens=0 if usage is None else usage.input_tokens,
-        output_tokens=0 if usage is None else usage.output_tokens,
-        cache_write_tokens=0 if usage is None else usage.cache_write_tokens,
-        cache_read_tokens=0 if usage is None else usage.cache_read_tokens,
-    )
-    await audit.record(call.job.factory, call.job.ctx, entry)
+        mode, actual = ("release" if unprocessed else "charge"), held.amount
+
+    def entry(settlement: Settlement, cost: int) -> AuditEntry:
+        return AuditEntry(
+            job_id=call.job.lease.job_id,
+            kind=call.kind,
+            model=call.model,
+            prompt_version=PROMPT_VERSION,
+            toolset_version=TOOLSET_VERSION,
+            reservation_id=held.id,
+            request_hmac=audit.fingerprint(key, raw),
+            response_hmac=None if call.answer is None else audit.fingerprint(key, call.answer),
+            status="completed" if failure is None else "failed",
+            error=None if failure is None else failure.code,
+            http_status=call.status,
+            settlement=settlement,
+            latency_ms=latency,
+            attempts=max(call.attempts, 1),
+            cost_microusd=cost,
+            tools=audit.tool_names(reply.tool_requests) if reply is not None else [],
+            input_tokens=0 if usage is None else usage.input_tokens,
+            output_tokens=0 if usage is None else usage.output_tokens,
+            cache_write_tokens=0 if usage is None else usage.cache_write_tokens,
+            cache_read_tokens=0 if usage is None else usage.cache_read_tokens,
+        )
+
+    # With the lease lost: no row (the attempt is no longer ours), the log line only, and the
+    # reaper charges the reservation at its full amount.
+    if stopped is not None and stopped.reason == "lost":
+        audit.log(entry("lost", held.amount))
+    else:
+        try:
+            # The settlement and its audit row commit together, in the job's fenced transaction.
+            async with call.job.fenced() as fs:
+                settlement, cost = await _apply(fs, held, mode, actual)
+                await audit.record(fs, entry(settlement, cost))
+        except LeaseLost:
+            audit.log(entry("lost", held.amount))
     if stopped is not None:
         raise stopped
     if failure is not None:

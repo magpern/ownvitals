@@ -1,14 +1,14 @@
 """The AI audit log with redacted content (ADR 0014 section 6; #207).
 
-One ``ai_audit`` row per model call (migration 0022), written in the job owner's
-``user_session`` (forced RLS; the app role may only ``SELECT`` and ``INSERT``), and one log line
-with the same fields but the cost and the fingerprints. A row holds the job, kind, model, prompt
-and tool-set versions, the names of the tools the answer asked for with their closed arguments,
-the token counts, the cost, the reservation, the latency, attempts, status, a closed error
-category, the HTTP status, the settlement and two fingerprints: HMAC-SHA-256 of the exact request
-bytes and of the answer bytes under the key derived from ``app_secret_key`` with HKDF label
-``ai-audit`` (ADR 0003 section 1). A row can be matched to a body we hold; a guessed message
-cannot be confirmed from the row alone.
+One ``ai_audit`` row per model call (migration 0022), written in the job's fenced transaction
+(the owner's session, forced RLS; the app role may only ``SELECT`` and ``INSERT``), and one log
+line with the same fields but the cost and the fingerprints. A row holds the job, kind, model,
+prompt and tool-set versions, the names of the tools the answer asked for with their closed
+arguments, the token counts, the cost, the reservation, the latency, attempts, status, a closed
+error category, the HTTP status, the settlement and two fingerprints: HMAC-SHA-256 of the exact
+request bytes and of the answer bytes under the key derived from ``app_secret_key`` with HKDF
+label ``ai-audit`` (ADR 0003 section 1). A row can be matched to a body we hold; a guessed
+message cannot be confirmed from the row alone.
 
 **Never** in a row or a log line: message text, tool results, the system prompt, the API key.
 Nothing here takes free text: ``AuditEntry`` holds counts, closed codes and fingerprints, and
@@ -25,19 +25,16 @@ from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.ai.requests import closed_arguments
 from ownvitals.ai.responses import ToolRequest
 from ownvitals.ai.tools_model import TOOLS
 from ownvitals.auth.keys import derive_key
 from ownvitals.config import MIN_APP_SECRET_BYTES, Settings
-from ownvitals.context import UserContext, require_context
-from ownvitals.db import user_session
+from ownvitals.jobs.fence import FencedSession
 
 logger = logging.getLogger(__name__)
 
-Factory = async_sessionmaker[AsyncSession]
 AI_AUDIT_OWNED: Final = ("ai_audit",)
 AUDIT_LABEL: Final = "ai-audit"
 AUDIT_TOOLS_MAX: Final = 16
@@ -63,7 +60,8 @@ Settlement = Literal["settled", "overrun", "released", "charged", "unchanged", "
 
 _INSERT = text(
     "INSERT INTO ai_audit (owner_id, job_id, kind, model, prompt_version, toolset_version, tools, "
-    "input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost_microusd, "
+    "input_token_count, output_token_count, cache_write_token_count, "
+    "cache_read_token_count, cost_microusd, "
     "reservation_id, latency_ms, attempts, status, error, http_status, settlement, request_hmac, "
     "response_hmac) VALUES (:owner, :job, :kind, :model, :prompt, :toolset, CAST(:tools AS jsonb), "
     ":input, :output, :cache_write, :cache_read, :cost, :reservation, :latency, :attempts, "
@@ -143,35 +141,40 @@ class AuditEntry:
         }
 
 
-async def record(factory: Factory, ctx: UserContext, entry: AuditEntry) -> None:
-    """Insert the row as ``ctx``'s user and log the call."""
-    require_context(ctx)
-    tools = json.dumps(entry.tools[:AUDIT_TOOLS_MAX], separators=(",", ":"))
-    async with user_session(factory, ctx) as db:
-        await db.execute(
-            _INSERT,
-            {
-                "owner": ctx.user_id,
-                "job": entry.job_id,
-                "kind": entry.kind,
-                "model": entry.model,
-                "prompt": entry.prompt_version,
-                "toolset": entry.toolset_version,
-                "tools": tools,
-                "input": entry.input_tokens,
-                "output": entry.output_tokens,
-                "cache_write": entry.cache_write_tokens,
-                "cache_read": entry.cache_read_tokens,
-                "cost": entry.cost_microusd,
-                "reservation": entry.reservation_id,
-                "latency": entry.latency_ms,
-                "attempts": entry.attempts,
-                "status": entry.status,
-                "error": entry.error,
-                "http_status": entry.http_status,
-                "settlement": entry.settlement,
-                "request_hmac": entry.request_hmac,
-                "response_hmac": entry.response_hmac,
-            },
-        )
+def log(entry: AuditEntry) -> None:
+    """The call's log line (also when no row could be written: a lost lease)."""
     logger.info("ai call", extra=dict(entry.log_fields()))
+
+
+async def record(fs: FencedSession, entry: AuditEntry) -> None:
+    """Insert the row in the job's fenced transaction (the owner's session, forced RLS), in the
+    same transaction as the reservation's settle or release, and log the call."""
+    tools = json.dumps(entry.tools[:AUDIT_TOOLS_MAX], separators=(",", ":"))
+    db = fs.db
+    await db.execute(
+        _INSERT,
+        {
+            "owner": fs.lease.owner_id,
+            "job": entry.job_id,
+            "kind": entry.kind,
+            "model": entry.model,
+            "prompt": entry.prompt_version,
+            "toolset": entry.toolset_version,
+            "tools": tools,
+            "input": entry.input_tokens,
+            "output": entry.output_tokens,
+            "cache_write": entry.cache_write_tokens,
+            "cache_read": entry.cache_read_tokens,
+            "cost": entry.cost_microusd,
+            "reservation": entry.reservation_id,
+            "latency": entry.latency_ms,
+            "attempts": entry.attempts,
+            "status": entry.status,
+            "error": entry.error,
+            "http_status": entry.http_status,
+            "settlement": entry.settlement,
+            "request_hmac": entry.request_hmac,
+            "response_hmac": entry.response_hmac,
+        },
+    )
+    log(entry)

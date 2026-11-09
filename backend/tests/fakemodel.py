@@ -69,6 +69,8 @@ def status(code: int, retry_after: str | None = None) -> tuple[int, dict[str, An
 
 CONNECT = "connect"  # a connection failure before anything was sent
 TIMEOUT = "timeout"  # a read timeout after the request was sent
+READ_ERROR = "read_error"  # the connection broke after the request was sent
+PROTOCOL_ERROR = "protocol_error"  # the server broke the protocol after the request was sent
 
 Step = Any
 
@@ -94,6 +96,10 @@ class FakeModel:
         if step == CONNECT:
             self.seen.pop()  # never sent: the provider saw nothing
             raise httpx.ConnectError("synthetic connect failure", request=request)
+        if step == READ_ERROR:
+            raise httpx.ReadError("synthetic broken connection", request=request)
+        if step == PROTOCOL_ERROR:
+            raise httpx.RemoteProtocolError("synthetic protocol error", request=request)
         if step == TIMEOUT:
             raise httpx.ReadTimeout("synthetic read timeout", request=request)
         code, body, *rest = step

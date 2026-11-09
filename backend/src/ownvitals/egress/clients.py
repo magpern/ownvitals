@@ -114,10 +114,10 @@ def model_async_client(
     inner: httpx.AsyncBaseTransport | None = None,
     refused: Callable[[OutboundBlocked], Exception] | None = None,
 ) -> httpx.AsyncClient:
-    """The model SDK's client (M7: ``AsyncAnthropic(http_client=...)``). Built only in a worker
-    whose list holds the model host, that is with AI enabled; otherwise ``OutboundBlocked``. Its
-    list is the model host alone, although the worker's is wider. ``timeout`` bounds each read;
-    every request with its answer ends within ``total_seconds``."""
+    """The model client (``ownvitals.ai.client`` posts the Messages API on it; no SDK, #207). Built
+    only in a worker whose list holds the model host, that is with AI enabled; otherwise
+    ``OutboundBlocked``. Its list is the model host alone, although the worker's is wider.
+    ``timeout`` bounds each read; every request with its answer ends within ``total_seconds``."""
     seconds = check_total_seconds(total_seconds)
     allowlist = worker_only(MODEL_ALLOWLIST.hosts, MODEL_HOST)
     network = inner if inner is not None else _network_transport()

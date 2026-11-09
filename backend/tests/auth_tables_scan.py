@@ -90,6 +90,10 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "session_probe",
         }
     ),
+    # the AI audit log (#207, ADR 0014 section 6): its fingerprint key is HKDF of
+    # ``app_secret_key`` under the label ``ai-audit`` (ADR 0003 section 1, "Derived keys"); only
+    # the derivation function, no table and no other key
+    "ownvitals.auth.keys": frozenset({"derive_key"}),
     # the worker: the issuer's account check and the purge
     "ownvitals.auth.owners": frozenset({"ACCOUNTS"}),
     # and the revoke a disconnect or an account deletion enqueues (#163)
