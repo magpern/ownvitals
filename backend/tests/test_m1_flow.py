@@ -73,15 +73,26 @@ async def _queue(env: Env, connection: UUID, kind: str) -> None:
     )
 
 
-async def _idle(url: str, kind: str) -> None:
-    """Until a job of ``kind`` exists and nothing is queued or running."""
-    await until(
-        lambda: (
-            scalar(url, "SELECT count(*) FROM jobs WHERE state IN ('queued', 'running')") == 0
-            and scalar(url, "SELECT count(*) FROM jobs WHERE kind = :k", k=kind) > 0
-        ),
-        seconds=60,
-    )
+_BROKEN = (
+    "SELECT coalesce(string_agg(state || ':' || coalesce(error_category, '-'), ','), '') "
+    "FROM jobs WHERE {where} AND state IN ('failed', 'dead_letter')"
+)
+_COMPLETED = "SELECT count(*) FROM jobs WHERE {where} AND state = 'completed'"
+
+
+async def _done(url: str, kind: str, stream: str | None = None) -> None:
+    """Until a job of ``kind`` (and ``stream``) has completed. A failed or dead-lettered one of
+    that kind fails at once with its error category, so a broken step never waits out a deadline.
+    Jobs that are merely queued later (debounced syncs, derived-data kinds) are not waited for."""
+    params = {"k": kind, "s": stream}
+    match = "kind = :k AND (CAST(:s AS text) IS NULL OR input->>'stream' = :s)"
+
+    def check() -> bool:
+        broken = scalar(url, _BROKEN.replace("{where}", match), **params)
+        assert not broken, f"{kind} {stream or ''} did not complete: {broken}"
+        return bool(scalar(url, _COMPLETED.replace("{where}", match), **params))
+
+    await until(check, seconds=60)
 
 
 def _states(url: str, kind: str) -> list[str]:
@@ -127,7 +138,8 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     async with running_worker(app_database_url):
         # Connect job, then the backfill jobs it queues, with progress events.
         await _queue(env, stored.id, "withings_connect")
-        await _idle(database_url, "withings_backfill")
+        await _done(database_url, "withings_connect")
+        await _done(database_url, "withings_backfill", "measures")
         assert _states(database_url, "withings_connect") == ["completed"]
         assert _states(database_url, "withings_backfill").count("completed") >= 1
         assert measure_count() == len(expected)
@@ -160,8 +172,8 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
                 )
                 assert answer.status_code == 200
         assert scalar(database_url, "SELECT count(*) FROM webhook_events") == 1
-        await _idle(database_url, "withings_sync")
-        assert set(_states(database_url, "withings_sync")) == {"completed"}
+        await _done(database_url, "withings_sync")
+        assert not {"failed", "dead_letter"} & set(_states(database_url, "withings_sync"))
         assert scalar(
             database_url, "SELECT origin FROM jobs WHERE kind = 'withings_sync' "
             "ORDER BY created_at LIMIT 1"
@@ -170,13 +182,13 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
         # Poll: the safety net queues a sync per completed stream, and they run.
         before = len(_states(database_url, "withings_sync"))
         await _queue(env, stored.id, "withings_poll")
-        await _idle(database_url, "withings_poll")
+        await _done(database_url, "withings_poll")
         assert _states(database_url, "withings_poll") == ["completed"]
         assert len(_states(database_url, "withings_sync")) > before
 
         # Reconcile: a complete pass over unchanged data deletes nothing.
         await _queue(env, stored.id, "withings_reconcile")
-        await _idle(database_url, "withings_reconcile")
+        await _done(database_url, "withings_reconcile")
         assert _states(database_url, "withings_reconcile") == ["completed"]
         assert measure_count() == len(expected)
         assert scalar(
