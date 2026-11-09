@@ -69,7 +69,7 @@ export function detailKey(state: string): MessageKey {
 
 /** Decimals of a metric's number (an index or a count is whole). */
 export function digitsOf(key: string): number {
-  return ['heart_pulse', 'vascular_age', 'visceral_fat', 'nerve_health_score'].includes(key) ? 0 : 1
+  return ['heart_pulse', 'vascular_age', 'visceral_fat', 'metabolic_age', 'nerve_health_score'].includes(key) ? 0 : 1
 }
 
 /** The tiles of each part of the overview, by metric key; blood pressure is one tile of two keys. */
