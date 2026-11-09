@@ -38,16 +38,16 @@ G2), and each issue owns its own area file.
 
 ## Active
 
-Reconciled 2026-11-09 against `gh api repos/magpern/ownvitals/pulls?state=open` (`main` at `b2e6558`): #298, #299 and #300 plus this PR.
+Reconciled 2026-11-09 against `git log origin/main` and `gh api repos/magpern/ownvitals/pulls?state=open` (`main` at `df86160`): no PR other than this one is open.
 
 | Issue | What | Developer | PR | State |
 |---|---|---|---|---|
-| #199 | ECG list and calibrated canvas viewer with PDF download (`frontend/src/pages/Ecg*.tsx`, `components/ecg/**`, `api/ecg.ts`, `pages/appPages.tsx`, `i18n/*/ecg.ts`) | Developer | #298 (head `cd37fc8`) | open, review pending |
-| #191 | ECG rules E1-E4 and E6, and the estimated recompute sweep (`analysis/rules/{core,ecg,ecg_intervals}.py`, `derived/{evaluate*,findings_*,ecg_recompute}.py`, `withings/sync_kinds.py`, `worker/kinds.py`) | Developer | #299 (head `96f513a`) | open, awaiting review |
-| #296 | Withings connect web routes (`connections/withings_routes.py`, `web.py`, `tests/test_web.py`, `withings/oauth.py`, fake-withings e2e) | Developer | #300 (head `e665a71`) | open, awaiting review |
-| — | Housekeeping (this PR, docs only: status, issue labels, hardening issues #301-#305) | Developer | this PR | open |
+| — | Status refresh after #335 to #341 (this PR, docs only) | Developer | this PR | open |
 
-Heads are from the API at 2026-11-09 and may move. Ready to start (every `Depends on` is closed; labels refreshed 2026-11-09): #200 (findings inbox), #201 (body composition), #202 (nerve health), #206 (AI consent and tool set), #210 (doctor PDF), #211 (export), #294 (backfill fan-out), the hardening issues #277, #279, #281, #282, #283, #284 and the new #301 (ECG PDF), #302 (scores), #303 (metrics), #304 and #305 (UI). Blocked on an open issue: #195 (needs #191), #207 (needs #206), #208, #209, and #280 (needs #278's queue hardening, `blocked-deps`); #278 is ready. Labels are not authoritative, this table is.
+No issue is in progress. The Architect picks the next ones from the open issues (labels are not authoritative; this table is). Hardening issues from the earlier reviews (#277 to #284, #294, #301 to #305) may be partly done by the PRs below; check each issue before starting it.
+
+Merged since `b2e6558` (all IMPLEMENTED, synthetic tests only; verdict comments are on the PRs): #298 (ECG list and viewer), #299 (ECG rules E1-E4, E6), #300 (Withings connect web routes), #309 (findings inbox), #310 (token writes on disconnected rows), #312 (sync ranges, ECG leads, callback URL), #313 (admin enable refusal), #316 (finding notifications), #318 (queue follow-ups), #320 (AI consent and tool set), #321 (webhook uniform answers and quotas), #323 (body composition page), #326 (nerve health page), #328 (saved display settings), #332 (JSON/CSV export with a single-use download), #327 (worker-only model client, redacted audit log, fake model API), #334 (compose mounts for the AI key and app secret, worker only), #336 (12-month `ai_audit` retention purge), #337 (metrics list honours range), #335 (doctor PDF), #338 (scores input revision digest), #339 (egress chain scan, hook installed in migrate), #340 (webhook secret cache refresh after startup) and #341 (ECG PDF off the event loop, clipped traces, image/link guard). Per-PR detail is in [status/completed.md](status/completed.md) where recorded.
+
 
 Merged on 2026-11-09 (`main` now `b2e6558`), all IMPLEMENTED (synthetic tests only; verdict comments are on the PRs): #285 (docs, reconcile and the #165 split), #286 (#257, hardening from the #242 review), #287 (#197, overview dashboard), #288 (#198, metric detail and day view), #289 (#203, settings), #290 (#167, `/metrics` from the worker), #291 (M1 done-when flow, failure injection, RLS context tests), #292 (#188, scores job), #293 (#180, passkey and QR approve-login UI), #295 (onboarding and connections screen) and #297 (#192, ECG list and signal API, ECG PDF). Their assumptions are in the table below and the non-blocking findings are #294, #296 and #301-#305.
 
@@ -77,10 +77,7 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `frontend/src/pages/appPages.tsx`, `frontend/src/i18n/{en,sv}/index.ts` and `untranslated.ts` (the ECG lines), `docs/design/README.md` | #199 (PR #298) |
-| `backend/src/ownvitals/web.py`, `backend/tests/test_web.py`, `connections/withings_routes.py`, `withings/oauth.py` | #296 (PR #300) |
-| `backend/src/ownvitals/worker/kinds.py`, `analysis/rules/core.py`, `withings/sync_kinds.py`, `derived/evaluate*.py`, `derived/findings_store.py` | #191 (PR #299) |
-| `backend/pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `frontend/package.json` and lock, `frontend/src/main.tsx`, `config.py` | — (free now); the issues that need them take the lock when they start (planner's note: `appPages.tsx` is held by #199 now, one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds; the next free migration number is 0020; 0018 is H4 and 0019 is H3) |
+| `backend/pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `frontend/package.json` and lock, `frontend/src/main.tsx`, `config.py`, `config_secrets.py`, `web.py`, `appPages.tsx`, `worker/kinds.py` | — (free now; #340 was the last holder of `web.py`, `config.py` and `config_secrets.py`); the issues that need them take the lock when they start (planner's note: `appPages.tsx` takes one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds; the next free migration number is 0020; 0018 is H4 and 0019 is H3) |
 | `docs/status.md`, `docs/status/completed.md` | Architect |
 | everything else | — (released) |
 
@@ -157,7 +154,31 @@ Nothing blocks M0 or any open issue. These are needed later (live Withings, the 
 | Scores (#292, ADR 0012): the Health Improvement Score is always `not_set` (default: no band table registered, owner questions 1 to 3 open); sleep and activity field names and units (`total_sleep_time` seconds, moderate and intense seconds) are assumed; BMI is `no_height`; `afib_ecg_count` and `high_bp_ratio` are `input_not_wired` | the scores job and the dashboard score card | the owner's ADR 0012 answers; the probe (field names, units) |
 | Onboarding and connections UI (#295): the contract `POST /api/connections/withings/start` returns `{authorize_url}` and the callback returns to `/onboarding?withings=<outcome>` is assumed and no route exists yet (#296); the design has gaps (Devices list, Sync now and Import more have no API, so Devices shows "Coming later"; the loading state has no design) | the connections screen | #296 builds the routes to the assumed contract; the owner's design answers; the owner's first real connect |
 
+Added 2026-11-09 (after #335 to #341). All IMPLEMENTED with fakes and synthetic data only; nothing here is INTEGRATION_VERIFIED.
+
+| Assumption | Relied on by | Settled by |
+|---|---|---|
+| Withings answers a bad or revoked refresh token with `status` 2553 (the fake's reading; the public spec is silent) | the refresh path and disconnect handling | the owner's first real token refresh failure, or the probe |
+| The connect-scope fake (`scope` values and the authorize/callback flow of `fake-withings`) matches the real API | #300 connect routes, #296 | the owner's first real connect (M1) |
+| `xmax = 0` (insert-versus-update detection in upserts) was checked on the local PostgreSQL only | the derived-data writers and report-update counts (#312) | CI on the production PostgreSQL major version, then the first real sync |
+| #195 Withings assumptions for finding notifications (notify timing, the E4/E6 gate hold interplay with late ECG links) | #316 | the owner's first real webhook and ECG (OC5) |
+| Whether Withings retries a webhook on a 5xx answer is unknown; the receiver answers uniformly (#321) and does not rely on retries | the webhook receiver, queue debounce (#318) | the owner's first real webhook failure, or Withings support |
+| #206 consent-UI design: no design covers the AI consent and withdrawal screens beyond the data-minimised tool set; the wording and layout are the developer's | #320 and the later UI | the owner's design decision |
+| #207 provider assumptions: the model API shape (messages, tool calls, token counts, errors) is the fake's reading of the public docs | #327 | the first AI-enabled run with the owner's key |
+| #211 export UI states (step-up prompt, single-use link used or expired, empty export) are not in the mock-ups | #332 | the owner's design decision |
+| #210 Settings report-row layout and the ECG "PDF for a doctor" button placement are not in the mock-ups | #335, #341 | the owner's design decision |
+| ADR session binding: a download token is bound to the session cookie plus a fresh step-up, not strictly to one session id | #332, #335 | the Reviewer of the next auth-adjacent change, or an ADR amendment |
+| FIT output stays off (ADR 0013 default); no FIT writer is reachable | #332 | the owner's ADR 0013 answer |
+
 Known gaps of #233 and #234 (all in #165): blocked streams with stored data still return values (docs say they should not); each evaluation pass replays the owner's whole history (about 3 s CPU for two years of seven daily metrics); the Settings writer (M6) must queue a daily pass when `fixed_tz` changes; the "all imported data" UI copy has no screen yet; an import never normalised reports `current`, not `behind`.
+
+Known gaps of #335 (doctor PDF; not blocking): the doctor audit kinds are missing from the security-activity allowlist, so they do not show in the user's activity list; tidy-audited events carry `export_kind` "data" for doctor rows; cross-user purge for doctor report rows is not built; the ECG picker offers only the first page of recordings; `doctor_routes.py` imports private helpers from `export_routes.py` (to be made public or moved).
+
+## Owner-side steps after #334 to #341
+
+- The staging host needs the secret file `secrets/anthropic_api_key` (an empty file is fine while AI is off) before the next `up`, since #334 mounts it in the worker.
+- Local checkouts need `scripts/worktree.sh init` again.
+- Release note: stored scores read stale until the next scores pass runs (#338 changed the input revision digest).
 
 M1 adds a row per Withings behaviour the code relies on but no real account has confirmed.
 
