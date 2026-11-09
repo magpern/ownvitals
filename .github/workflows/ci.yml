@@ -1,10 +1,13 @@
 name: CI
 
-# Not on push to main: main only receives squashes of pull requests that passed here with the
-# branch up to date (the main ruleset requires it). A pull request runs what its diff needs; the
-# weekly run (and a manual one) runs everything, which also picks up new advisories.
+# A pull request runs what its diff needs. Every push to main runs everything: the branch of a
+# pull request need not be up to date when it merges (roadmap Amendment 8), so this run is the
+# safety net for two PRs that were green alone but break together. A red main is fixed forward
+# first. The weekly run (and a manual one) also runs everything and picks up new advisories.
 on:
   pull_request:
+  push:
+    branches: [main]
   schedule:
     - cron: '0 4 * * 1' # Monday 04:00 UTC
   workflow_dispatch:
@@ -12,9 +15,10 @@ on:
 permissions:
   contents: read
 
-# A newer push cancels a pull request's older run.
+# A newer push cancels a pull request's older run. A run on main is never cancelled: its group
+# is per commit.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -27,6 +31,8 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       stack: ${{ steps.filter.outputs.stack }}
       all: ${{ steps.filter.outputs.all }}
+      # The backend test shard count, from the backend-tests matrix's shard list (the one source).
+      shards: ${{ steps.shards.outputs.total }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,6 +45,13 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: scripts/ci-changes.sh
+
+      # Fails the run when the matrix is not exactly `shard: [1..N]` (scripts/ci-shards.sh).
+      - id: shards
+        run: |
+          set -euo pipefail
+          total="$(scripts/ci-shards.sh)"
+          echo "total=$total" >> "$GITHUB_OUTPUT"
 
   # Everything cheap that must run on every change, as steps of one runner. gitleaks and Trivy are
   # checksum-verified release binaries (scripts/test-ci-downloads.sh tests the checks), bumped by
@@ -202,8 +215,9 @@ jobs:
             --skip-dirs node_modules --skip-dirs .venv \
             .
 
-  # The database roles and the queue functions run here too. No step is skipped: a missing
-  # backend/, pyproject.toml or uv.lock fails the job at `uv sync --locked`.
+  # Once per run, without a database: lint, format, types and the shard check. The database
+  # setup, the queue functions and the tests run in every `backend-tests` shard. No step is
+  # skipped: a missing backend/, pyproject.toml or uv.lock fails the job at `uv sync --locked`.
   backend:
     name: Backend
     needs: changes
@@ -212,21 +226,60 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.6
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Format check
+        run: uv run ruff format --check
+
+      - name: Type check
+        run: uv run pyright
+
+      # The backend-tests matrix runs each test file in exactly one shard (tests/shards.py
+      # compares pytest's own collection with the split). The shard count comes from one place,
+      # the matrix's `shard` list (scripts/ci-shards.sh in `changes`), here and in every shard.
+      - name: Every test file is in exactly one shard
+        env:
+          TOTAL: ${{ needs.changes.outputs.shards }}
+        run: |
+          set -euo pipefail
+          [[ $TOTAL =~ ^[1-9][0-9]*$ ]] || { echo "::error::no shard count from changes"; exit 1; }
+          uv run python tests/shards.py check "$TOTAL"
+
+  # pytest in parallel shards, each with its own Postgres (tests/shards.py: a stable hash of the
+  # file path). Every shard sets up the roles and installs the queue functions, which the tests
+  # need. The `ci` gate sees one result for the matrix: failure or cancelled if any shard is.
+  backend-tests:
+    name: Backend tests (shard ${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      # The only place the shard count is set: scripts/ci-shards.sh reads it from this list and
+      # refuses another axis, include or exclude.
+      matrix:
+        shard: [1, 2, 3, 4]
+    defaults:
+      run:
+        working-directory: backend
     services:
       postgres:
         # compose.yaml's db image, the same index digest (test_compose_roles.py checks it).
         image: postgres:17.11@sha256:31ba9c94a03ada9988f2bb493a22a75eef3a185884533e5cdbcd498ea835b08f
         env:
-          # Throwaway database of this job only; not a secret.
-          POSTGRES_PASSWORD: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
       OWNVITALS_TEST_DATABASE_URL: postgresql+psycopg://postgres:test@127.0.0.1:5432/ownvitals
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -302,17 +355,19 @@ jobs:
           done
           uv run python tests/queue_digests.py --check
 
-      - name: Lint
-        run: uv run ruff check
-
-      - name: Format check
-        run: uv run ruff format --check
-
-      - name: Type check
-        run: uv run pyright
-
       - name: Tests
-        run: uv run pytest -q
+        env:
+          SHARD: ${{ matrix.shard }}
+          # The count from the matrix's shard list, computed once in `changes` and passed to the
+          # shard check and every shard alike; never strategy.job-total.
+          TOTAL: ${{ needs.changes.outputs.shards }}
+        run: |
+          set -euo pipefail
+          [[ $TOTAL =~ ^[1-9][0-9]*$ ]] || { echo "::error::no shard count from changes"; exit 1; }
+          mapfile -t files < <(uv run python tests/shards.py list "$SHARD" "$TOTAL")
+          [ "${#files[@]}" -gt 0 ] || { echo "::error::shard $SHARD of $TOTAL is empty"; exit 1; }
+          echo "shard $SHARD of $TOTAL: ${#files[@]} test files"
+          uv run pytest -q "${files[@]}"
 
   # No step is skipped: a missing frontend/ or package-lock.json fails the job.
   frontend:
@@ -428,7 +483,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [changes, checks, backend, frontend, e2e]
+    needs: [changes, checks, backend, backend-tests, frontend, e2e]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

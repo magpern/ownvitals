@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests scripts/ci-gate.sh and scripts/ci-changes.sh with sample inputs, and scripts/ci-uv-version.sh
+# Tests scripts/ci-gate.sh, scripts/ci-changes.sh and scripts/ci-shards.sh with sample inputs, and scripts/ci-uv-version.sh
 # on scratch trees. Run by the `checks` job.
-# Ported from classbeat (d8060510) for the jobs changes, checks, backend, frontend and e2e.
+# Ported from classbeat (d8060510) for the jobs changes, checks, backend, backend-tests, frontend and e2e.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 
@@ -12,12 +12,15 @@ report() { # report <ok|FAIL> <message>
 }
 
 # needs <changes> <checks> <backend> <frontend> <e2e> <backend filter> <frontend filter> <stack filter>
+#       [backend-tests result, default: the backend result]
+# backend-tests is the pytest shard matrix: one aggregate result in `needs`.
 needs() {
   jq -nc --arg ch "$1" --arg ck "$2" --arg b "$3" --arg f "$4" --arg e "$5" \
-    --arg fb "$6" --arg ff "$7" --arg fs "$8" '{
+    --arg fb "$6" --arg ff "$7" --arg fs "$8" --arg bt "${9-$3}" '{
       changes: {result: $ch, outputs: {backend: $fb, frontend: $ff, stack: $fs, all: "false"}},
       checks: {result: $ck, outputs: {}},
       backend: {result: $b, outputs: {}},
+      "backend-tests": {result: $bt, outputs: {}},
       frontend: {result: $f, outputs: {}},
       e2e: {result: $e, outputs: {}}}'
 }
@@ -48,6 +51,18 @@ gate "e2e cancelled, stack filter true"       1 "$(needs success success skipped
 gate "e2e failed although stack was false"    1 "$(needs success success skipped skipped failure false false false)"
 gate "e2e ran although stack was false"       0 "$(needs success success skipped skipped success false false false)"
 gate "e2e skipped, stack filter false"        0 "$(needs success success skipped skipped skipped false false false)"
+# The backend-tests matrix (the pytest shards): one aggregate result, gated by the backend filter.
+#     name                                  want  needs: changes checks backend frontend e2e  filters: b f s  backend-tests
+gate "shards passed"                          0 "$(needs success success success skipped skipped true false false success)"
+gate "a shard failed"                         1 "$(needs success success success skipped skipped true false false failure)"
+gate "a shard cancelled"                      1 "$(needs success success success skipped skipped true false false cancelled)"
+gate "shards skipped, backend filter true"    1 "$(needs success success success skipped skipped true false false skipped)"
+gate "shards skipped, backend filter false"   0 "$(needs success success skipped skipped skipped false false false skipped)"
+gate "static failed, shards passed"           1 "$(needs success success failure skipped skipped true false false success)"
+gate "shards failed, backend filter false"    1 "$(needs success success skipped skipped skipped false false false failure)"
+gate "shards missing, five results"           1 "$(needs success success success skipped skipped true false false | jq -c 'del(.["backend-tests"])')" "success success success skipped skipped"
+gate "shards missing, six results"            1 "$(needs success success success skipped skipped true false false | jq -c 'del(.["backend-tests"])')" "success success success success skipped skipped"
+gate "a shard listed as its own job"          1 "$(needs success success success skipped skipped true false false | jq -c '.["backend-tests-1"] = {"result": "success"}')" "success success success success skipped skipped success"
 gate "e2e missing from needs"                 1 "$(needs success success skipped skipped skipped false false false | jq -c 'del(.e2e)')"
 gate "checks failed"                          1 "$(needs success failure skipped skipped skipped false false false)"
 gate "checks skipped"                         1 "$(needs success skipped skipped skipped skipped false false false)"
@@ -64,9 +79,9 @@ gate 'NEEDS is null'                          1 'null' ""
 gate 'NEEDS is an object of strings'          1 '{"backend":"x","changes":"x","checks":"x","frontend":"x"}' "a b c d"
 gate 'NEEDS is malformed JSON'                1 '{' "a"
 # Value-level mutations of a valid docs-only input: each must fail the gate. The results list
-# is passed as five words so the count check cannot be what rejects them.
+# is passed as six words so the count check cannot be what rejects them.
 docs="$(needs success success skipped skipped skipped false false false)"
-five="success success skipped skipped skipped"
+five="success success skipped skipped skipped skipped"
 mutated() { jq -c "$1" <<< "$docs"; }
 gate "filter is boolean false"                1 "$(mutated '.changes.outputs.backend = false')" "$five"
 gate "filter is number 0"                     1 "$(mutated '.changes.outputs.backend = 0')" "$five"
@@ -109,7 +124,7 @@ gate_says "filter is False"           "$bad_filter" "$(mutated '.changes.outputs
 gate_says "filter is missing"         "$bad_filter" "$(mutated 'del(.changes.outputs.backend)')" "$five"
 gate_says "filter is an array"        "$bad_filter" "$(mutated '.changes.outputs.frontend = ["false"]')" "$five"
 gate "result count mismatch"                  1 "$docs" "success success"
-gate "four results for five jobs"             1 "$docs" "success success skipped skipped"
+gate "five results for six jobs"              1 "$docs" "success success skipped skipped skipped"
 
 # changes <name> <event> <"file file ..."> <expected "backend frontend stack all">
 tmp="$(mktemp -d)"
@@ -155,6 +170,8 @@ changes "deploy script"     pull_request      "deploy/ownvitals-deploy"         
 changes "worktree script"   pull_request      "scripts/worktree.sh"                 "false false true false"
 changes "ci-gate script"    pull_request      "scripts/ci-gate.sh"                  "true true true true"
 changes "ci-changes script" pull_request      "scripts/ci-changes.sh"               "true true true true"
+changes "ci-shards script"  pull_request      "scripts/ci-shards.sh"                "true true true true"
+changes "push to main"      push              "docs/x.md"                           "true true true true"
 changes "test script"       pull_request      "scripts/test-ci-gate.sh"             "true true true true"
 changes ".gitattributes"    pull_request      ".gitattributes"                      "true true true true"
 changes "unrelated script"  pull_request      "scripts/other.sh"                    "false false false false"
@@ -232,6 +249,45 @@ elif [ -n "${CI:-}" ]; then
   report FAIL "yq is missing on the CI runner"
 else
   echo "skip: no yq here (CI has it)"
+fi
+
+# ci-shards.sh: the shard count is the length of the backend-tests `shard` list, and only a
+# matrix that is exactly `shard: [1..N]` has one. Needs yq (on the CI runners; skipped without).
+# shards <name> <expected count, or "fail"> <matrix as YAML flow>
+shards() {
+  local name="$1" want="$2" matrix="$3" got
+  printf 'jobs:\n  backend-tests:\n    strategy:\n      matrix: %s\n' "$matrix" > "$tmp/wf.yml"
+  if got="$("$here/ci-shards.sh" "$tmp/wf.yml" 2> /dev/null)"; then :; else got=fail; fi
+  if [ "$got" = "$want" ]; then report ok "shards: $name"; else report FAIL "shards: $name (got '$got', want '$want')"; fi
+}
+if command -v yq > /dev/null; then
+  shards "three shards"                3    '{shard: [1, 2, 3]}'
+  shards "one shard"                   1    '{shard: [1]}'
+  shards "five shards"                 5    '{shard: [1, 2, 3, 4, 5]}'
+  shards "a second axis"               fail '{shard: [1, 2, 3], python: ["3.12"]}'
+  shards "an include"                  fail '{shard: [1, 2, 3], include: [{shard: 4}]}'
+  shards "an exclude"                  fail '{shard: [1, 2, 3], exclude: [{shard: 3}]}'
+  shards "a gap"                       fail '{shard: [1, 3]}'
+  shards "a repeat"                    fail '{shard: [1, 1, 2]}'
+  shards "out of order"                fail '{shard: [2, 1, 3]}'
+  shards "starts at 0"                 fail '{shard: [0, 1, 2]}'
+  shards "strings"                     fail '{shard: ["1", "2"]}'
+  shards "empty list"                  fail '{shard: []}'
+  shards "not a list"                  fail '{shard: 3}'
+  shards "no shard axis"               fail '{part: [1, 2]}'
+  # shellcheck disable=SC2016  # a literal GitHub expression, not shell
+  shards "matrix from an expression"   fail '"${{ fromJSON(needs.x.outputs.m) }}"'
+  rm -f "$tmp/wf.yml"
+  if "$here/ci-shards.sh" "$tmp/missing.yml" > /dev/null 2>&1; then report FAIL "shards: missing file"; else report ok "shards: missing file"; fi
+  # The real workflow has a valid matrix.
+  if n="$("$here/ci-shards.sh" "$here/../.github/workflows/ci.yml" 2> /dev/null)"; then
+    report ok "shards: ci.yml has $n shards"
+  else
+    report FAIL "shards: ci.yml has no valid backend-tests matrix"
+  fi
+else
+  # On the CI runner yq is required: these cases must not skip silently there.
+  if [ -n "${CI:-}" ]; then report FAIL "shards: yq is missing on the CI runner"; else echo "skip shards: no yq here (CI has it)"; fi
 fi
 
 # scripts/ci-uv-version.sh on scratch trees: the Dockerfile's uv tag, the setup-uv steps and the

@@ -9,6 +9,10 @@
 # been skipped while the `changes` output that gates it is "false". A job that is skipped,
 # cancelled or failed while its filter is true fails the gate, and so does a missing job.
 #
+# `backend-tests` is a matrix (the pytest shards): GitHub gives `needs` one result for it, success
+# only when every shard succeeded, failure or cancelled when any shard did not. It is gated by the
+# `backend` filter like `backend`, so a skipped matrix while that filter is true fails the gate.
+#
 # A new job is added in three places together: `needs` of the `ci` job, JOBS and FILTERS below,
 # and the tests.
 #
@@ -24,8 +28,8 @@ RESULTS="${RESULTS:-}"
 echo "results: $RESULTS"
 
 # The jobs of `needs` (sorted) and the `changes` output that gates each optional one.
-JOBS='["backend", "changes", "checks", "e2e", "frontend"]'
-FILTERS='{"backend": "backend", "e2e": "stack", "frontend": "frontend"}'
+JOBS='["backend", "backend-tests", "changes", "checks", "e2e", "frontend"]'
+FILTERS='{"backend": "backend", "backend-tests": "backend", "e2e": "stack", "frontend": "frontend"}'
 
 die() { echo "::error::$*"; exit 1; }
 
