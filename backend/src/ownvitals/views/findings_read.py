@@ -29,9 +29,8 @@ filters ``owner_id`` itself (ADR 0002). Then, in order:
 The result is typed; its ``repr`` names no value.
 """
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
 
@@ -42,14 +41,11 @@ from ownvitals.config import Settings
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
 from ownvitals.ecg.overlay import (
-    GATED_RULES,
     EstimateView,
     GroupKey,
-    Overlay,
     RecordingKey,
     ecg_gate_overlay,
     estimate_view,
-    group_device_ids,
     recording_device_id,
     resolve_links,
 )
@@ -59,7 +55,6 @@ from ownvitals.views.findings_models import (
     AREA_BY_LETTER,
     AREAS,
     CONSUMERS,
-    EXPERIMENTAL,
     EXPERIMENTAL_RULES,
     INCLUDES_HIDDEN,
     PAGE_DEFAULT,
@@ -75,6 +70,14 @@ from ownvitals.views.findings_models import (
     Tab,
     area_of,
     groups_of_evidence,
+)
+from ownvitals.views.findings_rows import (
+    finding_view,
+    group_key,
+    int_of,
+    is_experimental,
+    mapping_of,
+    readings_of,
 )
 
 # The tab is the origin (PLAN §7.1 step 7): live findings, and those found while backfilling.
@@ -141,30 +144,6 @@ class FindingsRead:
         return f"FindingsRead({len(self.findings)} findings)"
 
 
-def _is_experimental(tier: str, rule_id: str) -> bool:
-    return tier == EXPERIMENTAL or rule_id in EXPERIMENTAL_RULES
-
-
-def _mapping(value: object) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}  # pyright: ignore[reportUnknownVariableType]
-
-
-def _int(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
-def _group(row: Mapping[Any, Any]) -> GroupKey:
-    types = row["types"] or ()
-    return GroupKey(
-        grpid=int(row["grpid"]),
-        connection=row["connection_id"],
-        measured_at=row["measured_at"],
-        device_ids=group_device_ids(row["hash_deviceid"], row["raw"]),
-        model_id=_int(row["model_id"]),
-        types=frozenset(int(t) for t in types),
-    )
-
-
 def _recording(row: Mapping[Any, Any]) -> RecordingKey:
     digest = row["payload_hash"]
     estimated = row["estimated"]
@@ -173,11 +152,11 @@ def _recording(row: Mapping[Any, Any]) -> RecordingKey:
         connection=row["connection_id"],
         recorded_at=row["recorded_at"],
         device_id=recording_device_id(row["reported"]),
-        model_id=_int(row["model_id"]),
+        model_id=int_of(row["model_id"]),
         fingerprint=input_fingerprint(
             int(row["signalid"]),
             None if digest is None else bytes(digest),
-            _int(row["sampling_hz"]),
+            int_of(row["sampling_hz"]),
         ),
         estimated=estimated if isinstance(estimated, Mapping) else None,  # pyright: ignore[reportUnknownArgumentType]
     )
@@ -196,44 +175,8 @@ async def _links(
     group_rows = (await db.execute(_GROUPS, params)).mappings().all()
     recording_rows = (await db.execute(_LINKABLE_RECORDINGS, params)).mappings().all()
     return (
-        tuple(_group(row) for row in group_rows),
+        tuple(group_key(row) for row in group_rows),
         tuple(_recording(row) for row in recording_rows),
-    )
-
-
-def _view(row: Mapping[Any, Any], overlay: Overlay, switch: bool) -> FindingView:
-    rule_id = str(row["rule_id"])
-    gated = overlay.applies and rule_id in GATED_RULES
-    return FindingView(
-        id=row["id"],
-        rule_id=rule_id,
-        rule_version=str(row["rule_version"]),
-        tier=str(row["tier"]),
-        area=area_of(rule_id),
-        severity=str(row["severity"]),
-        confidence=str(row["confidence"]),
-        data_quality=_mapping(row["data_quality"]),
-        origin=str(row["origin"]),
-        metric_keys=tuple(row["metric_keys"] or ()),
-        subject=str(row["subject"]),
-        window_start=row["window_start"],
-        window_end=row["window_end"],
-        reference_day=row["reference_day"],
-        evidence=_mapping(row["evidence"]),
-        status=str(row["status"]),
-        first_seen=row["first_seen"],
-        last_seen=row["last_seen"],
-        ended_at=row["ended_at"],
-        notify_state=str(row["notify_state"]),
-        notified_at=row["notified_at"],
-        seen_at=row["seen_at"],
-        hidden=overlay.hidden,
-        not_evaluated=gated and overlay.outcome == "not_evaluated",
-        gate=(
-            GateView(overlay.outcome, overlay.counted, overlay.failed)
-            if switch and overlay.applies
-            else None
-        ),
     )
 
 
@@ -269,20 +212,20 @@ async def _load(
     kept = [
         row
         for row in rows
-        if (switch or not _is_experimental(str(row["tier"]), str(row["rule_id"])))
+        if (switch or not is_experimental(str(row["tier"]), str(row["rule_id"])))
         and (query.area is None or area_of(str(row["rule_id"])) == query.area)
     ]
-    groups = sorted({g for row in kept for g in groups_of_evidence(_mapping(row["evidence"]))})
+    groups = sorted({g for row in kept for g in groups_of_evidence(mapping_of(row["evidence"]))})
     group_keys, recordings = await _links(db, owner, groups)
     views: list[FindingView] = []
     linked_by_finding: dict[UUID, dict[int, tuple[RecordingKey, ...]]] = {}
     for row in kept:
-        triggers = groups_of_evidence(_mapping(row["evidence"]))
+        triggers = groups_of_evidence(mapping_of(row["evidence"]))
         linked = resolve_links(triggers, group_keys, recordings)
         overlay = ecg_gate_overlay(str(row["rule_id"]), linked)
         if overlay.hidden and consumer not in INCLUDES_HIDDEN:
             continue
-        views.append(_view(row, overlay, switch))
+        views.append(finding_view(row, overlay, switch))
         linked_by_finding[row["id"]] = linked
     return views, linked_by_finding, next_offset
 
@@ -301,19 +244,6 @@ async def read_findings(
         switch = await _switch(db, settings)
         views, _, next_offset = await _load(db, ctx.user_id, switch, consumer, query, None)
     return FindingsRead(findings=tuple(views), experimental=switch, next_offset=next_offset)
-
-
-def _readings(rows: Iterable[Mapping[Any, Any]]) -> tuple[Reading, ...]:
-    return tuple(
-        Reading(
-            metric_key=str(row["metric_key"]),
-            ts=row["ts"],
-            value=Decimal(row["value"]),
-            grpid=_int(row["source_grpid"]),
-            quality_flags=tuple(row["quality_flags"] or ()),
-        )
-        for row in rows
-    )
 
 
 async def read_finding(
@@ -363,7 +293,7 @@ async def read_finding(
                 seen.add(recording.id)
                 shown = estimate_view(recording.estimated, recording.fingerprint)
                 estimates.append(LinkedEstimate(recording.id, grpid, shown))
-    return FindingDetail(finding=view, readings=_readings(rows), estimates=tuple(estimates))
+    return FindingDetail(finding=view, readings=readings_of(rows), estimates=tuple(estimates))
 
 
 async def read_ecg_estimates(
