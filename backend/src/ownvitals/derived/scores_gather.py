@@ -2,8 +2,8 @@
 
 Every statement filters ``owner_id`` itself and runs under forced RLS. The three stream revisions
 (``measures``, ``sleep_summary``, ``activity_daily``) are read first; ``input_revision`` of a
-written row is their sum
-(``docs/dev/derived.md``). ``behind`` when a daily row or a sleep or activity observation carries
+written row is their digest (``scores_revision``, ``docs/dev/derived.md``). ``behind`` when a
+daily row or a sleep or activity observation carries
 another revision than the stream's (the normaliser or the daily pass has not caught up).
 """
 
@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ownvitals.analysis.daily import DailyMethod, DailyValue
 from ownvitals.config import Settings
 from ownvitals.derived.daily_db import read_day_tz
-from ownvitals.derived.findings_gather import _today
+from ownvitals.derived.findings_gather import today_in_zone
 from ownvitals.derived.scores_compute import (
     DAILY_KEYS,
     OBSERVATION_KEYS,
@@ -28,6 +28,7 @@ from ownvitals.derived.scores_compute import (
     ScoreInputs,
     fingerprint,
 )
+from ownvitals.derived.scores_revision import revision_digest
 from ownvitals.derived.scores_tables import TableState
 from ownvitals.flags import effective
 
@@ -70,7 +71,7 @@ class Gathered:
 
     @property
     def input_revision(self) -> int:
-        return sum(self.revisions)
+        return revision_digest(self.revisions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +143,7 @@ async def gather(
     )
     latest = (await db.execute(_LATEST_ZONE, {"o": owner})).first()
     inputs = ScoreInputs(
-        day=_today(now, day_tz, None if latest is None else str(latest.source_tz)),
+        day=today_in_zone(now, day_tz, None if latest is None else str(latest.source_tz)),
         daily=daily,
         points=points,
         birth_year=None if profile is None else profile.birth_year,

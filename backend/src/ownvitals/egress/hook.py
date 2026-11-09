@@ -1,10 +1,10 @@
 """Runtime egress enforcement: a PEP 578 audit hook in every process (ADR 0009).
 
-``install_egress_hook(kind, settings)`` (``kind``: ``web``, ``worker`` or ``cli``) is called
-first thing in each entry point. It adds one audit hook, which cannot be removed; a second call
-with the same kind does nothing (the first policy stays), with another kind it raises. For an
-event that does not start with ``socket.`` the hook does one set lookup (process creation,
-below) and returns; otherwise it decides:
+``install_egress_hook(kind, settings)`` (``kind``: ``web``, ``worker``, ``cli`` or ``migrate``,
+alembic's ``env.py``) is called first thing in each entry point. It adds one audit hook, which
+cannot be removed; a second call with the same kind does nothing (the first policy stays), with
+another kind it raises. For an event that does not start with ``socket.`` the hook does one set
+lookup (process creation, below) and returns; otherwise it decides:
 
 - **Resolution** (the audit events ``socket.getaddrinfo`` and ``socket.gethostbyname``, which
   ``gethostbyname_ex`` raises too): only a host in the process's resolvable set: its kind's
@@ -74,7 +74,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("ownvitals.egress")
 
-Kind = Literal["web", "worker", "cli"]
+Kind = Literal["web", "worker", "cli", "migrate"]
 KINDS: Final = frozenset(get_args(Kind))
 WEB_HOSTS: Final = GOOGLE_SIGNIN_HOSTS | {WITHINGS_API_HOST}
 POSTGRES_PORT: Final = 5432
