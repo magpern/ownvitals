@@ -15,8 +15,8 @@ would wait for it.
 - ``GET /users?q=&offset=&limit=`` (``user.list``): email, role, whether the authenticator is
   on, live sessions and the latest ``sign_in``. The prefix is not stored, only its length.
 - ``GET /users/{user_id}`` (``user.read``): the same for one account. 404 ``not_found``.
-- ``POST /users/{user_id}/disable`` and ``.../enable``. Disable refuses an admin
-  (409 ``target_is_admin``), revokes every session and keeps an earlier ``disabled_at``.
+- ``POST /users/{user_id}/disable`` and ``.../enable``. Both refuse an admin (409
+  ``target_is_admin``); disable revokes every session and keeps an earlier ``disabled_at``.
 - ``DELETE /users/{user_id}`` with ``{"email": ...}`` (``user.delete``): the account-delete
   path. The audit row keeps the id in ``target_id``; ``target_user_id`` is left unset because
   the account is already gone (the foreign key would answer ``not_found``).
@@ -193,9 +193,9 @@ async def read_user(request: Request, actor: AdminActor, user_id: UUID) -> Accou
         if found is None:
             raise AdminRefused("not_found", 404)
         emails = await account_emails(_factory(request), [found.id])
-    email = emails.get(found.id)
-    if email is None:
-        raise AdminRefused("not_found", 404)
+        email = emails.get(found.id)
+        if email is None:  # gone in between: inside the session, so no ``ok`` row commits
+            raise AdminRefused("not_found", 404)
     return _shown(found, email)
 
 
@@ -231,6 +231,8 @@ async def enable_user(
         await enable_account(_factory(request), user_id)
     except AccountMissing:
         await _refused(request, actor, "user.enable", user_id, "not_found", 404)
+    except TargetIsAdmin:
+        await _refused(request, actor, "user.enable", user_id, "target_is_admin", 409)
     else:
         await _ok(request, actor, "user.enable", target=Target(user_id=user_id))
         return DisabledOut(id=user_id, disabled_at=None, sessions_revoked=0)

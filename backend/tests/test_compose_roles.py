@@ -233,7 +233,37 @@ def test_the_database_creates_the_roles_from_the_password_files(compose: str) ->
     assert "DATABASE_MAINT_PASSWORD_FILE" in script
     assert "/run/secrets/database_maint_password" in script
     assert "CREATE ROLE ownvitals_maint LOGIN" in script
-    assert "ALTER ROLE ownvitals_maint WITH LOGIN PASSWORD :'maint_password';" in script
+    check_maint_password(script)
+
+
+MAINT_PASSWORD = "ALTER ROLE ownvitals_maint WITH LOGIN PASSWORD :'maint_password';"
+# Every statement that changes ownvitals_maint, up to its semicolon (comments are skipped).
+_MAINT_ALTERS = re.compile(r"^[ \t]*ALTER\s+ROLE\s+\"?ownvitals_maint\"?\b[^;]*;", re.I | re.M)
+
+
+def check_maint_password(script: str) -> None:
+    """The maint password is set exactly once, from the secret file's psql variable: a second
+    statement (a literal ``PASSWORD '...'``, ``ENCRYPTED PASSWORD``, ``PASSWORD NULL``) fails."""
+    code = "\n".join(line.split("--", 1)[0] for line in script.splitlines())
+    setting = [
+        m.group().strip() for m in _MAINT_ALTERS.finditer(code) if "PASSWORD" in m.group().upper()
+    ]
+    assert setting == [MAINT_PASSWORD]
+
+
+@pytest.mark.parametrize(
+    "planted",
+    [
+        "ALTER ROLE ownvitals_maint PASSWORD 'synthetic-not-a-secret';",
+        "alter role ownvitals_maint with encrypted password 'synthetic-not-a-secret';",
+        'ALTER ROLE "ownvitals_maint"\n  PASSWORD NULL;',
+    ],
+)
+def test_the_maint_password_pin_fails_on_a_second_password(planted: str) -> None:
+    script = (ROOT / "docker" / "postgres" / "init" / "10-roles.sql").read_text(encoding="utf-8")
+    check_maint_password(script)
+    with pytest.raises(AssertionError):
+        check_maint_password(script + "\n" + planted + "\n")
 
 
 MAINT_URL = "OWNVITALS_MAINT_DATABASE_URL: postgresql+psycopg://ownvitals_maint@db:5432/ownvitals"

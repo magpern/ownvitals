@@ -3,6 +3,8 @@
 import asyncio
 import io
 import uuid
+from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -23,8 +25,9 @@ from mfatools import (  # noqa: F401 - fixtures
     step_of,
 )
 from ownvitals.auth import totp
+from ownvitals.auth.clientip import bucket_ip
 from ownvitals.auth.notices import register_security_notifier
-from ownvitals.auth.ratelimit import MFA_ACCOUNT, mfa_buckets
+from ownvitals.auth.ratelimit import MFA_ACCOUNT, MFA_IP, mfa_buckets
 from ownvitals.auth.sessions import SessionGone
 from ownvitals.log import configure_logging
 
@@ -264,11 +267,69 @@ async def test_mfa_is_limited_per_account_across_ips_and_per_ip_across_accounts(
             break
     if not limited:
         pytest.fail("the 21st MFA account attempt was allowed\n" + "\n".join(reports))
-    for _ in range(20):
-        assert (await limiter.begin(mfa_buckets(str(uuid.uuid4()), "198.51.100.7"))).allowed
-    refused = await limiter.begin(mfa_buckets(str(uuid.uuid4()), "198.51.100.7"))
-    assert not refused.allowed
+    refused = await _per_ip_refusal(limiter)
     assert refused.retry_after > 0
+
+
+async def _twenty_one_from_one_ip(limiter: Any, ip: str) -> list[Any]:
+    """Twenty-one fresh accounts from one address."""
+    return [await limiter.begin(mfa_buckets(str(uuid.uuid4()), ip)) for _ in range(21)]
+
+
+async def _per_ip_refusal(limiter: Any) -> Any:
+    """The 21st attempt from one address, refused. MFA_IP is 20 per 300 s, floored on the
+    database clock (``clock_timestamp()``), which a test cannot stop. So the clock is pinned
+    the other way: the per-IP slots of the run must all sit in one window, read back from the
+    stored ``window_start``, or the run says nothing and goes again from a fresh address. Two
+    window rolls cannot fall within one run of a few hundred milliseconds, so the second run
+    always counts; the 21st must then be the only refusal (#277: a roll used to flake)."""
+    reports: list[str] = []
+    for ip in ("198.51.100.7", "198.51.100.8"):
+        attempts = await _twenty_one_from_one_ip(limiter, ip)
+        windows = _ip_windows(limiter, ip, attempts)
+        if len(set(windows)) == 1:
+            assert [a.allowed for a in attempts] == [True] * 20 + [False]
+            return attempts[-1]
+        reports.append(f"{ip}: windows={sorted({str(w) for w in windows})}")
+    pytest.fail("the per-IP window rolled in both runs\n" + "\n".join(reports))
+
+
+def _ip_windows(limiter: Any, ip: str, attempts: list[Any]) -> list[Any]:
+    digest = limiter.bucket_hash(MFA_IP, bucket_ip(ip))
+    return [
+        next(slot.window_start for slot in attempt.slots if slot.bucket_hash == digest)
+        for attempt in attempts
+    ]
+
+
+@dataclass
+class _RollingLimiter:
+    """A fake limiter whose 300 s window rolls after the tenth attempt (synthetic)."""
+
+    calls: int = 0
+    counts: dict[tuple[bytes, int], int] = field(default_factory=dict[tuple[bytes, int], int])
+
+    def bucket_hash(self, limit: Any, value: str) -> bytes:
+        return f"{limit.action}|{limit.scope}|{value}".encode()
+
+    async def begin(self, buckets: list[Any]) -> Any:
+        self.calls += 1
+        window = 1 if self.calls in range(11, 22) else 0  # rolls inside the first run only
+        slots, allowed = [], True
+        for bucket in buckets:
+            digest = self.bucket_hash(bucket.limit, bucket.value)
+            hits = self.counts[digest, window] = self.counts.get((digest, window), 0) + 1
+            allowed = allowed and hits <= bucket.limit.max_count
+            slots.append(SimpleNamespace(bucket_hash=digest, window_start=window))
+        return SimpleNamespace(allowed=allowed, retry_after=1, slots=slots)
+
+
+async def test_the_per_ip_check_survives_a_window_roll() -> None:
+    """A roll during the first run (the old flake: its 21st was allowed) is retried."""
+    limiter = _RollingLimiter()
+    refused = await _per_ip_refusal(limiter)
+    assert not refused.allowed
+    assert limiter.calls == 42
 
 
 async def test_mfa_rotation_keeps_expires_at(env: Env, make_actor: Any, clock: list[float]) -> None:
