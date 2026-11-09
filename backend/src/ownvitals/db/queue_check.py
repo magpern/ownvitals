@@ -16,9 +16,9 @@ and the rate functions
 ``withings_rate_release`` and ``withings_rate_pause`` admitted the same way, and the mail outbox's
 ``mail_outbox_claim``, ``mail_outbox_mark`` and ``owner_notice_queue`` (#194, ADR 0007 section 3;
 their digests in ``ownvitals.db.outbox_digests``), each pinned like a queue function when it is
-installed, and the AI cost cap's ``ai_reserve``, ``ai_settle``, ``ai_release`` and
-``ai_settle_lost`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 section 7; #205), owned by
-``ownvitals_ai``: absent until that script has run, then all four, each pinned;
+installed, and the AI family's ``ai_reserve``, ``ai_settle``, ``ai_release``, ``ai_settle_lost``
+and ``ai_audit_purge`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 sections 6 and 7; #205, #331),
+owned by ``ownvitals_ai``: absent until that script has run, then all five, each pinned;
 no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
 CHECK, index or partition expression of any table or domain calls one of ``SQL_TEXT_BUILTINS``.
 So nothing can shadow a built-in a function body calls, and nothing a function fires (a trigger,

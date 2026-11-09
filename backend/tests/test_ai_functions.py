@@ -1,6 +1,6 @@
-"""The AI cost cap's definer family (ADR 0014 section 7, ADR 0005 section 3, #205): ``ai_reserve``,
-``ai_settle``, ``ai_release`` and ``ai_settle_lost``, their role ``ownvitals_ai``, and the
-startup check that pins them. Synthetic users only; no content.
+"""The AI definer family (ADR 0014 sections 6 and 7, ADR 0005 section 3; #205, #331):
+``ai_reserve``, ``ai_settle``, ``ai_release``, ``ai_settle_lost`` and ``ai_audit_purge``, their role
+``ownvitals_ai``, and the startup check that pins them. Synthetic users only; no content.
 
 - each function is executable by the app role and by no other caller role
   (``test_each_function_is_the_app_role_s_only``);
@@ -46,6 +46,7 @@ CALLS = {
     "ai_settle": ("SELECT ai_settle(:id, 0)", {"id": uuid.uuid4()}),
     "ai_release": ("SELECT ai_release(:id)", {"id": uuid.uuid4()}),
     "ai_settle_lost": ("SELECT ai_settle_lost(1)", {}),
+    "ai_audit_purge": ("SELECT ai_audit_purge(12, 1)", {}),
 }
 OTHER_ROLES = (
     "ownvitals_owner",
@@ -179,6 +180,14 @@ DRIFT = [
     ),
     # One function of an installed family dropped.
     ("DROP FUNCTION public.ai_settle_lost(integer)", "ai_settle_lost"),
+    ("DROP FUNCTION public.ai_audit_purge(integer, integer)", "ai_audit_purge"),
+    # A purge without the 12-month floor: same signature, settings and owner, another digest.
+    (
+        "CREATE OR REPLACE FUNCTION public.ai_audit_purge(p_months integer, p_limit integer)"
+        " RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp"
+        " AS $$ BEGIN DELETE FROM public.ai_audit; RETURN 0; END $$",
+        "ai_audit_purge",
+    ),
     # An overload beside the shipped one.
     (
         "CREATE FUNCTION public.ai_release(p_id uuid, p_force boolean) RETURNS boolean"
@@ -216,6 +225,12 @@ ROLE_DRIFT = [
     f"GRANT DELETE ON public.ai_reservations TO {AI}",
     f"GRANT UPDATE (amount) ON public.ai_reservations TO {AI}",
     f"GRANT UPDATE (month) ON public.ai_spend_global TO {AI}",
+    f"GRANT SELECT (owner_id) ON public.ai_audit TO {AI}",
+    f"GRANT UPDATE (created_at) ON public.ai_audit TO {AI}",
+    f"GRANT TRUNCATE ON public.ai_audit TO {AI}",
+    f"REVOKE DELETE ON public.ai_audit FROM {AI}",
+    "REVOKE SELECT (created_at) ON public.ai_audit FROM ownvitals_ai",
+    "GRANT DELETE ON public.ai_audit TO ownvitals_app",
     f"GRANT CREATE ON SCHEMA public TO {AI}",
     "GRANT SELECT ON public.ai_spend_global TO ownvitals_app",
     "GRANT UPDATE ON public.ai_spend TO ownvitals_app",

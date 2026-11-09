@@ -19,7 +19,8 @@ check here. Maint is not granted the client secret or ``webhook_secrets``. When
 three outbox functions, and the app role may ``EXECUTE`` them; the app role holds nothing on
 ``owner_notices``. When ``docker/postgres/ai/50-ai.sql`` has run (#205, ADR 0014 section 7),
 the NOLOGIN role ``ownvitals_ai`` has exactly its attributes and the column grants that script
-creates, owns the four AI budget functions, and the app role may ``EXECUTE`` them. The app role
+creates, with ``DELETE`` on ``ai_audit`` for the retention purge (#331) as its only table
+privilege, owns the five AI functions, and the app role may ``EXECUTE`` them. The app role
 holds ``SELECT`` only on ``ai_spend`` and ``ai_reservations`` and nothing on ``ai_spend_global``.
 Any other grantee fails.
 """
@@ -162,8 +163,12 @@ AI_FUNCTIONS = {
     "ai_settle": AI,
     "ai_release": AI,
     "ai_settle_lost": AI,
+    "ai_audit_purge": AI,
 }
-# Its privileges are all column grants (ADR 0014 section 7): no table-level privilege, no DELETE.
+# Its one table-level privilege: DELETE on ai_audit, for the 12-month retention purge (ADR 0014
+# section 6; #331). Everything else is a column grant (ADR 0014 section 7).
+AI_RELATIONS = {"ai_audit:r": {"DELETE"}}
+# Its column grants: the budget functions' reads and writes, and the purge's id and age reads.
 AI_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("jobs", "id"): {(AI, "SELECT")},
     ("jobs", "owner_id"): {(AI, "SELECT")},
@@ -188,6 +193,8 @@ AI_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("ai_reservations", "lease_version"): {(AI, "SELECT"), (AI, "INSERT")},
     ("ai_reservations", "actual"): {(AI, "UPDATE")},
     ("ai_reservations", "ended_at"): {(AI, "UPDATE")},
+    ("ai_audit", "id"): {(AI, "SELECT")},
+    ("ai_audit", "created_at"): {(AI, "SELECT")},
 }
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 AI_ATTRIBUTES = (False, False, False, False, False, True, False)
@@ -554,7 +561,7 @@ def check_roles(conn: Connection) -> list[str]:
         )
         need(
             sorted(ai_owned) == sorted(AI_FUNCTIONS),
-            f"{AI} must own exactly the AI budget functions, owns {sorted(ai_owned)}",
+            f"{AI} must own exactly the AI functions, owns {sorted(ai_owned)}",
         )
 
     # Schemas.
@@ -679,8 +686,15 @@ def check_roles(conn: Connection) -> list[str]:
             )
         else:
             need(OUTBOX not in _grantees(relations, obj), f"{obj}: {OUTBOX} must hold nothing")
-        # The AI role holds column grants only (checked below), never a table privilege.
-        need(AI not in _grantees(relations, obj), f"{obj}: {AI} must hold no table privilege")
+        # The AI role holds column grants (checked below) and DELETE on ai_audit, nothing else.
+        if ai_installed and obj in AI_RELATIONS:
+            allowed.add(AI)
+            need(
+                _privileges(relations, AI, obj) == AI_RELATIONS[obj],
+                f"{obj}: {AI} privileges must be exactly {sorted(AI_RELATIONS[obj])}",
+            )
+        else:
+            need(AI not in _grantees(relations, obj), f"{obj}: {AI} must hold no table privilege")
         need(_grantees(relations, obj) <= allowed, f"{obj}: unexpected grantee")
     need(
         not [1 for *_, grantable in relations if grantable], "no grantable privilege on a relation"

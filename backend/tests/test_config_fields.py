@@ -73,6 +73,7 @@ ADDED = frozenset(
         "ai_model",  # issue 207: the pinned model id and the owner's locks 2 and 3 (ADR 0014 §1)
         "ai_provider_review_ref",
         "ai_eval_ref",
+        "ai_audit_retention_months",  # issue 331: the audit log's retention (ADR 0014 §6)
     }
 )
 

@@ -55,6 +55,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.flags.routes",
             "ownvitals.notify.outbox",
             "ownvitals.ai.budget",
+            "ownvitals.ai.audit_retention",
             "ownvitals.worker.metrics",
         ),
     )
@@ -152,6 +153,9 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.notify", False, False),
         # The AI reaper (#205): that exact module, never a user session, nothing else in ai.
         ("ownvitals.ai.budget", False, True),
+        # The audit retention (#331): that exact module, never a user session; not the log.
+        ("ownvitals.ai.audit_retention", False, True),
+        ("ownvitals.ai.audit", False, False),
         ("ownvitals.ai", False, False),
         ("ownvitals.ai.pricing", False, False),
         # AI consent (#206): that exact module; the tools read through the views, the routes

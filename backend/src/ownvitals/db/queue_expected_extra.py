@@ -63,10 +63,11 @@ OUTBOX_PINS: dict[str, tuple[str, str, str, str]] = {
     ),
 }
 # The AI cost cap's family (docker/postgres/ai/50-ai.sql, ADR 0014 section 7; #205), owned by
-# its own NOLOGIN role. Absent until db-functions has run that script; once one is present, all
-# four must be, each pinned (its digest in queue_digests.py with the others).
+# its own NOLOGIN role, with the audit log's retention purge (ADR 0014 section 6; #331). Absent
+# until db-functions has run that script; once one is present, all five must be, each pinned (its
+# digest in queue_digests.py with the others).
 AI_ROLE = "ownvitals_ai"
-AI_FUNCTION_NAMES = ("ai_reserve", "ai_settle", "ai_release", "ai_settle_lost")
+AI_FUNCTION_NAMES = ("ai_reserve", "ai_settle", "ai_release", "ai_settle_lost", "ai_audit_purge")
 AI_VERSION = "ownvitals-ai v1"
 # Sorted as the query sorts the entries: "ownvitals_ai" comes before "ownvitals_app".
 _AI_ACL = f"{AI_ROLE}=X/{AI_ROLE},ownvitals_app=X/{AI_ROLE}"
@@ -80,4 +81,5 @@ AI_PINS: dict[str, tuple[str, str, str, str]] = {
     "ai_settle": ("p_id uuid, p_actual bigint", AI_ROLE, SEARCH_PATH, _AI_ACL),
     "ai_release": ("p_id uuid", AI_ROLE, SEARCH_PATH, _AI_ACL),
     "ai_settle_lost": ("p_limit integer", AI_ROLE, SEARCH_PATH, _AI_ACL),
+    "ai_audit_purge": ("p_months integer, p_limit integer", AI_ROLE, SEARCH_PATH, _AI_ACL),
 }
