@@ -40,7 +40,10 @@ export function formatDayAs(
   day: string,
   style: 'long' | 'short' = 'long',
 ): string {
-  if (format === 'iso') return /^\d{4}-\d{2}-\d{2}$/.test(day) && style === 'long' ? day : day.slice(5)
+  if (format === 'iso') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return day
+    return style === 'long' ? day : day.slice(5)
+  }
   if (format === 'mon_d_y') return formatDay(locale, day, style, 'en-US')
   return formatDay(locale, day, style)
 }

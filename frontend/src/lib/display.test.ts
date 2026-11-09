@@ -38,6 +38,7 @@ describe('days', () => {
     expect(formatDayAs('en', 'mon_d_y', '2026-10-14')).toBe('Oct 14, 2026')
     expect(formatDayAs('en', 'iso', '2026-10-14')).toBe('2026-10-14')
     expect(formatDayAs('en', 'iso', '2026-10-14', 'short')).toBe('10-14')
+    expect(formatDayAs('en', 'iso', 'Today', 'short')).toBe('Today')
   })
 })
 

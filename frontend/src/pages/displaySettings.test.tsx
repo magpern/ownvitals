@@ -7,7 +7,7 @@ import { fakeProfile } from '../test/profileFixtures'
 import { renderAt } from '../test/render'
 import { setThemePreference } from '../theme/theme'
 
-// The saved display settings in the screens beside Settings (#305). Synthetic answers only.
+// The saved display settings in the screens beside Settings (issue 305). Synthetic answers only.
 
 vi.mock('uplot', () => {
   class FakePlot {
