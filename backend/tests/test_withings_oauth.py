@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture  # noqa: F401
 from ctx import make_context
-from ownvitals.egress import OutboundBlocked, core, exchange_withings_code
+from ownvitals.egress import OutboundBlocked, core, exchange_withings_code, install_worker_allowlist
 from ownvitals.withings.apps import ROTATE, create_app, request_rotation, run_withings_apps
 from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.oauth import (
@@ -25,6 +25,7 @@ from ownvitals.withings.oauth import (
     revoke_stale_subscriptions,
     start,
 )
+from ownvitals.withings.oauth_state import STATE_TTL_SECONDS
 from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport
 from withingswire import MASKED, Request, Subscription
@@ -106,23 +107,28 @@ async def test_callback_refuses_a_replay_and_a_foreign_state(env: Env, owner: ob
 
 
 async def test_an_expired_state_is_refused(env: Env, owner: object) -> None:
+    """Same session, so only the age decides: accepted just inside the 10 minutes, refused at
+    them, before any Withings call."""
     app_id = await _app(env, owner)
+    ring = env.app.state.keyring
     ctx = make_context(await env.user("ttl@example.com"))
     clock = {"now": 0.0}
     store = StateStore(clock=lambda: clock["now"])
-    started = await start(env.factory, env.app.state.keyring, ctx, _proof(), app_id, store=store)
-    clock["now"] = 601.0
+    proof = _proof()
     fake = _fake()
+    inner = FakeWithingsTransport(fake)
+    fresh = await start(env.factory, ring, ctx, proof, app_id, store=store)
+    late = await start(env.factory, ring, ctx, proof, app_id, store=store)
+    code = await _code(fake, fresh.authorize_url)
+    fake.log.clear()
+    clock["now"] = STATE_TTL_SECONDS - 1.0
+    await callback(env.factory, ring, ctx, proof, code, fresh.state, store=store, inner=inner)
+    assert [entry.endpoint for entry in fake.log] == ["v2/oauth2:requesttoken"]
+    fake.log.clear()
+    clock["now"] = float(STATE_TTL_SECONDS)
     with pytest.raises(Exception, match="state_rejected"):
         await callback(
-            env.factory,
-            env.app.state.keyring,
-            ctx,
-            _proof(),
-            "synthetic-code",
-            started.state,
-            store=store,
-            inner=FakeWithingsTransport(fake),
+            env.factory, ring, ctx, proof, "synthetic-code", late.state, store=store, inner=inner
         )
     assert fake.log == []
 
@@ -250,15 +256,33 @@ async def test_connect_urls_never_carry_a_secret(
     assert "callbackurl" not in public
 
 
-async def test_web_cannot_refresh_revoke_or_call_another_withings_action() -> None:
+async def test_web_cannot_refresh_revoke_or_call_another_withings_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake = _fake()
     inner = FakeWithingsTransport(fake)
     app = WithingsApp(CLIENT, SECRET)
-    for action in ("refresh", "revoke", "notify_list", "notify_revoke", "getmeas"):
-        with pytest.raises(OutboundBlocked):
-            async with WithingsClient.open(app, inner=inner) as client:
-                await getattr(client, action)("synthetic-access-token-aaaaaaaa")
-    assert fake.log == []
+    token = "synthetic-access-token-aaaaaaaa"
+    calls = {
+        "refresh": lambda c: c.refresh("synthetic-refresh-token-bbbbbbb"),
+        "revoke": lambda c: c.revoke(next(iter(fake.users))),
+        "notify_list": lambda c: c.notify_list(token),
+        "notify_revoke": lambda c: c.notify_revoke(token, callbackurl=CURRENT, appli=1),
+        "getmeas": lambda c: c.getmeas(token),
+    }
+    # In web the worker's client cannot be built at all.
+    with pytest.raises(OutboundBlocked):
+        async with WithingsClient.open(app, inner=inner):
+            pass
+    # A client built while the worker list was installed still sends nothing once it is gone:
+    # each call is refused by its transport, before the fake sees a request.
+    install_worker_allowlist(ai_enabled=False)
+    async with WithingsClient.open(app, inner=inner) as client:
+        monkeypatch.setattr(core, "_worker_list", None)
+        for name, call in calls.items():
+            with pytest.raises(OutboundBlocked):
+                await call(client)
+            assert fake.log == [], name
     code = fake.authorize(CLIENT, next(iter(fake.users)), REDIRECT)
     response = await exchange_withings_code(
         client_id=CLIENT, client_secret=SECRET, code=code, redirect_uri=REDIRECT, inner=inner
