@@ -46,12 +46,11 @@ import re
 import secrets
 import socket
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Mapping
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ownvitals.ai import budget
-from ownvitals.auth.purge import purge_expired
 from ownvitals.config import Settings
 from ownvitals.crypto.keks import KeyRing, KeyRingError, load_keyring
 from ownvitals.db import (
@@ -66,6 +65,7 @@ from ownvitals.jobs.withings import NO_TARGETS, SecretTargets
 from ownvitals.worker.listen import listen
 from ownvitals.worker.pool import create_worker_engine
 from ownvitals.worker.pool import worker_pool as worker_pool
+from ownvitals.worker.upkeep import purge, quietly
 
 logger = logging.getLogger(__name__)
 
@@ -83,20 +83,6 @@ def worker_id() -> str:
     """``host:pid:random``, within ``queue_claim``'s ``^[A-Za-z0-9._:-]{1,100}$``."""
     host = re.sub(r"[^A-Za-z0-9._-]", "-", socket.gethostname())[:60] or "worker"
     return f"{host}:{os.getpid()}:{secrets.token_hex(4)}"
-
-
-async def _quietly(name: str, step: Callable[[], Awaitable[int]]) -> None:
-    try:
-        count = await step()
-    except DatabaseRoleError:
-        raise
-    except Exception as exc:
-        logger.warning(
-            "job maintenance failed", extra={"step": name, "error_type": type(exc).__name__}
-        )
-        return
-    if count:
-        logger.info("job maintenance", extra={"step": name, "count": count})
 
 
 class Worker:
@@ -179,21 +165,13 @@ class Worker:
         """
         if not self._startup_passed():
             return
-        await _quietly("reap", lambda: queue.reap(self.factory))
+        await quietly("reap", lambda: queue.reap(self.factory))
         if self.settings.ai_insights:
-            await _quietly("ai settle lost", lambda: budget.settle_lost(self.factory))
+            await quietly("ai settle lost", lambda: budget.settle_lost(self.factory))
 
     async def purge(self) -> None:
-        """The auth purge, once (ADR 0003 section 1). A failure is logged by its class and
-        retried at the next interval; counts per table are logged, never a row."""
-        try:
-            counts = await purge_expired(self.factory, self.settings)
-        except DatabaseRoleError:
-            raise
-        except Exception as exc:
-            logger.warning("auth purge failed", extra={"error_type": type(exc).__name__})
-            return
-        logger.info("auth purge", extra={"deleted": counts})
+        """The hourly purge tick (``ownvitals.worker.upkeep.purge``)."""
+        await purge(self.factory, self.settings)
 
     async def schedule(self) -> None:
         """One scheduler tick: ``queue_schedule`` per scheduled kind. Nothing is scheduled
@@ -201,7 +179,7 @@ class Worker:
         if not self._startup_passed():
             return
         for kind, seconds in self.schedules.items():
-            await _quietly(
+            await quietly(
                 f"schedule {kind}",
                 lambda kind=kind, seconds=seconds: queue.schedule(self.factory, kind, seconds),
             )
