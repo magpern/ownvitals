@@ -3,6 +3,7 @@ import type { AppRoute, RouteId } from '../router/appRoutes'
 import { Card, ComingLater } from '../components/ui/Card'
 import { useT } from '../i18n'
 import { AdminPage } from './AdminPage'
+import { OVERVIEW_PAGES } from './overviewPages'
 import { SecurityPage } from './SecurityPage'
 import { METRIC_PAGES } from './metricPages'
 
@@ -16,6 +17,7 @@ const BUILT: Partial<Record<RouteId, ComponentType>> = {
   admin: AdminPage,
   // #11: the lock band, "Where you're signed in" and the step-up dialog; the rest comes later.
   security: SecurityPage,
+  ...OVERVIEW_PAGES,
   ...METRIC_PAGES,
 }
 

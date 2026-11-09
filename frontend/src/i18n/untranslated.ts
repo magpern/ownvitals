@@ -17,4 +17,6 @@ export const SAME_IN_SV: Readonly<Record<string, string>> = {
   'detail.reading.rawFormula': 'a formula, the same in both languages',
   'detail.range.30d': 'the same abbreviation in Swedish: 30 d',
   'detail.range.90d': 'the same abbreviation in Swedish: 90 d',
+  'overview.range.30d': 'the same abbreviation in Swedish: 30 d',
+  'overview.range.90d': 'the same abbreviation in Swedish: 90 d',
 }

@@ -47,7 +47,7 @@ describe('sign-in with a password', () => {
     renderAt('/signin')
     await screen.findByLabelText('Email')
     signIn()
-    expect(await screen.findByText('The dashboard comes in M6.')).toBeInTheDocument()
+    expect(await screen.findByText('Needs a look')).toBeInTheDocument()
     expect(api.to('POST', '/api/auth/login')[0]?.body).toEqual({
       email: 'ann@example.test',
       password: 'correct horse battery',
