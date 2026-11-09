@@ -2,9 +2,10 @@
 
 - **Only the kinds a person can act on** (``SHOWN``, an allowlist): sign-ins with their method,
   refused sign-ins and re-authentications, sign-outs (this session, another session, everywhere),
-  two-factor, passkey, password, email and Google changes. A new kind stays hidden until it is
-  named here and worded in the catalogue; operator rows (``connections_wiped``, the CLI's role
-  changes) and the QR and step-up bookkeeping stay out.
+  two-factor, passkey, password, email and Google changes, and the export's and doctor PDF's
+  events (ADR 0013 section 5: requested, ready, failed, downloaded, expired). A new kind stays
+  hidden until it is named here and worded in the catalogue; operator rows
+  (``connections_wiped``, the CLI's role changes) and the QR and step-up bookkeeping stay out.
 - **Only codes and allowlisted fields:** the kind (a code), the time, the method (``METHODS``),
   the browser and operating system families (``useragent.BROWSERS``, ``SYSTEMS``) and the place
   text. Never the address, a token, a session or row id, an email or the ``User-Agent`` string,
@@ -57,13 +58,21 @@ SHOWN: Final[dict[str, str]] = {
     "email_changed": "email_changed",
     "identity_linked": "google_linked",
     "identity_unlinked": "google_unlinked",
+    # The export and the doctor PDF (ADR 0013 section 5; #333).
+    "export_requested": "export_requested",
+    "export_ready": "export_ready",
+    "export_failed": "export_failed",
+    "export_downloaded": "export_downloaded",
+    "export_expired": "export_expired",
+    "doctor_pdf_requested": "doctor_pdf_requested",
+    "doctor_pdf_downloaded": "doctor_pdf_downloaded",
 }
 STORED_KINDS: Final = tuple(sorted(SHOWN))
 SHOWN_KINDS: Final = frozenset(SHOWN.values())
 
-# Kinds whose row is not the user's own doing (the operator's reset): no origin is shown, even
-# if one was stored.
-NO_ORIGIN: Final = frozenset({"mfa_reset"})
+# Kinds whose row is not the user's own doing (the operator's reset; an export that the build,
+# the expiry or the tidy of another request changed): no origin is shown, even if one was stored.
+NO_ORIGIN: Final = frozenset({"mfa_reset", "export_ready", "export_failed", "export_expired"})
 
 PAGE_DEFAULT: Final = 20
 PAGE_MAX: Final = 50
