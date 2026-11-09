@@ -126,7 +126,7 @@ gate_says "filter is an array"        "$bad_filter" "$(mutated '.changes.outputs
 gate "result count mismatch"                  1 "$docs" "success success"
 gate "five results for six jobs"              1 "$docs" "success success skipped skipped skipped"
 
-# changes <name> <event> <"file file ..."> <expected "backend frontend stack all">
+# changes <name> <event> <"file file ..."> <expected "backend frontend stack playwright all">
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 git -C "$tmp" init -q
@@ -149,40 +149,40 @@ changes() {
   if [ "$out" = "$want " ]; then report ok "changes: $name"; else report FAIL "changes: $name (got '$out', want '$want')"; fi
 }
 
-#       name                event             files                                 backend frontend stack all
-changes "docs only"         pull_request      "README.md docs/x.md AGENTS.md"       "false false false false"
-changes "backend only"      pull_request      "backend/app/x.py"                    "true false true false"
-changes "frontend only"     pull_request      "frontend/src/a.ts"                   "false true true false"
-changes "e2e only"          pull_request      "e2e/tests/a.ts"                      "false false true false"
-changes "Dockerfile"        pull_request      "Dockerfile"                          "true false true false"
-changes "compose file"      pull_request      "compose.e2e.yaml"                    "true false true false"
-changes "compose.yaml"      pull_request      "compose.yaml"                        "true false true false"
-changes "override file"     pull_request      "compose.override.yaml"               "true false true false"
-changes "docker-compose"    pull_request      "docker-compose.override.yml"         "true false true false"
-changes "nested docker-c."  pull_request      "docs/docker-compose.yml"             "false false false false"
-changes "docker-compose-ish" pull_request     "my-docker-compose.yml"               "false false false false"
-changes ".dockerignore"     pull_request      ".dockerignore"                       "true false true false"
-changes "nested compose"    pull_request      "docs/compose.yaml"                   "false false false false"
-changes "Dockerfile-like"   pull_request      "docs/Dockerfile Dockerfile.md"       "false false false false"
-changes "docker files"      pull_request      "docker/nginx/x.conf"                 "true false true false"
-changes "db init script"    pull_request      "docker/postgres/init/10-roles.sql"   "true false true false"
-changes "deploy script"     pull_request      "deploy/ownvitals-deploy"             "true false false false"
-changes "worktree script"   pull_request      "scripts/worktree.sh"                 "false false true false"
-changes "ci-gate script"    pull_request      "scripts/ci-gate.sh"                  "true true true true"
-changes "ci-changes script" pull_request      "scripts/ci-changes.sh"               "true true true true"
-changes "ci-shards script"  pull_request      "scripts/ci-shards.sh"                "true true true true"
-changes "push to main"      push              "docs/x.md"                           "true true true true"
-changes "test script"       pull_request      "scripts/test-ci-gate.sh"             "true true true true"
-changes ".gitattributes"    pull_request      ".gitattributes"                      "true true true true"
-changes "unrelated script"  pull_request      "scripts/other.sh"                    "false false false false"
-changes ".env.example"      pull_request      ".env.example"                        "true false true false"
-changes ".env"              pull_request      ".env"                                "true false false false"
-changes ".envrc"            pull_request      ".envrc"                              "false false false false"
-changes ".trivyignore"      pull_request      ".trivyignore"                        "false false true false"
-changes ".github changes"   pull_request      ".github/workflows/ci.yml"            "true true true true"
-changes "schedule"          schedule          "README.md"                           "true true true true"
-changes "manual dispatch"   workflow_dispatch "README.md"                           "true true true true"
-changes "unknown event"     push              "README.md"                           "true true true true"
+#       name                event             files                                 backend frontend stack playwright all
+changes "docs only"         pull_request      "README.md docs/x.md AGENTS.md"       "false false false false false"
+changes "backend only"      pull_request      "backend/app/x.py"                    "true false true false false"
+changes "frontend only"     pull_request      "frontend/src/a.ts"                   "false true true true false"
+changes "e2e only"          pull_request      "e2e/tests/a.ts"                      "false false true true false"
+changes "Dockerfile"        pull_request      "Dockerfile"                          "true false true true false"
+changes "compose file"      pull_request      "compose.e2e.yaml"                    "true false true true false"
+changes "compose.yaml"      pull_request      "compose.yaml"                        "true false true true false"
+changes "override file"     pull_request      "compose.override.yaml"               "true false true true false"
+changes "docker-compose"    pull_request      "docker-compose.override.yml"         "true false true true false"
+changes "nested docker-c."  pull_request      "docs/docker-compose.yml"             "false false false false false"
+changes "docker-compose-ish" pull_request     "my-docker-compose.yml"               "false false false false false"
+changes ".dockerignore"     pull_request      ".dockerignore"                       "true false true true false"
+changes "nested compose"    pull_request      "docs/compose.yaml"                   "false false false false false"
+changes "Dockerfile-like"   pull_request      "docs/Dockerfile Dockerfile.md"       "false false false false false"
+changes "docker files"      pull_request      "docker/nginx/x.conf"                 "true false true true false"
+changes "db init script"    pull_request      "docker/postgres/init/10-roles.sql"   "true false true true false"
+changes "deploy script"     pull_request      "deploy/ownvitals-deploy"             "true false false false false"
+changes "worktree script"   pull_request      "scripts/worktree.sh"                 "false false true false false"
+changes "ci-gate script"    pull_request      "scripts/ci-gate.sh"                  "true true true true true"
+changes "ci-changes script" pull_request      "scripts/ci-changes.sh"               "true true true true true"
+changes "ci-shards script"  pull_request      "scripts/ci-shards.sh"                "true true true true true"
+changes "push to main"      push              "docs/x.md"                           "true true true true true"
+changes "test script"       pull_request      "scripts/test-ci-gate.sh"             "true true true true true"
+changes ".gitattributes"    pull_request      ".gitattributes"                      "true true true true true"
+changes "unrelated script"  pull_request      "scripts/other.sh"                    "false false false false false"
+changes ".env.example"      pull_request      ".env.example"                        "true false true false false"
+changes ".env"              pull_request      ".env"                                "true false false false false"
+changes ".envrc"            pull_request      ".envrc"                              "false false false false false"
+changes ".trivyignore"      pull_request      ".trivyignore"                        "false false true false false"
+changes ".github changes"   pull_request      ".github/workflows/ci.yml"            "true true true true true"
+changes "schedule"          schedule          "README.md"                           "true true true true true"
+changes "manual dispatch"   workflow_dispatch "README.md"                           "true true true true true"
+changes "unknown event"     push              "README.md"                           "true true true true true"
 
 # Paths that need care. changes_git <name> <expected> <setup function>: the function runs in the
 # scratch repo on top of a base commit that holds backend/app/x.py and docs/y.md.
@@ -212,26 +212,26 @@ add_quote_name() { echo a > 'backend/app/q"x.py'; }
 add_newline_name() { echo a > "backend/app/a"$'\n'"b.py"; }
 add_backslash_name() { mkdir -p frontend && echo a > 'frontend/a\b.ts'; }
 add_docs_non_ascii() { echo a > "docs/$(printf '\303\245').md"; }
-changes_git "move out of backend/"          "true false true false" mv_out_of_backend
-changes_git "move backend/ to frontend/"    "true true true false"  mv_backend_to_frontend
-changes_git "non-ASCII name in backend/"    "true false true false" add_non_ascii
+changes_git "move out of backend/"          "true false true false false" mv_out_of_backend
+changes_git "move backend/ to frontend/"    "true true true true false"  mv_backend_to_frontend
+changes_git "non-ASCII name in backend/"    "true false true false false" add_non_ascii
 # Windows file systems refuse double quotes, newlines and backslashes in names.
 case "$(uname -s)" in
   MINGW* | MSYS* | CYGWIN*) ;;
   *)
-    changes_git "double quote in backend/ name" "true false true false" add_quote_name
-    changes_git "newline in backend/ name"      "true false true false" add_newline_name
-    changes_git "backslash in frontend/ name"   "false true true false" add_backslash_name
+    changes_git "double quote in backend/ name" "true false true false false" add_quote_name
+    changes_git "newline in backend/ name"      "true false true false false" add_newline_name
+    changes_git "backslash in frontend/ name"   "false true true true false" add_backslash_name
     ;;
 esac
-changes_git "non-ASCII name in docs/"       "false false false false" add_docs_non_ascii
+changes_git "non-ASCII name in docs/"       "false false false false false" add_docs_non_ascii
 
 # The diff cannot be computed (unknown or missing SHA): everything runs, never "nothing changed".
 fail_closed() { # fail_closed <name> <env assignments...>
   local name="$1" out
   shift
   out="$(cd "$tmp" && env -u GITHUB_OUTPUT -u BASE_SHA -u HEAD_SHA "$@" "$here/ci-changes.sh" 2> /dev/null | cut -d= -f2 | tr '\n' ' ')"
-  if [ "$out" = "true true true true " ]; then report ok "changes: $name"; else report FAIL "changes: $name (got '$out')"; fi
+  if [ "$out" = "true true true true true " ]; then report ok "changes: $name"; else report FAIL "changes: $name (got '$out')"; fi
 }
 fail_closed "unknown base runs everything" EVENT_NAME=pull_request BASE_SHA=0000000000000000000000000000000000000001 HEAD_SHA=HEAD
 fail_closed "unknown head runs everything" EVENT_NAME=pull_request BASE_SHA=HEAD HEAD_SHA=0000000000000000000000000000000000000002

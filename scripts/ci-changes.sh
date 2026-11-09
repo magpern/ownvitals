@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Decides which CI jobs a change needs. Writes backend/frontend/stack/all (true|false) to
+# Decides which CI jobs a change needs. Writes backend/frontend/stack/playwright/all (true|false) to
 # $GITHUB_OUTPUT, or to stdout when that is unset (local use). Ported from classbeat
 # (d8060510) without the merge queue.
 #
@@ -22,11 +22,18 @@ re_all='^(\.github/|\.gitattributes$|scripts/(ci-changes|ci-gate|ci-shards|test-
 # Dockerfile's digest pins, compose's roles, db-functions and host-SQL checks, the Postgres digest).
 re_backend='^(backend/|docker/|deploy/|Dockerfile$|(docker-)?compose[^/]*\.ya?ml$|\.dockerignore$|\.env(\.example)?$)'
 re_frontend='^frontend/'
+# Playwright (the slow part of the E2E job) runs only for what a browser can see: the UI, the e2e
+# suite and its fakes, the compose files, the image and the docker/ files. A backend-only,
+# scripts-only or docs-only change gets the stack build, the stack checks and the image scan
+# without it. `main` runs everything after each merge (push) and weekly, so nothing goes untested
+# for long. (Ported from classbeat, PR #600.)
+re_playwright='^(frontend/|e2e/|docker/|Dockerfile$|(docker-)?compose[^/]*\.ya?ml$|\.dockerignore$)'
 re_stack='^((backend|frontend|e2e|docker)/|scripts/worktree\.sh$|Dockerfile$|(docker-)?compose[^/]*\.ya?ml$|\.dockerignore$|\.env\.example$|\.trivyignore$)'
 
 backend=false
 frontend=false
 stack=false
+playwright=false
 all=false
 
 if [ "$EVENT_NAME" != pull_request ]; then
@@ -48,6 +55,7 @@ else
       [[ $f =~ $re_backend ]] && backend=true
       [[ $f =~ $re_frontend ]] && frontend=true
       [[ $f =~ $re_stack ]] && stack=true
+      [[ $f =~ $re_playwright ]] && playwright=true
     done < "$list"
   else
     echo "::warning::could not diff ${BASE_SHA}...${HEAD_SHA}; running everything" >&2
@@ -59,11 +67,13 @@ if [ "$all" = true ]; then
   backend=true
   frontend=true
   stack=true
+  playwright=true
 fi
 
 {
   echo "backend=$backend"
   echo "frontend=$frontend"
   echo "stack=$stack"
+  echo "playwright=$playwright"
   echo "all=$all"
 } >> "$out"
