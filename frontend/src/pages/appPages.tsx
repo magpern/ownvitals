@@ -3,6 +3,7 @@ import type { AppRoute, RouteId } from '../router/appRoutes'
 import { Card, ComingLater } from '../components/ui/Card'
 import { useT } from '../i18n'
 import { AdminPage } from './AdminPage'
+import { BodyPage } from './BodyPage'
 import { ConnectionsPage } from './ConnectionsPage'
 import { ECG_PAGES } from './ecgPages'
 import { FINDINGS_PAGES } from './findingsPages'
@@ -23,6 +24,8 @@ const BUILT: Partial<Record<RouteId, ComponentType>> = {
   security: SecurityPage,
   // Issue 196: the Connections screen.
   connections: ConnectionsPage,
+  // Issue 201: body composition.
+  body: BodyPage,
   ...OVERVIEW_PAGES,
   ...METRIC_PAGES,
   ...ECG_PAGES,

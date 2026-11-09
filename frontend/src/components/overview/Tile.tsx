@@ -20,6 +20,8 @@ interface Props {
   range: RangeId
   /** A number written by the caller (blood pressure: "118/76"); otherwise the latest value. */
   valueText?: string | null
+  /** The tile's name when the overview catalogue has none for the key (the body page). */
+  name?: string
 }
 
 /** The data state under a tile, with the progress the two counting states carry. */
@@ -34,11 +36,11 @@ function State({ kind, tile, children }: { kind: DataStateKind; tile: MetricTile
   return <DataState kind={kind}>{children}</DataState>
 }
 
-export function Tile({ tile, range, valueText }: Props) {
+export function Tile({ tile, range, valueText, name: given }: Props) {
   const t = useT()
   const f = useFormat()
   const kind = stateKind(tile.state)
-  const name = t(`overview.metric.${tile.key}` as MessageKey)
+  const name = given ?? t(`overview.metric.${tile.key}` as MessageKey)
   const digits = digitsOf(tile.key)
   const latest = showsValue(tile) ? tile.latest : null
   const band = tile.typicalRange
