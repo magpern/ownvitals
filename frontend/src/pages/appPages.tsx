@@ -5,6 +5,7 @@ import { useT } from '../i18n'
 import { AdminPage } from './AdminPage'
 import { OVERVIEW_PAGES } from './overviewPages'
 import { SecurityPage } from './SecurityPage'
+import { METRIC_PAGES } from './metricPages'
 import { SETTINGS_PAGES } from './settingsPages'
 
 // The screens of the signed-in app. A screen that is not built yet shows the "Coming later"
@@ -18,6 +19,7 @@ const BUILT: Partial<Record<RouteId, ComponentType>> = {
   // #11: the lock band, "Where you're signed in" and the step-up dialog; the rest comes later.
   security: SecurityPage,
   ...OVERVIEW_PAGES,
+  ...METRIC_PAGES,
   ...SETTINGS_PAGES,
 }
 

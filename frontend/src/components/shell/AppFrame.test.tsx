@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { t } from '../../i18n'
 import { APP_ROUTES } from '../../router/appRoutes'
 import { SIGNED_IN, SIGNED_IN_NO_TOTP, fakeApi } from '../../test/fakeApi'
+import { syntheticMetric } from '../../test/metricFixtures'
 import { renderAt } from '../../test/render'
 
 // The app frame, end to end: what a signed-in user gets around every screen (the rail, the top
@@ -31,7 +32,7 @@ describe('the app frame', () => {
   })
 
   // The screens built so far (src/pages/appPages.tsx) have their own tests.
-  const BUILT_SCREENS = new Set(['security', 'overview', 'heart', 'sleep', 'activity', 'settings', 'notifications', 'data'])
+  const BUILT_SCREENS = new Set(['security', 'overview', 'heart', 'sleep', 'activity', 'metric', 'day', 'settings', 'notifications', 'data'])
 
   it.each(APP_ROUTES.filter((route) => !BUILT_SCREENS.has(route.id)).map((route) => [route.id, route] as const))(
     'shows the page header and "Coming later" on the %s screen',
@@ -48,7 +49,7 @@ describe('the app frame', () => {
   )
 
   it('marks the rail item of the screen, also for a screen inside an area', async () => {
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN })
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN, 'GET /api/metrics/weight?range=90d': syntheticMetric() })
     renderAt('/m/weight')
     await screen.findByRole('heading', { level: 1, name: 'Metric' })
     const rail = screen.getByRole('navigation', { name: 'Main' })
