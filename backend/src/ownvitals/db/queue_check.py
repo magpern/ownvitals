@@ -48,32 +48,34 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from ownvitals.db.outbox_digests import OUTBOX_DIGESTS
 from ownvitals.db.queue_digests import QUEUE_DIGESTS
 from ownvitals.db.queue_expected import (  # noqa: F401 (re-exported)
-    AI_FUNCTION_NAMES,
-    AI_PINS,
-    AI_ROLE,
-    AI_VERSION,
     COLUMN_COUNT,
     ENQUEUE_INGEST_ACL,
     EXPECTED_ACL,
     EXPECTED_ATTRIBUTES,
     EXPECTED_DEPENDENCIES,
     EXPECTED_PRIVILEGES,
-    OUTBOX_FUNCTION_NAMES,
-    OUTBOX_PINS,
-    OUTBOX_ROLE,
-    OUTBOX_VERSION,
     QUEUE_FUNCTIONS,
     QUEUE_QUERY,
     QUEUE_ROLE,
     QUEUE_VERSION,
-    RATE_FUNCTION_NAMES,
-    RATE_PINS,
-    RATE_VERSION,
     SEARCH_PATH,
     SQL_TEXT_BUILTINS,
     WITHINGS_FUNCTION_NAMES,
     WITHINGS_PINS,
     WITHINGS_VERSION,
+)
+from ownvitals.db.queue_expected_extra import (  # noqa: F401 (re-exported)
+    AI_FUNCTION_NAMES,
+    AI_PINS,
+    AI_ROLE,
+    AI_VERSION,
+    OUTBOX_FUNCTION_NAMES,
+    OUTBOX_PINS,
+    OUTBOX_ROLE,
+    OUTBOX_VERSION,
+    RATE_FUNCTION_NAMES,
+    RATE_PINS,
+    RATE_VERSION,
 )
 from ownvitals.db.role_check import DatabaseRoleError, is_authentication_failure
 
