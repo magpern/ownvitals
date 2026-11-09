@@ -135,10 +135,15 @@ refuse the merge if the head moved after the review. The squash title is the PR 
 `--admin`, never an approving review, never a ruleset change to get a merge through.
 
 The `main` ruleset (PLAN-operations §10.5): pull request required, required checks `ci` and
-`pr-title` with branches up to date, squash only, linear history, no direct pushes, no force
-pushes, zero required approvals. Protected `v*` tags. `CODEOWNERS` is informational. When `main`
-moved, the Developer (or the Architect) updates the branch with
-`gh pr update-branch <n>` and the merge-only rule in item 3 applies.
+`pr-title` (green on the PR head; branches need **not** be up to date, roadmap Amendment 8),
+squash only, linear history, no direct pushes, no force
+pushes, zero required approvals. Protected `v*` tags. `CODEOWNERS` is informational.
+
+So a PR is merged on its own green head and its `PASS`, without updating the branch. Update a
+branch from `main` only for a real conflict (`gh pr update-branch <n>`) or when `main` changed
+a file the PR changes or calls in a way that needs checking; the merge-only rule in item 3 then
+applies. The safety net is the full CI run on `main` after every merge: a red `main` is fixed
+forward first, before other merges.
 
 ## Branches, worktrees and commits
 
@@ -285,8 +290,8 @@ Agents are paid for by the token, so the loop is built to avoid idle and repeate
 - Developers run lint, types and targeted tests; CI runs the full suite.
 - The Architect reads GitHub with `fields`/`minimal_output` and avoids whole-file or whole-PR
   reads it does not need.
-- About three Developers at a time: more only adds stale branches, branch updates and re-runs
-  under the up-to-date rule. Migration numbers and lock namespaces are assigned up front.
+- About three Developers at a time: more only adds stale branches and conflicting
+  files. Migration numbers and lock namespaces are assigned up front.
 
 ## Reading budget
 
