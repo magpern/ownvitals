@@ -18,6 +18,10 @@ class AiSettings(BaseSettings):
     # authoritative caps; the worker passes them on every reservation and nothing stores them.
     ai_user_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
     ai_global_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
+    # The audit log's retention (ADR 0014 section 6, open question 5): ``ai_audit`` rows older
+    # than this many months are deleted by the worker's hourly purge. At least 12, the ADR's
+    # period (``ai_audit_purge`` refuses fewer): the owner may keep them longer, never shorter.
+    ai_audit_retention_months: int = Field(default=12, ge=12, le=120)
     # Experimental findings and scores (the HIS) to the model (ADR 0014 section 4, open question
     # 4): only for an account that passes the experimental gate (the owner-only switch) **and**
     # only when this is true. Default false: the owner opts in explicitly.

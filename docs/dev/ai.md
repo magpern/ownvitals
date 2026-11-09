@@ -55,14 +55,15 @@ cascade; the month's global total keeps the spend.
 
 ## The functions
 
-Owned by `ownvitals_ai` (`NOLOGIN BYPASSRLS`, column grants only, listed in ADR 0005 §3),
+Owned by `ownvitals_ai` (`NOLOGIN BYPASSRLS`, column grants and `DELETE` on `ai_audit` for the
+audit retention, listed in ADR 0005 §3),
 `SECURITY DEFINER`, `search_path = pg_catalog, pg_temp`, comment `ownvitals-ai v1`, `EXECUTE` for
 `ownvitals_app` only. None takes an owner id: `ai_reserve`, `ai_settle` and `ai_release` act for
 the transaction's `app.user_id` and raise `42501` without one. One lock order everywhere: the
 month's global row, the user's row, the reservation. Their digests are pinned with the queue's in
-`ownvitals/db/queue_digests.py`; `20-queue.sql` admits the four by name, and the queue check
-(startup and every new connection) refuses a database where one differs or one of the four is
-missing.
+`ownvitals/db/queue_digests.py`; `20-queue.sql` admits the five (these four and the audit
+retention's `ai_audit_purge`, [below](#audit-retention)) by name, and the queue check (startup and
+every new connection) refuses a database where one differs or one of the five is missing.
 
 ### Changing a function
 
@@ -276,8 +277,26 @@ counts, cost in micro-USD, reservation, latency, attempts, status, error categor
 settlement, and HMAC-SHA-256 of the request bytes and of the answer bytes under
 HKDF(`app_secret_key`, `ai-audit`). Never message text, tool results, the system prompt or the key.
 The log line carries the same fields without the cost and the fingerprints. The app role may only
-read and insert (append-only; `10-roles.sql` restores it). It survives withdrawal and "delete
-imported data" (`KEPT`) and goes with the account.
+read and insert (append-only; `10-roles.sql` and `50-ai.sql` restore it). It survives withdrawal
+and "delete imported data" (`KEPT`) and goes with the account.
+
+### Audit retention
+
+ADR 0014 §6, #331. Rows are kept `OWNVITALS_AI_AUDIT_RETENTION_MONTHS` (default 12, from 12 to
+120: longer, never shorter) and then deleted by the worker's hourly purge tick
+(`worker.upkeep.purge`, every `purge_interval_seconds`, after the auth purge and whether or not
+`ai_insights` is on). `ai.audit_retention.purge_expired_audit` calls `ai_audit_purge(p_months,
+p_limit)` (`50-ai.sql`, `SECURITY DEFINER`, owned by `ownvitals_ai`, `EXECUTE` for the app role
+only) in a session with no user, at most 1,000 rows per transaction and 10 transactions per tick,
+oldest first; it returns a count, logged as the `ai audit purge` maintenance step. The function
+refuses fewer than 12 months (`22023`), so the app role cannot shorten the retention, and it reads
+only `ai_audit.id` and `created_at`. Without `50-ai.sql` nothing is called (no audit row can exist
+without `ai_reserve`).
+
+| Test file | Covers |
+|---|---|
+| `test_ai_audit_purge.py` | rows past retention go for every owner, younger ones stay, the 12-month boundary, a longer setting, the limit oldest first, a user context changes nothing; a shorter retention or a limit out of bounds refused (function and Python); the app role still cannot delete; batches; not installed; the setting; the worker tick with AI on and off, and one failing step not stopping the other |
+| `test_ai_functions.py` | with the family: callable by the app role only, pins, digests, drift (a purge without the floor, the function dropped, the role's `ai_audit` grants) |
 
 | Test file | Covers |
 |---|---|
@@ -293,7 +312,11 @@ imported data" (`KEPT`) and goes with the account.
 - No SDK: the guard refuses the provider's SDK in `src`, so the client posts the Messages API's
   JSON itself through `model_async_client` (`anthropic-version: 2023-06-01`). The request and
   answer shapes are from the public API documentation, not verified against the provider.
-- The 12-month audit retention purge and the `eval` kind's writer (ADR 0014 §9) are not built.
+- The `eval` kind's writer (ADR 0014 §9) is not built.
+- `ai_audit.created_at` defaults to `now()` but the app role inserts the row and could set it: a
+  user could date their own rows into the future to keep them past retention (their own rows
+  only, like T103a). The purge scans `created_at` without an index of its own (the index is
+  `(owner_id, created_at)`); fine at household scale, a migration can add one if it is not.
 - The app role may insert its own `ai_audit` rows (forgery of one's own audit only; threat model
   T103a).
 - Guard registrations: `ownvitals.auth.keys.derive_key` is on `auth_tables_scan.PUBLIC_ENTRY_POINTS`

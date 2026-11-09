@@ -42,8 +42,9 @@ Each has its own allowlist, of packages (the package and everything under it) an
   and sign-up mode, a system table, without a user), the exact module
   ``ownvitals.notify.outbox`` (#194: web's outbox sender claims and marks rows only through the
   outbox's ``SECURITY DEFINER`` functions and holds no ``UserContext``, ADR 0007 section 3; the
-  session itself reaches no owned row), the exact module ``ownvitals.ai.budget`` (#205: the
-  reaper's ``ai_settle_lost``, a definer function returning a count), and the exact module
+  session itself reaches no owned row), the exact modules ``ownvitals.ai.budget`` (#205: the
+  reaper's ``ai_settle_lost``) and ``ownvitals.ai.audit_retention`` (#331: the audit retention's
+  ``ai_audit_purge``), definer functions returning a count, and the exact module
   ``ownvitals.worker.metrics`` (#167: the metrics refresh calls ``queue_stats()`` and the two
   metrics aggregates, definer functions returning counts and ages that refuse a user session;
   the session itself reaches no owned row). The admin area opens
@@ -107,9 +108,9 @@ KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
 FLAGS_SYSTEM_SESSION = ("ownvitals.flags.routes",)
 # The outbox's claim and mark (#194): calls of its definer functions, without a user.
 NOTIFY_SYSTEM_SESSION = ("ownvitals.notify.outbox",)
-# The AI reaper (#205): ``ai_settle_lost``, a definer function that returns a count; the session
-# itself reaches no owned row.
-AI_SYSTEM_SESSION = ("ownvitals.ai.budget",)
+# The AI reaper (#205): ``ai_settle_lost``, and the audit retention (#331): ``ai_audit_purge``,
+# definer functions that return a count; the session itself reaches no owned row.
+AI_SYSTEM_SESSION = ("ownvitals.ai.budget", "ownvitals.ai.audit_retention")
 # The worker's metrics refresh (#167): the metrics aggregates and ``queue_stats()``, definer
 # functions returning counts and ages; the session itself reaches no owned row.
 METRICS_SYSTEM_SESSION = ("ownvitals.worker.metrics",)

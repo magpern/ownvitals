@@ -7,7 +7,8 @@ passed (``queue_verified``) and, when it holds a key ring, until that ring's che
 Every ``worker_maintenance_seconds`` (30 s) it runs the reaper, and
 every ``purge_interval_seconds`` (an hour) the auth purge of ADR 0003 section 1
 (``ownvitals.auth.purge``: expired sessions and flows, used tokens, old invites, unused known
-devices, old auth events and session IPs), and every ``SCHEDULE_TICK_SECONDS`` (5 minutes) the
+devices, old auth events and session IPs) with the AI audit log's retention of ADR 0014
+section 6 (``ownvitals.worker.upkeep``), and every ``SCHEDULE_TICK_SECONDS`` (5 minutes) the
 scheduler: ``queue_schedule`` for each kind in ``schedules`` that the registry runs (the process
 entry passes ``ownvitals.worker.kinds.SCHEDULES``: the poll and the reconciliation, PLAN section
 4.4). The function decides what is due from the jobs table, so restarts and several workers
