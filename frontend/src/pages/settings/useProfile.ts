@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { decodeProfile, fieldsOf, saveProfile, type Profile, type ProfileFields } from '../../api/profile'
 import { errorMessage } from '../../api/messages'
 import { useResource, type Resource } from '../../api/useResource'
 import { t as translate } from '../../i18n'
-import { getThemePreference, setThemePreference } from '../../theme/theme'
 
 // The signed-in user's profile for the Settings tabs: read once, saved as one document per change.
 // The server answer replaces the screen's copy; a refused save shows the server's words and leaves
-// the copy as it was. The theme follows the account: what the server holds is applied on load (so
-// a second device shows it), and it is also kept in this browser by `setThemePreference`.
+// the copy as it was. The account's theme is applied by the shell (components/shell/useAccountTheme.ts).
 
 export interface ProfileState {
   resource: Resource<Profile>
@@ -25,11 +23,6 @@ export function useProfile(): ProfileState {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<ProfileState['note']>(null)
   const profile = saved ?? resource.data
-
-  const loadedTheme = resource.data?.theme
-  useEffect(() => {
-    if (loadedTheme !== undefined && loadedTheme !== getThemePreference()) setThemePreference(loadedTheme)
-  }, [loadedTheme])
 
   const save = useCallback(async (patch: Partial<ProfileFields>): Promise<boolean> => {
     if (profile === null) return false

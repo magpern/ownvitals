@@ -125,10 +125,10 @@ describe('Profile and display', () => {
     expect(screen.getByRole('button', { name: 'Dark' })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it("follows the account's theme on a device that has none stored", async () => {
+  it("follows the account's theme on a page outside Settings, on a device that has none stored", async () => {
     profileApi(fakeProfile({ theme: 'light' }))
-    renderAt('/settings/profile')
-    await screen.findByRole('heading', { name: 'Display' })
+    renderAt('/')
+    await screen.findByRole('heading', { level: 1, name: 'Overview' })
     await waitFor(() => {
       expect(getThemePreference()).toBe('light')
     })
@@ -224,7 +224,7 @@ describe('Notifications', () => {
 
 describe('Your data', () => {
   it('shows the experimental and AI states read-only', async () => {
-    const api = profileApi(fakeProfile({ experimental_available: true, show_experimental: true }))
+    const api = profileApi(fakeProfile({ experimental_available: true, show_experimental: false }))
     renderAt('/settings/data')
     const experimental = await screen.findByRole('switch', { name: 'Show experimental results' })
     expect(experimental).toBeChecked()
@@ -232,6 +232,12 @@ describe('Your data', () => {
     expect(screen.getByRole('switch', { name: 'AI insights' })).toBeDisabled()
     expect(screen.getByRole('switch', { name: 'AI insights' })).not.toBeChecked()
     expect(api.to('PUT', '/api/profile')).toHaveLength(0)
+  })
+
+  it('shows the experimental switch off when the account may not use it', async () => {
+    profileApi(fakeProfile({ experimental_available: false, show_experimental: true }))
+    renderAt('/settings/data')
+    expect(await screen.findByRole('switch', { name: 'Show experimental results' })).not.toBeChecked()
   })
 
   it('shows the export as not there yet', async () => {

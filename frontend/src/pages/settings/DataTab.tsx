@@ -28,7 +28,7 @@ function Flags({ state }: { state: ProfileState }) {
       >
         <Toggle
           label={t('settings.flags.experimental.label')}
-          checked={profile.experimentalAvailable && profile.show_experimental}
+          checked={profile.experimentalAvailable}
           disabled
         />
       </Row>

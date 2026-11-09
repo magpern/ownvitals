@@ -29,13 +29,13 @@ test('switch language signed out, sign in, change it in Settings, reload, get Sw
   await enrolAuthenticator(page)
 
   // Settings: the account's language, applied at once.
-  await page.goto('/settings/security')
-  await expect(page.getByRole('heading', { name: "Where you're signed in" })).toBeVisible()
+  await page.goto('/settings/profile')
+  await expect(page.getByRole('heading', { name: 'Display' })).toBeVisible()
   await page.getByLabel('Language').selectOption('sv')
-  await expect(page.getByRole('heading', { name: 'Där du är inloggad' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Visning' })).toBeVisible()
 
   // A reload keeps it (the session carries the account's language).
-  await page.reload()
+  await page.goto('/settings/security')
   await expect(page.getByRole('heading', { name: 'Där du är inloggad' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Logga ut överallt…' })).toBeVisible()
 

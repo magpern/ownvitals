@@ -176,7 +176,7 @@ async def test_the_profile_needs_a_signed_in_user_and_the_csrf_token(env: Env) -
     assert rows() == []
 
 
-async def test_the_experimental_results_need_the_switch(env: Env, owner_env: Env) -> None:
+async def test_the_experimental_results_need_the_switch(env: Env) -> None:
     browser, _ = await user(env, "a@example.com")
     refused = await browser.request("PUT", PROFILE, body(show_experimental=True))
     assert (refused.status_code, refused.json()["detail"]["reason"]) == (
@@ -237,3 +237,5 @@ def test_only_sex_and_day_assignment_move_the_analysis() -> None:
     assert not moves_the_analysis(
         ProfileIn.model_validate(fixed), ProfileIn.model_validate({**fixed, "theme": "dark"})
     )
+    other = body(day_assignment="fixed_tz", day_tz="America/New_York")
+    assert moves_the_analysis(ProfileIn.model_validate(fixed), ProfileIn.model_validate(other))
