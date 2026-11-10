@@ -1,7 +1,7 @@
 # ADR 0005: Jobs, leases, fencing and the worker
 
 Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88, and 2026-11-10 by
-#370 and #314 (see "Amendments").
+#370, #314 and #365 (see "Amendments").
 Post-port review (#16, 2026-11-03): no decision changed; the queue hardening findings of the M1
 PRs are in #165.
 
@@ -198,6 +198,19 @@ queued ──claim──> running ──> completed | failed | cancelled
     audit row. The role's privileges are exactly those ADR 0002 §3 lists (system tables only).
     Their digests are in `ownvitals.db.queue_digests` with the others, and `20-queue.sql` admits
     the three by name. `db-functions` runs the script last.
+  - from #365, the admin delete's Withings revoke (ADR 0002 §3; amended 2026-11-10, #365): a
+    fourth admin account function, `admin_account_revoke(p_target uuid, p_email_normalized
+    text, p_session uuid, OUT outcome text, OUT job_id uuid)`, with the family's owner, version
+    comment and ACL, and one more queue function, `queue_enqueue_admin_revoke(p_owner uuid,
+    p_admin uuid, p_session uuid)`, in `20-queue.sql`, owned by `ownvitals_queue` with the queue
+    functions' `search_path` and version comment, but **not** their ACL: `EXECUTE` to
+    `ownvitals_admin_accounts` only (granted by `70-admin-accounts.sql`, kept when `20-queue.sql`
+    runs again on its own), never `ownvitals_app`. It inserts one queued
+    `withings_admin_revoke` job (origin `operator`, lane 1, one attempt) and its `queued` event
+    for an owner with a live connection, and needs no privilege the queue role lacks
+    (`connections (id, owner_id, status)`, `jobs`, `job_events`). `ownvitals_admin_accounts`
+    gains `EXECUTE` on it and nothing else. Both digests are in `ownvitals.db.queue_digests`,
+    and `20-queue.sql` admits both by name.
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day
@@ -407,6 +420,15 @@ A new advisory lock adds its row here in the PR that introduces it.
 - Threat model T44 to T51 cite this ADR.
 
 ## Amendments
+
+### 2026-11-10 (#365): the admin delete's revoke job
+
+Recorded in §3 and marked "amended 2026-11-10, #365": ADR 0002 §3 requires an amendment here
+for a new definer. The admin account delete first queues the target's Withings revoke through
+`admin_account_revoke` (admin account family) and `queue_enqueue_admin_revoke` (queue family,
+callable by that family's role alone); the job kind `withings_admin_revoke` is claimed and
+issued like any other (§4), and its handler re-checks the admin's stepped-up session before it
+revokes (ADR 0002's amendment of the same date gives the conditions).
 
 ### 2026-11-10 (#314): the admin account family
 
