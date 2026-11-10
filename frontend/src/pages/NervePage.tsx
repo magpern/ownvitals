@@ -40,7 +40,7 @@ export function NervePage() {
           <AreaSection title={t('nerve.section.measures')}>
             {NERVE_KEYS.map((key) => {
               const tile = tiles.find((x) => x.key === key)
-              return tile === undefined ? <MissingTile key={key} name={name(key)} /> : <Tile key={key} tile={tile} range={range} name={name(key)} />
+              return tile === undefined ? <MissingTile key={key} metricKey={key} range={range} name={name(key)} /> : <Tile key={key} tile={tile} range={range} name={name(key)} />
             })}
             <FootCard />
           </AreaSection>

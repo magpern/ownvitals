@@ -7,6 +7,7 @@ import {
   agoText,
   bloodPressure,
   detailKey,
+  digitsOf,
   freshness,
   parseRange,
   railStatus,
@@ -181,5 +182,13 @@ describe('the rail marks', () => {
   it('marks a connection that needs a look', () => {
     expect(railStatus(status({ connection: 'needs_reconnect' }), t).connections?.badge).toMatchObject({ tone: 'attn' })
     expect(railStatus(status({ broken_connections: ['withings'] }), t).connections?.badge).toMatchObject({ tone: 'attn' })
+  })
+})
+
+describe('digitsOf (issue 325)', () => {
+  it('shows indexes and counts as whole numbers and the rest with one decimal', () => {
+    expect(digitsOf('metabolic_age')).toBe(0)
+    expect(digitsOf('visceral_fat')).toBe(0)
+    expect(digitsOf('weight')).toBe(1)
   })
 })
