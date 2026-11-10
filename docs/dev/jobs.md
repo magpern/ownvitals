@@ -140,6 +140,17 @@ deadline plus 30 s and committed before the call; no transaction is open across 
 `JobFailure(category)`; only the category is ever kept (`jobs/errors.py`). `GET /api/jobs/{id}` shows that category as a code (`error_category`, the `job_failures` family of `response_codes.py`) and no sentence; the page words it from `src/i18n/*/codes.ts`.
 The heartbeat extends the lease every lease/3 with `GREATEST`.
 
+## Waiting for the rate limiter (#349, #351)
+
+An ingest call (`ingest/calls.py`) asks the limiter again while the refusal is only a queue
+(`wait`, `busy`, `empty`). The waits start at the limiter's `retry_at`, double with each refusal
+(0.2 s, 0.4 s, ... capped at 5 s) and are stretched by up to 25 % of jitter, so a long wait makes
+a few claims, not five a second. `CLAIM_WAIT_SECONDS` (60 s) bounds the wait **per call**, not per
+attempt: an attempt of many calls can wait 60 s for each. A 601 hold (`paused`), or a wait that
+would pass the bound, fails the attempt as `rate_limited` with `retry_after`, and the queue counts
+that attempt like any other retryable failure (`backoff_seconds` honours `retry_after`); a hold
+is not waited out inside the attempt, because it lasts minutes.
+
 ## The worker
 
 `python -m ownvitals.worker` (compose `worker`): up to `worker_concurrency` runs, woken by `LISTEN
