@@ -56,8 +56,10 @@ come with their own issues and extend this file. The ECG PDF of `reports/ecg_pdf
    drops during it has lost the export and requests a new one. A stream that cannot go on (a
    later attempt began, the export expired meanwhile) is aborted (`DownloadAborted`), so the
    connection breaks short of `Content-Length` and the browser reports a failed download
-   (uvicorn's "Exception in ASGI application" record of it is dropped by a filter, so no
-   traceback is logged; the body logs one line without an id). The SPA also refuses to save a
+   (a filter on the `uvicorn.error` logger tries to drop uvicorn's "Exception in ASGI
+   application" record of it, but that is best effort: under the real stack it does not catch
+   every case, so a traceback can still be logged, and the tests only exercise the filter on a
+   hand-built record. The body logs one line without an id). The SPA also refuses to save a
    body shorter than its `Content-Length`, unless the response has a `Content-Encoding` (a proxy
    compressed it; the header then counts encoded bytes).
 4. **The mail.** The transaction that marks the export ready also queues one `export_ready` row
@@ -186,6 +188,8 @@ Known gaps:
 - No `export_ready` mail for a doctor PDF (it is requested and fetched in one sitting).
 - The ECG picker offers the first page of recordings only (newest, with a signal).
 - ECG pages keep their own "Page i of k".
+- The purge's 90-day delete of `failed` and `expired` rows filters on state in its SQL only;
+  no test pins that filter (a row in another state older than 90 days must stay).
 - A month's min and max are the min and max of the daily minimums and maximums.
 - A metric whose typical range cannot be computed prints "No typical range yet"; one with no data
   prints "No readings in this period."

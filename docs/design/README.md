@@ -105,8 +105,9 @@ No mock-up covers this screen; it is built only from components the mock-ups hav
      bar, typical range, data state) and its title links to the metric detail.
   2. *Arms and legs*: one card with four rows (left arm, right arm, left leg, right leg), each
      the segmental muscle mass in kg, with the left and right difference shown as a plain
-     percentage (the B6 symmetric index), one line per pair (arms, legs) as paragraphs after the rows. Descriptive only: no good or
-     bad colour; the tier mark of B6 appears only on its finding.
+     percentage (the B6 symmetric index), one line per pair (arms, legs) as paragraphs after the
+     rows. Descriptive only: no good or bad colour; the tier mark of B6 appears only on its
+     finding.
   3. *Body findings*: the finding cards of the findings inbox for the rules B2, B4, B5 and B6,
      and B1 and B3 only when the API returns them (the owner-only flag), each linking to
      `/findings`. Empty: "No body findings right now."
