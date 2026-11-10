@@ -3,6 +3,7 @@
 from types import MappingProxyType
 from typing import Final
 
+from ownvitals.notify.templates import en
 from ownvitals.notify.templates.base import LINK, Template
 
 _FOOTER: Final = (
@@ -22,6 +23,8 @@ TABLE: Final = MappingProxyType(
             + LINK
             + _FOOTER,
         ),
+        # Still the English copy (``untranslated.UNTRANSLATED_SV``) until the translation PR.
+        "export_ready": en.TABLE["export_ready"],
         "connection_needs_reconnect": Template(
             subject="ownvitals: något väntar på administrationssidan",
             body="Något väntar på en administratör i ownvitals.\n\nÖppna administrationssidan "

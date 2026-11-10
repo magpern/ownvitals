@@ -338,7 +338,7 @@ answer. Web never calls the model.
 | `backend/src/ownvitals/ai/chat_store.py` | web side, the caller's `user_session`: create, list, read and delete conversations, `post_message`, the budget state |
 | `backend/src/ownvitals/ai/assistant_routes.py` | `/api/ai/conversations[/{id}[/messages]]` and `/api/ai/budget` |
 | `backend/src/ownvitals/ai/assistant.py` | the worker's `ai_chat_turn`: read through the fence, `turn.run_turn`, store in the final fenced transaction |
-| `backend/migrations/versions/0024_ai_job_failures.py` | three job failure categories: `ai_not_enabled`, `ai_budget_exhausted`, `ai_unavailable` (none retried) |
+| `backend/migrations/versions/0025_ai_job_failures.py` | three job failure categories: `ai_not_enabled`, `ai_budget_exhausted`, `ai_unavailable` (none retried) |
 | `frontend/src/components/assistant/*`, `frontend/src/pages/AssistantPage.tsx`, `frontend/src/api/assistant.ts` | the `/assistant` page (design: `docs/design/README.md`, "Assistant") |
 
 ### The API

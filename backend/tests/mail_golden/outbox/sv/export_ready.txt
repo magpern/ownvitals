@@ -1,0 +1,10 @@
+Content-Language: sv
+Subject: ownvitals: something you asked for is waiting
+
+Something you asked for is waiting for you in ownvitals. It is kept only for a short time.
+
+Open it here: https://ownvitals.example.test/
+
+This email says no more than that on purpose: what is waiting is shown only after you sign in.
+
+- ownvitals

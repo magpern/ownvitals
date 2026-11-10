@@ -208,7 +208,7 @@ END $$;
 -- withings_rate_claim, withings_rate_release and withings_rate_pause (rate.sql), and
 -- mail_outbox_claim, mail_outbox_mark and owner_notice_queue (50-outbox.sql, #194), and
 -- ai_reserve, ai_settle, ai_release, ai_settle_lost (ai/50-ai.sql, #205) and ai_audit_purge
--- (#331), are
+-- (#331), and exports_purge_expired (exports/60-exports.sql, #333), are
 -- admitted here by name, and no other function is.
 -- Their bodies are pinned by digest with the queue functions (ownvitals/db/queue_digests.py;
 -- the outbox's in ownvitals/db/outbox_digests.py).
@@ -226,7 +226,8 @@ BEGIN
             'webhook_events_purge_owner', 'metrics_withings_aggregates', 'metrics_webhook_ages',
             'withings_rate_claim', 'withings_rate_release', 'withings_rate_pause',
             'mail_outbox_claim', 'mail_outbox_mark', 'owner_notice_queue',
-            'ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost', 'ai_audit_purge'))
+            'ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost', 'ai_audit_purge',
+            'exports_purge_expired'))
        AND (p.oid >= 16384 OR n.nspname = 'public'
             OR (n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                 AND n.nspname !~ '^pg_(toast_)?temp_[0-9]+$'))

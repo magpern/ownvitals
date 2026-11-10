@@ -16,9 +16,9 @@ signed-in user's ``user_session`` (forced RLS; every statement also names ``owne
   ``download_count`` 1 and deletes its chunks ("single use" is one completed transfer, and of
   parallel attempts at most one gets it).
 
-The cross-user purge of abandoned rows (``exports_purge_expired()``, a ``SECURITY DEFINER``
-function) is not built yet: until then an expired archive's chunks are removed the next time
-its owner opens the export list, requests or downloads (``docs/dev/reports.md``, known gaps).
+The same for every owner, including those who never come back, is the worker's hourly
+cross-user purge (``exports_purge_expired()``, a ``SECURITY DEFINER`` function;
+``ownvitals.reports.export_purge``).
 """
 
 import hashlib

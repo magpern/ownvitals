@@ -285,3 +285,158 @@ async def test_parallel_attempts_give_the_whole_archive_at_most_once(
     row = admin_row("SELECT state, download_count FROM exports")
     assert (row.state, row.download_count) == ("expired", 1)
     assert admin_scalar("SELECT count(*) FROM export_chunks") == 0
+
+
+# --- #333: the export_ready mail, the activity list, the download's end ---------------------------
+
+
+async def test_a_ready_export_queues_one_mail_that_links_to_settings_only(
+    xenv: Env, app_database_url: str
+) -> None:
+    from ownvitals.notify.templates import render
+
+    browser = await exporter(xenv)
+    export_id = await built_export(xenv, browser, app_database_url)
+    owner = await xenv.scalar("SELECT id FROM users")
+    rows = admin_scalar(
+        "SELECT json_agg(json_build_array(owner_id, kind, route, state)) FROM mail_outbox"
+    )
+    assert rows == [[str(owner), "export_ready", "settings_data", "pending"]]
+    for locale in ("en", "sv"):
+        mail = render("export_ready", "settings_data", "https://ownvitals.example", locale)
+        assert "https://ownvitals.example/settings/data" in mail.body
+        assert export_id not in mail.body
+        assert "/api/" not in mail.body
+        assert "export" not in (mail.subject + mail.body).lower()
+
+
+async def test_a_failed_build_queues_no_mail(xenv: Env, app_database_url: str) -> None:
+    browser = await exporter(xenv)
+    owner = UUID(str(await xenv.scalar("SELECT id FROM users")))
+    plant(admin_url(), owner)  # some rows, so the archive is over the smallest limit
+    assert (await request_export(browser)).status_code == 202
+    assert await run_build(app_database_url, export_max_bytes=1024) == "completed"
+    assert admin_scalar("SELECT count(*) FROM exports WHERE failure = 'export_too_large'") == 1
+    assert admin_scalar("SELECT count(*) FROM mail_outbox WHERE kind = 'export_ready'") == 0
+
+
+async def test_no_mail_when_the_export_left_building_before_it_was_marked_ready(
+    xenv: Env, app_database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mail is queued only when the fenced update to ``ready`` matched: here the tidy of a
+    request marked the build failed while its archive was being finished."""
+    browser = await exporter(xenv)
+    assert (await request_export(browser)).status_code == 202
+    original = export.build_archive
+
+    async def overtaken(*args: Any, **kwargs: Any) -> Any:
+        built = await original(*args, **kwargs)
+        admin_run("UPDATE exports SET state = 'failed', failure = 'build_failed'")
+        return built
+
+    monkeypatch.setattr(export, "build_archive", overtaken)
+    assert await run_build(app_database_url) == "completed"
+    assert admin_scalar("SELECT state FROM exports") == "failed"
+    assert admin_scalar("SELECT count(*) FROM mail_outbox") == 0
+
+
+async def test_the_export_s_events_are_in_the_security_activity(
+    xenv: Env, app_database_url: str
+) -> None:
+    browser = await exporter(xenv)
+    export_id = await built_export(xenv, browser, app_database_url)
+    assert (await download(xenv, browser, export_id)).status_code == 200
+    page = (await browser.get("/api/auth/activity")).json()
+    kinds = [e["kind"] for e in page["events"]]
+    assert {"export_requested", "export_ready", "export_downloaded"} <= set(kinds)
+    assert kinds.index("export_downloaded") < kinds.index("export_ready")  # newest first
+    assert export_id not in str(page)
+
+
+async def _direct_download(xenv: Env, export_id: str, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """``serve_download`` called as the route calls it, the step-up already checked, so a test
+    can drive the body as a server would and stop where a client would go away."""
+    from starlette.requests import Request
+
+    from ownvitals.reports import export_routes
+
+    async def stepped_up(*_: object) -> None:
+        return None
+
+    monkeypatch.setattr(export_routes, "require_stepup", stepped_up)
+    owner = UUID(str(await xenv.scalar("SELECT id FROM users")))
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": f"/api/exports/{export_id}/file",
+        "query_string": b"",
+        "headers": [(b"sec-fetch-site", b"same-origin")],
+        "client": ("127.0.0.1", 50000),
+        "app": xenv.app,
+    }
+    return await export_routes.serve_download(
+        UUID(export_id),
+        Request(scope),
+        make_context(owner),
+        None,
+        kind="data",
+        media_type="application/zip",
+        filename="synthetic.zip",
+        audit="export_downloaded",
+    )
+
+
+async def test_a_client_gone_during_the_last_chunk_is_not_audited_as_completed(
+    xenv: Env, app_database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    browser = await exporter(xenv)
+    export_id = await built_export(xenv, browser, app_database_url)
+    chunks = admin_scalar("SELECT count(*) FROM export_chunks")
+    response = await _direct_download(xenv, export_id, monkeypatch)
+    body = response.body_iterator
+    for _ in range(chunks):
+        await body.__anext__()  # the server takes every chunk, the last one included ...
+    await body.aclose()  # ... and the client is gone before the last send returned
+    events = await _events(xenv, "export_downloaded")
+    assert events == [
+        {"export_id": export_id, "export_kind": "data", "attempt": 1, "completed": False}
+    ]
+    # The export was spent with the last chunk (of parallel attempts at most one gets it).
+    after = admin_row("SELECT state, download_count FROM exports")
+    assert (after.state, after.download_count) == ("expired", 1)
+
+
+async def test_a_superseded_attempt_is_aborted_not_ended_short(
+    xenv: Env, app_database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ownvitals.reports.export_routes import DownloadAborted
+
+    browser = await exporter(xenv)
+    export_id = await built_export(xenv, browser, app_database_url)
+    first = await _direct_download(xenv, export_id, monkeypatch)  # attempt 1, nothing read yet
+    second = await download(xenv, browser, export_id)  # attempt 2 takes the whole archive
+    assert second.status_code == 200
+    with pytest.raises(DownloadAborted):
+        async for _ in first.body_iterator:
+            pass
+    events = await _events(xenv, "export_downloaded")
+    assert sorted((e["attempt"], e["completed"]) for e in events) == [(1, False), (2, True)]
+
+
+def test_an_aborted_download_logs_no_traceback() -> None:
+    """uvicorn's record of the abort is dropped (the body logged its one line); any other
+    exception, or a group with another one in it, is still logged."""
+    from ownvitals.reports.export_routes import QUIET_ABORT, DownloadAborted
+
+    def record(error: BaseException | None) -> logging.LogRecord:
+        info = (type(error), error, None) if error is not None else None
+        return logging.LogRecord(
+            "uvicorn.error", logging.ERROR, __file__, 1, "Exception in ASGI application", (), info
+        )
+
+    assert QUIET_ABORT in logging.getLogger("uvicorn.error").filters
+    assert not QUIET_ABORT.filter(record(DownloadAborted("export download aborted")))
+    assert not QUIET_ABORT.filter(record(ExceptionGroup("g", [DownloadAborted("x")])))
+    assert QUIET_ABORT.filter(record(RuntimeError("synthetic")))
+    assert QUIET_ABORT.filter(record(ExceptionGroup("g", [DownloadAborted("x"), KeyError("k")])))
+    assert QUIET_ABORT.filter(record(None))

@@ -58,6 +58,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.ai.budget",
             "ownvitals.ai.audit_retention",
             "ownvitals.worker.metrics",
+            "ownvitals.reports.export_purge",
         ),
     )
     private = Allowlist(prefixes=("ownvitals.db",))
@@ -173,6 +174,8 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         # The export (#211): the store opens the user's sessions; the builder, its readers and
         # the routes open none.
         ("ownvitals.reports.export_store", True, False),
+        # The export purge (#333): that exact module, never a user session.
+        ("ownvitals.reports.export_purge", False, True),
         ("ownvitals.reports.export", False, False),
         ("ownvitals.reports.export_read", False, False),
         ("ownvitals.reports.export_ecg", False, False),

@@ -1,7 +1,7 @@
 """The chat assistant's job failure categories (ADR 0014 sections 5 and 7; #208)
 
-Revision ID: 0024_ai_job_failures
-Revises: 0023_ai_audit
+Revision ID: 0025_ai_job_failures
+Revises: 0024_outbox_export_ready
 Create Date: 2026-11-09
 
 An ``ai_chat_turn`` job that ends without an answer says why with one of three new
@@ -23,8 +23,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0024_ai_job_failures"
-down_revision: str | Sequence[str] | None = "0023_ai_audit"
+revision: str = "0025_ai_job_failures"
+down_revision: str | Sequence[str] | None = "0024_outbox_export_ready"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

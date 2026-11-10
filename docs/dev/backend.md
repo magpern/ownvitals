@@ -110,6 +110,7 @@ All settings of the platform milestone exist already, so the issues that use the
 | `connection_kek_id` | `kek-1` | `kek-[a-z0-9-]{1,28}`; the key is the secret file `connection_kek` |
 | `webhook_seed_id` | `seed-1` | `seed-[a-z0-9-]{1,28}`; the key is the secret file `webhook_seed`, worker only (ADR 0004 §4; optional in M0, see [crypto.md](crypto.md)) |
 | `webhook_pepper_id` | `pep-1` | `pep-[a-z0-9-]{1,28}`; the key is the secret file `webhook_pepper`, web and worker (optional in M0) |
+| `webhook_cache_ttl_seconds` | 60 | 4 to 60; how long the web process caches the webhook secret entries before the refresh (#340) |
 | `smtp_host`, `smtp_port`, `smtp_sender`, `smtp_tls`, `smtp_username` | unset, 587, `ownvitals@localhost`, `starttls` | `smtp_tls=none` only for loopback or `mailpit` |
 | `smtp_total_seconds` | 20 | the most one mail may take, connect to quit; positive and finite |
 | `oauth_google_client_id` | unset | Google is the only OAuth provider |

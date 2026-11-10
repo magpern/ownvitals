@@ -20,6 +20,9 @@ from ownvitals.db.queue_check import (
     AI_FUNCTION_NAMES,
     AI_PINS,
     AI_VERSION,
+    EXPORTS_FUNCTION_NAMES,
+    EXPORTS_PINS,
+    EXPORTS_VERSION,
     OUTBOX_FUNCTION_NAMES,
     OUTBOX_PINS,
     OUTBOX_VERSION,
@@ -205,6 +208,7 @@ def check_queue(conn: Connection) -> list[str]:
         *RATE_FUNCTION_NAMES,
         *OUTBOX_FUNCTION_NAMES,
         *AI_FUNCTION_NAMES,
+        *EXPORTS_FUNCTION_NAMES,
     ]
     hooks = (
         conn.execute(
@@ -375,6 +379,29 @@ def check_queue(conn: Connection) -> list[str]:
         need(f.owner_name == owner, f"{prefix}: must be owned by {owner}")
         need(list(f.proconfig or []) == config.split(";"), f"{prefix}: settings must be fixed")
         need(f.comment == AI_VERSION, f"{prefix}: comment must be {AI_VERSION!r}")
+        need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
+        expected_acl = set(acl.split(","))
+        need(
+            set(f.acl or []) == expected_acl and len(f.acl or []) == len(expected_acl),
+            f"{prefix}: ACL must be {expected_acl}",
+        )
+    # 60-exports.sql (#333, ADR 0013 s. 4): absent, or the purge exactly once, pinned.
+    for name in EXPORTS_FUNCTION_NAMES:
+        found = [f for f in functions if f.proname == name]
+        if not found:
+            continue
+        args, owner, config, acl = EXPORTS_PINS[name]
+        if len(found) != 1:
+            problems.append(f"{name}: must exist exactly once, found {len(found)}")
+            continue
+        f = found[0]
+        prefix = f"public.{name}"
+        need(f.nspname == "public" and f.args == args, f"{prefix}: wrong schema or arguments")
+        need(f.prosecdef, f"{prefix}: must be SECURITY DEFINER")
+        need(f.prokind == "f" and f.lanname == "plpgsql", f"{prefix}: must be a plpgsql function")
+        need(f.owner_name == owner, f"{prefix}: must be owned by {owner}")
+        need(list(f.proconfig or []) == config.split(";"), f"{prefix}: settings must be fixed")
+        need(f.comment == EXPORTS_VERSION, f"{prefix}: comment must be {EXPORTS_VERSION!r}")
         need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
         expected_acl = set(acl.split(","))
         need(

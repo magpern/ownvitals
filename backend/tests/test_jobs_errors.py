@@ -24,7 +24,7 @@ from ownvitals.jobs.errors import BACKOFF_CAP_SECONDS, RATE_LIMIT_CAP_SECONDS
 from ownvitals.response_codes import JOB_FAILURES
 
 
-def migration_categories(name: str = "0024_ai_job_failures") -> set[str]:
+def migration_categories(name: str = "0025_ai_job_failures") -> set[str]:
     """The categories of the migration that last set the ``jobs.error_category`` check."""
     path = Path(__file__).resolve().parent.parent / "migrations" / "versions" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(f"migration_{name}", path)
@@ -41,7 +41,7 @@ def test_the_categories_match_the_migration_check() -> None:
     assert frozenset({"upstream_unavailable", "rate_limited"}) == RETRYABLE
 
 
-def test_0024_adds_the_three_ai_categories_to_0003s_list() -> None:
+def test_0025_adds_the_three_ai_categories_to_0003s_list() -> None:
     added = {"ai_not_enabled", "ai_budget_exhausted", "ai_unavailable"}
     assert migration_categories() == migration_categories("0003_jobs") | added
     assert added.isdisjoint(RETRYABLE)  # an AI turn is never retried: each try may be billed

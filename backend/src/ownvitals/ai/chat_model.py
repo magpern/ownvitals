@@ -4,7 +4,7 @@
   ``ai_messages``, never on a job row or an event).
 - ``failure_for``: the job failure category of a turn that ended without an answer, from the
   model client's closed codes (``ai.gates.ModelRefused`` / ``ModelFailed``) or the turn's end.
-  Three ``ai_*`` categories (migration ``0024``), none retried: each try may be billed.
+  Three ``ai_*`` categories (migration ``0025``), none retried: each try may be billed.
 - ``history``: the stored rows as ``ai.requests.Message`` text messages, oldest first.
 - ``REQUEST_ID``: the browser's idempotency key for one message.
 """

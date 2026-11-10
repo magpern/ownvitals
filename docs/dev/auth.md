@@ -250,9 +250,12 @@ screen; the frontend words every code through the catalogue).
   `sign_in_failed`, `reauth_failed` (a passkey re-auth failure too), `mfa_failed`, the three
   sign-outs, the TOTP and recovery-code changes, `mfa_reset`, the passkey changes
   (`passkey_added` for `passkey_registered`), `password_changed`, `password_reset`,
-  `email_changed`, `google_linked` and `google_unlinked`. Every other kind stays hidden until it
-  is named there. Nothing else of `detail` is read; `mfa_reset` (the operator's doing) shows no
-  origin.
+  `email_changed`, `google_linked` and `google_unlinked`, and the export's and doctor PDF's
+  events under their own names (`export_requested`, `export_ready`, `export_failed`,
+  `export_downloaded`, `export_expired`, `doctor_pdf_requested`, `doctor_pdf_downloaded`; #333).
+  Every other kind stays hidden until it is named there. Nothing else of `detail` is read;
+  `mfa_reset` (the operator's doing) and `export_ready`, `export_failed` and `export_expired`
+  (the build's, the purge's or another request's tidy's doing) show no origin.
 - **Only the caller's rows** (guard 7): `auth_events` is a system table without RLS, so the
   route's `WHERE user_id = <ctx.user_id>` is the wall; no parameter names a user, and a cursor
   only bounds that same filter. `tests/test_auth_activity.py` proves it with two users; the

@@ -8,4 +8,5 @@ differs or no longer exists (``tests/test_notify_templates_locales.py``).
 
 from typing import Final
 
-UNTRANSLATED_SV: Final[frozenset[str]] = frozenset()
+# export_ready (#333): the English text until the translation PR.
+UNTRANSLATED_SV: Final[frozenset[str]] = frozenset({"export_ready"})
