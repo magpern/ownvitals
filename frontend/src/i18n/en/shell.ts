@@ -43,6 +43,8 @@ export const shell = {
   'route.ecg.later': 'The ECG viewer comes in M6.',
   'route.findings.title': 'Findings',
   'route.findings.later': 'The findings page comes in M6.',
+  'route.assistant.title': 'Assistant',
+  'route.assistant.later': 'The assistant comes in M7.',
   'route.connections.title': 'Connections',
   'route.connections.later': 'The connections page comes in M6.',
   'route.settings.title': 'Settings',

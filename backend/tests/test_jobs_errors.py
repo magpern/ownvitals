@@ -24,9 +24,10 @@ from ownvitals.jobs.errors import BACKOFF_CAP_SECONDS, RATE_LIMIT_CAP_SECONDS
 from ownvitals.response_codes import JOB_FAILURES
 
 
-def migration_categories() -> set[str]:
-    path = Path(__file__).resolve().parent.parent / "migrations" / "versions" / "0003_jobs.py"
-    spec = importlib.util.spec_from_file_location("migration_0003", path)
+def migration_categories(name: str = "0024_ai_job_failures") -> set[str]:
+    """The categories of the migration that last set the ``jobs.error_category`` check."""
+    path = Path(__file__).resolve().parent.parent / "migrations" / "versions" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"migration_{name}", path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -38,6 +39,12 @@ def test_the_categories_match_the_migration_check() -> None:
     assert set(CATEGORIES) == migration_categories()
     assert len(CATEGORIES) == len(set(CATEGORIES))
     assert frozenset({"upstream_unavailable", "rate_limited"}) == RETRYABLE
+
+
+def test_0024_adds_the_three_ai_categories_to_0003s_list() -> None:
+    added = {"ai_not_enabled", "ai_budget_exhausted", "ai_unavailable"}
+    assert migration_categories() == migration_categories("0003_jobs") | added
+    assert added.isdisjoint(RETRYABLE)  # an AI turn is never retried: each try may be billed
 
 
 def test_every_category_is_a_listed_response_code() -> None:
@@ -127,6 +134,7 @@ def test_the_api_ships_no_kind_and_the_worker_ships_the_withings_kinds() -> None
 
     assert KINDS.names() == []
     assert worker_registry().names() == [
+        "ai_chat_turn",  # the chat assistant's turn (#208)
         "derive_daily",  # the metric_daily pass (#186)
         "derive_evaluate",  # the rule evaluation (#187)
         "derive_normalize",  # the observations pass (#185)

@@ -1,10 +1,11 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { getAiConsent, giveAiConsent, withdrawAiConsent, type AiConsent } from '../../api/ai'
 import { errorMessage } from '../../api/messages'
 import { Notice } from '../../components/forms'
 import { Cancelled, useProtected } from '../../components/StepUp'
 import { Button } from '../../components/ui/Button'
 import { useI18n } from '../../i18n'
+import { Link } from '../../router/Router'
 import { Row, Toggle } from './controls'
 
 // The AI row of "Your data" (issue 206, ADR 0014 section 3). While AI insights are not available
@@ -130,12 +131,26 @@ function Withdraw({ onWithdrawn }: { onWithdrawn: () => void }) {
   )
 }
 
-export function AiSection({ available }: { available: boolean }) {
+// Issue 208: the assistant page shows this same row (`embedded`) for its consent prompt, and
+// hears of every change (`onChange`); here, a given consent links to the assistant.
+export function AiSection({
+  available,
+  embedded = false,
+  onChange,
+}: {
+  available: boolean
+  embedded?: boolean
+  onChange?: (consent: AiConsent | null) => void
+}) {
   const { t, locale } = useI18n()
   const [consent, setConsent] = useState<AiConsent | null>(null)
   const [failed, setFailed] = useState(false)
   const [withdrawn, setWithdrawn] = useState(false)
   const [reload, setReload] = useState(0)
+  const notify = useRef(onChange)
+  useEffect(() => {
+    notify.current = onChange
+  })
 
   // Read even while AI is not available: a consent given before the flag went off must still be
   // withdrawable (leaving is always possible, ADR 0014 section 3).
@@ -145,6 +160,7 @@ export function AiSection({ available }: { available: boolean }) {
       (found) => {
         setConsent(found)
         setFailed(false)
+        notify.current?.(found)
       },
       () => {
         if (!controller.signal.aborted) setFailed(true)
@@ -181,8 +197,14 @@ export function AiSection({ available }: { available: boolean }) {
           onGiven={(next) => {
             setWithdrawn(false)
             setConsent(next)
+            onChange?.(next)
           }}
         />
+      ) : null}
+      {given && consent.enabled && !embedded ? (
+        <p>
+          <Link to="/assistant">{t('settings.ai.open')}</Link>
+        </p>
       ) : null}
       {live ? (
         <Withdraw

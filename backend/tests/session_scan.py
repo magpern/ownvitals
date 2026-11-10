@@ -26,7 +26,10 @@ Each has its own allowlist, of packages (the package and everything under it) an
   ``ownvitals analysis check`` (read only, counts and versions out). The exact module
   ``ownvitals.ai.consent`` (#206) reads and writes the caller's own AI consent rows, cancels the
   caller's AI jobs and deletes their conversation history on withdrawal; the AI tools read only
-  through ``views.reads`` and ``views.findings_read``. The exact module
+  through ``views.reads`` and ``views.findings_read``. The exact module ``ownvitals.ai.chat_store``
+  (#208) reads and writes the caller's own conversations and messages, queues their
+  ``ai_chat_turn`` jobs and cancels them on a delete; the turn itself is a job kind
+  (``ownvitals.ai.assistant``) and reads and writes through the fence. The exact module
   ``ownvitals.reports.export_store`` (#211) reads and writes the caller's own export rows and
   chunks for the export's request, list and download; the export builder is a job kind and
   writes through the fence. **The rest of
@@ -96,8 +99,9 @@ VIEWS_USER_SESSION = (
 DERIVED_USER_SESSION = ("ownvitals.derived.check_cli",)
 # AI consent (#206): the caller's own consent rows, the withdrawal's job cancels and history
 # delete, and the enabled check every AI entry point makes. The tools read only through
-# ``views.reads`` and ``views.findings_read``.
-AI_USER_SESSION = ("ownvitals.ai.consent",)
+# ``views.reads`` and ``views.findings_read``. The assistant's web side (#208): the caller's own
+# conversations, a message stored with its job, a conversation's delete.
+AI_USER_SESSION = ("ownvitals.ai.consent", "ownvitals.ai.chat_store")
 # The export (#211): the web side's own export rows (request, list, download, the tidy of the
 # user's expired and failed rows). The builder runs in the worker and writes through the fence.
 REPORTS_USER_SESSION = ("ownvitals.reports.export_store",)

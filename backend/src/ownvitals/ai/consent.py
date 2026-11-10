@@ -26,6 +26,7 @@ from typing import Final, Literal
 from uuid import UUID
 
 from sqlalchemy import delete, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.ai import consent_text
@@ -51,6 +52,11 @@ _LIVE_FOR_SHARE = text(
     "SELECT consent_version, locale, text_sha256 FROM ai_consents "
     "WHERE owner_id = :o AND withdrawn_at IS NULL FOR SHARE"
 )
+_LIVE_FOR_SHARE_NOWAIT = text(
+    "SELECT consent_version, locale, text_sha256 FROM ai_consents "
+    "WHERE owner_id = :o AND withdrawn_at IS NULL FOR SHARE NOWAIT"
+)
+_LOCK_NOT_AVAILABLE: Final = "55P03"
 _LIVE_FOR_UPDATE = text(
     "SELECT id, consent_version, locale, text_sha256 FROM ai_consents "
     "WHERE owner_id = :o AND withdrawn_at IS NULL FOR UPDATE"
@@ -120,21 +126,35 @@ async def feature_on(factory: Factory, ctx: UserContext, settings: Settings) -> 
         return await effective.ai_insights(db, settings)
 
 
-async def require_consent(db: AsyncSession, owner: UUID) -> None:
+async def require_consent(db: AsyncSession, owner: UUID, *, nowait: bool = False) -> None:
     """In the caller's transaction (a job's fenced session): a live consent to the current text,
-    read ``FOR SHARE`` and held until the commit; else ``AiNotEnabled``."""
-    row = (await db.execute(_LIVE_FOR_SHARE, {"o": owner})).first()
+    read ``FOR SHARE`` and held until the commit; else ``AiNotEnabled``.
+
+    ``nowait`` is for a transaction that already holds its job row (a fenced session: the fence
+    is its first statement). A withdrawal locks the consent row first and the job rows after it,
+    so waiting here would close a lock cycle; with ``nowait`` a consent row another transaction
+    holds (a withdrawal under way) answers ``AiNotEnabled`` at once, and the caller's transaction
+    is rolled back, releasing its job row to the withdrawal."""
+    statement = _LIVE_FOR_SHARE_NOWAIT if nowait else _LIVE_FOR_SHARE
+    try:
+        row = (await db.execute(statement, {"o": owner})).first()
+    except DBAPIError as error:
+        if getattr(error.orig, "sqlstate", None) == _LOCK_NOT_AVAILABLE:
+            raise AiNotEnabled("no_consent") from None
+        raise
     if row is None:
         raise AiNotEnabled("no_consent")
     if not consent_text.matches(int(row.consent_version), str(row.locale), bytes(row.text_sha256)):
         raise AiNotEnabled("consent_outdated")
 
 
-async def require_enabled(db: AsyncSession, owner: UUID, settings: Settings) -> None:
+async def require_enabled(
+    db: AsyncSession, owner: UUID, settings: Settings, *, nowait: bool = False
+) -> None:
     """The flag, then ``require_consent``, in the caller's transaction."""
     if not await effective.ai_insights(db, settings):
         raise AiNotEnabled("feature_off")
-    await require_consent(db, owner)
+    await require_consent(db, owner, nowait=nowait)
 
 
 async def check_enabled(factory: Factory, ctx: UserContext, settings: Settings) -> None:

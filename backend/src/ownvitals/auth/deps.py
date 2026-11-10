@@ -20,7 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ownvitals.auth.clientip import bucket_ip, client_ip
 from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
 from ownvitals.auth.flowtools import reserve
-from ownvitals.auth.ratelimit import DOCTOR_PDF_ACCOUNT, EXPORT_ACCOUNT, OAUTH_IP, Bucket
+from ownvitals.auth.ratelimit import (
+    AI_CHAT_ACCOUNT,
+    DOCTOR_PDF_ACCOUNT,
+    EXPORT_ACCOUNT,
+    OAUTH_IP,
+    Bucket,
+)
 from ownvitals.auth.sessions import (
     ADMIN_STEPUP_WINDOW,
     Resolution,
@@ -202,6 +208,12 @@ async def reserve_export_request(request: Request, ctx: UserContext) -> None:
 async def reserve_doctor_request(request: Request, ctx: UserContext) -> None:
     """One slot of the doctor PDF request limit (``DOCTOR_PDF_ACCOUNT``, 10 per 24 hours)."""
     await reserve(request, [Bucket(DOCTOR_PDF_ACCOUNT, str(ctx.user_id))])
+
+
+async def reserve_ai_chat(request: Request, ctx: UserContext) -> None:
+    """One slot of the chat limit (``AI_CHAT_ACCOUNT``, 20 messages per hour; ADR 0014 section 8).
+    Raises ``RateLimited`` (429 with ``Retry-After``) above it."""
+    await reserve(request, [Bucket(AI_CHAT_ACCOUNT, str(ctx.user_id))])
 
 
 def request_device_token(request: Request) -> str | None:

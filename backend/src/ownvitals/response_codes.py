@@ -77,6 +77,9 @@ JOB_FAILURES: Final = frozenset(
         "account_disabled",
         "outbound_blocked",
         "internal",
+        "ai_not_enabled",
+        "ai_budget_exhausted",
+        "ai_unavailable",
     }
 )
 
@@ -111,8 +114,17 @@ CONNECTIONS: Final = (
 VIEWS: Final = COMMON | {"daily_summary"}
 
 # ``detail.reason`` of /api/ai/* (#206): AI is not enabled (the flag is off), and a consent that
-# names another text than the current one.
-AI: Final = COMMON | {"ai_not_enabled", "ai_consent_outdated", "step_up_required"}
+# names another text than the current one. The assistant (#208): the month's budget is used up, a
+# turn of the conversation is still running, the chat limit, and a malformed idempotency key.
+AI: Final = COMMON | {
+    "ai_not_enabled",
+    "ai_consent_outdated",
+    "step_up_required",
+    "ai_budget_exhausted",
+    "ai_turn_in_progress",
+    "rate_limited",
+    "idempotency_mismatch",
+}
 
 # ``detail.reason`` of /api/exports (#211, ADR 0013 section 4); the download's cross-site refusal
 # is a page that names its code in ``X-Ownvitals-Reason``.

@@ -14,8 +14,8 @@ It runs in the worker only, inside a job run, and in this order:
 3. **The request** (``ai.requests``): fixed prompt, tool definitions, closed messages; the bytes
    are scanned (no UUID, email, key or app secret) and bounded (``pricing.request_bound``).
 4. **Consent, flag and budget, together**: one fenced transaction re-checks the stored flag and
-   the live consent (``consent.require_enabled``, the consent row ``FOR SHARE``), the job's
-   cancel, and reserves the bound (``budget.reserve``). It commits before the call.
+   the live consent (``consent.require_enabled``, ``FOR SHARE NOWAIT`` after the fence), the
+   job's cancel and reserves the bound (``budget.reserve``); it commits before the call.
 5. **The call**, inside ``job.provider_call`` (the lease outlasts the total deadline): up to
    ``MAX_ATTEMPTS`` attempts under the **same reservation**, but only after an attempt that
    provably was not processed (not sent, 429, 529), and each later attempt re-checks consent,
@@ -23,8 +23,7 @@ It runs in the worker only, inside a job run, and in this order:
 6. **Settle or release** (``budget.may_release``) and write the ``ai_audit`` row in one new
    fenced transaction, with one log line (``ai.audit``); with the lease lost, the log line only.
 
-The API key goes only into the ``x-api-key`` header; the body never holds it (checked). The
-answer is a proposal (``ai.responses``): nothing here acts on it.
+The key goes only into the ``x-api-key`` header (the body is checked); the answer is a proposal.
 """
 
 from __future__ import annotations
@@ -90,7 +89,8 @@ class _Call:
         """Before a later attempt: the flag, the live consent and the job's cancel."""
         try:
             async with self.job.fenced() as fs:
-                await consent.require_enabled(fs.db, self.job.ctx.user_id, self.settings)
+                owner = fs.lease.ctx.user_id
+                await consent.require_enabled(fs.db, owner, self.settings, nowait=True)
                 if fs.cancel_requested:
                     raise ModelFailed("cancelled")
         except consent.AiNotEnabled:
@@ -127,7 +127,7 @@ async def _reserve(job: JobRun, settings: Settings, amount: int) -> budget.Reser
         async with job.fenced() as fs:
             if fs.cancel_requested:
                 raise ModelRefused("cancelled")
-            await consent.require_enabled(fs.db, job.ctx.user_id, settings)
+            await consent.require_enabled(fs.db, job.ctx.user_id, settings, nowait=True)
             held = await budget.reserve(fs, amount, settings)
     except consent.AiNotEnabled:
         raise ModelRefused("ai_not_enabled") from None

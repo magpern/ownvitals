@@ -34,6 +34,7 @@ export type RouteId =
   | 'ecg-list'
   | 'ecg'
   | 'findings'
+  | 'assistant'
   | 'connections'
   | 'settings'
   | 'security'
@@ -71,6 +72,8 @@ export const APP_ROUTES: readonly AppRoute[] = [
   { id: 'ecg-list', pattern: '/heart/ecg', title: 'shell.route.ecg-list.title', later: 'shell.route.ecg-list.later', nav: 'heart' },
   { id: 'ecg', pattern: '/heart/ecg/:id', title: 'shell.route.ecg.title', later: 'shell.route.ecg.later', nav: 'heart' },
   { id: 'findings', pattern: '/findings', title: 'shell.route.findings.title', later: 'shell.route.findings.later', nav: 'findings' },
+  // Issue 208: the chat assistant, in the Settings group (no rail item; docs/design/README.md).
+  { id: 'assistant', pattern: '/assistant', title: 'shell.route.assistant.title', later: 'shell.route.assistant.later', nav: 'settings' },
   {
     id: 'connections',
     pattern: '/connections',

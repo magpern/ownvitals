@@ -3,6 +3,7 @@ import type { AppRoute, RouteId } from '../router/appRoutes'
 import { Card, ComingLater } from '../components/ui/Card'
 import { useT } from '../i18n'
 import { AdminPage } from './AdminPage'
+import { AssistantPage } from './AssistantPage'
 import { BodyPage } from './BodyPage'
 import { NervePage } from './NervePage'
 import { ConnectionsPage } from './ConnectionsPage'
@@ -29,6 +30,8 @@ const BUILT: Partial<Record<RouteId, ComponentType>> = {
   body: BodyPage,
   // Issue 202: nerve health.
   nerve: NervePage,
+  // Issue 208: the chat assistant.
+  assistant: AssistantPage,
   ...OVERVIEW_PAGES,
   ...METRIC_PAGES,
   ...ECG_PAGES,

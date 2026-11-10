@@ -44,6 +44,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.views.profile_store",
             "ownvitals.derived.check_cli",
             "ownvitals.ai.consent",
+            "ownvitals.ai.chat_store",
             "ownvitals.reports.export_store",
         ),
     )
@@ -163,6 +164,12 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.ai.consent", True, False),
         ("ownvitals.ai.tools", False, False),
         ("ownvitals.ai.consent_routes", False, False),
+        # The assistant (#208): the web store opens the user's sessions; the job kind writes
+        # through the fence and the routes and the pure rules open none.
+        ("ownvitals.ai.chat_store", True, False),
+        ("ownvitals.ai.assistant", False, False),
+        ("ownvitals.ai.assistant_routes", False, False),
+        ("ownvitals.ai.chat_model", False, False),
         # The export (#211): the store opens the user's sessions; the builder, its readers and
         # the routes open none.
         ("ownvitals.reports.export_store", True, False),

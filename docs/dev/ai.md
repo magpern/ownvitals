@@ -3,8 +3,9 @@
 How ownvitals bounds what AI insights cost ([ADR 0014 §7](../adr/0014-ai-insights.md), D11,
 PLAN §7.4; #205), how a user consents and withdraws (§3), and the data-minimised tools the model
 may call (§4; #206), and the model client with its redacted audit log (§1, §5, §6; #207). The
-chat and digest jobs come with their own M7 issues and extend this file. Consent and tools are
-[below](#consent-and-withdrawal), the client [after them](#the-model-client-and-the-audit-log).
+digest job comes with its own M7 issue and extends this file. Consent and tools are
+[below](#consent-and-withdrawal), the client [after them](#the-model-client-and-the-audit-log), the
+chat assistant (#208) [last](#the-chat-assistant).
 
 ## The pieces
 
@@ -323,3 +324,86 @@ without `ai_reserve`).
   T103a).
 - Guard registrations: `ownvitals.auth.keys.derive_key` is on `auth_tables_scan.PUBLIC_ENTRY_POINTS`
   (the `ai-audit` key; no table, no other name). The system prompt avoids the guarded table words.
+
+## The chat assistant
+
+ADR 0014 sections 3, 5, 8 and 9, PLAN section 7.4, #208. Web stores the user's message and queues
+an `ai_chat_turn` job in one transaction; the worker answers; the browser follows the job's event
+stream (`/api/jobs/{id}/events`: states and a closed category, never text, T47) and then reads the
+answer. Web never calls the model.
+
+| Path | What |
+|---|---|
+| `backend/src/ownvitals/ai/chat_model.py` | `CHAT_KIND`, `ChatInput` (ids only), `failure_for` (the job category of a turn without an answer), the request id, the history rows as messages (pure) |
+| `backend/src/ownvitals/ai/chat_store.py` | web side, the caller's `user_session`: create, list, read and delete conversations, `post_message`, the budget state |
+| `backend/src/ownvitals/ai/assistant_routes.py` | `/api/ai/conversations[/{id}[/messages]]` and `/api/ai/budget` |
+| `backend/src/ownvitals/ai/assistant.py` | the worker's `ai_chat_turn`: read through the fence, `turn.run_turn`, store in the final fenced transaction |
+| `backend/migrations/versions/0024_ai_job_failures.py` | three job failure categories: `ai_not_enabled`, `ai_budget_exhausted`, `ai_unavailable` (none retried) |
+| `frontend/src/components/assistant/*`, `frontend/src/pages/AssistantPage.tsx`, `frontend/src/api/assistant.ts` | the `/assistant` page (design: `docs/design/README.md`, "Assistant") |
+
+### The API
+
+| Route | What |
+|---|---|
+| `GET /api/ai/conversations` | the user's conversations, most recently used first (also while AI is off) |
+| `POST /api/ai/conversations` | a new one; 409 `ai_not_enabled` without the flag or a live consent |
+| `GET /api/ai/conversations/{id}` | its newest 200 messages in order and its latest turn (`job_id`, `state`, `failure`) |
+| `POST /api/ai/conversations/{id}/messages` | `content` (1 to 16,000 characters, not blank) and `request_id` (16 to 59 of `A-Za-z0-9_-`); 202 with `message_id` and `job_id` |
+| `DELETE /api/ai/conversations/{id}` | cancels its running turn and deletes it with its messages (no step-up) |
+| `GET /api/ai/budget` | `paused` and `resets_on` (no amounts) |
+
+Another user's conversation, an unknown one and a malformed id are the same 404. A message is
+refused, writing nothing, in this order: `ai_not_enabled` (the flag and a live consent, the consent
+row `FOR SHARE`), a reused `request_id` with another text (`idempotency_mismatch`; the same text
+answers the first message and job), `not_found`, `ai_turn_in_progress` (one turn at a time per
+conversation), `ai_budget_exhausted` (the user's month is used up), `busy` (the per-user job
+limit), then the chat limit `rate_limited` (`AI_CHAT_ACCOUNT`, 20 accepted messages per hour per
+user, ADR 0014 section 8; a refusal takes no slot).
+
+### One turn
+
+1. Read the conversation's newest 40 messages in a fenced transaction; the job's message must be
+   the newest and the user's, else `invalid_input` (a deleted conversation, a crafted job of
+   another user: RLS returns nothing) and no call.
+2. `run_turn` (the client checks every lock, the flag, consent and the budget before each call).
+   A refusal or failure maps to `ai_not_enabled`, `ai_budget_exhausted`, `outbound_blocked` or
+   `ai_unavailable`; a cancel (withdrawal, delete) stops the run (`RunStopped`). A turn that ends
+   with `unknown_tool`, `tool_limit` or no text is `ai_unavailable`. Nothing is stored then.
+3. `Complete(store)`: with a cancel requested meanwhile the runner cancels instead. The store reads
+   the consent `FOR SHARE NOWAIT`, locks the conversation, inserts the answer, touches
+   `updated_at`.
+
+**Lock order.** A withdrawal locks the consent row, then the job rows, then deletes the history.
+A fenced transaction holds its job row from its first statement, so every consent read inside one
+(the client's reservation and re-check, the store) uses `consent.require_consent(...,
+nowait=True)`: a consent row a withdrawal holds answers "not enabled" at once and the transaction
+rolls back, instead of closing a lock cycle. A conversation delete takes the job rows before the
+conversation, as the store does.
+
+### Tests
+
+Real PostgreSQL, synthetic users, the fake model behind the real egress client (`tests/aichat.py`):
+
+| File | Covers |
+|---|---|
+| `test_ai_assistant.py` | a message answered by the runner and read through the API; the job holds ids only; the history window is the conversation's own; a tool turn stores only the answer; provider failure, unknown tool, tool limit, retries within one reservation, the cap reached after queueing, consent withdrawn after queueing: nothing stored; **withdrawal mid-turn** (the stream ends `cancelled`, a reconnect gets 204, the history is gone); the store's `NOWAIT` against a withdrawal holding the row; a job of one user naming another's conversation (worker RLS) |
+| `test_ai_assistant_routes.py` | **RLS**: another user's conversation cannot be read, continued or deleted, the list holds only one's own; every refusal and its code; the chat limit; a refusal takes no slot; delete cancels the running turn; a turn of a deleted conversation |
+| `ai_evals/test_ai_evals.py` | the CI eval suite (ADR 0014 section 9), each category at 100 %: **privacy** (no cross-user data or identifier over every tool, no experimental finding or HIS without the switch, the fixed system prompt, the history window, no read of another user's conversation), **prompt injection** (injections in the user's text, planted in device text fields, unknown tools, out-of-range arguments, active content in answers, the tool limit), **consent and withdrawal** (none, outdated, withdrawn after queueing, before the call, mid-call, between tool steps, the stored flag off, consenting again starts empty); a failing case fails its category |
+| `frontend/src/components/assistant/*.test.tsx` | answers render as text (links, images, scripts, headings stay characters); the consent prompt, a turn followed to its end, the cap, a failed turn, the chat limit, delete, a withdrawal while a turn runs closes the stream and hides the history; the Settings link |
+
+### Known gaps (assistant)
+
+- The request scan (`requests.check_body`) refuses a UUID or an email address anywhere in the
+  body, the user's own text included: such a message fails the turn as `ai_unavailable` ("couldn't
+  answer") with nothing sent. The page does not say why.
+- `ai_purge_expired()` (90-day conversation retention, ADR 0014 section 5) is not built; account
+  deletion and withdrawal remove conversations meanwhile.
+- A month refused by the global cap only shows at the turn (`ai_budget_exhausted` as its failure):
+  `GET /api/ai/budget` reflects the user's cap (the app role cannot read the global row).
+- A transient database error during a turn retries the job (`upstream_unavailable`, up to
+  `max_attempts`), which can make a second model call; each call is reserved and charged on its
+  own, within the caps.
+- The model evals against the real model (`python -m ownvitals.ai.eval`, ADR 0014 section 9) are
+  not built: the categories that need the model's judgement (health claims, grounding,
+  insufficient data) wait for that module.
+- The assistant has no rail item (a design change for the owner); it is reached from Settings.

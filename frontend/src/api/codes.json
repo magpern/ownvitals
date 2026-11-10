@@ -1,8 +1,11 @@
 [
   "account_disabled",
   "account_exists",
+  "ai_budget_exhausted",
   "ai_consent_outdated",
   "ai_not_enabled",
+  "ai_turn_in_progress",
+  "ai_unavailable",
   "bad_last_event_id",
   "blocked_by_provider_plan",
   "busy",

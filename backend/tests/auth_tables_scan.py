@@ -75,7 +75,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     # the jobs API: the signed-in user and the event stream's session check; the step-up
     # dependencies (#11) for the connections layer (#13) and the admin writes; the admin
     # gate (#12): current_context, current_session and request_ip; the Withings connect start's
-    # per-IP OAuth limit (#296): reserve_oauth_start
+    # per-IP OAuth limit (#296): reserve_oauth_start; the chat limit (#208): reserve_ai_chat
     "ownvitals.auth.deps": frozenset(
         {
             "Probe",
@@ -89,6 +89,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "reserve_export_request",
             "reserve_doctor_request",
             "reserve_oauth_start",
+            "reserve_ai_chat",
             "session_probe",
         }
     ),
