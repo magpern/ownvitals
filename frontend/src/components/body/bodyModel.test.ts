@@ -29,6 +29,7 @@ describe('body model', () => {
   it('computes the B6 symmetric index and refuses what it cannot', () => {
     expect(symmetryPercent(3.0, 3.0)).toBe(0)
     expect(symmetryPercent(3.3, 2.7)).toBeCloseTo(20, 5)
+    expect(symmetryPercent(2.7, 3.3)).toBeCloseTo(20, 5) // left < right: the sign never shows (issue 325)
     expect(symmetryPercent(null, 3)).toBeNull()
     expect(symmetryPercent(0, 0)).toBeNull()
   })

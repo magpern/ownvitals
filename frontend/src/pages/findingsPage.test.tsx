@@ -40,6 +40,14 @@ describe('the findings screen', () => {
     expect(screen.getByRole('link', { name: /Readings on/ })).toBeTruthy()
   })
 
+  it('never shows the why text half filled when the evidence lacks a number (issue 325)', async () => {
+    fakeApi(routes({ 'GET /api/findings/f-trend': detail(LIVE_TREND, { window_days: 3 }) }))
+    renderAt('/findings')
+    await screen.findByText('What it isn’t')
+    expect(screen.queryByText('Why you’re seeing this')).toBeNull()
+    expect(screen.queryByText(/\{gainKg\}/)).toBeNull()
+  })
+
   it('attributes a device finding to Withings and marks an unevaluated one', async () => {
     fakeApi(routes())
     renderAt('/findings')

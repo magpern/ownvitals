@@ -74,6 +74,12 @@ function dayNumber(day: string): number {
   return Date.UTC(year ?? 1970, (month ?? 1) - 1, date ?? 1) / DAY_MS
 }
 
+/** A date as its local calendar day (issue 325: not the UTC day, which is off around midnight). */
+export function localDay(date: Date): string {
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${String(date.getFullYear())}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
+}
+
 /** The first day the evidence chart shows: some days before the window. */
 export function chartStart(windowStart: string): string {
   return new Date((dayNumber(windowStart) - CONTEXT_DAYS) * DAY_MS).toISOString().slice(0, 10)

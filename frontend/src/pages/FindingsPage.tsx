@@ -4,7 +4,7 @@ import { useResource } from '../api/useResource'
 import { FindingCard } from '../components/findings/FindingCard'
 import { FindingDetail } from '../components/findings/FindingDetail'
 import { Filters } from '../components/findings/Filters'
-import { belongsToTab, locationUrl, readLocation } from '../components/findings/model'
+import { belongsToTab, localDay, locationUrl, readLocation } from '../components/findings/model'
 import { Button } from '../components/ui/Button'
 import { ResourceView } from '../components/ui/DataState'
 import { useT } from '../i18n'
@@ -53,7 +53,7 @@ function Browser({ filters, id }: { filters: FilterState; id: string | null }) {
   const first = useResource(findingsListPath(filters, 0), decodeFindingsPage)
   const shown = first.data?.findings.filter((finding) => belongsToTab(finding, filters.tab)) ?? []
   const chosen = id ?? shown[0]?.id ?? null
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDay(new Date())
   return (
     <div className="ov-findings-grid">
       <div className="ov-findings-grid__list">
