@@ -1,9 +1,12 @@
+import { execFileSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { inflateRawSync } from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
+import { REPO_ROOT } from '../helpers/env.ts'
 import { answerWithings, registerApp, resetWorld } from '../helpers/fake-withings.ts'
 import { enrolAuthenticator, newAccount, signInWithPassword, signUpAndConfirm, typeCode } from '../helpers/flows.ts'
 import { ageStepUp, createInvite } from '../helpers/invite.ts'
+import { resetRateLimits } from '../helpers/ratelimit.ts'
 import type { Authenticator } from '../helpers/totp.ts'
 
 // The JSON/CSV export (issue 211, ADR 0013 section 4): "Export…" asks for a fresh code, the
@@ -11,8 +14,19 @@ import type { Authenticator } from '../helpers/totp.ts'
 // Made-up accounts only: one with no Withings data, and one connected to fake-withings'
 // synthetic user, whose archive must hold the imported measures. Synthetic data only.
 
-// The archive's entries by name, read from the central directory. The builder opens every entry
-// with `force_zip64`, so a size or an offset may sit in the zip64 extra field instead.
+// The specs share one client IP and its sign-up budget (5 an hour, ADR 0003 section 9). This spec
+// signs up two accounts, so it starts from a clean budget and leaves one for the specs after it.
+test.beforeAll(() => {
+  resetRateLimits()
+})
+test.afterAll(() => {
+  resetRateLimits()
+})
+
+// The archive's entries by name, read from the central directory. Python's zipfile writes the
+// real sizes and offsets there for an archive under 4 GiB (only the local headers carry the zip64
+// markers of `force_zip64`), so a zip64 marker in the central directory fails the test instead
+// of being read: an e2e archive is never that large.
 function unzip(body: Buffer): Map<string, Buffer> {
   const end = body.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
   expect(end).toBeGreaterThan(0)
@@ -22,35 +36,41 @@ function unzip(body: Buffer): Map<string, Buffer> {
   for (let i = 0; i < count; i++) {
     expect(body.readUInt32LE(at)).toBe(0x02014b50)
     const method = body.readUInt16LE(at + 10)
-    let size = body.readUInt32LE(at + 20)
-    const uncompressedIs64 = body.readUInt32LE(at + 24) === 0xffffffff
+    const size = body.readUInt32LE(at + 20)
     const nameLength = body.readUInt16LE(at + 28)
     const extraLength = body.readUInt16LE(at + 30)
     const commentLength = body.readUInt16LE(at + 32)
-    let offset = body.readUInt32LE(at + 42)
+    const offset = body.readUInt32LE(at + 42)
     const name = body.toString('utf8', at + 46, at + 46 + nameLength)
-    let extra = at + 46 + nameLength
-    const extraEnd = extra + extraLength
-    while (extra + 4 <= extraEnd) {
-      const id = body.readUInt16LE(extra)
-      const length = body.readUInt16LE(extra + 2)
-      if (id === 0x0001) {
-        let field = extra + 4
-        if (uncompressedIs64) field += 8
-        if (size === 0xffffffff) {
-          size = Number(body.readBigUInt64LE(field))
-          field += 8
-        }
-        if (offset === 0xffffffff) offset = Number(body.readBigUInt64LE(field))
-      }
-      extra += 4 + length
-    }
+    expect(size, name).not.toBe(0xffffffff)
+    expect(offset, name).not.toBe(0xffffffff)
     const start = offset + 30 + body.readUInt16LE(offset + 26) + body.readUInt16LE(offset + 28)
     const data = body.subarray(start, start + size)
     entries.set(name, method === 8 ? inflateRawSync(data) : Buffer.from(data))
-    at = extraEnd + commentLength
+    at += 46 + nameLength + extraLength + commentLength
   }
   return entries
+}
+
+// The account's queued and running jobs, read as the database superuser (like `ageStepUp`). An
+// export request counts them against the per-user job limit (`jobs_per_user`, 2), and the first
+// import's backfill jobs can stay queued after "Your history is imported" (their retries wait for
+// the Withings app budget), so `POST /api/exports` answers 429 `busy` until they have ended.
+function activeJobs(email: string): number {
+  if (!/^[\w.+-]+@[\w.-]+$/.test(email)) throw new Error('unexpected address')
+  const sql =
+    "SELECT count(*) FROM jobs WHERE state IN ('queued', 'running') AND owner_id = " +
+    `(SELECT id FROM users WHERE email_normalized = '${email.toLowerCase()}')`
+  const out = execFileSync(
+    'docker',
+    [
+      'compose', '-f', 'compose.yaml', '-f', 'compose.e2e.yaml',
+      'exec', '-T', 'db',
+      'psql', '-U', 'postgres', '-d', 'ownvitals', '-v', 'ON_ERROR_STOP=1', '-tA', '-c', sql,
+    ],
+    { cwd: REPO_ROOT, encoding: 'utf8' },
+  )
+  return Number(out.trim())
 }
 
 interface Manifest {
@@ -85,7 +105,8 @@ async function exportAndDownload(page: Page, email: string, authenticator: Authe
   await dialog.getByRole('button', { name: 'Confirm' }).click()
   await expect(dialog).toBeHidden()
 
-  // The worker builds it; the row polls until it is ready.
+  // The request was accepted (a refusal shows its reason here) and the row polls until ready.
+  await expect(page.getByText('The server is busy. Try again in a few seconds.')).toHaveCount(0)
   const download = page.getByRole('button', { name: 'Download' })
   await expect(download).toBeVisible({ timeout: 90_000 })
   await expect(page.getByText(/Your export is ready/)).toBeVisible()
@@ -121,9 +142,10 @@ test('step-up, export, download once', async ({ page }) => {
 })
 
 // The fake account: connect fake-withings' synthetic user (as onboarding.spec.ts does), wait for
-// the first import, then export; the archive holds the imported measure groups and measures.
+// the first import and its jobs to end, then export; the archive holds the imported measure
+// groups and measures.
 test('the fake Withings account: connect, import, export, download', async ({ page }) => {
-  test.setTimeout(180_000)
+  test.setTimeout(360_000)
   registerApp(resetWorld())
   await answerWithings(page)
   const account = newAccount('export-withings')
@@ -138,6 +160,8 @@ test('the fake Withings account: connect, import, export, download', async ({ pa
   await dialog.getByRole('button', { name: 'Confirm' }).click()
   await expect(page).toHaveURL(/\/onboarding\?withings=connected/)
   await expect(page.getByRole('heading', { name: 'Your history is imported' })).toBeVisible({ timeout: 60_000 })
+  // The import's last backfill retries and derive jobs; the export needs a free job slot.
+  await expect.poll(() => activeJobs(account.email), { timeout: 180_000, intervals: [2_000] }).toBe(0)
 
   const entries = await exportAndDownload(page, account.email, authenticator)
   const manifest = JSON.parse(text(entries, 'manifest.json')) as Manifest
