@@ -93,6 +93,7 @@ export const settings = {
     'This stops AI insights at once and deletes your AI conversation history. What was already sent stays under Anthropic’s own retention. Continue?',
   'ai.withdraw.yes': 'Withdraw and delete history',
   'ai.withdraw.done': 'Consent withdrawn. Your AI conversation history is deleted.',
+  'ai.open': 'Open the assistant',
   'data.title': 'Your data',
   'data.export.label': 'Export everything',
   'data.export.help':

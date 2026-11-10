@@ -59,6 +59,7 @@ App (ready)   /                    Overview: "Needs a look", then tiles by area
               /m/:metric/:day      day: everything recorded, reading drawer with provenance
               /heart/ecg[/:id]     ECG list and viewer (+ PDF)
               /findings            Live | History, tier and area filters
+              /assistant           the chat assistant (M7, #208; see "Assistant" below)
               /connections         Withings: streams, capabilities, devices, disconnect
               /settings            Profile and display | Sign-in and security | Notifications | Your data
                                    the tabs are /settings/profile, /settings/security,
@@ -268,3 +269,35 @@ step-up dialog, a "Preparing…" status, a single-use "Download"), with date fie
 and filter chips for the metrics and up to 10 ECG recordings. Uncovered, and for the owner to
 confirm: the placement of the choices below the row and the disabled state of "Create report…"
 until a metric is chosen.
+
+## Assistant (`/assistant`), designed for #208
+
+No mock-up covers the chat assistant (ADR 0014 §5, PLAN §7.4); it is built only from components
+the mock-ups have (recorded 2026-11-09 under rule 3; the owner may review it). Reference screens:
+`Findings` (the list-and-detail grid) and `Settings` (the AI row, rows, notices, buttons).
+
+- **Where.** A page of its own, `/assistant`, in the Settings group of the rail (no new rail
+  item or phone tab: adding one is a change to the `Rail` design and waits for the owner). It is
+  reached from the AI row of Settings → Your data ("Open the assistant", shown while consent is
+  given). The page header is "Assistant".
+- **Layout.** The findings grid: on the left the list of conversations (newest first, each a
+  finding-card-style link with its start date and message count, and "New conversation" above
+  it); on the right the chosen conversation in a card: the messages in order, then the composer
+  (a text area, "Send" as the primary button). One column on a phone, the list first.
+- **Messages.** The user's own text and the answers are plain text. An answer may use a minimal
+  formatting subset (paragraphs, bulleted lists, bold); no link is clickable and no HTML, image
+  or heading is rendered (ADR 0014 §5). Every answer carries the muted line "AI-generated from
+  your data. It can be wrong, and it is not medical advice." While a turn runs, the conversation
+  shows the muted status "Preparing an answer…" (the export row's pattern) and the composer is
+  disabled.
+- **States**, each a `Notice` above the composer, worded from the catalogue:
+  not available (the flag is off: the Settings sentence), no consent or an outdated one (the
+  consent form of the Settings AI row, the same component, step-up included), the cap ("This
+  month's AI budget for your account is used up. It resets on <date>.", composer disabled), a
+  turn that could not be answered ("The assistant couldn't answer. Try again later."), and the
+  chat limit (20 messages per hour).
+- **Delete conversation.** A danger button under the conversation with the Settings confirm
+  pattern (a sentence and "Cancel" / "Delete conversation"); no step-up (deleting your own data
+  stays easy). Withdrawing consent (Settings, or the AI row shown on this page) deletes every
+  conversation; the page then shows the consent form again.
+- No new colour, icon, chart style or component.

@@ -256,6 +256,7 @@ async def test_static_dir_without_index_html_is_a_404_not_an_error(
 
 def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
     from ownvitals.admin.routes import router as admin
+    from ownvitals.ai.assistant_routes import router as ai_assistant
     from ownvitals.ai.consent_routes import router as ai_consent
     from ownvitals.auth.routes import router as auth
     from ownvitals.connections.routes import router as connections
@@ -290,6 +291,7 @@ def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
         scores,
         notifications,
         ai_consent,
+        ai_assistant,  # #208: the chat assistant's conversations and budget
         exports,
         doctor,
     )

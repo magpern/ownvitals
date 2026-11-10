@@ -55,6 +55,8 @@ QR_APPROVE_ACCOUNT = Limit("qr-approve", "account", 3, 3600)
 # The data export (ADR 0013 section 4): every accepted request counts, per account.
 EXPORT_ACCOUNT = Limit("export", "account", 3, 24 * 3600)
 DOCTOR_PDF_ACCOUNT = Limit("doctor-pdf", "account", 10, 24 * 3600)  # ADR 0013 section 4
+# The chat assistant (ADR 0014 section 8): 20 messages per hour per user; every accepted one counts.
+AI_CHAT_ACCOUNT = Limit("ai-chat", "account", 20, 3600)
 
 OnSuccess = Literal["decrement", "delete"]
 

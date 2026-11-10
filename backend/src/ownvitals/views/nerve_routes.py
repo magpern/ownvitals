@@ -24,7 +24,7 @@ from ownvitals.views import assemble
 from ownvitals.views.catalog import BAND_DAYS, NERVE_KEYS, STREAM_OF
 from ownvitals.views.deps import Now, settle
 from ownvitals.views.findings_read import FindingsQuery, read_findings
-from ownvitals.views.findings_routes import FindingOut
+from ownvitals.views.findings_schema import FindingOut
 from ownvitals.views.reads import DailyRecord, reading
 from ownvitals.views.schemas import (
     NerveMetricMonth,

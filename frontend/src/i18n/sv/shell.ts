@@ -44,6 +44,8 @@ export const shell = {
   'route.ecg.later': 'EKG-visaren kommer i M6.',
   'route.findings.title': 'Fynd',
   'route.findings.later': 'Fyndsidan kommer i M6.',
+  'route.assistant.title': 'Assistent',
+  'route.assistant.later': 'Assistenten kommer i M7.',
   'route.connections.title': 'Anslutningar',
   'route.connections.later': 'Anslutningssidan kommer i M6.',
   'route.settings.title': 'Inställningar',

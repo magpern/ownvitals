@@ -21,6 +21,7 @@ describe('the routes of the app', () => {
       '/heart/ecg',
       '/heart/ecg/:id',
       '/findings',
+      '/assistant',
       '/connections',
       '/settings',
       '/settings/security',

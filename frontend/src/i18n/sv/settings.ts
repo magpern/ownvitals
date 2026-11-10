@@ -94,6 +94,7 @@ export const settings = {
     'Det här stoppar AI-insikter direkt och raderar din AI-konversationshistorik. Det som redan har skickats omfattas av Anthropics egen lagring. Fortsätta?',
   'ai.withdraw.yes': 'Återkalla och radera historiken',
   'ai.withdraw.done': 'Samtycket är återkallat. Din AI-konversationshistorik är raderad.',
+  'ai.open': 'Öppna assistenten',
   'data.title': 'Dina data',
   'data.export.label': 'Exportera allt',
   'data.export.help':
