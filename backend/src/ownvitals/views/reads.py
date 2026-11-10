@@ -24,10 +24,16 @@ from ownvitals.config import Settings
 from ownvitals.connections.repository import list_connections
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
-from ownvitals.derived.scores_revision import revision_digest
-from ownvitals.flags import effective
 from ownvitals.views.catalog import STATUS_STREAMS
-from ownvitals.views.read_records import DailyRecord, DayReading, ReadingDetail, StatusFacts
+from ownvitals.views.read_records import (
+    DailyRecord,
+    DayReading,
+    ReadingDetail,
+    SegmentalRecord,
+    StatusFacts,
+)
+from ownvitals.views.scores_read import latest_scores
+from ownvitals.views.segmental_read import latest_segmental
 from ownvitals.views.states import ConnectionFacts, StreamFacts
 from ownvitals.withings.streams import stream_named, windows
 
@@ -95,17 +101,6 @@ def _around(day: date) -> tuple[datetime, datetime]:
     ``day``; they let the partitioned ``observations`` prune. The local date is checked in SQL."""
     start = datetime(day.year, day.month, day.day, tzinfo=UTC)
     return start - timedelta(days=1), start + timedelta(days=2)
-
-
-_LATEST_SCORES = text(
-    "SELECT DISTINCT ON (kind) kind, day, value, components, algo_version, input_revision "
-    "FROM scores "
-    "WHERE owner_id = :o ORDER BY kind, day DESC"
-)
-_SCORE_REVISION = text(
-    "SELECT stream, revision FROM data_revisions WHERE owner_id = :o "
-    "AND stream IN ('measures', 'sleep_summary', 'activity_daily')"
-)
 
 
 class Reader:
@@ -199,6 +194,9 @@ class Reader:
             )
         return found
 
+    async def segmental_latest(self, key: str) -> list[SegmentalRecord]:
+        return await latest_segmental(self._db, self._owner, key)
+
     async def unconfirmed_days(self, key: str, first: date, last: date) -> dict[date, int]:
         lo, _ = _around(first)
         _, hi = _around(last)
@@ -255,24 +253,7 @@ class Reader:
         )
 
     async def latest_scores(self, *, settings: Settings) -> list[tuple[Any, bool]]:
-        """The latest stored row of each score kind with its stale state (#188): stale when the
-        digest of the stream revisions is no longer the row's ``input_revision`` (data changed or
-        was purged since; ADR 0012 §1, the pass has not caught up). ``his`` (experimental tier) only
-        while the owner-only switch is on, whatever is stored."""
-        switch = await effective.experimental_findings(self._db, settings)
-        rows = (await self._db.execute(_LATEST_SCORES, {"o": self._owner})).all()
-        found = {
-            r.stream: int(r.revision)
-            for r in await self._db.execute(_SCORE_REVISION, {"o": self._owner})
-        }
-        current = revision_digest(
-            (
-                found.get("measures", 0),
-                found.get("sleep_summary", 0),
-                found.get("activity_daily", 0),
-            )
-        )
-        return [(r, int(r.input_revision) != current) for r in rows if switch or r.kind != "his"]
+        return await latest_scores(self._db, self._owner, settings)
 
 
 @asynccontextmanager

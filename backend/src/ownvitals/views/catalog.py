@@ -3,7 +3,9 @@ architecture): the area each metric belongs to, the stream whose capability deci
 state, the chart ranges and the thresholds that are ours to set. Pure; no database.
 
 The keys are those of ``analysis.quality.METRICS``, the metrics that have daily values
-(``derived.daily.KEYS``). Segmental, sleep and activity keys have no daily value yet.
+(``derived.daily.KEYS``). Sleep and activity keys have no daily value yet; the segmental
+tiles are not here, they are built from the latest reading
+(``views.assemble_segmental``).
 """
 
 from types import MappingProxyType

@@ -71,7 +71,12 @@ def run(sql: str, **params: Any) -> None:
         conn.execute(text(sql), params)
 
 
-def plant_connection(owner: UUID, status: str = "connected", last_error: str | None = None) -> UUID:
+def plant_connection(
+    owner: UUID,
+    status: str = "connected",
+    last_error: str | None = None,
+    withings_userid: int = WITHINGS_USER,
+) -> UUID:
     """The owner's Withings connection (sealed-looking dummy bytes, never a token)."""
     sealed = status == "connected"
     with _conn() as engine, engine.begin() as conn:
@@ -85,7 +90,7 @@ def plant_connection(owner: UUID, status: str = "connected", last_error: str | N
                 "o": owner,
                 "s": status,
                 "e": last_error,
-                "p": json.dumps({"withings_userid": WITHINGS_USER, "app_id": 1}),
+                "p": json.dumps({"withings_userid": withings_userid, "app_id": 1}),
                 "sec": TOKEN if sealed else None,
                 "n": b"\x01" * 12 if sealed else None,
                 "w": b"\x02" * 48 if sealed else None,
@@ -143,10 +148,12 @@ def plant_device(owner: UUID, connection: UUID) -> None:
     )
 
 
-def connected_with_streams(owner: UUID, **streams: Any) -> UUID:
+def connected_with_streams(
+    owner: UUID, *, withings_userid: int = WITHINGS_USER, **streams: Any
+) -> UUID:
     """A live connection with a complete, recent, supported cursor for the measures and ecg
     streams; keyword arguments override a stream's cursor (``measures={"capability": ...}``)."""
-    connection = plant_connection(owner)
+    connection = plant_connection(owner, withings_userid=withings_userid)
     for stream in ("measures", "ecg"):
         plant_cursor(owner, connection, stream, **streams.get(stream, {}))
     return connection
