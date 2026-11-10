@@ -196,6 +196,17 @@ async def test_the_body_must_name_the_locale(menv: Env) -> None:
     assert (await browser.request("PUT", LOCALE, {})).status_code == 422
 
 
+@pytest.mark.parametrize(
+    "body", [{"other": "PLANTED-VALUE-4711"}, ["PLANTED-VALUE-4711"], "PLANTED-VALUE-4711"]
+)
+async def test_a_malformed_body_is_refused_without_echoing_it(menv: Env, body: object) -> None:
+    """``/api/account/`` is a secret-input path (#282): FastAPI's 422 drops its ``input``."""
+    browser = await signed_in(menv)
+    response = await browser.request("PUT", LOCALE, body)
+    assert response.status_code == 422
+    assert "PLANTED-VALUE" not in response.text
+
+
 async def test_the_write_needs_a_full_session_and_the_csrf_token(menv: Env) -> None:
     assert (await Browser(menv).request("PUT", LOCALE, {"locale": "sv"})).status_code == 401
     half = Browser(menv)

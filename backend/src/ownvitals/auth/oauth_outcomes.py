@@ -110,7 +110,7 @@ async def _link(db: AsyncSession, req: Request) -> Outcome:
             session_id=info.id,
         )
     except SessionGone:  # a reset or revoke committed since the session was read (#248)
-        return _fail("session_mismatch")
+        return _fail("session_mismatch", "session_gone")
     if linked:
         await record_event(
             db,
@@ -185,8 +185,10 @@ async def _sign_in(db: AsyncSession, req: Request) -> Outcome:
         # that removed the identity, or a disable or delete, committed since the read above.
         locked = await lock_user_row(db, user_id)
         again = await identity_owner(db, provider, ident.subject)
-        if locked is None or again is None or again[0] != user_id:
-            return _fail("invalid")
+        if locked is None:
+            return _fail("invalid", "account_gone")
+        if again is None or again[0] != user_id:
+            return _fail("invalid", "identity_gone")
         if locked.disabled:
             await record_event(db, "sign_in_failed", user_id=user_id, ip=req.ip)
             return _fail("invalid", "user_disabled")  # the generic failure

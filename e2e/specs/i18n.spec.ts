@@ -47,9 +47,10 @@ test('switch language signed out, sign in, change it in Settings, reload, get Sw
   // Mail goes out in the account's language: the reset mail for this address.
   await page.getByRole('button', { name: account.email }).click()
   await page.getByRole('menuitem', { name: 'Logga ut' }).click()
-  await expect(page.getByRole('heading', { name: 'Logga in', exact: true })).toBeVisible()
-  // The reload shows this browser's own choice (English, set with the picker above), so the
+  // Signed out, the account's language no longer applies (ADR 0015 section 2, #282): the page
+  // shows this browser's own choice (English, set with the picker above) at once, so the
   // request's language is English: the Swedish mail comes from the account's stored language.
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
   await page.goto('/reset')
   await page.getByLabel('Email').fill(account.email)
   await page.getByRole('button', { name: 'Send reset link' }).click()

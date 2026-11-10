@@ -52,7 +52,8 @@ answers 404 `passkeys_unavailable`; locally, use `http://localhost:<port>`.
   account active and, for sign-in, a confirmed TOTP), then py_webauthn (rp id hash, UP, UV,
   algorithm, signature) and last the sign count. py_webauthn is handed a stored count of 0, so
   it never refuses on the count before the signature; ours is judged after it, and a regression
-  suspends the credential, writes `passkey_suspended` and mails the user.
+  suspends the credential, writes `passkey_suspended` and mails the user (one notice for the
+  sign-in and the re-auth alike, so it does not say "a sign-in").
 - **The final step** runs with the account row locked `FOR SHARE` and writes the new count with
   `UPDATE … WHERE sign_count = <read value>`; the session is created (or rotated) in that same
   transaction. `reset_mfa` locks the row `FOR UPDATE` before it removes anything, so a sign-in or
@@ -78,14 +79,24 @@ answers 404 `passkeys_unavailable`; locally, use `http://localhost:<port>`.
 - **Relying-party id** is not checked against the public suffix list (no dependency for it). A
   public suffix can only be configured as `webauthn_rp_id` if `public_base_url`'s host is under
   it, and browsers refuse a public-suffix rp id, so such a setting fails closed: no passkey can
-  be registered or used.
+  be registered or used. A host a browser reads as an IPv4 address is an address here too: besides
+  what `ipaddress` parses, one whose last label is a decimal or `0x` number (WHATWG "ends in a
+  number": `0x7f.0x1` is `127.0.0.1`), so it has no relying-party id (`config_rpid`). In `prod`,
+  a `localhost` relying-party id (set, or taken from the public host) is refused at startup.
 - **Cross-device sign-in** (ADR 0011, amendment of 2026-11-08, #252). Unless the assertion
   says `authenticatorAttachment: "platform"` and the credential was registered with the
   `internal` transport, the sign-in is cross-device (`passkey_model.is_cross_device`): its
   session has `origin = 'passkey_cross_device'`, at most 24 hours absolute and 1 hour idle
   (`session_model.CROSS_DEVICE_*`, or the settings if shorter), kept over every rotation
   (`session_cross_device`); no known device or device cookie is made, the `passkey_signin`
-  event has `cross_device: true`, and the session can't approve a QR login.
+  event has `cross_device: true`, and the session can't approve a QR login (the scan and approve
+  routes answer 403 `qr_approval_not_allowed`).
+- **The idle check of a replaced session** (`sessions.start_session`): a sign-in in a browser
+  that still holds a session passes that session's `expires_at` on only when it is still valid,
+  and that check uses the configured idle limit (`session_idle_hours`, 72 h), not the per-origin
+  one. So a cross-device session idle for more than 1 hour but not yet purged can still pass its
+  `expires_at` on. This is never looser: the inherited value is at most 24 hours and never later
+  than a fresh session's. Worth aligning when `sessions.py` is next split.
 - **A password reset** keeps passkeys; its link mail lists them with a link to the Security page.
   A password change sends no mail today, so it lists nothing.
 

@@ -100,10 +100,10 @@ TEXTS: Final = MappingProxyType(
             "A passkey on your ownvitals account was refused and suspended"
         ),
         "passkey_suspended.body": (
-            'A sign-in with your passkey "{name}" was refused and the passkey was suspended: its '
-            "counter went backwards, which can mean it was copied.\n"
+            'Your passkey "{name}" was refused and suspended when it was just used: its counter '
+            "went backwards, which can mean it was copied.\n"
             "It can't be used any more. Remove it on the Security page and add it again. If you "
-            "didn't just try to sign in with it, change your password.\n"
+            "didn't just use it to sign in or to confirm it's you, change your password.\n"
         ),
         "qr_approved.subject": "A new sign-in to ownvitals was approved from your phone",
         "qr_approved.body": (

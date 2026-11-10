@@ -30,6 +30,7 @@ from ownvitals.config_net import (  # noqa: F401 (re-exported)
     parse_networks,
     public_origin,
 )
+from ownvitals.config_rpid import check_rp_id, rp_id_in_use
 from ownvitals.config_secrets import (  # noqa: F401 (re-exported)
     DEFAULT_SECRETS_DIR,
     SECRET_FILE_FIELDS,
@@ -254,18 +255,7 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, WebhookSetti
 
     @model_validator(mode="after")
     def _check_webauthn_rp_id(self) -> "Settings":
-        host = urlsplit(self.public_base_url).hostname or ""
-        rp_id = self.webauthn_rp_id
-        if rp_id is None:
-            return self
-        if _is_ip(host) or rp_id != rp_id.strip().lower() or not rp_id or _is_ip(rp_id):
-            raise ValueError("webauthn_rp_id must be a lower-case domain name")
-        if not (host == rp_id or host.endswith("." + rp_id)) or (
-            "." not in rp_id and rp_id != "localhost"
-        ):
-            raise ValueError(
-                "webauthn_rp_id must be the host of public_base_url or a parent domain of it"
-            )
+        check_rp_id(self.public_base_url, self.webauthn_rp_id, self.environment)
         return self
 
     @model_validator(mode="after")
@@ -365,10 +355,7 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, WebhookSetti
     def passkey_rp_id(self) -> str | None:
         """The WebAuthn relying-party id (ADR 0011 section 1), or ``None`` when the public host
         is an IP address and passkeys are therefore off."""
-        if self.webauthn_rp_id is not None:
-            return self.webauthn_rp_id
-        host = urlsplit(self.public_base_url).hostname or ""
-        return None if not host or _is_ip(host) else host
+        return rp_id_in_use(self.public_base_url, self.webauthn_rp_id)
 
     @property
     def admin_email_set(self) -> frozenset[str]:

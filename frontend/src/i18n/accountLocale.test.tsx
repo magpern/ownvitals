@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SIGNED_IN, fakeApi, reason } from '../test/fakeApi'
+import { SIGNED_IN, SIGNED_IN_NO_TOTP, fakeApi, reason } from '../test/fakeApi'
 import { renderAt } from '../test/render'
 import { getLocale, setLocale } from './store'
 import { STORAGE_KEY } from './resolve'
@@ -78,6 +78,30 @@ describe("the account's language", () => {
     await waitFor(() => {
       expect(screen.getByRole<HTMLSelectElement>('combobox', { name: /^(Language|Språk)$/ }).value).toBe('')
     })
+  })
+
+  it("is dropped at sign-out: the browser's own choice holds again (#282)", async () => {
+    window.localStorage.setItem(STORAGE_KEY, 'en')
+    let out = false
+    fakeApi({
+      'GET /api/auth/session': () =>
+        out ? { authenticated: false, csrf_token: 'a' } : { ...SIGNED_IN_NO_TOTP, user: { ...SIGNED_IN.user, locale: 'sv' } },
+      'POST /api/auth/logout': () => {
+        out = true
+        return new Response(null, { status: 204 })
+      },
+    })
+    renderAt('/two-factor/setup')
+    await waitFor(() => {
+      expect(document.documentElement.lang).toBe('sv')
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(document.documentElement.lang).toBe('en')
+    })
+    expect(getLocale()).toBe('en')
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe('en')
   })
 
   it('shows a refusal and keeps the stored value', async () => {

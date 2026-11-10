@@ -1,7 +1,5 @@
 """The settings keep one field (and one ``OWNVITALS_`` variable) per name after the group split."""
 
-from pydantic_settings import EnvSettingsSource
-
 from ownvitals.config import Settings
 
 # The field names before the settings groups moved into ``config_*.py`` modules (issue 245).
@@ -84,8 +82,9 @@ def test_the_field_set_is_unchanged_by_the_split() -> None:
 
 
 def test_every_field_reads_its_prefixed_environment_variable() -> None:
-    # Ask Settings' own environment source which variable each field reads.
-    source = EnvSettingsSource(Settings)
+    # Public API only (#282, the G1 review): with the prefix and no alias on any field, each field
+    # reads ``OWNVITALS_<NAME>`` (case-insensitive).
+    assert Settings.model_config.get("env_prefix") == "OWNVITALS_"
+    assert Settings.model_config.get("case_sensitive", False) is False
     for name, field in Settings.model_fields.items():
-        env_names = [env_name for _, env_name, _ in source._extract_field_info(field, name)]  # pyright: ignore[reportPrivateUsage]
-        assert env_names == [f"ownvitals_{name}"], name
+        assert (field.alias, field.validation_alias) == (None, None), name

@@ -44,8 +44,9 @@ from ownvitals.mail import Mailer
 logger = logging.getLogger(__name__)
 
 # Routes whose request bodies can hold a password, code or token, and the jobs API (its bodies
-# are the user's own input; its routes validate them themselves, this is the backstop).
-SECRET_INPUT_PATHS = ("/api/auth/", "/api/connections", "/api/jobs")
+# are the user's own input; its routes validate them themselves, this is the backstop) and the
+# account routes (#282: a malformed body is never echoed back).
+SECRET_INPUT_PATHS = ("/api/auth/", "/api/account/", "/api/connections", "/api/jobs")
 
 
 def install(app: FastAPI) -> None:
