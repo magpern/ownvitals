@@ -73,7 +73,7 @@ async def _run(settings: Settings) -> None:
         stop = asyncio.Event()
         # Before "worker started" is logged, so a signal after that line is always handled.
         _install_signal_handlers(asyncio.get_running_loop(), stop)
-        async with metrics_running(settings, factory, stop):
+        async with metrics_running(settings, factory, stop, engine=engine):
             await run_worker(
                 settings,
                 stop,

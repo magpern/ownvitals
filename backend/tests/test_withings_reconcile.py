@@ -523,7 +523,11 @@ async def test_a_current_url_outside_the_callback_base_is_refused_before_any_cal
     async with WithingsClient.open(
         WithingsApp(app.client_id, app.client_secret), inner=FakeWithingsTransport(fake)
     ) as client:
-        for elsewhere in ("https://elsewhere.example.test/api/webhooks/withings/x", BASE + "x/y"):
+        for elsewhere in (
+            "https://elsewhere.example.test/api/webhooks/withings/x",
+            BASE + "x/y",
+            "http://hooks.example.test/api/webhooks/withings/x",  # same host, other scheme
+        ):
             with pytest.raises(JobFailure):
                 await repair_subscriptions(
                     job,

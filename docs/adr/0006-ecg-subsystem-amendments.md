@@ -218,3 +218,10 @@ synthetic, from `backend/tests/ecg/calibrate.py`; the full tables are in `docs/d
     30 dB), OC4 (two leads coincide within 20 ms for ≥ 95 % of the beats), V3 (±5 bpm for ≥ 95 %
     of the pairs; Bland-Altman limits at 1.96 SD). The owner confirms or changes each before the
     run; nothing here is a clinical claim.
+19. **V4 compares exactly** (#315). The wrong-beat share is checked as
+    `100 * wrong <= 1 * inspected` without rounding, as V1 and V3 are (amendment 15); the
+    printed percentage stays rounded.
+20. **OC3 mains can be "not observable"** (#315). A 60 Hz line needs a sampling rate above 120 Hz
+    and a 50 Hz line one above 100 Hz. When no line is found and the rate is 120 Hz or less on
+    some judged strip, `OC3 mains` reads `not-observable` instead of `no`; a found line is still
+    `yes`.

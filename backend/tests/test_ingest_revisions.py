@@ -21,6 +21,7 @@ from ownvitals.ingest.rows import (
     save_estimated,
     soft_delete_measure,
     upsert_activity,
+    upsert_device,
     upsert_ecg,
     upsert_measure_group,
     upsert_sleep_summary,
@@ -30,6 +31,7 @@ from ownvitals.ingest.series import Point, intraday_points, sleep_points, write_
 from ownvitals.ingest.skips import SKIPPED
 from ownvitals.withings.models import (
     Activity,
+    Device,
     HeartListEntry,
     HeartSignal,
     IntradayBody,
@@ -486,3 +488,45 @@ async def test_an_upsert_that_changes_an_existing_row_reports_updated(
         assert await upsert_activity(db, owner, connection, activity(2), "UTC", WHEN) == "updated"
         assert await upsert_workout(db, owner, connection, workout(1), "UTC", WHEN) == "inserted"
         assert await upsert_workout(db, owner, connection, workout(2), "UTC", WHEN) == "updated"
+
+
+async def test_an_upsert_that_changes_a_sleep_summary_or_device_reports_updated(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    owner, connection = _owner(database_url)
+    ctx = make_context(owner)
+
+    def summary(minutes: int) -> SleepSummary:
+        return SleepSummary.model_validate(
+            {
+                "id": 9,
+                "timezone": "UTC",
+                "startdate": IN_RANGE,
+                "enddate": IN_RANGE + 8 * 3600,
+                "date": "2025-06-01",
+                "data": {"total_sleep_time": minutes},
+            }
+        )
+
+    def device(battery: str) -> Device:
+        return Device.model_validate(
+            {"deviceid": "synthetic-device-1", "type": "Scale", "model_id": 1, "battery": battery}
+        )
+
+    async with user_session(sessions, ctx) as db:
+        assert await upsert_sleep_summary(db, owner, connection, summary(1), "UTC", WHEN) == (
+            "inserted"
+        )
+        assert await upsert_sleep_summary(db, owner, connection, summary(1), "UTC", WHEN) == (
+            "unchanged"
+        )
+        assert await upsert_sleep_summary(db, owner, connection, summary(2), "UTC", WHEN) == (
+            "updated"
+        )
+        assert await upsert_device(db, owner, connection, device("high"), "UTC", WHEN) == (
+            "inserted"
+        )
+        assert await upsert_device(db, owner, connection, device("high"), "UTC", WHEN) == (
+            "unchanged"
+        )
+        assert await upsert_device(db, owner, connection, device("low"), "UTC", WHEN) == "updated"

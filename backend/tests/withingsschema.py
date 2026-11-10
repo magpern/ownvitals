@@ -27,6 +27,7 @@ DROP FUNCTION IF EXISTS public.webhook_events_purge_owner();
 DROP FUNCTION IF EXISTS public.webhook_events_purge_account(uuid);
 DROP FUNCTION IF EXISTS public.metrics_withings_aggregates();
 DROP FUNCTION IF EXISTS public.metrics_webhook_ages(timestamptz);
+DROP FUNCTION IF EXISTS public.metrics_webhook_ages(timestamptz, uuid);
 """
 
 

@@ -133,6 +133,24 @@ async def test_an_expired_state_is_refused(env: Env, owner: object) -> None:
     assert fake.log == []
 
 
+async def test_the_state_expiry_has_one_boundary() -> None:
+    """The store alone, synthetic ids: a state taken just inside its 10 minutes opens once, one
+    taken at them is refused and is no longer held (#311: one expiry check, not two)."""
+    clock = {"now": 0.0}
+    store = StateStore(clock=lambda: clock["now"])
+    session_id, user_id, uri = uuid4(), uuid4(), f"{BASE}/synthetic-callback"
+    inside = await store.issue(session_id=session_id, user_id=user_id, app_id=1, redirect_uri=uri)
+    at = await store.issue(session_id=session_id, user_id=user_id, app_id=1, redirect_uri=uri)
+    assert inside is not None
+    assert at is not None
+    clock["now"] = STATE_TTL_SECONDS - 0.001
+    assert await store.take(inside) is not None
+    assert await store.take(inside) is None
+    clock["now"] = float(STATE_TTL_SECONDS)
+    assert await store.take(at) is None
+    assert store._rows == {}
+
+
 async def test_a_withings_user_linked_elsewhere_is_refused(env: Env, owner: object) -> None:
     app_id = await _app(env, owner)
     ring = env.app.state.keyring

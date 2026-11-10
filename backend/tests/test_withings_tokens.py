@@ -13,9 +13,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture  # noqa: F401
 from ctx import make_context
 from ownvitals import egress
+from ownvitals.connections.errors import ConnectionFailure
+from ownvitals.connections.providers import withings as withings_provider
 from ownvitals.connections.providers.withings import commit_refresh, open_withings, store_grant
 from ownvitals.connections.repository import disconnect
 from ownvitals.context import UserContext
+from ownvitals.crypto.envelope import DecryptFailed
 from ownvitals.db import user_session
 from ownvitals.egress import core
 from ownvitals.withings import client as client_module
@@ -369,3 +372,55 @@ async def test_a_reconnect_during_the_refresh_wins_and_its_token_is_returned(
     assert (opened.generation, opened.access_token) == (2, WINNER_ACCESS)
     assert opened.refresh_token == WINNER_REFRESH
     assert opened.intent is None
+
+
+# ------------------------------------------------- a disconnect during a failed decrypt (#311)
+# ``open_withings`` reads the row without a lock, then flags a ciphertext that will not open.
+# A disconnect keeps the generation, so only the status guard stops that flag from turning a
+# disconnected row into ``needs_reconnect``. The GCM failure is injected; the tokens are synthetic.
+
+
+class _RaceRing:
+    """The real ring, but ``hook`` runs once before the key is handed out."""
+
+    def __init__(self, ring: object, hook: Callable[[], Awaitable[None]] | None) -> None:
+        self._ring, self._hook = ring, hook
+
+    async def kek_for(self, db: object, key_id: object) -> object:
+        if self._hook is not None:
+            hook, self._hook = self._hook, None
+            await hook()
+        return await self._ring.kek_for(db, key_id)  # type: ignore[attr-defined]
+
+
+def _fail_decrypt(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*_args: object, **_kwargs: object) -> bytes:
+        raise DecryptFailed
+
+    monkeypatch.setattr(withings_provider, "open_sealed", refuse)
+
+
+async def test_a_failed_decrypt_flags_a_connected_row(
+    env: Env, owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx, connection_id, _fake, _userid = await _grant(env, owner, "decrypt-flag@example.com")
+    _fail_decrypt(monkeypatch)
+    ring = _RaceRing(env.app.state.keyring, None)
+    with pytest.raises(ConnectionFailure, match="decrypt_failed"):
+        await open_withings(env.factory, ring, ctx, connection_id)  # type: ignore[arg-type]
+    assert await _row(env, ctx, connection_id) == ("needs_reconnect", False, "decrypt_failed")
+
+
+async def test_a_disconnect_during_a_failed_decrypt_stays_disconnected(
+    env: Env, owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx, connection_id, _fake, _userid = await _grant(env, owner, "decrypt-race@example.com")
+    _fail_decrypt(monkeypatch)
+
+    async def hook() -> None:
+        assert await disconnect(env.factory, ctx, "withings", connection_id=connection_id)
+
+    ring = _RaceRing(env.app.state.keyring, hook)
+    with pytest.raises(ConnectionFailure, match="decrypt_failed"):
+        await open_withings(env.factory, ring, ctx, connection_id)  # type: ignore[arg-type]
+    assert await _row(env, ctx, connection_id) == ("disconnected", True, None)

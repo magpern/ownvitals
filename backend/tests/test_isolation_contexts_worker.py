@@ -79,7 +79,7 @@ async def test_the_metrics_refresh_changes_nothing_and_refuses_a_user_session(
     for me in (a, b):
         for call in (
             "SELECT * FROM public.metrics_withings_aggregates()",
-            "SELECT * FROM public.metrics_webhook_ages(now())",
+            "SELECT * FROM public.metrics_webhook_ages(now(), gen_random_uuid())",
         ):
             with pytest.raises(DBAPIError, match="system_session_only"):
                 async with user_session(factory, make_context(me.user)) as db:

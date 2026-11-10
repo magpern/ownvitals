@@ -75,7 +75,7 @@ categorical output, never samples, values or timestamps. Agents never mark an as
 | A1 | Units and calibration: integers are µV with no further scale factor (public spec) | OC1: the owner opens one recording in our viewer and in Withings' app at 10 mm/mV and confirms the R amplitudes match | Amplitudes and the §7 amplitude limits are off. HR and HRV are unaffected unless the scale is so far off that the amplitude limits reject strips: then no values, never wrong ones |
 | A2 | Lead identity unknown; shown as "lead unverified" | Probe: `wearposition` values. OC2: morphology matches the lead the Withings app labels | Labels only: analysis is lead- and polarity-agnostic (§6) |
 | A3 | `sampling_frequency` is 300 or 500 Hz (the rates #40 validates) | Probe: sampling rate | Other rates are stored and displayed but not analysed (`unsupported_sampling_rate`); whether to add 250 Hz (findings §3) is decided after the probe |
-| A4 | The stored signal may already be band-limited by the device (findings §3) | OC3: the spectrum above 40 Hz is ≥ 30 dB (our choice) below the 5–15 Hz band (device low-pass: yes/no); a 50/60 Hz line is present (yes/no) | Nothing in §5 to §9 (re-filtering at the same corners only steepens the roll-off); interval estimates (§12) wait for it |
+| A4 (amended 2026-11-09, #281; #315) | The stored signal may already be band-limited by the device (findings §3) | OC3: the spectrum above 40 Hz is ≥ 30 dB (our choice) below the 5–15 Hz band (device low-pass: yes/no); a 50/60 Hz line is present (yes/no) | Nothing in §5 to §9 (re-filtering at the same corners only steepens the roll-off); interval estimates (§12) wait for it |
 | A5 | One array per recording (findings §3) | Probe: ECG array count and lengths. If > 1, OC4: equal length and rate, and R-peaks coincide within 20 ms (our choice) for ≥ 95 % of beats. R-peak times differ between leads, so it errs toward "not simultaneous", the safe direction | All arrays are stored; analysis uses the first; six-lead stays off (§10) |
 | A6 | Strips last about 30 s | Probe: array length and sampling rate | Strips without a 20-s beat span never pass the gate (§7) |
 | A7 | `getmeas` intervals (135–138) and AFib result (130) belong to the ECG with the same device and timestamp (findings §5 question 5) | Probe: counts of 135–138 against the ECG count. OC5: every ECG has a matching group (yes/no, count without) | E4 and E6 still run on the measures; only the link to a strip (viewer, §11 overlay) is lost, and their notifications go out "not evaluated by ownvitals" as soon as no recording can be linked (§11), without waiting for the 24-hour bound |
@@ -401,12 +401,12 @@ On the home server, by the owner, after the M2 real-data gate, with the owner-ru
 with aggregates and a pass/fail line per criterion. **Only the pass/fail lines go into the issue**
 (the repository is public). The criteria are fixed now; the owner may change them before the run:
 
-- **V1**: the gate passes ≥ 80 % (our choice) of the recordings Withings classified without
+- **V1** (amended 2026-11-09, #281): the gate passes ≥ 80 % (our choice) of the recordings Withings classified without
   marking them noisy or inconclusive (`afib_details` ∉ {−1, 2, 5, 13}).
 - **V2** (report only): agreement table of our gate against Withings' noise code, the share of
   each HRV reason (for example `too_many_excluded` on slow, high-RSA strips, §8), and the gate's
   failures by heart-rate band (under 50 bpm) and reason.
-- **V3**: |our HR − Withings' `heart_rate`| ≤ 5 bpm for ≥ 95 % of gate-passed recordings with an HR
+- **V3** (amended 2026-11-09, #281): |our HR − Withings' `heart_rate`| ≤ 5 bpm for ≥ 95 % of gate-passed recordings with an HR
   (none on an irregular rhythm, §8; both our choices), with a Bland–Altman summary (1986). V3
   settles A8 **and** validates our HR, so a failure needs a follow-up; V4 checks our beats.
 - **V4**: the owner inspects ≥ 20 random gate-passed strips with R-peak markers (≤ 1 % of beats

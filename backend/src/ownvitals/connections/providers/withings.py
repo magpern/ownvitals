@@ -110,7 +110,7 @@ def _matches(public: dict[str, Any], app_id: int, userid: int) -> bool:
 async def open_withings(
     factory: Factory, ring: KeyRing, ctx: UserContext, connection_id: UUID
 ) -> OpenWithings:
-    """Decrypt one Withings row. A GCM failure sets ``needs_reconnect``."""
+    """Decrypt one Withings row. A GCM failure sets ``needs_reconnect`` on a connected row."""
     failure: str | None = None
     opened: OpenWithings | None = None
     async with user_session(factory, ctx) as db:
@@ -188,6 +188,7 @@ async def open_withings(
                         _C.id == row.id,
                         _C.owner_id == ctx.user_id,
                         _C.token_generation == row.token_generation,
+                        _C.status == "connected",  # a disconnect keeps the generation
                     )
                     .values(
                         status="needs_reconnect", last_error="decrypt_failed", updated_at=func.now()

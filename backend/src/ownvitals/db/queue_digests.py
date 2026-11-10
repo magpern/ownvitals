@@ -24,7 +24,7 @@ QUEUE_DIGESTS: dict[str, str] = {
     "webhook_events_purge_owner": "8e27869239fd878b54f03554f81d8bd9",
     "webhook_events_purge_account": "84b2be59ded7c2724bbfe9fe0e0ea3fb",
     "metrics_withings_aggregates": "a8aea3437e9abe31643d761c6279efe9",
-    "metrics_webhook_ages": "e06d394857678e78d84a0736b3164659",
+    "metrics_webhook_ages": "d8c2df764b931cb11be801d2d601f5e2",
     "withings_rate_claim": "441d05d8e3793821a984f626ec9758e8",
     "withings_rate_release": "4929f3167e2d14c9cf68929b147a9ca3",
     "withings_rate_pause": "e4263f18792c10cffd4bb75b4f4e5531",

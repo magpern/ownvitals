@@ -255,6 +255,8 @@ WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("sync_cursors", "backfill_state"): {(METRICS, "SELECT")},
     ("sync_cursors", "last_ok_at"): {(METRICS, "SELECT")},
     ("webhook_events", "enddate"): {(METRICS, "SELECT")},
+    # The tie-break of the delivery-age watermark (received_at, id) (#303).
+    ("webhook_events", "id"): {(METRICS, "SELECT")},
     ("webhook_events", "received_at"): {(EVENTS, "SELECT"), (METRICS, "SELECT")},
     ("jobs", "state"): {(METRICS, "SELECT")},
     ("jobs", "available_at"): {(METRICS, "SELECT")},

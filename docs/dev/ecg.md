@@ -375,7 +375,13 @@ Choices the specification leaves open:
   sex; the evaluation fingerprint covers them, so a new or changed recording between the read and
   the write makes the pass `stale`. `input_revision` stays the `measures` counter. An `ecg` pass
   (sync, backfill, webhook fetch) queues an evaluation; without a `measures` revision row nothing
-  is evaluated (the pass's known gap).
+  is evaluated (the pass's known gap), so an ECG-only account gets no E1 to E6 until a `measures`
+  row exists.
+- **Codes.** `afib_details` -1 (not processed) and 13 are documented codes: a recording that
+  carries one counts as decided and settles E1, E2 and E3 negative. E1 with `afib` 0 and
+  `afib_details` missing is also a decided negative (`NoFinding`, counted in decided days), though
+  a detail of 1, 11 or 12 would have fired it (ADR 0006 §11 OR). Open ADR 0006 §11 question:
+  whether that case should be undecided instead; behaviour unchanged.
 
 **The recompute** (`derived/ecg_recompute.py`, kind `ecg_recompute`, singleton `ecg_recompute`,
 input `{connection_id, origin: "backfill"}`). A row is current when its `estimated` has the running
@@ -388,9 +394,12 @@ estimates are recomputed within a day. Until then the overlay already treats a g
 difference as no gate result and keeps the result on an `hrv`-only difference. A stored frame that
 no longer decodes gets the `signal_missing` estimate. Logs: counts and the pipeline version.
 
-Known gaps: the job is claimed on the scheduler's lane (3), not the backfill lane (5):
-`queue_enqueue` maps only `withings_backfill` to lane 5 (as for `derive_normalize`). No sweep runs
-at worker start; the nightly reconciliation is the trigger.
+Known gaps (decided in #307; changes would be their own issues): the job is claimed on the
+scheduler's lane (3), not the backfill lane (5): `queue_enqueue` maps only `withings_backfill` to
+lane 5 (as for `derive_normalize`), and mapping more kinds is a change to a security-critical SQL
+function, so it stays as is. Every `ecg` pass queues the recompute, and the nightly reconciliation
+is the only sweep trigger, so a module version bump reaches stale estimates within 24 h; the overlay covers the gap (above). No sweep
+runs at worker start.
 
 Tests: `tests/analysis/rules/test_ecg.py` and `test_ecg_intervals.py` (every rule case, the
 undecided days, origin, the switch, E6's provenance into the overlay; no database),

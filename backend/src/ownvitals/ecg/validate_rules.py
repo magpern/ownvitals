@@ -226,9 +226,9 @@ def _v4(recordings: Sequence[Recording], answers: OwnerAnswers) -> tuple[str, in
         return "pending", passed, rejected, "pending", "pending"
     if inspected < 1 or wrong_beats > inspected:
         return "fail", passed, rejected, "not-applicable", str(justified_n)
-    wrong_percent = _whole_percent(wrong_beats, inspected)
+    wrong_percent = _whole_percent(wrong_beats, inspected)  # display only
     enough = passed >= V4_MIN_PASSED and rejected >= V4_MIN_REJECTED
-    beats_ok = wrong_percent <= V4_MAX_WRONG_PERCENT
+    beats_ok = 100 * wrong_beats <= V4_MAX_WRONG_PERCENT * inspected  # exact, as V1/V3
     justified_ok = justified_n >= V4_MIN_JUSTIFIED
     status = "pass" if enough and beats_ok and justified_ok else "fail"
     return status, passed, rejected, f"{wrong_percent}%", str(justified_n)
