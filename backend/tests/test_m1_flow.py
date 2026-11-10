@@ -33,9 +33,8 @@ from m1tools import (
 )  # fmt: skip
 from ownvitals.connections.purge import purge_connection
 from ownvitals.egress import core, install_worker_allowlist
-from ownvitals.ingest import calls
 from ownvitals.jobs.queue import enqueue
-from ownvitals.withings import rate, streams
+from ownvitals.withings import streams
 from ownvitals.withings.apps import create_app
 from ownvitals.withings.disconnect import disconnect_withings
 from ownvitals.withings.oauth import SessionProof, StateStore, callback, start
@@ -158,16 +157,8 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     install_worker_allowlist(ai_enabled=False)
     through_fake(monkeypatch, fake)
     # The synthetic history is 30 days: walk 45, not 17 years of windows, so the backfill is a
-    # handful of calls per stream.
-    # The worker's token bucket denies a call whenever another lane or slot holds the turn, which
-    # fails the job as rate_limited and spends an attempt; here every call is granted. The
-    # limiter itself is covered by test_withings_rate.py.
-    granted = rate.Claim(granted=True, lease_id=None, retry_at=None, reason="granted")
-
-    async def take(*_: object) -> rate.Claim:
-        return granted
-
-    monkeypatch.setattr(calls, "_take", take)
+    # handful of calls per stream. Every call goes through the real rate limiter (#294): the
+    # parallel streams' refused claims are waited out within the attempt, not failed.
     monkeypatch.setattr(streams, "FLOOR", datetime.now(UTC) - timedelta(days=45))
 
     def measure_count() -> int:
@@ -183,7 +174,9 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
         await _done(database_url, "withings_backfill", "measures")
         await _settled(database_url, "withings_backfill")
         assert _states(database_url, "withings_connect") == ["completed"]
-        assert _states(database_url, "withings_backfill").count("completed") >= 1
+        backfills = _states(database_url, "withings_backfill")
+        assert backfills
+        assert set(backfills) == {"completed"}, backfills  # none failed on a limiter refusal
         assert measure_count() == len(expected)
         status = scalar(
             database_url,

@@ -1,4 +1,4 @@
-"""A refused rate-limit claim is waited out within the attempt (#349). Synthetic ids only.
+"""A refused rate-limit claim is waited out within the attempt (#349, #294). Synthetic ids only.
 
 The unit tests script the limiter's answers; the database tests use the real limiter
 (``docker/postgres/withings/rate.sql``) with its four slots held by a synthetic account.
@@ -6,7 +6,9 @@ The unit tests script the limiter's answers; the database tests use the real lim
 
 import asyncio
 import json
+import time
 import uuid
+from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -32,6 +34,7 @@ from withingsschema import new_app
 
 ACCOUNT = Account(uuid.uuid4(), 7, ("user.metrics",), "UTC", "synthetic-token")
 GRANTED = rate.Claim(granted=True, lease_id=None, retry_at=None, reason="granted")
+CALLS = 3  # Withings calls per backfill job in the fan-out test
 
 
 def _refused(reason: str, after: float = 0.2) -> rate.Claim:
@@ -224,23 +227,33 @@ def _remaining(url: str, app_id: int) -> float:
 
 
 def _job(
-    database_url: str, app_id: int, factory: async_sessionmaker[AsyncSession]
+    database_url: str,
+    app_id: int,
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    of: Account | None = None,
+    owner: uuid.UUID | None = None,
 ) -> tuple[JobRun, Account]:
-    """A running backfill on its last attempt (3 of 3) for a synthetic connection."""
-    owner, connection, job_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    """A running backfill on its last attempt (3 of 3) for a new synthetic connection.
+
+    With ``of`` (and the ``owner`` it was made with) it is one more backfill of that connection."""
+    job_id = uuid.uuid4()
+    owner = owner or uuid.uuid4()
+    connection = of.connection_id if of is not None else uuid.uuid4()
     with engine_for(database_url) as engine, engine.begin() as conn:
-        ensure_user(conn, owner)
-        conn.execute(
-            text(
-                "INSERT INTO connections (id, owner_id, provider, status, public) "
-                "VALUES (:id, :owner, 'withings', 'needs_reconnect', CAST(:public AS jsonb))"
-            ),
-            {
-                "id": connection,
-                "owner": owner,
-                "public": json.dumps({"app_id": app_id, "scopes": ["user.metrics"]}),
-            },
-        )
+        if of is None:
+            ensure_user(conn, owner)
+            conn.execute(
+                text(
+                    "INSERT INTO connections (id, owner_id, provider, status, public) "
+                    "VALUES (:id, :owner, 'withings', 'needs_reconnect', CAST(:public AS jsonb))"
+                ),
+                {
+                    "id": connection,
+                    "owner": owner,
+                    "public": json.dumps({"app_id": app_id, "scopes": ["user.metrics"]}),
+                },
+            )
         conn.execute(
             text(
                 "INSERT INTO jobs (id, owner_id, kind, state, input, origin, lane, leased_by, "
@@ -318,3 +331,46 @@ async def test_a_last_attempt_that_cannot_get_a_slot_fails_rate_limited(
     assert raised.value.category == "rate_limited"
     assert 1 <= len(asked) <= 5
     assert _remaining(database_url, app_id) >= before
+
+
+async def test_a_backfill_fan_out_on_one_account_spends_no_attempt_on_the_limiter(
+    sessions: async_sessionmaker[AsyncSession], database_url: str, app_database_url: str
+) -> None:
+    """#294: seven backfills of one connection at once, each on its last attempt (3 of 3).
+
+    They compete for the four slots through the real limiter, so some claims are refused; every
+    refusal is waited out and no job fails. Each call spends exactly one granted token."""
+    app_id = _seed(database_url, budget=100)
+    owner = uuid.uuid4()
+    first, account = _job(database_url, app_id, sessions, owner=owner)
+    jobs = [first] + [
+        _job(database_url, app_id, sessions, of=account, owner=owner)[0] for _ in range(6)
+    ]
+    reasons: Counter[str] = Counter()
+    real = calls.rate.claim
+
+    def claim(*args: Any, **kwargs: Any) -> rate.Claim:
+        got = real(*args, **kwargs)
+        reasons[got.reason] += 1
+        return got
+
+    async def call() -> str:
+        await asyncio.sleep(0.05)  # the slot is held while the call is in flight
+        return "synthetic"
+
+    async def backfill(job: JobRun) -> list[str]:
+        return [await limited(job, account, rate.LANE_BACKFILL, call) for _ in range(CALLS)]
+
+    before = _remaining(database_url, app_id)
+    started = time.monotonic()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(calls.rate, "claim", claim)
+        done = await asyncio.gather(*(backfill(job) for job in jobs), return_exceptions=True)
+    elapsed = time.monotonic() - started
+    assert done == [["synthetic"] * CALLS] * len(jobs)  # no JobFailure("rate_limited")
+    assert reasons["granted"] == CALLS * len(jobs)  # one token per call, none for a refusal
+    assert reasons["busy"] + reasons["wait"] > 0  # the fan-out did hit the limiter
+    assert set(reasons) <= {"granted", "busy", "wait"}
+    spent = before - _remaining(database_url, app_id)
+    refill = elapsed * 100 / 60
+    assert CALLS * len(jobs) - refill - 0.5 <= spent <= CALLS * len(jobs) + 0.5
