@@ -20,8 +20,6 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth.clientip import bucket_ip
 from ownvitals.auth.cookies import (
@@ -44,7 +42,6 @@ from ownvitals.auth.deps import (
 )
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import factory, mailer, reserve, user_agent
-from ownvitals.auth.keys import token_hash
 from ownvitals.auth.locale import for_new_account
 from ownvitals.auth.oauth_client import OAuthRuntime, ProviderError, authorization_url, identify
 from ownvitals.auth.oauth_errors import OAUTH_ERRORS
@@ -54,7 +51,6 @@ from ownvitals.auth.oauth_store import Flow, create_flow, safe_return_to, take_f
 from ownvitals.auth.ratelimit import OAUTH_IP, Bucket
 from ownvitals.auth.sessions import SessionInfo
 from ownvitals.auth.signup_routes import valid_invite
-from ownvitals.auth.tables import oauth_flows
 from ownvitals.db import system_session
 from ownvitals.flags import effective as flags
 from ownvitals.mail import send_logged
@@ -115,8 +111,11 @@ async def start(
         ctx = await require_user(await current_context(request, info), info)
         user_id = ctx.user_id
         async with system_session(factory(request)) as db:
-            if await has_password(db, user_id) is not False:  # a password, or the account gone
-                raise HTTPException(status_code=403, detail={"reason": "reauth_use_password"})
+            password = await has_password(db, user_id)
+        if password is None:  # the account is gone (unreachable behind a live full session)
+            raise HTTPException(status_code=401, detail={"reason": "not_authenticated"})
+        if password:
+            raise HTTPException(status_code=403, detail={"reason": "reauth_use_password"})
     invite_id: UUID | None = None
     settings = request.app.state.settings
     if body.purpose == "sign_in" and body.invite_code:
@@ -166,24 +165,11 @@ def _target(flow: Flow | None, outcome: Outcome) -> str:
             return "/signin?oauth=email_needed"
 
 
-async def _flow_age(db: AsyncSession, cookie: str) -> float | None:
-    """Seconds since the flow's start by the database clock, read in the transaction that takes
-    the flow (#247: a Google re-authentication must end within 5 minutes of its start)."""
-    age = await db.execute(
-        select(func.extract("epoch", func.now() - oauth_flows.c.created_at)).where(
-            oauth_flows.c.flow_hash == token_hash(cookie)
-        )
-    )
-    value = age.scalar_one_or_none()
-    return None if value is None else float(value)
-
-
 async def _handle(
     request: Request,
     provider: str,
     flow: Flow | None,
     info: SessionInfo | None,
-    flow_age: float | None = None,
 ) -> Outcome:
     query = request.query_params
     state, code = query.get("state", ""), query.get("code")
@@ -236,7 +222,7 @@ async def _handle(
                 pending_token=request.cookies.get(PENDING_COOKIE),
                 ip=request_ip(request),
                 user_agent=user_agent(request),
-                flow_age=flow_age,
+                flow_age=flow.age,
             ),
         )
 
@@ -252,12 +238,11 @@ async def callback(
         raise HTTPException(status_code=404)
     await reserve(request, [Bucket(OAUTH_IP, bucket_ip(request_ip(request)))])
     cookie = request.cookies.get(OAUTH_COOKIE)
-    flow, flow_age = None, None
+    flow = None
     if cookie:
         async with system_session(factory(request)) as db:
-            flow_age = await _flow_age(db, cookie)
             flow = await take_flow(db, cookie)  # before the code is exchanged: single use
-    outcome = await _handle(request, provider, flow, info, flow_age)
+    outcome = await _handle(request, provider, flow, info)
     if outcome.code != "ok":
         logger.warning(
             "oauth callback refused: provider=%s purpose=%s outcome=%s why=%s",

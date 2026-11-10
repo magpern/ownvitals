@@ -27,8 +27,8 @@ from authtools import (  # noqa: F401 - fixtures
 from flows import PASSWORD, Browser, age_reauth, pass_second_factor, reason, signed_in
 from oauthtools import fake_fixture, location, make_invite, oenv_fixture, sign_in_with, start  # noqa: F401 - fixtures
 from oidcfake import DROP, FakeProviders
-from ownvitals.auth import totp
-from ownvitals.auth.cookies import SESSION_COOKIE
+from ownvitals.auth import oauth_routes, oauth_store, totp
+from ownvitals.auth.cookies import OAUTH_COOKIE, SESSION_COOKIE
 
 REAUTHED = "/account?oauth=reauthed"
 RECENT = "SELECT reauth_at > now() - interval '1 minute' FROM sessions"
@@ -216,6 +216,37 @@ async def test_the_callback_must_come_within_five_minutes_of_the_start(
         assert location(response) == "/account?oauth=reauth_expired"
         await refused_unchanged(oenv, browser, old)
         assert await failures(oenv) == [{"why": "flow_old", "provider": "google"}]
+
+
+async def test_the_flow_is_taken_with_its_age_by_the_database_clock(
+    oenv: Env, fake: FakeProviders
+) -> None:
+    """``take_flow`` reads the age in the statement that deletes the row (#282, #262 review N5)."""
+    browser, _ = await google_only(oenv, fake)
+    started = await start(browser, "google", "reauth")
+    await oenv.run("UPDATE oauth_flows SET created_at = now() - interval '240 seconds'")
+    async with oenv.db() as db:
+        flow = await oauth_store.take_flow(db, browser.cookies[OAUTH_COOKIE])
+        assert flow is not None
+        assert flow.age is not None
+        assert 239 <= flow.age <= 250
+        assert await oauth_store.take_flow(db, browser.cookies[OAUTH_COOKIE]) is None
+    assert started.status_code == 200
+
+
+async def test_the_start_answers_signed_out_when_the_account_is_gone(
+    oenv: Env, fake: FakeProviders, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unreachable behind a live full session; never ``reauth_use_password`` (#262 review N3)."""
+    browser, _ = await google_only(oenv, fake)
+
+    async def gone(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(oauth_routes, "has_password", gone)
+    response = await start(browser, "google", "reauth")
+    assert (response.status_code, reason(response)) == (401, "not_authenticated")
+    assert await oenv.scalar("SELECT count(*) FROM oauth_flows") == 0
 
 
 async def test_an_unverified_email_is_refused(oenv: Env, fake: FakeProviders) -> None:
