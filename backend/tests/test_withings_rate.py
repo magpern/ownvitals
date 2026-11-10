@@ -4,6 +4,8 @@ The bucket budget in these tests is lowered by the superuser. The application pa
 write the tables, and it cannot raise the budget above 100.
 """
 
+import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -11,11 +13,12 @@ from math import isfinite
 from random import Random
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from jobtools import engine_for
 from ownvitals.jobs import withings as job_lanes
+from ownvitals.withings import rate
 from ownvitals.withings.errors import (
     DEFAULT_RATE_LIMIT_WAIT,
     MAX_RATE_LIMIT_WAIT,
@@ -222,41 +225,205 @@ def test_a_601_storm_pauses_and_then_resumes(
     assert _remaining(database_url, app_id) < before
 
 
-def test_one_accounts_backfill_cannot_starve_anothers_sync(
+def _hold_slots(conn: Connection, app_id: int, n: int) -> list[uuid.UUID]:
+    """``n`` of the global slots held by a synthetic filler account that then stops asking."""
+    filler, held = uuid.uuid4(), []
+    for _ in range(n):
+        got = claim(conn, app_id, filler, LANE_BACKFILL, lease_seconds=60)
+        assert got.granted
+        assert got.lease_id is not None
+        held.append(got.lease_id)
+    return held
+
+
+def _age(url: str, account: uuid.UUID, seconds: int) -> None:
+    """Move an account's last ask ``seconds`` into the past (superuser; the app cannot)."""
+    with engine_for(url) as engine, engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE withings_rate_demand SET seen_at = seen_at - make_interval(secs => :s), "
+                "granted_at = granted_at - make_interval(secs => :s) WHERE account_id = :account"
+            ),
+            {"account": account, "s": seconds},
+        )
+
+
+def test_a_waiting_sync_wins_over_one_accounts_backfill(
     schema: None, database_url: str, app_database_url: str
 ) -> None:
-    app_id = _seed(database_url, budget=8)
+    app_id = _seed(database_url, budget=12)
     backfill_account, sync_account = uuid.uuid4(), uuid.uuid4()
     with engine_for(app_database_url) as engine, engine.begin() as conn:
-        priming = claim(conn, app_id, sync_account, LANE_SYNC_NOW)
-        assert priming.granted
-        assert priming.lease_id is not None
-        release(conn, priming.lease_id)
+        held = _hold_slots(conn, app_id, rate.DEFAULT_SLOT_CAP)
+        # The sync wins the turn but no slot is free: it is still waiting.
+        assert claim(conn, app_id, sync_account, LANE_SYNC_NOW).reason == "busy"
+        release(conn, held.pop())
         denied = [claim(conn, app_id, backfill_account, LANE_BACKFILL).reason for _ in range(5)]
         served = claim(conn, app_id, sync_account, LANE_SYNC_NOW)
         assert served.granted
         assert served.lease_id is not None
         release(conn, served.lease_id)
+        # Served, the sync is no longer asking, so it holds nothing (#370).
+        after = claim(conn, app_id, backfill_account, LANE_BACKFILL)
+        assert after.granted
+        assert after.lease_id is not None
+        for lease in [*held, after.lease_id]:
+            release(conn, lease)
     assert denied == ["wait"] * 5
-    # The sync account going idle lets the backfill proceed, and a second account's share holds.
+
+
+def test_a_lane_that_stopped_asking_holds_nothing(
+    schema: None, database_url: str, app_database_url: str
+) -> None:
+    """The 30 s lane hold of #370: a served higher lane no longer stalls a lower one."""
+    app_id = _seed(database_url, budget=8)
+    webhook_account, backfill_account = uuid.uuid4(), uuid.uuid4()
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        served = claim(conn, app_id, webhook_account, LANE_WEBHOOK)
+        assert served.granted
+        assert served.lease_id is not None
+        release(conn, served.lease_id)
+        lower = claim(conn, app_id, backfill_account, LANE_BACKFILL)
+        assert lower.granted
+        assert lower.lease_id is not None
+        release(conn, lower.lease_id)
+
+
+def test_a_waiting_lane_that_went_quiet_holds_for_ten_seconds_at_most(
+    schema: None, database_url: str, app_database_url: str
+) -> None:
+    app_id = _seed(database_url, budget=8)
+    gone, backfill_account = uuid.uuid4(), uuid.uuid4()
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        held = _hold_slots(conn, app_id, rate.DEFAULT_SLOT_CAP)
+        assert claim(conn, app_id, gone, LANE_SYNC_NOW).reason == "busy"
+        release(conn, held.pop())
+        # Refused and then gone (its attempt ended): it still waits, so it holds the turn.
+        assert claim(conn, app_id, backfill_account, LANE_BACKFILL).reason == "wait"
+    _age(database_url, gone, 11)
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        got = claim(conn, app_id, backfill_account, LANE_BACKFILL)
+        assert got.granted
+        assert got.lease_id is not None
+        for lease in [*held, got.lease_id]:
+            release(conn, lease)
+
+
+def test_the_caller_is_always_asking(
+    schema: None, database_url: str, app_database_url: str
+) -> None:
+    """A claim reads its clock before it waits on the bucket row, so a parallel stream of the
+    same account and lane can be granted after that moment. The caller still competes."""
+    app_id = _seed(database_url, budget=8)
+    account = uuid.uuid4()
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        first = claim(conn, app_id, account, LANE_BACKFILL)
+        assert first.lease_id is not None
+        release(conn, first.lease_id)
     with engine_for(database_url) as engine, engine.begin() as conn:
         conn.execute(
             text(
-                "UPDATE withings_rate_demand SET seen_at = clock_timestamp() "
-                "- interval '2 minutes' WHERE account_id = :account"
+                "UPDATE withings_rate_demand SET granted_at = clock_timestamp() "
+                "+ interval '5 seconds' WHERE account_id = :account"
             ),
-            {"account": sync_account},
+            {"account": account},
         )
     with engine_for(app_database_url) as engine, engine.begin() as conn:
-        first = claim(conn, app_id, backfill_account, LANE_BACKFILL)
-        second = claim(conn, app_id, backfill_account, LANE_BACKFILL)
-        other = uuid.uuid4()
+        got = claim(conn, app_id, account, LANE_BACKFILL)
+        assert got.granted
+        assert got.lease_id is not None
+        release(conn, got.lease_id)
+
+
+def test_continuous_higher_lane_traffic_still_lets_a_lower_lane_through(
+    schema: None, database_url: str, app_database_url: str
+) -> None:
+    """Webhook claims every 0.1 s for up to 8 s; a backfill asking 5 a second gets a grant in
+    well under 3 s. With the old hold it waited until 30 s after the traffic stopped (#370)."""
+    app_id = _seed(database_url, budget=100)
+    webhook_account, backfill_account = uuid.uuid4(), uuid.uuid4()
+    done = threading.Event()
+
+    def traffic() -> int:
+        served = 0
+        engine = create_engine(app_database_url, pool_size=1, max_overflow=0)
+        try:
+            deadline = time.monotonic() + 8
+            while not done.is_set() and time.monotonic() < deadline:
+                with engine.begin() as conn:
+                    got = claim(conn, app_id, webhook_account, LANE_WEBHOOK)
+                    if got.granted and got.lease_id is not None:
+                        release(conn, got.lease_id)
+                        served += 1
+                time.sleep(0.1)
+        finally:
+            engine.dispose()
+        return served
+
+    def lower() -> float | None:
+        engine = create_engine(app_database_url, pool_size=1, max_overflow=0)
+        try:
+            time.sleep(0.5)  # the traffic is running first
+            started = time.monotonic()
+            while time.monotonic() - started < 7:
+                with engine.begin() as conn:
+                    got = claim(conn, app_id, backfill_account, LANE_BACKFILL)
+                    if got.granted and got.lease_id is not None:
+                        release(conn, got.lease_id)
+                        return time.monotonic() - started
+                time.sleep(0.2)
+            return None
+        finally:
+            done.set()
+            engine.dispose()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        served = pool.submit(traffic)
+        waited = pool.submit(lower).result()
+        assert served.result() >= 3
+    assert waited is not None
+    assert waited < 3
+
+
+def test_a_capped_backfill_is_not_stalled_by_one_that_stopped_asking(
+    schema: None, database_url: str, app_database_url: str
+) -> None:
+    app_id = _seed(database_url, budget=8)  # a quarter: 2 grants a minute per account
+    capped, finished = uuid.uuid4(), uuid.uuid4()
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        for account in (capped, capped, finished):
+            got = claim(conn, app_id, account, LANE_BACKFILL)
+            assert got.granted
+            assert got.lease_id is not None
+            release(conn, got.lease_id)
+        # finished is under its share but no longer asking: capped is not held for it.
+        again = claim(conn, app_id, capped, LANE_BACKFILL)
+        assert again.granted
+        assert again.lease_id is not None
+        release(conn, again.lease_id)
+
+
+def test_one_accounts_backfill_share_holds_while_another_waits(
+    schema: None, database_url: str, app_database_url: str
+) -> None:
+    app_id = _seed(database_url, budget=8)  # a quarter: 2 grants a minute per account
+    ahead, other = uuid.uuid4(), uuid.uuid4()
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        first = claim(conn, app_id, ahead, LANE_BACKFILL)
+        second = claim(conn, app_id, ahead, LANE_BACKFILL)
         theirs = claim(conn, app_id, other, LANE_BACKFILL)
-        ahead = claim(conn, app_id, backfill_account, LANE_BACKFILL)
-    assert first.granted
-    assert second.granted
-    assert theirs.granted
-    assert ahead.reason == "wait"
+        assert first.granted
+        assert second.granted
+        assert theirs.granted
+        leases = [c.lease_id for c in (first, second, theirs)]
+        leases += _hold_slots(conn, app_id, 1)
+        # other asks again and finds no slot: it is waiting, under its share.
+        assert claim(conn, app_id, other, LANE_BACKFILL).reason == "busy"
+        over = claim(conn, app_id, ahead, LANE_BACKFILL)
+        for lease in leases:
+            assert lease is not None
+            release(conn, lease)
+    assert over.reason == "wait"
 
 
 def test_the_same_lane_is_round_robin(
@@ -265,11 +432,21 @@ def test_the_same_lane_is_round_robin(
     app_id = _seed(database_url, budget=8)
     first, second = uuid.uuid4(), uuid.uuid4()
     with engine_for(app_database_url) as engine, engine.begin() as conn:
-        assert claim(conn, app_id, first, LANE_SYNC_NOW).granted
-        assert claim(conn, app_id, second, LANE_SYNC_NOW).granted
-        # first was granted earlier, so first is due, not second.
+        for account in (first, second):
+            got = claim(conn, app_id, account, LANE_SYNC_NOW)
+            assert got.granted
+            assert got.lease_id is not None
+            release(conn, got.lease_id)
+        held = _hold_slots(conn, app_id, rate.DEFAULT_SLOT_CAP)
+        # Both wait for a slot; first was served earlier, so first is due, not second.
+        assert claim(conn, app_id, second, LANE_SYNC_NOW).reason == "busy"
+        assert claim(conn, app_id, first, LANE_SYNC_NOW).reason == "busy"
+        release(conn, held.pop())
         skipped = claim(conn, app_id, second, LANE_SYNC_NOW)
         due = claim(conn, app_id, first, LANE_SYNC_NOW)
+        assert due.lease_id is not None
+        for lease in [*held, due.lease_id]:
+            release(conn, lease)
     assert skipped.reason == "wait"
     assert due.granted
 

@@ -38,7 +38,7 @@ _CALL_SECONDS = 30.0
 CLAIM_WAIT_SECONDS: Final = 60.0  # waited in all for one call's claim, within the attempt
 _ASK_AGAIN: Final = frozenset({"wait", "busy", "empty"})  # refusals that are only a queue
 _STEP_FLOOR: Final = 0.2  # the limiter's own retry_at for a turn or a slot
-_STEP_CAP: Final = 5.0  # well inside the 30 s the limiter remembers that an account asked
+_STEP_CAP: Final = 5.0  # with jitter, inside the 10 s a waiting lane stays live (rate.sql)
 _JITTER_MAX: Final = 1.25  # each wait is stretched by up to this factor, never shortened
 
 

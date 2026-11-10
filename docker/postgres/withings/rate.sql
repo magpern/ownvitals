@@ -6,10 +6,13 @@
 -- One bucket per Withings app, budget at most 100 a minute. A token is consumed when a claim
 -- is granted and is never refunded. Four global slots (the in-flight cap) carry a lease and
 -- are taken with FOR UPDATE SKIP LOCKED; an expired lease is free, and the token stays spent.
--- Lanes, lowest number first: sync now, webhook, poll, reconcile, backfill. While a higher
--- lane has asked within 30 seconds it wins. Same lane is round-robin. One account's backfill
--- stops at a quarter of the budget in a minute while another account is still under that
--- share. A 601 pauses the bucket; the wait is capped at 15 minutes.
+-- Lanes, lowest number first: sync now, webhook, poll, reconcile, backfill. Only live demand
+-- competes (ADR 0005 section 8, amended 2026-11-10, #370): a lane and account that asked within
+-- 10 seconds and has not been granted since (it is still waiting), and the caller itself. The
+-- highest live lane wins; a lane whose job stopped asking holds nothing. Same lane is
+-- round-robin. One account's backfill stops at a quarter of the budget in a minute while
+-- another account's live backfill is still under that share. A 601 pauses the bucket; the wait
+-- is capped at 15 minutes.
 --
 -- No advisory lock: the bucket row is the mutex (ADR 0005 section 9, namespaces 1, 3 and 4
 -- stay what they are). 20-queue.sql admits these three functions by name and nothing else.
@@ -98,7 +101,10 @@ BEGIN
   v_cap := greatest(1, v_budget / 4);
   SELECT d.account_id, d.lane INTO v_winner_account, v_winner_lane
     FROM public.withings_rate_demand d
-   WHERE d.app_id = p_app_id AND d.seen_at >= v_now - interval '30 seconds'
+   WHERE d.app_id = p_app_id
+     AND ((d.account_id = p_account_id AND d.lane = p_lane)
+          OR (d.seen_at >= v_now - interval '10 seconds'
+              AND (d.granted_at IS NULL OR d.seen_at > d.granted_at)))
      AND NOT (
        d.lane = 5
        AND d.window_started > v_now - interval '60 seconds'
@@ -106,7 +112,9 @@ BEGIN
        AND EXISTS (
          SELECT 1 FROM public.withings_rate_demand o
           WHERE o.app_id = d.app_id AND o.lane = 5 AND o.account_id <> d.account_id
-            AND o.seen_at >= v_now - interval '30 seconds'
+            AND ((o.account_id = p_account_id AND o.lane = p_lane)
+                 OR (o.seen_at >= v_now - interval '10 seconds'
+                     AND (o.granted_at IS NULL OR o.seen_at > o.granted_at)))
             AND (o.window_started <= v_now - interval '60 seconds'
                  OR o.window_grants < v_cap)))
    ORDER BY d.lane, d.granted_at NULLS FIRST, d.account_id
@@ -261,7 +269,7 @@ GRANT EXECUTE ON FUNCTION public.withings_rate_pause(integer, double precision)
 RESET ROLE;
 
 COMMENT ON FUNCTION public.withings_rate_claim(integer, uuid, integer, integer)
-  IS 'ownvitals-rate v1';
-COMMENT ON FUNCTION public.withings_rate_release(uuid) IS 'ownvitals-rate v1';
+  IS 'ownvitals-rate v2';
+COMMENT ON FUNCTION public.withings_rate_release(uuid) IS 'ownvitals-rate v2';
 COMMENT ON FUNCTION public.withings_rate_pause(integer, double precision)
-  IS 'ownvitals-rate v1';
+  IS 'ownvitals-rate v2';

@@ -151,6 +151,11 @@ would pass the bound, fails the attempt as `rate_limited` with `retry_after`, an
 that attempt like any other retryable failure (`backoff_seconds` honours `retry_after`); a hold
 is not waited out inside the attempt, because it lasts minutes.
 
+Only live demand competes in the limiter (ADR 0005 §8, amended #370): a lane and account that
+asked within 10 s and has not been granted since, or the caller itself. A served lane holds
+nothing, so a higher lane between its calls never stalls a lower one; `_STEP_CAP` (5 s, with
+jitter at most 6.25 s) must stay under those 10 s, or a waiting lane drops out between its asks.
+
 ## The worker
 
 `python -m ownvitals.worker` (compose `worker`): up to `worker_concurrency` runs, woken by `LISTEN

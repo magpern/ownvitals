@@ -14,7 +14,7 @@ RATE_FUNCTION_NAMES = (
     "withings_rate_release",
     "withings_rate_pause",
 )
-RATE_VERSION = "ownvitals-rate v1"
+RATE_VERSION = "ownvitals-rate v2"  # v2: only live demand holds a lane (#370)
 _RATE_CONFIG = "search_path=pg_catalog, pg_temp;TimeZone=UTC"
 _RATE_ACL = "ownvitals_app=X/ownvitals_owner,ownvitals_owner=X/ownvitals_owner"
 RATE_PINS: dict[str, tuple[str, str, str, str]] = {

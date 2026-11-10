@@ -158,9 +158,9 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     through_fake(monkeypatch, fake)
     # The synthetic history is 30 days: walk 45, not 17 years of windows, so the backfill is a
     # handful of calls per stream. Every call goes through the real rate limiter (#294): the
-    # parallel streams' refused claims are waited out within the attempt, not failed. That makes
-    # this flow about 80 s: a higher lane's demand holds the turn for 30 s after its job stops
-    # asking (the lane stall, #370).
+    # parallel streams' refused claims are waited out within the attempt, not failed. The flow
+    # makes about 180 calls, so it takes about 50 s: the app's budget of 100 a minute, not a lane
+    # (a lane whose job stopped asking no longer holds the turn, #370).
     monkeypatch.setattr(streams, "FLOOR", datetime.now(UTC) - timedelta(days=45))
 
     def measure_count() -> int:
