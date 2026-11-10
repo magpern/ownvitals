@@ -5,6 +5,7 @@ The unit tests script the limiter's answers; the database tests use the real lim
 """
 
 import asyncio
+import functools
 import json
 import uuid
 from collections.abc import AsyncIterator
@@ -93,6 +94,10 @@ def _script(monkeypatch: pytest.MonkeyPatch, answers: list[rate.Claim]) -> list[
     return lanes
 
 
+def _NONE() -> float:
+    return 1.0  # no jitter
+
+
 class _Clock:
     def __init__(self) -> None:
         self.slept: list[float] = []
@@ -108,11 +113,13 @@ async def test_a_queue_refusal_is_asked_again_within_the_attempt(
         monkeypatch, [_refused("busy"), _refused("wait"), _refused("empty", 0.6), GRANTED]
     )
     job, clock = _Job(), _Clock()
-    got = await calls._take(cast(JobRun, job), ACCOUNT, rate.LANE_BACKFILL, sleep=clock)
+    got = await calls._take(
+        cast(JobRun, job), ACCOUNT, rate.LANE_BACKFILL, sleep=clock, jitter=_NONE
+    )
     assert got is GRANTED
     assert lanes == [rate.LANE_BACKFILL] * 4  # never a higher lane than asked
     assert len(clock.slept) == 3
-    assert all(0.2 <= step <= 0.6 for step in clock.slept)  # the limiter's retry_at, bounded
+    assert clock.slept == [pytest.approx(0.2), pytest.approx(0.4), pytest.approx(0.8)]
     assert job.checkpoints == 0  # no extra transaction while nothing asks the run to stop
 
 
@@ -120,10 +127,25 @@ async def test_each_wait_is_floored_and_capped(monkeypatch: pytest.MonkeyPatch) 
     gone = rate.Claim(granted=False, lease_id=None, retry_at=None, reason="busy")
     _script(monkeypatch, [_refused("busy", -5), _refused("empty", 3600), gone, GRANTED])
     clock = _Clock()
-    await calls._take(cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock)
+    await calls._take(cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock, jitter=_NONE)
     assert clock.slept[0] == pytest.approx(0.2)
     assert clock.slept[1] == pytest.approx(5.0)
     assert clock.slept[2] == pytest.approx(5.0)
+
+
+async def test_waits_back_off_and_are_jittered(monkeypatch: pytest.MonkeyPatch) -> None:
+    _script(monkeypatch, [_refused("busy") for _ in range(7)] + [GRANTED])
+    clock = _Clock()
+    await calls._take(
+        cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock, jitter=lambda: 1.0
+    )
+    assert clock.slept == [pytest.approx(s) for s in (0.2, 0.4, 0.8, 1.6, 3.2, 5.0, 5.0)]
+    _script(monkeypatch, [_refused("busy"), GRANTED])
+    jittered = _Clock()
+    await calls._take(
+        cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=jittered, jitter=lambda: 1.25
+    )
+    assert jittered.slept == [pytest.approx(0.25)]  # stretched, never below the limiter's retry_at
 
 
 async def test_the_wait_is_bounded_and_then_fails_the_attempt(
@@ -132,7 +154,9 @@ async def test_the_wait_is_bounded_and_then_fails_the_attempt(
     _script(monkeypatch, [_refused("busy", 1.0) for _ in range(1000)])
     clock = _Clock()
     with pytest.raises(JobFailure) as raised:
-        await calls._take(cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock)
+        await calls._take(
+            cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock, jitter=_NONE
+        )
     assert raised.value.category == "rate_limited"
     assert raised.value.retry_after is not None
     assert sum(clock.slept) <= CLAIM_WAIT_SECONDS
@@ -143,7 +167,9 @@ async def test_a_601_hold_fails_the_attempt_at_once(monkeypatch: pytest.MonkeyPa
     _script(monkeypatch, [_refused("paused", 300.0), GRANTED])
     clock = _Clock()
     with pytest.raises(JobFailure) as raised:
-        await calls._take(cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock)
+        await calls._take(
+            cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock, jitter=_NONE
+        )
     assert raised.value.category == "rate_limited"
     assert raised.value.retry_after == pytest.approx(300.0, abs=2.0)
     assert clock.slept == []
@@ -158,7 +184,7 @@ async def test_a_cancel_or_a_shutdown_stops_the_wait(
     if stop == "shutdown":
         job.shutdown.set()
     with pytest.raises(RunStopped) as raised:
-        await calls._take(cast(JobRun, job), ACCOUNT, rate.LANE_BACKFILL, sleep=clock)
+        await calls._take(cast(JobRun, job), ACCOUNT, rate.LANE_BACKFILL, sleep=clock, jitter=_NONE)
     assert raised.value.reason == stop
     assert len(clock.slept) == (1 if stop == "cancelled" else 0)
 
@@ -172,7 +198,7 @@ class _CallJob(_Job):
 async def test_a_genuine_failure_still_fails_the_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
     """A refusal is waited out, but the call's own failure is the attempt's, as before."""
     _script(monkeypatch, [_refused("busy"), GRANTED])
-    monkeypatch.setattr(calls.asyncio, "sleep", _Clock())
+    monkeypatch.setattr(calls, "_take", functools.partial(calls._take, sleep=_Clock()))
     made = 0
 
     async def call() -> None:

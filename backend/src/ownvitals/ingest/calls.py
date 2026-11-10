@@ -14,6 +14,7 @@ the API quota metric, and a 601 answer once more towards the 601 count (PLAN sec
 """
 
 import asyncio
+import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -38,6 +39,7 @@ CLAIM_WAIT_SECONDS: Final = 60.0  # waited in all for one call's claim, within t
 _ASK_AGAIN: Final = frozenset({"wait", "busy", "empty"})  # refusals that are only a queue
 _STEP_FLOOR: Final = 0.2  # the limiter's own retry_at for a turn or a slot
 _STEP_CAP: Final = 5.0  # well inside the 30 s the limiter remembers that an account asked
+_JITTER_MAX: Final = 1.25  # each wait is stretched by up to this factor, never shortened
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -83,11 +85,17 @@ def _wait(moment: datetime | None) -> float:
     return max(1.0, (moment - datetime.now(UTC)).total_seconds())
 
 
-def _step(moment: datetime | None) -> float:
-    """How long to wait before asking again: the limiter's ``retry_at``, kept in bounds."""
+def _step(moment: datetime | None, asked: int = 0, factor: float = 1.0) -> float:
+    """How long to wait before asking again, kept in bounds.
+
+    The limiter's ``retry_at`` is the least; the floor doubles with each refusal already seen
+    (``asked``), so a long wait makes fewer claims than the 5 a second of a fixed floor. ``factor``
+    (1 to ``_JITTER_MAX``) spreads streams that were refused together.
+    """
     if moment is None:
         return _STEP_CAP
-    return min(max((moment - datetime.now(UTC)).total_seconds(), _STEP_FLOOR), _STEP_CAP)
+    due = (moment - datetime.now(UTC)).total_seconds()
+    return min(max(due, _STEP_FLOOR * 2**asked) * factor, _STEP_CAP)
 
 
 async def _take(
@@ -97,9 +105,10 @@ async def _take(
     *,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     budget: float = CLAIM_WAIT_SECONDS,
+    jitter: Callable[[], float] = lambda: random.uniform(1.0, _JITTER_MAX),  # noqa: S311
 ) -> rate.Claim:
     """One granted claim, asked again while the refusal is only a queue and the bound allows."""
-    left = budget
+    left, asked = budget, 0
     while True:
         async with job.fenced() as fs:
             claim = await fs.db.run_sync(
@@ -109,12 +118,13 @@ async def _take(
             )
         if claim.granted:
             return claim
-        step = _step(claim.retry_at)
+        step = _step(claim.retry_at, min(asked, 8), jitter())
         if claim.reason not in _ASK_AGAIN or step > left:
             raise JobFailure("rate_limited", retry_after=_wait(claim.retry_at))
         if job.cancel_requested or job.shutdown.is_set():
             await job.checkpoint()  # raises RunStopped: cancelled, shutdown or lost
         left -= step
+        asked += 1
         await sleep(step)
 
 
