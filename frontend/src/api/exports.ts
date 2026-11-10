@@ -81,9 +81,12 @@ export async function downloadFile(path: string, accept: string, fallbackName: s
   }
   const blob = await response.blob()
   // A body shorter than its Content-Length is a broken download (the server aborts a stream it
-  // cannot finish, issue 333): never hand a truncated archive to the browser as a file.
+  // cannot finish, issue 333): never hand a truncated archive to the browser as a file. With a
+  // Content-Encoding (a proxy compressed it) the header counts the encoded bytes, not the blob's,
+  // so the check is skipped and the browser's own length check is the one that applies.
   const expected = response.headers.get('Content-Length')
-  if (expected !== null && Number(expected) !== blob.size) {
+  const encoded = response.headers.get('Content-Encoding') !== null
+  if (expected !== null && !encoded && Number(expected) !== blob.size) {
     throw new TypeError('incomplete download')
   }
   const url = URL.createObjectURL(blob)

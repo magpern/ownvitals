@@ -107,6 +107,29 @@ describe('the export row', () => {
     expect(created).not.toHaveBeenCalled()
   })
 
+  it('saves a compressed body whose Content-Length counts the encoded bytes', async () => {
+    const created = vi.fn(() => 'blob:synthetic')
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() }))
+    fakeApi({
+      'GET /api/auth/session': SIGNED_IN,
+      'GET /api/exports': { exports: [item('ready')] },
+      'GET /api/exports/synthetic-export-1/file': () =>
+        new Response('PK synthetic, decoded', {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/zip',
+            'Content-Encoding': 'gzip',
+            'Content-Length': '12',
+          },
+        }),
+    })
+    renderAt('/settings/data')
+    fireEvent.click(await screen.findByRole('button', { name: /Download/ }))
+    await waitFor(() => {
+      expect(created).toHaveBeenCalled()
+    })
+  })
+
   it('names the largest part when the export was too large', async () => {
     fakeApi({
       'GET /api/auth/session': SIGNED_IN,

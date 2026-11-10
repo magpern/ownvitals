@@ -65,6 +65,30 @@ class DownloadAborted(Exception):
     instead of ending a body that is shorter than its ``Content-Length``."""
 
 
+def _aborted(error: BaseException | None) -> bool:
+    if isinstance(error, DownloadAborted):
+        return True
+    if isinstance(error, BaseExceptionGroup):
+        return all(_aborted(inner) for inner in error.exceptions)
+    return False
+
+
+class _QuietAbort(logging.Filter):
+    """Drops uvicorn's "Exception in ASGI application" record (with its traceback) when the
+    exception is a ``DownloadAborted``: the abort is the intended way to break the connection,
+    and the body already logged one line without an id. Every other error is kept."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (record.exc_info and _aborted(record.exc_info[1]))
+
+
+QUIET_ABORT: Final = _QuietAbort()
+# uvicorn's server logger (``log_config=None``: it propagates to the JSON root handler); a filter
+# on the logger applies to its own records only. Added once, at import.
+if QUIET_ABORT not in logging.getLogger("uvicorn.error").filters:
+    logging.getLogger("uvicorn.error").addFilter(QUIET_ABORT)
+
+
 # Each refusal of the store, as its status and body.
 REFUSALS: Final[dict[str, tuple[int, dict[str, str]]]] = {
     "not_found": (404, {"reason": "not_found"}),

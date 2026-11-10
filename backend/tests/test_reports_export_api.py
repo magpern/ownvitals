@@ -320,6 +320,26 @@ async def test_a_failed_build_queues_no_mail(xenv: Env, app_database_url: str) -
     assert admin_scalar("SELECT count(*) FROM mail_outbox WHERE kind = 'export_ready'") == 0
 
 
+async def test_no_mail_when_the_export_left_building_before_it_was_marked_ready(
+    xenv: Env, app_database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mail is queued only when the fenced update to ``ready`` matched: here the tidy of a
+    request marked the build failed while its archive was being finished."""
+    browser = await exporter(xenv)
+    assert (await request_export(browser)).status_code == 202
+    original = export.build_archive
+
+    async def overtaken(*args: Any, **kwargs: Any) -> Any:
+        built = await original(*args, **kwargs)
+        admin_run("UPDATE exports SET state = 'failed', failure = 'build_failed'")
+        return built
+
+    monkeypatch.setattr(export, "build_archive", overtaken)
+    assert await run_build(app_database_url) == "completed"
+    assert admin_scalar("SELECT state FROM exports") == "failed"
+    assert admin_scalar("SELECT count(*) FROM mail_outbox") == 0
+
+
 async def test_the_export_s_events_are_in_the_security_activity(
     xenv: Env, app_database_url: str
 ) -> None:
@@ -401,3 +421,22 @@ async def test_a_superseded_attempt_is_aborted_not_ended_short(
             pass
     events = await _events(xenv, "export_downloaded")
     assert sorted((e["attempt"], e["completed"]) for e in events) == [(1, False), (2, True)]
+
+
+def test_an_aborted_download_logs_no_traceback() -> None:
+    """uvicorn's record of the abort is dropped (the body logged its one line); any other
+    exception, or a group with another one in it, is still logged."""
+    from ownvitals.reports.export_routes import QUIET_ABORT, DownloadAborted
+
+    def record(error: BaseException | None) -> logging.LogRecord:
+        info = (type(error), error, None) if error is not None else None
+        return logging.LogRecord(
+            "uvicorn.error", logging.ERROR, __file__, 1, "Exception in ASGI application", (), info
+        )
+
+    assert QUIET_ABORT in logging.getLogger("uvicorn.error").filters
+    assert not QUIET_ABORT.filter(record(DownloadAborted("export download aborted")))
+    assert not QUIET_ABORT.filter(record(ExceptionGroup("g", [DownloadAborted("x")])))
+    assert QUIET_ABORT.filter(record(RuntimeError("synthetic")))
+    assert QUIET_ABORT.filter(record(ExceptionGroup("g", [DownloadAborted("x"), KeyError("k")])))
+    assert QUIET_ABORT.filter(record(None))
