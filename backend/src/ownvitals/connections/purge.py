@@ -108,11 +108,15 @@ async def purge_imported(factory: Factory, ctx: UserContext) -> None:
             await db.execute(delete(table).where(table.c.owner_id == ctx.user_id))
 
 
+# The definer reads the owner from the session's ``app.user_id``: run it in a ``user_session``.
+PURGE_WEBHOOK_EVENTS = text("SELECT public.webhook_events_purge_owner()")
+
+
 async def purge_webhook_events(factory: Factory, ctx: UserContext) -> None:
     """This owner's webhook events, through the definer. It finds them through the owner's
     connection rows, so it runs while those rows still exist."""
     async with user_session(factory, ctx) as db:
-        await db.execute(text("SELECT public.webhook_events_purge_owner()"))
+        await db.execute(PURGE_WEBHOOK_EVENTS)
 
 
 async def purge_connection(factory: Factory, ctx: UserContext, connection_id: UUID) -> None:

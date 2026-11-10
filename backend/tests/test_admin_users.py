@@ -19,12 +19,14 @@ from admintools import (  # noqa: F401 - fixtures
     caller,
     reason,
 )
+from jobtools import admin_url
 from ownvitals.admin import users as users_module
 from ownvitals.admin.routes import admin_area_routes, calls
 from ownvitals.auth.admin_accounts import AccountSummary, account_emails
 from ownvitals.auth.deps import require_admin_stepup
 from ownvitals.config import Settings
 from ownvitals.web import create_app
+from withingsschema import new_app
 
 _MARKER = "synthetic-hash-marker"
 _GONE = uuid.UUID("00000000-0000-4000-8000-000000000001")
@@ -247,3 +249,73 @@ async def test_a_lookup_miss_on_read_leaves_no_ok_row(
     assert (response.status_code, reason(response)) == (404, "not_found")
     rows = [row for row in await aenv.audit_rows() if row.action == "user.read"]
     assert [(row.outcome, row.reason) for row in rows] == [("refused", "not_found")]
+
+
+_EVENT_KEYS = ("synthetic-admin-delete-target", "synthetic-admin-delete-kept")
+_TARGET_USERID, _KEPT_USERID = 4101, 4102  # synthetic Withings user ids
+
+
+async def _link(aenv: AdminEnv, owner: uuid.UUID, app_id: int, userid: int) -> None:
+    """A synthetic Withings connection row, linked to ``app_id``/``userid``, and one webhook
+    event for that pair (no measurement, no credential)."""
+    public = f'{{"app_id": {app_id}, "withings_userid": {userid}, "scopes": ["user.metrics"]}}'
+    await aenv.superuser(
+        "INSERT INTO connections (owner_id, provider, status, public) "
+        "VALUES (:o, 'withings', 'needs_reconnect', CAST(:p AS jsonb))",
+        o=owner,
+        p=public,
+    )
+    await aenv.superuser(
+        "INSERT INTO webhook_events (app_id, withings_userid, appli, startdate, enddate, "
+        "dedupe_key) VALUES (:a, :u, 1, 1, 2, :k)",
+        a=app_id,
+        u=userid,
+        k=_EVENT_KEYS[0] if userid == _TARGET_USERID else _EVENT_KEYS[1],
+    )
+
+
+async def _event_userids(aenv: AdminEnv) -> set[int]:
+    rows = await aenv.superuser(
+        "SELECT withings_userid FROM webhook_events WHERE dedupe_key = ANY(:k)",
+        k=list(_EVENT_KEYS),
+    )
+    return {int(value) for value in rows.scalars()}
+
+
+async def test_delete_purges_the_targets_webhook_events_as_the_users_own_delete_does(
+    aenv: AdminEnv,
+) -> None:
+    """#362: webhook events have no ``owner_id`` and do not cascade with the account, so the
+    admin delete runs ``webhook_events_purge_owner`` first, as ``auth.purge.delete_account``
+    does. A refused delete removes none, and another user's events stay."""
+    admin = await caller(aenv)
+    target = await _user(aenv, "sam@example.com", totp=True)
+    kept = await _user(aenv, "kim@example.com")
+    app_id = new_app(admin_url())
+    try:
+        await _link(aenv, target, app_id, _TARGET_USERID)
+        await _link(aenv, kept, app_id, _KEPT_USERID)
+        assert await _event_userids(aenv) == {_TARGET_USERID, _KEPT_USERID}
+
+        mismatch = await admin.request(
+            "DELETE", f"/api/admin/users/{target}", {"email": "other@example.com"}
+        )
+        assert (mismatch.status_code, reason(mismatch)) == (409, "email_mismatch")
+        assert await _event_userids(aenv) == {_TARGET_USERID, _KEPT_USERID}
+
+        removed = await admin.request(
+            "DELETE", f"/api/admin/users/{target}", {"email": "sam@example.com"}
+        )
+        assert removed.status_code == 204, removed.text
+        assert await aenv.env.scalar("SELECT count(*) FROM users WHERE id = :u", u=target) == 0
+        assert await _event_userids(aenv) == {_KEPT_USERID}
+        owners = await aenv.superuser(
+            "SELECT owner_id FROM connections WHERE app_id = :a", a=app_id
+        )
+        assert list(owners.scalars()) == [kept]
+    finally:
+        await aenv.superuser(
+            "DELETE FROM webhook_events WHERE dedupe_key = ANY(:k)", k=list(_EVENT_KEYS)
+        )
+        await aenv.superuser("DELETE FROM connections WHERE app_id = :a", a=app_id)
+        await aenv.superuser("DELETE FROM withings_apps WHERE id = :a", a=app_id)

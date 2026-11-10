@@ -11,8 +11,12 @@ session token, an IP or a user agent.
 - ``disable_account`` / ``enable_account``: ``disabled_at``, and disable also deletes every
   session. Neither touches an admin (the role stays with the operator CLI), so the admin area
   cannot undo an operator's disable of an admin either (#277).
-- ``delete_account``: the same ``delete_user_account`` the user's own
-  ``DELETE /api/auth/account`` runs. Refuses an admin and an address that is not the account's.
+- ``delete_account``: the same steps the user's own ``DELETE /api/auth/account`` runs after
+  the revoke (``auth.purge.delete_account``): the owner's webhook events first, while the
+  connection rows still name them (they have no ``owner_id`` and do not cascade, #362), then
+  ``delete_user_account``. One transaction in the target's own ``user_session`` (a bare
+  ``role="user"`` context, as the operator commands use), so a refusal removes nothing.
+  Refuses an admin and an address that is not the account's.
 """
 
 from collections.abc import Collection
@@ -28,8 +32,10 @@ from ownvitals.auth.events import record_event
 from ownvitals.auth.sessions import count_live_sessions, revoke_user_sessions
 from ownvitals.auth.tables import auth_events, mfa_totp, users
 from ownvitals.config import Settings
-from ownvitals.db import system_session
+from ownvitals.connections.purge import PURGE_WEBHOOK_EVENTS
+from ownvitals.db import system_session, user_session
 from ownvitals.emailnorm import normalize_email
+from ownvitals.jobs.issuer import owner_context
 
 Factory = async_sessionmaker[AsyncSession]
 MAX_IDS = 100
@@ -251,9 +257,10 @@ async def enable_account(factory: Factory, user_id: UUID) -> None:
 
 
 async def delete_account(factory: Factory, user_id: UUID, *, email: str, ip: str | None) -> None:
-    """Delete through ``delete_user_account``. Refuses an admin and a mismatched address,
-    and then nothing is deleted."""
-    async with system_session(factory) as db:
+    """The account delete for another user: the target's webhook events, then
+    ``delete_user_account``, in one transaction as the target (``role="user"``). Refuses an
+    admin and a mismatched address before either step, and then nothing is deleted."""
+    async with user_session(factory, owner_context(user_id)) as db:
         locked = await _locked(db, user_id)
         if locked is None:
             raise AccountMissing()
@@ -262,4 +269,6 @@ async def delete_account(factory: Factory, user_id: UUID, *, email: str, ip: str
             raise TargetIsAdmin()
         if normalized != normalize_email(email):
             raise EmailMismatch()
+        # Before the users row: the definer finds the events through the connection rows.
+        await db.execute(PURGE_WEBHOOK_EVENTS)
         await delete_user_account(db, user_id, ip=ip)
