@@ -11,7 +11,9 @@ deletion enqueues, ``ownvitals.auth.purge``, #163), and the analysis chain
 reconciliation queues it as the sweep after a module version bump, ADR 0006 section 15), and the
 finding notifications ``notify_findings`` (#195), queued after each evaluation and recompute,
 and the user's JSON/CSV export ``export_build`` (#211, ADR 0013 section 4), and the chat
-assistant's ``ai_chat_turn`` (#208, ADR 0014 section 5; its model calls need AI on). Only
+assistant's ``ai_chat_turn`` (#208, ADR 0014 section 5; its model calls need AI on), and the
+weekly digest ``ai_digest`` (issue 209), queued for its owner by the notification pass
+(``then_digest``) when one is due. Only
 ``python -m ownvitals.worker`` builds it. The API's registry (``ownvitals.jobs.KINDS``) stays
 empty, so ``POST /api/jobs`` still refuses every kind and the web process registers no handler
 (web imports ``ownvitals.auth.purge`` for the routes, which defines the disconnect handler but
@@ -37,6 +39,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from ownvitals.ai.assistant import register_chat_kind
+from ownvitals.ai.digest import register_digest_kind, then_digest
 from ownvitals.auth.purge import register_disconnect_kind
 from ownvitals.crypto.keks import KeyRing, KeyRingError, KeyUnavailable
 from ownvitals.derived.daily_job import register_daily_kind
@@ -186,8 +189,13 @@ def worker_registry() -> KindRegistry:
     register_recompute_kind(followed)
     for kind in followed:
         registry.register(then_notify(kind))
-    register_notify_kind(registry)
+    # Issue 209: each notification pass asks whether its owner's weekly digest is due.
+    notify = KindRegistry()
+    register_notify_kind(notify)
+    for kind in notify:
+        registry.register(then_digest(kind))
     register_export_kind(registry)  # #211: the user's JSON/CSV export (ADR 0013 section 4)
     register_doctor_kind(registry)  # issue 210: the doctor PDF (ADR 0013 section 6)
     register_chat_kind(registry)  # #208: the chat assistant's turn (ADR 0014 section 5)
+    register_digest_kind(registry)  # issue 209: the weekly digest (ADR 0014 section 5)
     return registry

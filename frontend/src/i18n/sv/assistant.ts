@@ -23,4 +23,12 @@ export const assistant = {
   'delete.confirm': 'Radera det här samtalet och alla dess meddelanden? Det går inte att ångra.',
   'delete.yes': 'Radera samtal',
   'delete.done': 'Samtalet är raderat.',
+  'digest.title': 'Veckosammanfattning',
+  'digest.toggle': 'Skriv en veckosammanfattning',
+  'digest.help': 'En gång i veckan sammanfattar assistenten den senaste veckans data. Den omfattas av ditt AI-samtycke och räknas mot månadens AI-budget.',
+  'digest.empty': 'Ingen veckosammanfattning än.',
+  'digest.week': 'Veckan från {date}',
+  'digest.skipped': 'Veckans sammanfattning hoppades över: månadens AI-budget för ditt konto var förbrukad.',
+  'digest.unavailable': 'Veckans sammanfattning kunde inte skrivas.',
+  'digest.loadFailed': 'Veckosammanfattningarna kunde inte läsas in.',
 } satisfies Record<keyof typeof en, string>

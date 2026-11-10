@@ -94,6 +94,8 @@ REVIEWED_STRINGS: dict[tuple[str, str], int] = {
     # the tool table and in the output allowlist. The tool reads through the read function.
     ("ownvitals.ai.tools", "findings"): 1,
     ("ownvitals.ai.tools_model", "findings"): 2,
+    # The weekly digest's instruction names the same tool (issue 209); it reads nothing.
+    ("ownvitals.ai.digest_model", "findings"): 1,
     # The export's allowlist (#211, ADR 0013 section 1): the two specially read tables, named
     # once each (their file stems and allowlist keys), the recordings' column that is not
     # exported, and the label of the estimates' file (ADR 0013 section 2). It reads nothing.

@@ -59,6 +59,7 @@ function assistantApi(start: Partial<State> = {}, extra: Record<string, unknown>
       return { message_id: 'm-3', job_id: 'j-2' }
     },
     'DELETE /api/ai/conversations/c-1': { deleted: true },
+    'GET /api/ai/digest': { available: true, enabled: false, digests: [] },
     ...extra,
   })
   return { api, state }

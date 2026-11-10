@@ -13,7 +13,7 @@ from uuid import UUID
 from sqlalchemy import Column, MetaData, Table, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ownvitals.ai.tables import ai_conversations, ai_messages
+from ownvitals.ai.tables import ai_conversations, ai_digests, ai_messages
 from ownvitals.connections.repository import delete_disconnected_row
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
@@ -65,6 +65,7 @@ IMPORTED = (
     # before their conversations). The consent itself is kept (``KEPT``).
     ai_messages,
     ai_conversations,
+    ai_digests,  # issue 209: the weekly digests are text about this data too
     # #211: an export archive is a copy of this data (chunks before their export rows).
     export_chunks,
     exports,
@@ -78,7 +79,8 @@ IMPORTED = (
 # ``ai_consents`` (#206): the record of the user's AI consent and its withdrawal, no content;
 # deleting data is not withdrawing consent (withdrawal is its own action, ``ai.consent``).
 # ``ai_audit`` (#207): one redacted row per model call (counts, codes, keyed fingerprints; no
-# content), kept like the spend it accounts for.
+# content), kept like the spend it accounts for. ``ai_digest_prefs`` (issue 209): the digest
+# opt-in, a setting (withdrawal deletes it).
 # All go with the account through the ``owner_id`` cascade. The connection row is removed by
 # ``delete_disconnected_row`` and ``job_events`` follow their job, so neither is listed here or
 # in ``IMPORTED``. A test enumerates every owned table against these lists, so a new owned table
@@ -90,6 +92,7 @@ KEPT = (
     "ai_reservations",
     "ai_consents",
     "ai_audit",
+    "ai_digest_prefs",
 )
 
 

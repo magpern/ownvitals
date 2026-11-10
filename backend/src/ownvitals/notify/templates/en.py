@@ -30,6 +30,13 @@ TABLE: Final = MappingProxyType(
             body="Something you asked for is waiting for you in ownvitals. It is kept only for "
             "a short time.\n\nOpen it here: " + LINK + _FOOTER,
         ),
+        # Issue 209: the weekly AI digest is ready; the mail never carries it (ADR 0014).
+        "ai_digest_ready": Template(
+            subject="ownvitals: your weekly summary is waiting",
+            body="Your weekly summary is waiting for you in ownvitals.\n\nOpen it here: "
+            + LINK
+            + _FOOTER,
+        ),
         "connection_needs_reconnect": Template(
             subject="ownvitals: something is waiting on the admin page",
             body="Something is waiting for an administrator in ownvitals.\n\nOpen the admin page "

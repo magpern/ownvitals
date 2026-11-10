@@ -149,6 +149,12 @@ ROWS: Final[Mapping[str, str]] = {
     "ai_messages": "INSERT INTO public.ai_messages (owner_id, conversation_id, role, content) "
     "VALUES (:owner, (SELECT c.id FROM public.ai_conversations c WHERE c.owner_id = :owner "
     "ORDER BY c.created_at, c.id LIMIT 1), 'user', 'synthetic_ctx_message') RETURNING id",
+    # The weekly digest (issue 209): the opt-in (one per owner) and an unavailable week (no
+    # text), a week after the owner's other digests so the own insert never meets the key.
+    "ai_digest_prefs": "INSERT INTO public.ai_digest_prefs (owner_id) VALUES (:owner) RETURNING id",
+    "ai_digests": "INSERT INTO public.ai_digests (owner_id, week_start, status) VALUES (:owner, "
+    "DATE '2026-01-05' + 7 * (SELECT count(*) FROM public.ai_digests d "
+    "WHERE d.owner_id = :owner)::integer, 'unavailable') RETURNING id",
     # The export (#211): an expired export record and a chunk of the owner's first export.
     "exports": "INSERT INTO public.exports (owner_id, kind, state) VALUES (:owner, 'data', "
     "'expired') RETURNING id",
@@ -171,6 +177,7 @@ ROWS: Final[Mapping[str, str]] = {
 # it reaches the key (23505) or goes through, and either is not ``REFUSED``.
 CLEAR_BEFORE_OWN_INSERT: Final[Mapping[str, str]] = {
     "user_profiles": "DELETE FROM public.user_profiles WHERE owner_id = :owner",
+    "ai_digest_prefs": "DELETE FROM public.ai_digest_prefs WHERE owner_id = :owner",
 }
 _PARAM = re.compile(r"(?<![:\w]):([a-z_]+)")
 _WITHINGS_CONNECTION = text(

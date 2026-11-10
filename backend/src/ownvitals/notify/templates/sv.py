@@ -25,6 +25,12 @@ TABLE: Final = MappingProxyType(
         ),
         # Still the English copy (``untranslated.UNTRANSLATED_SV``) until the translation PR.
         "export_ready": en.TABLE["export_ready"],
+        "ai_digest_ready": Template(
+            subject="ownvitals: din veckosammanfattning väntar",
+            body="Din veckosammanfattning väntar på dig i ownvitals.\n\nÖppna den här: "
+            + LINK
+            + _FOOTER,
+        ),
         "connection_needs_reconnect": Template(
             subject="ownvitals: något väntar på administrationssidan",
             body="Något väntar på en administratör i ownvitals.\n\nÖppna administrationssidan "

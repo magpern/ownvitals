@@ -26,6 +26,7 @@ from jobcore import (  # noqa: F401 - fixtures
 )
 from jobtools import admin_fixture, queue_schema_fixture  # noqa: F401 - fixtures
 from ownvitals.ai.chat_model import CHAT_KIND, ChatInput
+from ownvitals.ai.digest_model import DIGEST_KIND, DigestInput
 from ownvitals.crypto.envelope import WebhookSeed
 from ownvitals.crypto.keks import KeyUnavailable
 from ownvitals.db import create_session_factory
@@ -67,6 +68,7 @@ SEED_BYTES = b"\x11" * 32
 BASE = "https://app.example.test"
 WITHINGS_KINDS = [
     "ai_chat_turn",  # #208: the chat assistant's turn, queued by POST .../messages
+    "ai_digest",  # issue 209: the weekly digest, queued by the notification pass when due
     "derive_daily",  # #186: the metric_daily pass, queued by derive_normalize
     "derive_evaluate",  # #187: the rule evaluation, queued by derive_daily
     "derive_normalize",  # #185: the observations pass, queued after the measures streams
@@ -105,6 +107,7 @@ def test_the_worker_registry_holds_the_withings_kinds_and_the_api_none() -> None
             EXPORT_KIND: ExportInput,
             DOCTOR_KIND: DoctorInput,
             CHAT_KIND: ChatInput,  # #208: the conversation and the message, ids only
+            DIGEST_KIND: DigestInput,  # issue 209: the week only
         }
         expected = own[kind.name] if kind.name in own else INPUT_MODELS[kind.name]
         assert kind.input_model is expected

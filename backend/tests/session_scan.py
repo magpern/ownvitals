@@ -30,9 +30,11 @@ Each has its own allowlist, of packages (the package and everything under it) an
   (#208) reads and writes the caller's own conversations and messages, queues their
   ``ai_chat_turn`` jobs and cancels them on a delete; the turn itself is a job kind
   (``ownvitals.ai.assistant``) and reads and writes through the fence. The exact module
-  ``ownvitals.reports.export_store`` (#211) reads and writes the caller's own export rows and
-  chunks for the export's request, list and download; the export builder is a job kind and
-  writes through the fence. **The rest of
+  ``ownvitals.ai.digest_store`` (issue 209) reads the caller's own digests and sets their digest
+  opt-in; the digest job (``ownvitals.ai.digest``) reads and writes through the fence. The
+  exact module ``ownvitals.reports.export_store`` (#211) reads and writes the caller's own
+  export rows and chunks for the export's request, list and download; the export builder is a
+  job kind and writes through the fence. **The rest of
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
   through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
@@ -103,7 +105,8 @@ DERIVED_USER_SESSION = ("ownvitals.derived.check_cli",)
 # delete, and the enabled check every AI entry point makes. The tools read only through
 # ``views.reads`` and ``views.findings_read``. The assistant's web side (#208): the caller's own
 # conversations, a message stored with its job, a conversation's delete.
-AI_USER_SESSION = ("ownvitals.ai.consent", "ownvitals.ai.chat_store")
+# The weekly digest's web side (issue 209): the caller's own digests and opt-in.
+AI_USER_SESSION = ("ownvitals.ai.consent", "ownvitals.ai.chat_store", "ownvitals.ai.digest_store")
 # The export (#211): the web side's own export rows (request, list, download, the tidy of the
 # user's expired and failed rows). The builder runs in the worker and writes through the fence.
 REPORTS_USER_SESSION = ("ownvitals.reports.export_store",)

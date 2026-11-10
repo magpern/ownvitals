@@ -1,0 +1,10 @@
+Content-Language: sv
+Subject: ownvitals: din veckosammanfattning väntar
+
+Din veckosammanfattning väntar på dig i ownvitals.
+
+Öppna den här: https://ownvitals.example.test/
+
+Det här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du har loggat in.
+
+- ownvitals
