@@ -2,7 +2,8 @@
 3, 5, 7 and 8; PLAN section 7.4; #208).
 
 - ``GET /conversations``: the user's conversations (also while AI is off, so they can be read
-  and deleted). ``POST /conversations``: a new one, only while AI is enabled for the user.
+  and deleted). ``POST /conversations``: a new one, only while AI is enabled for the user (429
+  ``rate_limited``: 30 per hour).
 - ``GET /conversations/{id}``: its newest messages in order and its latest turn (the job id, its
   state and a closed failure category); the browser follows a running turn on
   ``/api/jobs/{job_id}/events`` (ids only, T47) and then reads the answer here.
@@ -27,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from ownvitals.ai import chat_store
+from ownvitals.ai.chat_limits import reserve_ai_conversation
 from ownvitals.ai.chat_model import REQUEST_ID, valid_text
 from ownvitals.ai.chat_store import ChatRefused, ConversationView
 from ownvitals.ai.tables import MESSAGE_MAX_CHARS
@@ -123,8 +125,14 @@ async def create_conversation(
     request: Request, ctx: Annotated[UserContext, Depends(require_user)]
 ) -> ConversationOne:
     state = request.app.state
+
+    async def reserve() -> None:
+        await reserve_ai_conversation(request, ctx)
+
     try:
-        view = await chat_store.create_conversation(state.session_factory, ctx, state.settings)
+        view = await chat_store.create_conversation(
+            state.session_factory, ctx, state.settings, reserve=reserve
+        )
     except ChatRefused as refused:
         raise _refuse(refused.reason) from None
     return ConversationOne(conversation=_out(view))

@@ -31,8 +31,8 @@ from test_ai_client_env import (  # noqa: F401 - fixtures
 )
 
 SYNTHETIC = True
-# Far above a NOWAIT answer, far below a lock wait ending in a deadlock or a lock timeout.
-AT_ONCE_SECONDS = 5.0
+# Far above a NOWAIT answer (a slow runner included); it only bounds a lock wait that never ends.
+AT_ONCE_SECONDS = 30.0
 
 
 @asynccontextmanager

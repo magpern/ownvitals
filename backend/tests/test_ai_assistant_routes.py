@@ -253,3 +253,16 @@ def test_the_job_kind_is_the_consent_modules_ai_kind() -> None:
     from ownvitals.ai.consent import AI_JOB_KINDS
 
     assert CHAT_KIND in AI_JOB_KINDS  # a withdrawal cancels it
+
+
+async def test_creating_conversations_is_limited_to_thirty_an_hour(chat: ChatEnv) -> None:
+    alice = await user(chat, "synthetic-route-conv-a@example.com")
+    bob = await user(chat, "synthetic-route-conv-b@example.com")
+    for n in range(30):
+        assert (await alice.browser.post("/api/ai/conversations")).status_code == 201, n
+    over = await alice.browser.post("/api/ai/conversations")
+    _refused(over, 429, "rate_limited")
+    assert over.headers.get("retry-after")
+    assert count("ai_conversations", alice.id) == 30
+    # The limit is per user.
+    assert (await bob.browser.post("/api/ai/conversations")).status_code == 201
