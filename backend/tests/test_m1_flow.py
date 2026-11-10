@@ -159,9 +159,10 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     through_fake(monkeypatch, fake)
     # The synthetic history is 30 days: walk 45, not 17 years of windows, so the backfill is a
     # handful of calls per stream.
-    # The worker's token bucket denies a call whenever another lane or slot holds the turn, which
-    # fails the job as rate_limited and spends an attempt; here every call is granted. The
-    # limiter itself is covered by test_withings_rate.py.
+    # The worker's token bucket refuses a call whenever another lane or slot holds the turn; the
+    # claim is asked again within the attempt (#349), so a refusal spends no attempt. Here every
+    # call is granted at once to keep the flow fast. The limiter is covered by
+    # test_withings_rate.py and the waiting by test_ingest_calls.py.
     granted = rate.Claim(granted=True, lease_id=None, retry_at=None, reason="granted")
 
     async def take(*_: object) -> rate.Claim:
