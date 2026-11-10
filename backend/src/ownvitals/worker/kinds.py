@@ -5,7 +5,8 @@ section 8, ADR 0008).
 ``ownvitals.withings.sync`` (``withings_connect``, ``withings_backfill``, ``withings_sync``,
 ``ecg_fetch``, ``withings_poll``), the nightly ``withings_reconcile``,
 ``token_refresh_recover`` and ``withings_disconnect`` (the revoke a disconnect or an account
-deletion enqueues, ``ownvitals.auth.purge``, #163), and the analysis chain
+deletion enqueues, ``ownvitals.auth.purge``, #163) and ``withings_admin_revoke`` (the revoke an
+admin's account delete queues, ``ownvitals.auth.admin_revoke_job``, #365), and the analysis chain
 ``derive_normalize``, ``derive_daily``, ``derive_evaluate`` and ``derive_scores`` (#185, #186,
 #187, #188), the ECG ``estimated`` recompute ``ecg_recompute`` (#191; the nightly
 reconciliation queues it as the sweep after a module version bump, ADR 0006 section 15), and the
@@ -40,6 +41,7 @@ from sqlalchemy import text
 
 from ownvitals.ai.assistant import register_chat_kind
 from ownvitals.ai.digest import register_digest_kind, then_digest
+from ownvitals.auth.admin_revoke_job import register_admin_revoke_kind
 from ownvitals.auth.purge import register_disconnect_kind
 from ownvitals.crypto.keks import KeyRing, KeyRingError, KeyUnavailable
 from ownvitals.derived.daily_job import register_daily_kind
@@ -180,6 +182,7 @@ def worker_registry() -> KindRegistry:
     registry.register(JobKind("withings_reconcile", ConnectInput, run_reconcile))
     registry.register(JobKind("token_refresh_recover", ConnectInput, run_token_recover))
     register_disconnect_kind(registry)
+    register_admin_revoke_kind(registry)  # #365: the admin delete's revoke (ADR 0002 section 3)
     register_normalize_kind(registry)
     register_daily_kind(registry)
     register_scores_kind(registry)

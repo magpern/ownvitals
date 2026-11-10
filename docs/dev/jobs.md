@@ -192,7 +192,10 @@ entry is still active (`NoTargets` confirms none; the worker process passes `Web
   `withings/tokens.py`, inside one `provider_call`; `needs_reconnect` and `not_connected` are
   kept as the job's category) and `withings_disconnect` (`auth.purge.register_disconnect_kind`,
   #163: the revoke a disconnect or an account deletion enqueues; see
-  [connections.md](connections.md)) and `derive_normalize` (`derived/normalize_job.py`, #185:
+  [connections.md](connections.md)) and `withings_admin_revoke`
+  (`auth.admin_revoke_job.register_admin_revoke_kind`, #365: the revoke an admin's account delete
+  queues through `admin_account_revoke`; one attempt, origin `operator`; see
+  [admin.md](admin.md)) and `derive_normalize` (`derived/normalize_job.py`, #185:
   normalises the owner's measures, sleep summaries, activity days and workouts into
   `observations`, #229; see [derived.md](derived.md)) and `derive_daily` (`derived/daily_job.py`,
   #186: daily values into `metric_daily`, queued by `derive_normalize` after its measures pass).

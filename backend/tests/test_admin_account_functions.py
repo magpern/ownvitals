@@ -37,7 +37,14 @@ _AUDIT = text(
 _DISABLE = text("SELECT outcome FROM public.admin_account_disable(:t)")
 _ENABLE = text("SELECT public.admin_account_enable(:t)")
 _DELETE = text("SELECT public.admin_account_delete(:t, :e, NULL, NULL, NULL, NULL)")
-CALLS = {"user.disable": _DISABLE, "user.enable": _ENABLE, "user.delete": _DELETE}
+# #365: the delete's revoke step, with a synthetic session id (no job is queued: no connection).
+_REVOKE = text("SELECT outcome FROM public.admin_account_revoke(:t, :e, gen_random_uuid())")
+CALLS = {
+    "user.disable": _DISABLE,
+    "user.enable": _ENABLE,
+    "user.delete": _DELETE,
+    "user.revoke": _REVOKE,
+}
 
 
 class Crash(Exception):

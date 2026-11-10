@@ -27,6 +27,7 @@ from jobcore import (  # noqa: F401 - fixtures
 from jobtools import admin_fixture, queue_schema_fixture  # noqa: F401 - fixtures
 from ownvitals.ai.chat_model import CHAT_KIND, ChatInput
 from ownvitals.ai.digest_model import DIGEST_KIND, DigestInput
+from ownvitals.auth.admin_revoke_job import ADMIN_REVOKE_KIND, AdminRevokeInput
 from ownvitals.crypto.envelope import WebhookSeed
 from ownvitals.crypto.keks import KeyUnavailable
 from ownvitals.db import create_session_factory
@@ -79,6 +80,7 @@ WITHINGS_KINDS = [
     "export_build",  # #211: the user's JSON/CSV export, queued by POST /api/exports
     "notify_findings",  # #195: the finding notifications, queued by evaluate and recompute
     "token_refresh_recover",
+    "withings_admin_revoke",  # #365: the admin delete's revoke, queued by admin_account_revoke
     "withings_backfill",
     "withings_connect",
     "withings_disconnect",
@@ -98,6 +100,7 @@ def test_the_worker_registry_holds_the_withings_kinds_and_the_api_none() -> None
         # The disconnect revoke (#163) takes its own input: ids of the row and the session.
         own = {
             DISCONNECT_KIND: DisconnectInput,
+            ADMIN_REVOKE_KIND: AdminRevokeInput,  # #365: the admin and its session, ids only
             NORMALIZE_KIND: NormalizeInput,
             DAILY_KIND: DailyInput,
             EVALUATE_KIND: EvaluateInput,

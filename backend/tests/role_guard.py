@@ -30,9 +30,11 @@ account table, no jobs) and
 ``docker/postgres/maint/70-admin-accounts.sql`` has run (#314, ADR 0002 section 3), the NOLOGIN
 role ``ownvitals_admin_accounts`` (no ``BYPASSRLS``) has exactly its attributes, the column grants
 and the two ``DELETE`` privileges that script creates (no health table, no secret column), owns
-the three admin account functions, which only ``ownvitals_maint`` may ``EXECUTE``, and is the
-only grantee of ``webhook_events_purge_account``. The app role may execute none of those four.
-Any other grantee fails.
+the four admin account functions, which only ``ownvitals_maint`` may ``EXECUTE``, and is the
+only grantee of ``webhook_events_purge_account`` and of the queue's
+``queue_enqueue_admin_revoke`` (#365; owned by ``ownvitals_queue``, executable by nobody else,
+and by nobody at all before the family is installed). The app role may execute none of those
+six. Any other grantee fails.
 """
 
 from collections.abc import Callable
@@ -235,6 +237,7 @@ ADMIN_ACCOUNTS_FUNCTIONS = {
     "admin_account_disable": ADMIN_ACCOUNTS,
     "admin_account_enable": ADMIN_ACCOUNTS,
     "admin_account_delete": ADMIN_ACCOUNTS,
+    "admin_account_revoke": ADMIN_ACCOUNTS,  # #365
 }
 ADMIN_ACCOUNTS_ATTRIBUTES = (False, False, False, False, False, False, False)
 # Its table-level privileges: the account delete and the disable's sign-out everywhere.
@@ -258,6 +261,8 @@ ADMIN_ACCOUNTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
 }
 # The admin delete's purge (#362): its owner and, once the family is installed, that role alone.
 PURGE_ACCOUNT = "webhook_events_purge_account"
+# The admin delete's revoke enqueue (#365): a queue function the admin family's role alone runs.
+ADMIN_REVOKE_ENQUEUE = "queue_enqueue_admin_revoke(uuid,uuid,uuid)"
 _CALLABLE = {
     **WITHINGS_FUNCTIONS,
     **RATE_FUNCTIONS,
@@ -1008,6 +1013,24 @@ def check_roles(conn: Connection) -> list[str]:
             else:
                 need(EVENTS not in _grantees(functions, obj), f"{obj}: {EVENTS} must hold nothing")
             need(_grantees(functions, obj) <= allowed_execute, f"{obj}: unexpected grantee")
+            need(
+                obj.endswith(f":{QUEUE}:true"),
+                f"{obj}: must be owned by ownvitals_queue and be SECURITY DEFINER",
+            )
+            need(
+                not any(grantable for o, _, _, grantable in functions if o == obj),
+                f"{obj}: no grantable privilege",
+            )
+        elif queue_installed and signature == ADMIN_REVOKE_ENQUEUE:
+            # #365: no runtime role calls it; admin_account_revoke, once installed, alone.
+            callers = {QUEUE, ADMIN_ACCOUNTS} if admin_installed else {QUEUE}
+            need(_grantees(functions, obj) == callers, f"{obj}: grantees must be {sorted(callers)}")
+            need(_privileges(functions, QUEUE, obj) == {"EXECUTE"}, f"{obj}: {QUEUE} EXECUTE only")
+            if admin_installed:
+                need(
+                    _privileges(functions, ADMIN_ACCOUNTS, obj) == {"EXECUTE"},
+                    f"{obj}: {ADMIN_ACCOUNTS} must have EXECUTE and nothing else",
+                )
             need(
                 obj.endswith(f":{QUEUE}:true"),
                 f"{obj}: must be owned by ownvitals_queue and be SECURITY DEFINER",
