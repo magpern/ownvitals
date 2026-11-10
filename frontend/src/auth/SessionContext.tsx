@@ -23,9 +23,12 @@ interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null)
 
-/** A signed-in account's language goes first (ADR 0015 section 2); signed out, nothing changes. */
+/**
+ * A signed-in account's language goes first (ADR 0015 section 2). Signed out (after a sign-out
+ * too), the account's language no longer applies: the browser's own choice, then its languages.
+ */
 function adoptLocale(next: SessionState): void {
-  if (next.authenticated && next.user !== null) void followAccountLocale(next.user.locale)
+  void followAccountLocale(next.authenticated && next.user !== null ? next.user.locale : null)
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
