@@ -52,14 +52,12 @@ function unzip(body: Buffer): Map<string, Buffer> {
   return entries
 }
 
-// The account's queued and running jobs, read as the database superuser (like `ageStepUp`). An
-// export request counts them against the per-user job limit (`jobs_per_user`, 2), and the first
-// import's backfill jobs can stay queued after "Your history is imported" (their retries wait for
-// the Withings app budget), so `POST /api/exports` answers 429 `busy` until they have ended.
-function activeJobs(email: string): number {
+// A count about the account, read as the database superuser (like `ageStepUp`). `where` is a
+// fixed condition of this file, never input.
+function countFor(email: string, table: 'jobs' | 'measure_groups', where: string): number {
   if (!/^[\w.+-]+@[\w.-]+$/.test(email)) throw new Error('unexpected address')
   const sql =
-    "SELECT count(*) FROM jobs WHERE state IN ('queued', 'running') AND owner_id = " +
+    `SELECT count(*) FROM ${table} WHERE ${where} AND owner_id = ` +
     `(SELECT id FROM users WHERE email_normalized = '${email.toLowerCase()}')`
   const out = execFileSync(
     'docker',
@@ -71,6 +69,30 @@ function activeJobs(email: string): number {
     { cwd: REPO_ROOT, encoding: 'utf8' },
   )
   return Number(out.trim())
+}
+
+// The import is over for the export when the measures are in and no job is left. The jobs matter
+// because an export request counts the queued and running ones against the per-user job limit
+// (`jobs_per_user`, 2) and answers 429 `busy`; the backfill jobs can stay queued after "Your
+// history is imported". The measures matter because the job queue can be empty before they are:
+// a backfill attempt whose rate claim is refused ends `rate_limited` and spends an attempt, so
+// the measures backfill can be dead-lettered (3 attempts) with nothing imported.
+const ACTIVE = "state IN ('queued', 'running')"
+const MEASURES_DEAD = "kind = 'withings_backfill' AND input->>'stream' = 'measures' AND state = 'dead_letter'"
+
+async function waitForImport(email: string): Promise<void> {
+  await expect
+    .poll(
+      () => {
+        if (countFor(email, 'jobs', MEASURES_DEAD) > 0) return 'measures backfill dead-lettered'
+        const groups = countFor(email, 'measure_groups', 'deleted_at IS NULL')
+        const active = countFor(email, 'jobs', ACTIVE)
+        return groups > 0 && active === 0 ? 'imported' : `${String(groups)} groups, ${String(active)} jobs`
+      },
+      { timeout: 240_000, intervals: [2_000] },
+    )
+    .toMatch(/^(imported|measures backfill dead-lettered)$/)
+  expect(countFor(email, 'jobs', MEASURES_DEAD), 'the measures backfill was dead-lettered').toBe(0)
 }
 
 interface Manifest {
@@ -145,7 +167,7 @@ test('step-up, export, download once', async ({ page }) => {
 // the first import and its jobs to end, then export; the archive holds the imported measure
 // groups and measures.
 test('the fake Withings account: connect, import, export, download', async ({ page }) => {
-  test.setTimeout(360_000)
+  test.setTimeout(480_000)
   registerApp(resetWorld())
   await answerWithings(page)
   const account = newAccount('export-withings')
@@ -160,8 +182,7 @@ test('the fake Withings account: connect, import, export, download', async ({ pa
   await dialog.getByRole('button', { name: 'Confirm' }).click()
   await expect(page).toHaveURL(/\/onboarding\?withings=connected/)
   await expect(page.getByRole('heading', { name: 'Your history is imported' })).toBeVisible({ timeout: 60_000 })
-  // The import's last backfill retries and derive jobs; the export needs a free job slot.
-  await expect.poll(() => activeJobs(account.email), { timeout: 180_000, intervals: [2_000] }).toBe(0)
+  await waitForImport(account.email)
 
   const entries = await exportAndDownload(page, account.email, authenticator)
   const manifest = JSON.parse(text(entries, 'manifest.json')) as Manifest
