@@ -76,7 +76,7 @@ WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
         "ownvitals_app=X/ownvitals_metrics,ownvitals_metrics=X/ownvitals_metrics",
     ),
     "metrics_webhook_ages": (
-        "p_after timestamp with time zone",
+        "p_after timestamp with time zone, p_after_id uuid",
         "ownvitals_metrics",
         "search_path=pg_catalog, pg_temp",
         "ownvitals_app=X/ownvitals_metrics,ownvitals_metrics=X/ownvitals_metrics",

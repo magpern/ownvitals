@@ -21,7 +21,8 @@ database-derived gauges. IMPLEMENTED against synthetic data only.
 | `ownvitals_withings_stream_completeness` | gauge | `stream`, `state` | the refresh: `metrics_withings_aggregates()` |
 
 The webhook receiver runs in web, which serves no metrics: the worker reads the delivery ages
-the receiver stored (`webhook_events.received_at` and `enddate`) instead, each once.
+the receiver stored (`webhook_events.received_at` and `enddate`) instead, each once (the
+watermark below).
 
 ## Label safety
 
@@ -48,7 +49,8 @@ outside `ownvitals.egress` (ADR 0009, note of 2026-11-09; `tests/test_egress_gua
 
 ## The database aggregates
 
-`metrics_refresh_seconds` (default 30) apart, the worker reads in a system session
+`metrics_refresh_seconds` (default 30) apart, and only once the worker engine's queue check has
+passed (`queue_verified`, ADR 0005 section 3; #303), the worker reads in a system session
 `queue_stats()` and the two `SECURITY DEFINER` functions of
 `docker/postgres/withings/40-withings.sql`, owned by the NOLOGIN, BYPASSRLS, read-only role
 `ownvitals_metrics` (column `SELECT` only, on the columns they read; pinned by digest in
@@ -58,9 +60,16 @@ session (`app.user_id` set) and return counts and ages only:
 - `metrics_withings_aggregates()`: per stream, the age of the oldest last successful sync over
   connected connections; subscription health per live connection; per-stream completeness over
   connected connections; the age of the oldest due queued job.
-- `metrics_webhook_ages(after)`: the delivery ages of notifications received after `after`
-  (at most 1000, oldest first). The worker starts at its own start time, so a restart does not
-  replay history; a notification committed late with an earlier received time is not counted.
+- `metrics_webhook_ages(after, after_id)`: the delivery ages of the notifications after the
+  watermark `(received_at, id) > (after, after_id)`, in that order, at most 1000, each with its
+  `received` time and `event_id` (the notification row's own id, the tie-break; never a series).
+  The worker keeps the last row's pair as its next watermark and reads pages until one is short,
+  at most 10 per refresh (the rest on the next), so a burst over 1000 or rows with equal received
+  times are each counted exactly once (#303); a failed refresh records nothing and keeps the
+  watermark. It starts at its own start time and the lowest id, so a restart does not replay
+  history; a notification committed late with an earlier received time is not counted.
+  `40-withings.sql` drops any other signature of the function first (the one-argument version
+  of #167), so re-running `db-functions` upgrades a database in place; no migration.
 
 Definitions (documented assumptions, reversible; the owner's first real deployment shows whether
 they read well):

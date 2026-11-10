@@ -18,6 +18,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from authtools import auth_schema_fixture, clean_auth_fixture  # noqa: F401 - fixtures
 from contexttools import Factory, superuser
@@ -25,9 +26,11 @@ from ctx import make_context
 from jobcore import settings_for
 from jobtools import ensure_user, new_job
 from ownvitals.db import create_session_factory, system_session, user_session
+from ownvitals.db.queue_check import verify_queue
 from ownvitals.jobs import queue
 from ownvitals.metrics import REGISTRY
 from ownvitals.withings import metrics as wm
+from ownvitals.worker import metrics as worker_metrics
 from ownvitals.worker.loop import create_worker_engine
 from ownvitals.worker.metrics import Refresher, metrics_running
 from withingsschema import new_app
@@ -47,7 +50,14 @@ EVENT = text(
     "dedupe_key, received_at) VALUES (:app, :userid, 1, :end, :end, :key, :received)"
 )
 AGGREGATES = text("SELECT * FROM public.metrics_withings_aggregates()")
-AGES = text("SELECT * FROM public.metrics_webhook_ages(:after)")
+AGES = text("SELECT * FROM public.metrics_webhook_ages(:after, :after_id)")
+START = uuid.UUID(int=0)
+BURST = text(
+    "INSERT INTO webhook_events (app_id, withings_userid, appli, startdate, enddate, "
+    "dedupe_key, received_at) SELECT :app, 7310100, 1, :end - g, :end - g, "
+    "'synthetic-burst-' || g, CASE WHEN g <= :tied THEN :t ELSE :t + interval '1 second' END "
+    "FROM generate_series(1, :n) AS g"
+)
 
 
 @pytest.fixture
@@ -57,12 +67,17 @@ def clean_withings(database_url: str) -> None:
 
 
 @pytest.fixture
-async def factory(app_database_url: str) -> AsyncIterator[Factory]:
+async def engine(app_database_url: str) -> AsyncIterator[AsyncEngine]:
     engine = create_worker_engine(settings_for(app_database_url), pool_size=4)
     try:
-        yield create_session_factory(engine)
+        yield engine
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+def factory(engine: AsyncEngine) -> Factory:
+    return create_session_factory(engine)
 
 
 def _connection(
@@ -195,11 +210,13 @@ async def test_the_aggregates_return_no_id_and_refuse_a_user_session(
         }
     async with system_session(factory) as db:
         rows = (await db.execute(AGGREGATES)).all()
-        ages = (await db.execute(AGES, {"after": datetime.now(UTC) - timedelta(days=1)})).all()
+        day_ago = datetime.now(UTC) - timedelta(days=1)
+        ages = (await db.execute(AGES, {"after": day_ago, "after_id": START})).all()
     assert rows
     assert ages
     flat = {str(v) for row in [*rows, *ages] for v in row}
     assert not flat & ids
+    assert list(ages[0]._fields) == ["received", "event_id", "age_seconds"]  # a cursor, no owner
     assert {r.metric for r in rows} == {
         "last_sync_age",
         "subscriptions",
@@ -207,13 +224,15 @@ async def test_the_aggregates_return_no_id_and_refuse_a_user_session(
         "queue_oldest_age",
     }
     owner = uuid.UUID(next(iter(ids)))
-    for statement, params in ((AGGREGATES, {}), (AGES, {"after": datetime.now(UTC)})):
+    now = datetime.now(UTC)
+    for statement, params in ((AGGREGATES, {}), (AGES, {"after": now, "after_id": START})):
         with pytest.raises(DBAPIError, match="system_session_only"):
             async with user_session(factory, make_context(owner)) as db:
                 await db.execute(statement, params)
-    with pytest.raises(DBAPIError, match="bad_after"):
-        async with system_session(factory) as db:
-            await db.execute(AGES, {"after": None})
+    for bad in ({"after": None, "after_id": START}, {"after": now, "after_id": None}):
+        with pytest.raises(DBAPIError, match="bad_after"):
+            async with system_session(factory) as db:
+                await db.execute(AGES, bad)
     with superuser(database_url) as conn:
         after = {
             t: conn.execute(text(f"SELECT count(*) FROM {t}")).scalar_one()  # noqa: S608
@@ -250,7 +269,7 @@ async def _scrape(port: int) -> str:
 
 @pytest.mark.usefixtures("clean_withings")
 async def test_a_running_worker_exports_every_observability_item(
-    factory: Factory, app_database_url: str, database_url: str
+    engine: AsyncEngine, factory: Factory, app_database_url: str, database_url: str
 ) -> None:
     app_id = _seed(database_url)
     port = _free_port()
@@ -259,7 +278,8 @@ async def test_a_running_worker_exports_every_observability_item(
     )
     stop = asyncio.Event()
     wm.subscriptions.reset()
-    async with metrics_running(settings, factory, stop) as refresher:
+    await verify_queue(engine)  # the refresh waits for the worker's queue check (#303)
+    async with metrics_running(settings, factory, stop, engine=engine) as refresher:
         for _ in range(100):
             if wm.subscriptions.get(state="active") == 1:
                 break
@@ -299,3 +319,94 @@ async def test_a_running_worker_exports_every_observability_item(
         assert series in body, series
     with pytest.raises(ConnectionRefusedError):
         await _scrape(port)  # the listener closed with the worker
+
+
+def _burst(url: str, received: datetime, *, n: int, tied: int) -> list[float]:
+    """``n`` synthetic notifications: the first ``tied`` share one received time (as one
+    transaction's ``now()`` would), the rest one second later; notification g is g seconds old
+    (plus that second). Returns the ages, sorted."""
+    app_id = new_app(url)
+    end = int(received.timestamp())
+    with superuser(url) as conn:
+        conn.execute(BURST, {"app": app_id, "end": end, "t": received, "tied": tied, "n": n})
+    return sorted(float(g if g <= tied else g + 1) for g in range(1, n + 1))
+
+
+@pytest.fixture
+def observed(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Each delivery age the refresh records, in order."""
+    ages: list[float] = []
+    monkeypatch.setattr(worker_metrics, "record_webhook_age", ages.append)
+    return ages
+
+
+def _start() -> datetime:
+    return datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=1)
+
+
+@pytest.mark.usefixtures("clean_withings")
+async def test_a_burst_over_the_page_with_equal_times_is_counted_exactly_once(
+    factory: Factory, database_url: str, observed: list[float]
+) -> None:
+    """#303: 2500 notifications, 1200 of them received at the same instant, so the first page
+    ends inside equal times. One refresh reads them all, each once; the next reads none."""
+    start = _start()
+    expected = _burst(database_url, start + timedelta(seconds=10), n=2500, tied=1200)
+    refresher = Refresher(factory, since=start)
+    await refresher.refresh()
+    assert sorted(observed) == expected  # every row once: none skipped, none twice
+    await refresher.refresh()
+    assert len(observed) == 2500
+
+
+@pytest.mark.usefixtures("clean_withings")
+async def test_a_backlog_over_the_pages_continues_on_the_next_refresh(
+    monkeypatch: pytest.MonkeyPatch, factory: Factory, database_url: str, observed: list[float]
+) -> None:
+    """One page per refresh: 2500 rows take three refreshes of 1000, 1000 and 500, the first
+    page boundary inside 1200 equal received times, and a fourth finds nothing."""
+    monkeypatch.setattr(worker_metrics, "AGES_PAGES", 1)
+    start = _start()
+    expected = _burst(database_url, start + timedelta(seconds=10), n=2500, tied=1200)
+    refresher = Refresher(factory, since=start)
+    seen: list[int] = []
+    for _ in range(4):
+        await refresher.refresh()
+        seen.append(len(observed))
+    assert seen == [1000, 2000, 2500, 2500]
+    assert sorted(observed) == expected
+
+
+@pytest.mark.usefixtures("clean_withings")
+async def test_rows_at_the_start_time_are_counted(
+    factory: Factory, database_url: str, observed: list[float]
+) -> None:
+    """The watermark starts at (start time, the lowest id): rows received at that very instant
+    are after it."""
+    start = _start()
+    expected = _burst(database_url, start, n=3, tied=3)
+    await Refresher(factory, since=start).refresh()
+    assert sorted(observed) == expected
+
+
+@pytest.mark.usefixtures("clean_withings")
+async def test_a_failed_read_keeps_the_watermark(
+    monkeypatch: pytest.MonkeyPatch, factory: Factory, database_url: str, observed: list[float]
+) -> None:
+    """A refresh that fails after reading records nothing and does not move the watermark: the
+    next one counts the same rows, once."""
+    start = _start()
+    expected = _burst(database_url, start + timedelta(seconds=10), n=1500, tied=1500)
+    refresher = Refresher(factory, since=start)
+
+    async def broken(_factory: Factory) -> list[tuple[str, int]]:
+        raise RuntimeError("synthetic: queue_stats failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(worker_metrics.queue, "stats", broken)
+        with pytest.raises(RuntimeError):
+            await refresher.refresh()
+    assert observed == []
+    assert (refresher.after, refresher.after_id) == (start, START)
+    await refresher.refresh()
+    assert sorted(observed) == expected

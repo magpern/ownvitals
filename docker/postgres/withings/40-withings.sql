@@ -128,7 +128,8 @@ REVOKE ALL ON TABLE public.sync_cursors FROM ownvitals_metrics;
 GRANT SELECT (connection_id, stream, capability, backfill_state, last_ok_at)
   ON TABLE public.sync_cursors TO ownvitals_metrics;
 REVOKE ALL ON TABLE public.webhook_events FROM ownvitals_metrics;
-GRANT SELECT (app_id, withings_userid, enddate, received_at)
+-- id: the tie-break of the delivery-age watermark (received_at, id), never an output series.
+GRANT SELECT (id, app_id, withings_userid, enddate, received_at)
   ON TABLE public.webhook_events TO ownvitals_metrics;
 REVOKE ALL ON TABLE public.jobs FROM ownvitals_metrics;
 GRANT SELECT (state, available_at) ON TABLE public.jobs TO ownvitals_metrics;
@@ -612,10 +613,38 @@ END
 $fn$;
 
 -- Webhook delivery ages (received minus the notification's enddate, at least 0) of the
--- notifications received after p_after, oldest first, at most 1000. The worker observes each
--- age once and keeps the last received time as its next p_after. No id, user or payload.
-CREATE OR REPLACE FUNCTION public.metrics_webhook_ages(p_after timestamp with time zone)
-  RETURNS TABLE (received timestamp with time zone, age_seconds double precision)
+-- notifications after the watermark (p_after, p_after_id), in (received_at, id) order, at most
+-- 1000. The worker observes each age once and keeps the last row's (received, event_id) as its
+-- next watermark, so a burst over the limit or rows with equal received times are each read
+-- exactly once (#303). event_id is the notification row's own id, only a cursor: no user,
+-- connection or payload.
+-- The one-argument version of #167 (a strict received_at watermark) cannot be replaced in
+-- place: every other signature goes first.
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN SELECT p.oid::regprocedure::text AS signature
+             FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public' AND p.proname = 'metrics_webhook_ages'
+              AND pg_catalog.pg_get_function_identity_arguments(p.oid)
+                  <> 'p_after timestamp with time zone, p_after_id uuid' LOOP
+    EXECUTE format('DROP FUNCTION public.%s', r.signature);
+  END LOOP;
+  IF EXISTS (SELECT FROM pg_catalog.pg_proc p
+               JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public' AND p.proname = 'metrics_webhook_ages'
+                AND pg_catalog.pg_get_function_result(p.oid)
+                    <> 'TABLE(received timestamp with time zone, event_id uuid, '
+                       'age_seconds double precision)') THEN
+    DROP FUNCTION public.metrics_webhook_ages(timestamp with time zone, uuid);
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.metrics_webhook_ages(
+  p_after timestamp with time zone, p_after_id uuid)
+  RETURNS TABLE (received timestamp with time zone, event_id uuid,
+                 age_seconds double precision)
   LANGUAGE plpgsql
   SECURITY DEFINER
   SET search_path = pg_catalog, pg_temp
@@ -624,27 +653,30 @@ BEGIN
   IF coalesce(pg_catalog.current_setting('app.user_id', true), '') <> '' THEN
     RAISE EXCEPTION 'system_session_only' USING ERRCODE = '42501';
   END IF;
-  IF p_after IS NULL THEN
+  IF p_after IS NULL OR p_after_id IS NULL THEN
     RAISE EXCEPTION 'bad_after' USING ERRCODE = '22023';
   END IF;
   RETURN QUERY
-    SELECT e.received_at,
+    SELECT e.received_at, e.id,
            greatest(0, EXTRACT(EPOCH FROM e.received_at) - e.enddate)::double precision
       FROM public.webhook_events e
-     WHERE e.received_at > p_after
-     ORDER BY e.received_at
+     WHERE (e.received_at, e.id) > (p_after, p_after_id)
+     ORDER BY e.received_at, e.id
      LIMIT 1000;
 END
 $fn$;
 
 ALTER FUNCTION public.metrics_withings_aggregates() OWNER TO ownvitals_metrics;
-ALTER FUNCTION public.metrics_webhook_ages(timestamp with time zone) OWNER TO ownvitals_metrics;
+ALTER FUNCTION public.metrics_webhook_ages(timestamp with time zone, uuid)
+  OWNER TO ownvitals_metrics;
 REVOKE ALL ON FUNCTION public.metrics_withings_aggregates() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.metrics_webhook_ages(timestamp with time zone) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.metrics_webhook_ages(timestamp with time zone, uuid)
+  FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.metrics_withings_aggregates() TO ownvitals_app;
-GRANT EXECUTE ON FUNCTION public.metrics_webhook_ages(timestamp with time zone) TO ownvitals_app;
+GRANT EXECUTE ON FUNCTION public.metrics_webhook_ages(timestamp with time zone, uuid)
+  TO ownvitals_app;
 COMMENT ON FUNCTION public.metrics_withings_aggregates() IS 'ownvitals-withings v1';
-COMMENT ON FUNCTION public.metrics_webhook_ages(timestamp with time zone)
+COMMENT ON FUNCTION public.metrics_webhook_ages(timestamp with time zone, uuid)
   IS 'ownvitals-withings v1';
 
 -- queue_enqueue is installed by 20-queue.sql, which runs before this script. A database that
