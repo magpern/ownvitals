@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
-from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -216,13 +215,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
 
     @app.exception_handler(StarletteHTTPException)
-    async def not_found_code(request: Request, exc: Exception) -> Response:
+    async def not_found_code(_: Request, exc: Exception) -> Response:
         # The router's own 404 carries an English sentence; answer with the code (ADR 0015 s6).
         if not isinstance(exc, StarletteHTTPException):
             raise exc
         if (exc.status_code, exc.detail) == (404, "Not Found"):
             return JSONResponse({"detail": {"reason": "not_found"}}, status_code=404)
-        return await http_exception_handler(request, exc)
+        return JSONResponse(
+            {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
+        )
 
     app.include_router(api)
     # Before the SPA catch-all: Google's callback (``/oauth/google/callback``) is not under /api.
