@@ -266,7 +266,7 @@ async def test_the_store_does_not_wait_on_a_withdrawal_that_holds_the_consent_ro
         )
         refused: JobFailure | None = None
         try:
-            async with asyncio.timeout(30), job.fenced() as fs:
+            async with asyncio.timeout(5), job.fenced() as fs:
                 await store(fs)
         except JobFailure as failure:
             refused = failure
