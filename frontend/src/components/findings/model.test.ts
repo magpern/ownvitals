@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { belongsToTab, chartRange, chartStart, evidenceParams, inStretch, locationUrl, readLocation } from './model'
+import { belongsToTab, chartRange, chartStart, evidenceParams, inStretch, localDay, locationUrl, readLocation } from './model'
 
 describe('the findings location', () => {
   it('reads the filters and the chosen finding from the address', () => {
@@ -49,5 +49,13 @@ describe('the evidence', () => {
   it('keeps the days around the window', () => {
     const series = ['2026-09-01', '2026-10-05', '2026-10-30', '2026-11-02'].map((day) => ({ day }))
     expect(inStretch(series, '2026-10-29', '2026-10-30').map((p) => p.day)).toEqual(['2026-10-05', '2026-10-30'])
+  })
+})
+
+describe('localDay (issue 325)', () => {
+  it('uses the local calendar day, not the UTC day', () => {
+    expect(localDay(new Date(2026, 10, 1, 0, 30))).toBe('2026-11-01')
+    expect(localDay(new Date(2026, 10, 1, 23, 30))).toBe('2026-11-01')
+    expect(localDay(new Date(2026, 0, 5, 12))).toBe('2026-01-05')
   })
 })

@@ -50,6 +50,7 @@ describe('the body composition page', () => {
     const title = await screen.findByRole('heading', { name: 'Bone mass' })
     const card = title.closest('.ov-card') as HTMLElement
     expect(within(card).getByText('Not available')).toBeTruthy()
+    expect(within(card).getByRole('link', { name: 'Bone mass' }).getAttribute('href')).toBe('/m/bone_mass?range=90d')
     expect(screen.getByRole('heading', { name: 'Metabolic age' })).toBeTruthy()
   })
 
@@ -111,5 +112,18 @@ describe('the body composition page', () => {
     expect(within(list).getByText('Arm or leg muscle imbalance')).toBeTruthy()
     expect(within(list).queryByText('Weight gain over three days')).toBeNull()
     expect(within(list).queryByText('Extracellular water ratio')).toBeNull()
+  })
+
+  it('filters the body findings to rules B1 to B6 whatever the API sends (issue 325)', async () => {
+    const stray = [
+      fakeFinding({ id: 'a', rule_id: 'B7', tier: 'experimental' }),
+      fakeFinding({ id: 'b', rule_id: 'E4', area: 'body', tier: 'device' }),
+      fakeFinding({ id: 'c', rule_id: 'B2', tier: 'trend' }),
+    ]
+    open([fakeMetric('weight')], fakeFindings(stray))
+    const list = await screen.findByRole('list', { name: 'Body findings' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(list).getByText('Weight falling over six months')).toBeTruthy()
+    expect(within(list).queryByText(/ECG interval/)).toBeNull()
   })
 })
