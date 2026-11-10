@@ -22,7 +22,7 @@ come with their own issues and extend this file. The ECG PDF of `reports/ecg_pdf
 | `docker/postgres/exports/60-exports.sql` | the role `ownvitals_exports` and the definer function `exports_purge_expired()`, the cross-user purge (#333); idempotent, run as the superuser by `db-functions` after `50-ai.sql` |
 | `backend/src/ownvitals/reports/export_purge.py` | the worker's call of the purge, from the hourly purge tick (`worker/upkeep.py`) |
 | `frontend/src/components/reports/ExportCard.tsx`, `frontend/src/api/exports.ts` | "Export everything" in Settings → Your data |
-| `e2e/specs/export.spec.ts` | step-up → export → download |
+| `e2e/specs/export.spec.ts` | step-up → export → download, for an account without data and for one connected to fake-withings' synthetic user (the archive is unzipped: manifest, account, the imported measure groups and measures, row counts match the manifest) |
 
 ## The flow
 
