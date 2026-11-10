@@ -81,7 +81,11 @@ deterministic CI security checks (§10.3) and on the owner's human security revi
 1. The PR has a Reviewer `PASS` for its **current head commit**, recorded as a PR comment that
    starts `Agent review (<model>): PASS <head SHA>`, followed by the non-blocking findings. A
    `FAIL` is recorded the same way: `Agent review (<model>): FAIL <head SHA>`, blocking findings
-   first, each with file and line.
+   first, each with file and line. A `PASS` is recorded only when `ci` and `pr-title` are green on
+   that head: the Reviewer finishes its review, waits for (or is resumed once there is) green CI,
+   and only then posts the `PASS`. A `PASS` on red or pending CI does not count, and the
+   Architect never asks for one; if CI turns out red, the Reviewer is resumed for the new head.
+   A `FAIL` may be recorded at once.
 2. The Reviewer's first review of the PR was a fresh context: Opus for security-critical and security-adjacent PRs
    (first review), Sonnet for the rest (UI, docs, tooling, tests, Dependabot). Tier doubts are
    settled upward (see the definitions above).
