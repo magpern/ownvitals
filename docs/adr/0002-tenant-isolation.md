@@ -1,6 +1,7 @@
 # ADR 0002: Tenant isolation: UserContext, forced RLS, roles and execution contexts
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88 (see "Amendments").
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88, and 2026-11-10 by
+#362 (see "Amendments").
 Its two open questions were decided by the Architect on 2026-10-31 (§2 partitions, whose keys
 [roadmap Amendment 2](../roadmap.md) sets; §3 `webhook_events` retention). Post-port review (#16,
 2026-11-03): no decision changed; guard 7 is enforced per route, without an enumeration (threat
@@ -220,7 +221,8 @@ CREATE POLICY owner_isolation ON <t>
     and exclude every secret column (the ingest role may read `connections`' id, owner, app id,
     Withings user id and status, never `secret`, `wrapped_dek` or the token columns);
   - `SET search_path = pg_catalog, pg_temp`, every object schema-qualified;
-  - no owner id is taken from the caller; inputs are validated in the function;
+  - no owner id is taken from the caller; inputs are validated in the function (one exception,
+    `webhook_events_purge_account`, below; amended 2026-11-10, #362);
   - the minimum is returned: ids and a lease token for the queue claim, an outcome enum for
     webhook ingest, counts for maintenance;
   - `ownvitals_app` gets only `EXECUTE`; `PUBLIC` gets nothing;
@@ -233,6 +235,22 @@ CREATE POLICY owner_isolation ON <t>
   requires owning the parent table. It runs only fixed DDL on allowlisted tables and never reads
   or writes rows; callers: the scheduler module and the writers of partitioned tables (§2; a
   guard checks it; amended 2026-10-31, #72).
+- **One exception to "no owner id is taken from the caller"** (amended 2026-11-10, #362):
+  `webhook_events_purge_account(p_owner uuid)`, the admin account delete's purge of the target's
+  webhook events (they have no `owner_id` and do not cascade with the account). The admin delete
+  runs in a `system_session`, so there is no `app.user_id` for `webhook_events_purge_owner` to
+  read, and issuing the target's `UserContext` there is refused by §1. Its conditions:
+  - system session only: it raises (`bad_context`) when `app.user_id` is set, before any row;
+  - owned by `ownvitals_webhook_events` (the webhook-events family, so no new family in ADR 0005
+    §3); `EXECUTE` to `ownvitals_app` only, none to `ownvitals_maint` or `PUBLIC`;
+  - one caller, `ownvitals.auth.admin_accounts.delete_account`, after the admin and address
+    checks, in the same transaction as `delete_user_account`, so a refused delete removes
+    nothing;
+  - pinned by `tests/test_purge_account_guard.py` (the one caller) and the queue check (digest,
+    owner, `search_path`, ACL in `ownvitals.db.queue_expected` and `queue_digests`);
+  - it deletes only `webhook_events` rows, found through `p_owner`'s connection rows (the
+    `(app_id, withings_userid)` pair is unique across owners), and returns nothing.
+  No other definer may take an owner id from the caller without its own amendment here.
 - **The webhook-secret function** of ADR 0004 §4 has its own narrow owner (amended 2026-10-31,
   #49; it was `ownvitals_owner`, whose rights a bug in it would have carried: DDL, and turning
   off forced RLS on every health table). Its owner `ownvitals_webhook_secrets` is a dedicated
@@ -263,7 +281,7 @@ CREATE POLICY owner_isolation ON <t>
 | Worker job | worker, `ownvitals_app` | fenced `user_session(ctx)` (ADR 0005 §4) | `ownvitals.jobs`, from the claimed row | #9, #15 |
 | Scheduler | worker, `ownvitals_app` → `EXECUTE` on enqueue functions | nothing directly; the functions enqueue owned jobs | none: the job gets one when claimed | #15 (harness), M1 |
 | Maintenance (reap, purge) | worker, definer functions or `system_session` on system tables | definer functions only | none | #9, #15 |
-| Admin | web, `ownvitals_maint` in an audited transaction | column-level allowlist; **no health table** | `ownvitals.auth` (admin session with TOTP) | #12, #15 |
+| Admin | web, `ownvitals_maint` in an audited transaction | column-level allowlist; **no health table**; the account delete purges the target's webhook events through §3's one owner-argument exception, `webhook_events_purge_account` (amended 2026-11-10, #362) | `ownvitals.auth` (admin session with TOTP) | #12, #15 |
 | Operator CLI | `docker compose exec`/`run` on the host | per-owner `user_session`; `keys wipe`, the `withings_apps` configuration and its client-secret rewrap as the owner role, in one-off operator containers (ADR 0004 §3, §3 above; amended 2026-10-31, #49) | an auth function used only by the CLI | #13, #22 |
 
 - **No context has ambient authority.** Every owned read or write happens in a `user_session` for
@@ -476,3 +494,19 @@ Architect decision on the non-blocking finding 6 of the #83 review (its Opus PAS
 
 - §5: `transaction_timeout` ends the whole connection (`FATAL`), not just the transaction, as the
   idle-in-transaction timeout does.
+
+### 2026-11-10 (#362): the admin delete's webhook-event purge
+
+Architect decision on the #364 reviews (blocker 1 of the FAIL at `581a810`, blocker 1 of the
+FAIL at `f83acfd`), made in place above and marked "amended 2026-11-10, #362":
+
+- Context: the admin delete skipped the webhook-event purge the user's own delete runs first, so
+  the target's `webhook_events` rows stayed until the 30-day retention. Issuing the target's
+  `UserContext` in the web admin path is refused by §1 and §4. A trigger is refused by ADR 0005
+  §3 (no user trigger in the database).
+- §3: one named exception to "no owner id is taken from the caller",
+  `webhook_events_purge_account(p_owner uuid)`, with the conditions listed there.
+- §4: the Admin row cross-references it.
+- Consequences: one more pinned function in the webhook-events family and a caller guard; no
+  new role, grant on a table, or family.
+

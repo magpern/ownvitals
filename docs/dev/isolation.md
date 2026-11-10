@@ -422,8 +422,9 @@ synthetic row per owned table (`ROWS`) for two users, and one module per context
 runs the same probe the way that context reaches owned rows: `test_isolation_contexts_web.py`
 (a route behind `require_user`), `_worker.py` (a user's job through `runner.execute` and the job
 issuer), `_scheduler.py` (`queue_enqueue`, then the claimed job), `_webhook.py` (the receiver and
-`webhook_event_insert`, then the claimed job), `_maintenance.py` (the reaper and
-`webhook_events_purge_owner`) and `_admin.py` (admin routes on `ownvitals_maint`).
+`webhook_event_insert`, then the claimed job), `_maintenance.py` (the reaper,
+`webhook_events_purge_owner`, and `webhook_events_purge_account`, the admin delete's purge that
+refuses inside a user session, #362) and `_admin.py` (admin routes on `ownvitals_maint`).
 
 The probe tries every write in its **minimal shape**: no `WHERE` and no `RETURNING`, because
 either makes Postgres apply the read policy too and would hide a hole in a write policy. Per
