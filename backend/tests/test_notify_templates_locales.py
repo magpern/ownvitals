@@ -36,6 +36,15 @@ BASE = "https://ownvitals.example.test"
 CASES = [(locale, kind) for locale in sorted(TABLES) for kind in sorted(TABLES[locale])]
 
 
+def _bare(text: str) -> bool:
+    """True when every field is a plain ``{name}``: no format spec or ``!r`` (ADR 0015 s9)."""
+    return all(
+        spec == "" and conversion is None
+        for _, name, spec, conversion in string.Formatter().parse(text)
+        if name is not None
+    )
+
+
 def _fields(text: str) -> list[str]:
     return [name for _, name, _, _ in string.Formatter().parse(text) if name is not None]
 
@@ -68,6 +77,13 @@ def test_every_locale_has_every_kind_and_only_the_link_placeholder() -> None:
         for kind, template in table.items():
             assert _fields(template.subject) == [], (locale, kind)
             assert _fields(template.body) == ["link"], (locale, kind)
+            assert _bare(template.subject), (locale, kind)
+            assert _bare(template.body), (locale, kind)
+
+
+@pytest.mark.parametrize("text", ["{link!r}", "{link:>9}"])
+def test_the_placeholder_check_rejects_a_conversion_or_format_spec(text: str) -> None:
+    assert not _bare(text)
 
 
 def test_the_untranslated_list_holds_exactly_the_english_copies() -> None:

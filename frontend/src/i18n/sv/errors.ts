@@ -44,6 +44,8 @@ export const errors = {
   'oauth.invite_required':
     'Du behöver en inbjudan för att skapa ett konto. Ange din inbjudningskod nedan och försök igen.',
   'oauth.invite_invalid': 'Den inbjudan är inte längre giltig. Be om en ny.',
+  'oauth.identity_taken': 'Det Google-kontot är redan kopplat till ett annat ownvitals-konto.',
+  'oauth.identity_mismatch': 'Det var ett annat Google-konto än det som är kopplat här.',
   tooMany: 'För många försök. Vänta en stund och försök igen.',
   tooManyWait: 'För många försök. Försök igen om {wait}.',
   'minutes.one': '{count} minut',

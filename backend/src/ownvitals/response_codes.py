@@ -18,7 +18,9 @@ from types import MappingProxyType
 from typing import Final
 
 # Answers any family may give.
-COMMON: Final = frozenset({"not_found", "not_authenticated", "forbidden", "invalid_input", "busy"})
+COMMON: Final = frozenset(
+    {"not_found", "not_authenticated", "forbidden", "invalid_input", "busy", "internal"}
+)
 
 # ``detail.reason`` of /api/auth/*. The OAuth outcomes of ``?oauth=`` are a separate word list
 # worded by the frontend's errors area.
@@ -102,9 +104,14 @@ CONNECTIONS: Final = (
     | JOB_FAILURES
     | {
         "blocked_by_provider_plan",
+        "conflict",
+        "exchange_failed",
         "invalid_body",
+        "linked_elsewhere",
+        "other_withings_account",
         "revoke_failed",
         "revoke_incomplete",
+        "state_rejected",
         "step_up_required",
         "unknown_provider",
     }

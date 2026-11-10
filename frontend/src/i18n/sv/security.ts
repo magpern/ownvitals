@@ -20,7 +20,7 @@ export const security = {
   'device.unknown': 'Okänd enhet',
   'device.aBrowser': 'En webbläsare',
   'device.on': '{browser} på {system}',
-  'time.today': 'Idag {time}',
+  'time.today': 'I dag {time}',
   'ago.minutes.one': 'för {count} minut sedan',
   'ago.minutes.other': 'för {count} minuter sedan',
   'ago.hours.one': 'för {count} timme sedan',

@@ -40,6 +40,8 @@ export const errors = {
   'oauth.invite_required':
     'You need an invite to create an account. Enter your invite code below and try again.',
   'oauth.invite_invalid': 'That invite is no longer valid. Ask for a new one.',
+  'oauth.identity_taken': 'That Google account is already linked to another ownvitals account.',
+  'oauth.identity_mismatch': 'That was a different Google account than the one linked here.',
   tooMany: 'Too many attempts. Wait a little and try again.',
   tooManyWait: 'Too many attempts. Try again in {wait}.',
   'minutes.one': '{count} minute',
