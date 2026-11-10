@@ -59,6 +59,7 @@ App (ready)   /                    Overview: "Needs a look", then tiles by area
               /m/:metric/:day      day: everything recorded, reading drawer with provenance
               /heart/ecg[/:id]     ECG list and viewer (+ PDF)
               /findings            Live | History, tier and area filters
+              /assistant           the chat assistant (M7, #208; see "Assistant" below)
               /connections         Withings: streams, capabilities, devices, disconnect
               /settings            Profile and display | Sign-in and security | Notifications | Your data
                                    the tabs are /settings/profile, /settings/security,
