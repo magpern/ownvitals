@@ -28,11 +28,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from ownvitals.ai import chat_store
-from ownvitals.ai.chat_limits import reserve_ai_conversation
 from ownvitals.ai.chat_model import REQUEST_ID, valid_text
 from ownvitals.ai.chat_store import ChatRefused, ConversationView
 from ownvitals.ai.tables import MESSAGE_MAX_CHARS
-from ownvitals.auth.deps import require_user, reserve_ai_chat
+from ownvitals.auth.deps import require_user, reserve_ai_chat, reserve_ai_conversation
 from ownvitals.context import UserContext
 
 router = APIRouter(prefix="/api/ai")
