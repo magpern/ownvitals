@@ -309,3 +309,49 @@ async def test_a_turn_of_one_user_never_reads_or_answers_anothers_conversation(
     assert count("ai_messages", bob.id) == 0
     failed = sql("SELECT error_category FROM jobs WHERE owner_id = :o", o=bob.id).scalar_one()
     assert failed == "invalid_input"
+
+
+async def _crafted_turn(owner: uuid.UUID, conversation_id: uuid.UUID, message_id: Any) -> None:
+    """A queued turn of ``owner`` naming ``message_id`` (as a stale or crafted job could)."""
+    sql(
+        "INSERT INTO jobs (owner_id, kind, origin, lane, state, input, idempotency_key, "
+        "request_hash, next_seq) VALUES (:o, :k, 'user', :lane, 'queued', CAST(:i AS jsonb), "
+        ":key, :h, 1)",
+        o=owner,
+        k=CHAT_KIND,
+        lane=lane_for(CHAT_KIND, "user"),
+        i=f'{{"conversation_id": "{conversation_id}", "message_id": "{message_id}"}}',
+        key="synthetic-crafted-" + uuid.uuid4().hex[:20],
+        h=b"\0" * 32,
+    )
+
+
+async def test_a_turn_answers_only_the_newest_message_and_only_the_users(chat: ChatEnv) -> None:
+    """The job's message must be the conversation's newest and the user's own: an older message
+    (already answered) or an answer of the assistant is not answered again, and nothing is sent."""
+    who = await user(chat, "synthetic-chat-o@example.com")
+    conv = await conversation(chat, who)
+    await send(who, conv, "synthetic first question")
+    await chat.run_next()
+    rows = sql(
+        "SELECT id, role FROM ai_messages WHERE owner_id = :o ORDER BY created_at, id", o=who.id
+    ).all()
+    assert [r.role for r in rows] == ["user", "assistant"]
+    before = messages(who.id)
+    attempts = chat.fake.attempts
+    for named in (rows[0].id, rows[1].id):  # an older user message, then the newest answer
+        await _crafted_turn(who.id, conv, named)
+        execution = await chat.run_next()
+        assert execution is not None
+        assert execution.result == "failed"
+        failed = (
+            sql(
+                "SELECT error_category FROM jobs WHERE owner_id = :o AND state = 'failed'", o=who.id
+            )
+            .scalars()
+            .all()
+        )
+        assert failed
+        assert all(c == "invalid_input" for c in failed)
+    assert chat.fake.attempts == attempts
+    assert messages(who.id) == before
