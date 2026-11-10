@@ -27,6 +27,8 @@ from ownvitals.ecg.validate_cli import (
     Recording,
 )
 
+_MAINS_MAX_HZ = 60.0  # the higher of the two mains frequencies checked
+
 
 def _whole_percent(part: int, whole: int) -> int:
     """Round half up. ``whole`` is positive."""
@@ -79,8 +81,12 @@ def _oc2(positions: int, owner: str | None) -> str:
     return "fail"
 
 
-def _spectrum(lead: tuple[int, ...], sampling_hz: int) -> tuple[bool, bool] | None:
-    """(low-pass holds, a 50 or 60 Hz line is present), or None when Welch cannot run."""
+def _spectrum(lead: tuple[int, ...], sampling_hz: int) -> tuple[bool, bool | None] | None:
+    """(low-pass holds, a 50 or 60 Hz line is present), or None when Welch cannot run.
+
+    The line is None (not observable) when none was found and a mains line sits at or above
+    Nyquist: 60 Hz needs more than 120 Hz sampling, 50 Hz more than 100 Hz (#315).
+    """
     # The low-pass check compares against the band above 40 Hz; it is empty at or below 80 Hz.
     if sampling_hz <= 80 or len(lead) < 4 * sampling_hz:
         return None
@@ -99,7 +105,11 @@ def _spectrum(lead: tuple[int, ...], sampling_hz: int) -> tuple[bool, bool] | No
         lowpass = False
     else:
         lowpass = 10.0 * math.log10(power_low / power_high) >= LOWPASS_DB
-    mains = _mains(freqs, density, 50.0, power_low) or _mains(freqs, density, 60.0, power_low)
+    mains: bool | None = _mains(freqs, density, 50.0, power_low) or _mains(
+        freqs, density, 60.0, power_low
+    )
+    if not mains and sampling_hz <= 2 * _MAINS_MAX_HZ:
+        mains = None
     return lowpass, mains
 
 
@@ -118,7 +128,7 @@ def _mains(freqs: np.ndarray, density: np.ndarray, hz: float, power_low: float) 
 
 
 def _oc3(recordings: Sequence[Recording]) -> tuple[str, str]:
-    judged: list[tuple[bool, bool]] = []
+    judged: list[tuple[bool, bool | None]] = []
     for recording in recordings:
         lead = _first_lead(recording)
         if lead is None or recording.sampling_hz is None:
@@ -129,7 +139,8 @@ def _oc3(recordings: Sequence[Recording]) -> tuple[str, str]:
     if not judged:
         return "not-applicable", "not-applicable"
     lowpass = "pass" if all(item[0] for item in judged) else "fail"
-    mains = "yes" if any(item[1] for item in judged) else "no"
+    lines = [item[1] for item in judged]
+    mains = "yes" if any(lines) else "not-observable" if None in lines else "no"
     return lowpass, mains
 
 

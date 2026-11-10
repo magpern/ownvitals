@@ -248,6 +248,11 @@ def test_v4_needs_enough_strips_and_the_owners_counts() -> None:
     assert "V4 pass" in evaluate(rows, (), good).lines
     beats = OwnerAnswers(v4_wrong_beats=2, v4_inspected_beats=100, v4_justified=8)
     assert "V4 fail" in evaluate(rows, (), beats).lines
+    # 1.5 % wrong would round to 2 % either way; 1.4 % rounds down to 1 % and must still fail.
+    just_over = OwnerAnswers(v4_wrong_beats=14, v4_inspected_beats=1000, v4_justified=8)
+    assert "V4 fail" in evaluate(rows, (), just_over).lines
+    exact = OwnerAnswers(v4_wrong_beats=10, v4_inspected_beats=1000, v4_justified=8)
+    assert "V4 pass" in evaluate(rows, (), exact).lines
     justified = OwnerAnswers(v4_wrong_beats=0, v4_inspected_beats=100, v4_justified=7)
     assert "V4 fail" in evaluate(rows, (), justified).lines
     short = OwnerAnswers(v4_wrong_beats=0, v4_inspected_beats=100, v4_justified=8)
@@ -366,3 +371,14 @@ def test_v1_and_v3_compare_the_exact_ratio_not_the_rounded_percent() -> None:
     v3 = evaluate(close, (), OwnerAnswers()).lines
     assert "V3 fail" in v3
     assert "V3 within-5 94%" in v3
+
+
+def test_oc3_mains_is_not_observable_when_a_mains_line_is_above_nyquist() -> None:
+    # SYNTHETIC. At 110 Hz a 60 Hz line is above Nyquist (55 Hz) and 50 Hz is the only one seen.
+    quiet = _rec(sampling_hz=110, leads=(_sine((10.0, 1000), fs=110),))
+    assert "OC3 mains not-observable" in evaluate((quiet,), (), OwnerAnswers()).lines
+    line = _rec(sampling_hz=110, leads=(_sine((10.0, 1000), (50.0, 800), fs=110),))
+    assert "OC3 mains yes" in evaluate((line,), (), OwnerAnswers()).lines
+    # Above 120 Hz both lines are observable, so an absent line is a plain "no".
+    wide = _rec(sampling_hz=300, leads=(_sine((10.0, 1000)),))
+    assert "OC3 mains no" in evaluate((wide,), (), OwnerAnswers()).lines
