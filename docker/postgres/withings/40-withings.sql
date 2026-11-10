@@ -551,8 +551,10 @@ COMMENT ON FUNCTION public.webhook_events_purge_owner() IS 'ownvitals-withings v
 -- connection rows, so it runs before the users row (and its connections) go. A deliberate,
 -- narrow exception to "never an argument": the admin delete runs in a system session (no
 -- user), so there is no app.user_id to read. Only a system session may call it: with
--- app.user_id set (a user session) it raises and deletes nothing. A static guard pins its one
--- caller (ownvitals.auth.admin_accounts). The events are fetch triggers only: no value.
+-- app.user_id set (a user session) it raises and deletes nothing. Its one caller is the admin
+-- account delete of maint/70-admin-accounts.sql (#314), which grants ownvitals_admin_accounts
+-- EXECUTE; no runtime role may call it (a static guard keeps it out of the backend). The events
+-- are fetch triggers only: no value.
 CREATE OR REPLACE FUNCTION public.webhook_events_purge_account(p_owner uuid)
   RETURNS void LANGUAGE plpgsql SECURITY DEFINER
   SET search_path = pg_catalog, pg_temp
@@ -571,8 +573,8 @@ BEGIN
 END
 $fn$;
 ALTER FUNCTION public.webhook_events_purge_account(uuid) OWNER TO ownvitals_webhook_events;
-REVOKE ALL ON FUNCTION public.webhook_events_purge_account(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.webhook_events_purge_account(uuid) TO ownvitals_app;
+-- The app role called it until #314; an older database loses that grant here.
+REVOKE ALL ON FUNCTION public.webhook_events_purge_account(uuid) FROM PUBLIC, ownvitals_app;
 COMMENT ON FUNCTION public.webhook_events_purge_account(uuid) IS 'ownvitals-withings v1';
 
 -- The metrics aggregates (#167, PLAN section 4.4 "Observability"), read by the worker for its

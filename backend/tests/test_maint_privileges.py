@@ -2,8 +2,10 @@
 no secret column and no health table, and neither runtime role can change the audit log.
 
 ``docker/postgres/maint/30-maint.sql`` is run as the superuser on the schema at head (twice: it
-repairs drift). The checks read the catalog through ``aclexplode`` and ``pg_shdepend``, so a
-privilege of a kind nobody listed still fails, in any database of the cluster.
+repairs drift), each time followed by ``70-admin-accounts.sql`` as db-functions runs them: that
+script grants maint ``EXECUTE`` on the three admin account functions (#314), its only functions.
+The checks read the catalog through ``aclexplode`` and ``pg_shdepend``, so a privilege of a kind
+nobody listed still fails, in any database of the cluster.
 """
 
 import ast
@@ -16,7 +18,12 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import DBAPIError
 
-from admintools import MAINT_ROLE, MAINT_SCRIPT, admin_schema_fixture  # noqa: F401 - fixtures
+from admintools import (  # noqa: F401 - fixtures
+    MAINT_ROLE,
+    MAINT_SCRIPT,
+    admin_schema_fixture,
+    maint_scripts,
+)
 from jobtools import admin_url, engine_for, run_script
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "ownvitals"
@@ -44,6 +51,15 @@ EXPECTED: frozenset[tuple[str, str]] = frozenset(
     | {
         (f"withings_apps.{c}", "SELECT")
         for c in ("id", "client_id", "callback_base", "rotation_requested_at", "rotation_reason")
+    }
+    # The admin account family (70-admin-accounts.sql, #314): each refuses without its ok row.
+    | {
+        (f"function {signature}", "EXECUTE")
+        for signature in (
+            "admin_account_disable(uuid)",
+            "admin_account_enable(uuid)",
+            "admin_account_delete(uuid,text,text,text,text,text)",
+        )
     }
 )
 
@@ -288,7 +304,10 @@ def test_the_script_repairs_drift_when_run_again(su: Connection) -> None:
     su.execute(text(f"GRANT ownvitals_app TO {MAINT_ROLE}"))
     su.execute(text(f"ALTER ROLE {MAINT_ROLE} SET statement_timeout = 0"))
     su.execute(text(f"ALTER ROLE {MAINT_ROLE} NOBYPASSRLS INHERIT"))
-    run_script(admin_url(), MAINT_SCRIPT.read_text(encoding="utf-8"))
+    su.execute(
+        text(f"GRANT EXECUTE ON FUNCTION public.webhook_events_purge_account(uuid) TO {MAINT_ROLE}")
+    )
+    run_script(admin_url(), maint_scripts())
     assert sorted(_privileges(su)) == sorted(EXPECTED)
     test_maint_role_attributes_and_settings(su)
 

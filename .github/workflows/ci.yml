@@ -345,7 +345,8 @@ jobs:
       # one transaction, twice (the second run proves it is idempotent). 40-withings.sql is in
       # that same invocation, after 20-queue.sql, so the second run sees its three functions, and
       # so are the AI cost cap's 50-ai.sql (ADR 0014 section 7) and the export purge's
-      # 60-exports.sql (ADR 0013 section 4), whose functions are pinned in the same file. The
+      # 60-exports.sql (ADR 0013 section 4) and the admin account family's 70-admin-accounts.sql
+      # (ADR 0002 section 3, #314), whose functions are pinned in the same file. The
       # list and its order are those of docker/postgres/queue/db-functions.sh (rate.sql,
       # 30-maint.sql and 50-outbox.sql included); test_db_functions_script.py fails if they differ.
       # The digests the worker checks must then match what this Postgres image renders (a stale
@@ -377,7 +378,8 @@ jobs:
               ../docker/postgres/withings/rate.sql \
               ../docker/postgres/notify/50-outbox.sql \
               ../docker/postgres/ai/50-ai.sql \
-              ../docker/postgres/exports/60-exports.sql
+              ../docker/postgres/exports/60-exports.sql \
+              ../docker/postgres/maint/70-admin-accounts.sql
           done
           uv run python tests/queue_digests.py --check
 

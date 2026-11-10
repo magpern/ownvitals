@@ -17,6 +17,9 @@ from sqlalchemy.engine import Connection
 
 from ownvitals.db.outbox_digests import OUTBOX_DIGESTS
 from ownvitals.db.queue_check import (
+    ADMIN_ACCOUNTS_FUNCTION_NAMES,
+    ADMIN_ACCOUNTS_PINS,
+    ADMIN_ACCOUNTS_VERSION,
     AI_FUNCTION_NAMES,
     AI_PINS,
     AI_VERSION,
@@ -26,6 +29,7 @@ from ownvitals.db.queue_check import (
     OUTBOX_FUNCTION_NAMES,
     OUTBOX_PINS,
     OUTBOX_VERSION,
+    PURGE_ACCOUNT_ADMIN_ACL,
     QUEUE_FUNCTIONS,
     QUEUE_VERSION,
     RATE_FUNCTION_NAMES,
@@ -209,6 +213,7 @@ def check_queue(conn: Connection) -> list[str]:
         *OUTBOX_FUNCTION_NAMES,
         *AI_FUNCTION_NAMES,
         *EXPORTS_FUNCTION_NAMES,
+        *ADMIN_ACCOUNTS_FUNCTION_NAMES,
     ]
     hooks = (
         conn.execute(
@@ -295,11 +300,14 @@ def check_queue(conn: Connection) -> list[str]:
             actual_acl == expected_acl and len(actual_acl) == len(expected_acl),
             f"{prefix}: ACL must be {expected_acl}, is {actual_acl}",
         )
+    admin_installed = any(f.proname in ADMIN_ACCOUNTS_FUNCTION_NAMES for f in functions)
     for name in WITHINGS_FUNCTION_NAMES:
         found = [f for f in functions if f.proname == name]
         if not found:
             continue
         args, owner, config, acl = WITHINGS_PINS[name]
+        if name == "webhook_events_purge_account" and admin_installed:
+            acl = PURGE_ACCOUNT_ADMIN_ACL  # the admin account delete's alone (#314)
         if len(found) != 1:
             problems.append(f"{name}: must exist exactly once, found {len(found)}")
             continue
@@ -402,6 +410,30 @@ def check_queue(conn: Connection) -> list[str]:
         need(f.owner_name == owner, f"{prefix}: must be owned by {owner}")
         need(list(f.proconfig or []) == config.split(";"), f"{prefix}: settings must be fixed")
         need(f.comment == EXPORTS_VERSION, f"{prefix}: comment must be {EXPORTS_VERSION!r}")
+        need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
+        expected_acl = set(acl.split(","))
+        need(
+            set(f.acl or []) == expected_acl and len(f.acl or []) == len(expected_acl),
+            f"{prefix}: ACL must be {expected_acl}",
+        )
+    # 70-admin-accounts.sql (#314, ADR 0002 s. 3): absent, or all three functions, each pinned.
+    for name in ADMIN_ACCOUNTS_FUNCTION_NAMES if admin_installed else ():
+        found = [f for f in functions if f.proname == name]
+        args, owner, config, acl = ADMIN_ACCOUNTS_PINS[name]
+        if len(found) != 1:
+            problems.append(f"{name}: must exist exactly once, found {len(found)}")
+            continue
+        f = found[0]
+        prefix = f"public.{name}"
+        need(f.nspname == "public" and f.args == args, f"{prefix}: wrong schema or arguments")
+        need(f.prosecdef, f"{prefix}: must be SECURITY DEFINER")
+        need(f.prokind == "f" and f.lanname == "plpgsql", f"{prefix}: must be a plpgsql function")
+        need(f.owner_name == owner, f"{prefix}: must be owned by {owner}")
+        need(list(f.proconfig or []) == config.split(";"), f"{prefix}: settings must be fixed")
+        need(
+            f.comment == ADMIN_ACCOUNTS_VERSION,
+            f"{prefix}: comment must be {ADMIN_ACCOUNTS_VERSION!r}",
+        )
         need(f.md5 == QUEUE_DIGESTS[name], f"{prefix}: definition md5 differs from the shipped one")
         expected_acl = set(acl.split(","))
         need(

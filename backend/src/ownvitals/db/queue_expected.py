@@ -5,9 +5,11 @@ all. ``ownvitals.db.queue_check`` re-exports every public name here.
 """
 
 from ownvitals.db.queue_expected_extra import (
+    ADMIN_ACCOUNTS_FUNCTION_NAMES,
     AI_FUNCTION_NAMES,
     EXPORTS_FUNCTION_NAMES,
     OUTBOX_FUNCTION_NAMES,
+    PURGE_ACCOUNT_ACL,
     RATE_FUNCTION_NAMES,
 )
 
@@ -71,11 +73,13 @@ WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
         "search_path=pg_catalog, pg_temp",
         "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
     ),
+    # The ACL depends on the admin account family (#314): queue_check picks PURGE_ACCOUNT_ACL or
+    # PURGE_ACCOUNT_ADMIN_ACL (queue_expected_extra); this entry is the one without it.
     "webhook_events_purge_account": (
         "p_owner uuid",
         "ownvitals_webhook_events",
         "search_path=pg_catalog, pg_temp",
-        "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
+        PURGE_ACCOUNT_ACL,
     ),
     "metrics_withings_aggregates": (
         "",
@@ -154,6 +158,7 @@ _NAMES = ", ".join(
         *OUTBOX_FUNCTION_NAMES,
         *AI_FUNCTION_NAMES,
         *EXPORTS_FUNCTION_NAMES,
+        *ADMIN_ACCOUNTS_FUNCTION_NAMES,
     )
 )
 

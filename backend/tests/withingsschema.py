@@ -4,6 +4,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
+from dbtools import drop_admin_accounts_functions
 from jobtools import engine_for, run_script
 
 SCRIPT = (
@@ -36,6 +37,10 @@ def install(url: str) -> None:
 
 
 def uninstall(url: str) -> None:
+    """Drop the Withings functions and roles, and the admin account family (#314), whose delete
+    calls ``webhook_events_purge_account``: the queue check pins that function's ACL to the
+    family while the family exists."""
+    drop_admin_accounts_functions(url)
     with engine_for(url, isolation_level="AUTOCOMMIT") as engine, engine.connect() as conn:
         conn.execute(text(_DROP))
         for role in ("ownvitals_webhook_secrets", "ownvitals_webhook_events", "ownvitals_metrics"):

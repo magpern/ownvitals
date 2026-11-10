@@ -424,7 +424,8 @@ runs the same probe the way that context reaches owned rows: `test_isolation_con
 issuer), `_scheduler.py` (`queue_enqueue`, then the claimed job), `_webhook.py` (the receiver and
 `webhook_event_insert`, then the claimed job), `_maintenance.py` (the reaper,
 `webhook_events_purge_owner`, and `webhook_events_purge_account`, the admin delete's purge that
-refuses inside a user session, #362) and `_admin.py` (admin routes on `ownvitals_maint`).
+refuses inside a user session, #362, called as its one caller's role `ownvitals_admin_accounts`
+since #314) and `_admin.py` (admin routes on `ownvitals_maint`).
 
 The probe tries every write in its **minimal shape**: no `WHERE` and no `RETURNING`, because
 either makes Postgres apply the read policy too and would hide a hole in a write policy. Per
