@@ -29,6 +29,7 @@ from ownvitals.auth.oauth_signup import (  # noqa: F401 - re-exported
     invite_valid,
 )
 from ownvitals.auth.oauth_store import Flow, add_identity, identity_owner
+from ownvitals.auth.recipients import account_mail_locale
 from ownvitals.auth.sessions import (
     IssuedSession,
     SessionGone,
@@ -61,6 +62,7 @@ class Request:
     user_agent: str | None
     now: float | None = None
     flow_age: float | None = None  # seconds since the flow's start, by the database clock
+    locale: str | None = None  # the request's language (ADR 0015 section 2), a notice's fallback
 
 
 @dataclass(slots=True)
@@ -119,7 +121,8 @@ async def _link(db: AsyncSession, req: Request) -> Outcome:
             ip=req.ip,
             detail={"provider": req.flow.provider},
         )
-        mail = mails.identity_linked_notice(info.email, req.flow.provider)
+        locale = await account_mail_locale(db, req.settings, user_id, req.locale)
+        mail = mails.identity_linked_notice(info.email, req.flow.provider, locale=locale)
         return Outcome("ok", mail=mail, next="linked")
     owner = await identity_owner(db, req.flow.provider, ident.subject)
     if owner is not None and owner[0] == user_id:
@@ -238,7 +241,8 @@ async def _create_account(db: AsyncSession, req: Request, email: str) -> Outcome
         return _fail(exc.code)
     await record_event(db, "signup_confirmed", user_id=user_id, ip=req.ip)
     outcome = await _session_for(db, req, user_id)
-    outcome.mail = mails.identity_linked_notice(email, req.flow.provider)
+    locale = await account_mail_locale(db, req.settings, user_id, req.locale)
+    outcome.mail = mails.identity_linked_notice(email, req.flow.provider, locale=locale)
     return outcome
 
 

@@ -33,6 +33,7 @@ from ownvitals.auth.events import record_event
 from ownvitals.auth.keys import Keys
 from ownvitals.auth.notices import notify_mfa_failures, notify_totp_enrolled
 from ownvitals.auth.ratelimit import RateLimited, RateLimiter, mfa_buckets
+from ownvitals.auth.recipients import request_mail_locale
 from ownvitals.auth.sessions import (
     SessionGone,
     SessionInfo,
@@ -206,13 +207,14 @@ async def confirm_enrollment(
         else:
             kind = "totp_replaced" if session.totp_enabled else "totp_enrolled"
             await record_event(db, kind, user_id=user_id, ip=request_ip(request))
+        locale = await request_mail_locale(db, request, user_id)  # for either notice
     if codes is None:
         if mail:
-            background.add_task(notify_mfa_failures, session.user_id, session.email)
+            background.add_task(notify_mfa_failures, user_id, session.email, locale)
         return _invalid_code(background)
     await attempt.succeed()
     # The enrollment is committed: mail the user now, whatever happens to the session.
-    background.add_task(notify_totp_enrolled, session.user_id, session.email)
+    background.add_task(notify_totp_enrolled, user_id, session.email, locale)
     try:
         await _rotate(request, response, session, mfa=True, stepup=True)
     except SessionGone:

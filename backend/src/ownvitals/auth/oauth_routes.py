@@ -49,6 +49,7 @@ from ownvitals.auth.oauth_outcomes import Outcome, apply, has_password
 from ownvitals.auth.oauth_outcomes import Request as OutcomeRequest
 from ownvitals.auth.oauth_store import Flow, create_flow, safe_return_to, take_flow
 from ownvitals.auth.ratelimit import OAUTH_IP, Bucket
+from ownvitals.auth.recipients import request_locale
 from ownvitals.auth.sessions import SessionInfo
 from ownvitals.auth.signup_routes import valid_invite
 from ownvitals.db import system_session
@@ -223,6 +224,7 @@ async def _handle(
                 ip=request_ip(request),
                 user_agent=user_agent(request),
                 flow_age=flow.age,
+                locale=request_locale(request, flow.locale),
             ),
         )
 
