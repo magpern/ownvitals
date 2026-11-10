@@ -24,6 +24,7 @@ from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import EmailAddress, factory, mailer, reserve
 from ownvitals.auth.purge import delete_account as delete_owned_account
 from ownvitals.auth.ratelimit import MAIL_ACCOUNT, MAIL_IP, MAIL_PAIR, SIGN_IN_IP, Bucket
+from ownvitals.auth.recipients import request_mail_locale
 from ownvitals.auth.sessions import SessionInfo, revoke_user_sessions
 from ownvitals.auth.signup_routes import Accepted, refuse
 from ownvitals.auth.tables import users
@@ -156,11 +157,14 @@ async def confirm_email_change(
             await revoke_user_sessions(db, ctx.user_id, except_id=info.id)
             await delete_outstanding_tokens(db, ctx.user_id)
             await record_event(db, "email_changed", user_id=ctx.user_id)
+            locale = await request_mail_locale(db, request, ctx.user_id)
     except _Refused as exc:
         if exc.reason == "invalid_token":
             await reserve(request, [Bucket(SIGN_IN_IP, bucket_ip(request_ip(request)))])
         raise refuse(exc.status, exc.reason) from None
-    background.add_task(send_logged, mailer(request), mails.email_changed_notice(old_email))
+    background.add_task(
+        send_logged, mailer(request), mails.email_changed_notice(old_email, locale=locale)
+    )
     return Changed(email=new_email)
 
 

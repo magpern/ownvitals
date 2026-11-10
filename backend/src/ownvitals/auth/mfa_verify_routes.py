@@ -28,6 +28,7 @@ from ownvitals.auth.mfa_routes import (
     _session,
 )
 from ownvitals.auth.notices import notify_mfa_failures
+from ownvitals.auth.recipients import request_mail_locale
 from ownvitals.auth.sessions import SessionGone, SessionInfo
 from ownvitals.auth.totp_keys import TotpUnreadable
 from ownvitals.context import UserContext
@@ -56,9 +57,10 @@ async def _verify_code(
             await record_event(db, unreadable.kind, user_id=info.user_id, ip=request_ip(request))
         elif method is None:
             mail = await mfa.record_failure(db, info.user_id, request_ip(request), purpose)
+        locale = await request_mail_locale(db, request, info.user_id) if mail else None
     if method is None:
-        if mail:
-            background.add_task(notify_mfa_failures, info.user_id, info.email)
+        if locale is not None:
+            background.add_task(notify_mfa_failures, info.user_id, info.email, locale)
         return _invalid_code(background)
     await attempt.succeed()
     return None

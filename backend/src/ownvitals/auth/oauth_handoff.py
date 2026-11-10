@@ -189,10 +189,10 @@ async def confirm_provider_signup(
                 )
             )
             await record_event(db, "signup_confirmed", user_id=user_id, ip=ip)
+            locale = await request_mail_locale(db, request, user_id, pending.locale)
     except Refused as exc:
         status = 400 if exc.code == "invalid_token" else 409
         raise _refuse(status, exc.code) from None
     clear_pending_cookie(response)
-    background.add_task(
-        send_logged, mailer(request), mails.identity_linked_notice(pending.email, pending.provider)
-    )
+    notice = mails.identity_linked_notice(pending.email, pending.provider, locale=locale)
+    background.add_task(send_logged, mailer(request), notice)
