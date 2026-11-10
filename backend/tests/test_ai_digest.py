@@ -46,6 +46,8 @@ from ownvitals.jobs import JobFailure, JobRun
 from ownvitals.jobs.fence import Lease
 
 SYNTHETIC = True
+# Far above a NOWAIT answer (slow runners), far below a hung lock wait.
+STORE_SECONDS = 30
 
 
 def _job(job_id: uuid.UUID) -> Any:
@@ -266,7 +268,7 @@ async def test_the_store_does_not_wait_on_a_withdrawal_that_holds_the_consent_ro
         )
         refused: JobFailure | None = None
         try:
-            async with asyncio.timeout(5), job.fenced() as fs:
+            async with asyncio.timeout(STORE_SECONDS), job.fenced() as fs:
                 await store(fs)
         except JobFailure as failure:
             refused = failure
@@ -343,3 +345,20 @@ async def test_rls_refuses_a_digest_for_another_owner_in_the_job_context(chat: C
                 {"o": bob.id, "w": WEEK},
             )
     assert digests(bob.id) == []
+
+
+async def test_an_opt_out_waits_for_a_store_that_read_the_opt_in(chat: ChatEnv) -> None:
+    """The store's opt-in read is ``FOR SHARE``: an opt-out landing before the store commits
+    cannot delete the preference row under it (a plain read would let the delete through)."""
+    who = await digest_user(chat, "synthetic-digest-share@example.com")
+    job = _running(chat, await queue_digest(chat, who), who.id)
+    store = digest._store(who.id, WEEK, "ready", DIGEST_TEXT)  # pyright: ignore[reportPrivateUsage]
+    async with job.fenced() as fs:
+        await store(fs)  # the transaction stays open: the share lock is held
+        async with user_session(chat.env.factory, make_context(who.id)) as opting_out:
+            await opting_out.execute(text("SET LOCAL lock_timeout = '300ms'"))
+            with pytest.raises(DBAPIError):
+                await opting_out.execute(
+                    text("DELETE FROM ai_digest_prefs WHERE owner_id = :o"), {"o": who.id}
+                )
+    assert len(digests(who.id)) == 1

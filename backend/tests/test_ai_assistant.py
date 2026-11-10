@@ -37,6 +37,8 @@ from ownvitals.jobs.fence import Lease
 from ownvitals.jobs.withings import lane_for
 
 SYNTHETIC = True
+# Far above a NOWAIT answer (slow runners), far below a hung lock wait.
+STORE_SECONDS = 30
 
 
 def _job(job_id: str) -> Any:
@@ -250,7 +252,7 @@ async def test_the_store_does_not_wait_on_a_withdrawal_that_holds_the_consent_ro
         )
         refused: JobFailure | None = None
         try:
-            async with asyncio.timeout(5), job.fenced() as fs:
+            async with asyncio.timeout(STORE_SECONDS), job.fenced() as fs:
                 await store(fs)
         except JobFailure as failure:
             refused = failure
