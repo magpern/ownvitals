@@ -363,3 +363,50 @@ async def test_start_counts_against_the_per_ip_oauth_start_limit(
     assert refused.status_code == 429
     assert "retry-after" in refused.headers
     assert "authorize_url" not in refused.text
+
+
+async def test_the_per_ip_limit_refuses_before_a_state_is_issued(
+    env: Env, owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The IP limit runs before ``withings.oauth.start``: a refused start leaves no state behind
+    and spends none of the user's 30 starts (#308)."""
+    from ownvitals.auth import deps
+    from ownvitals.auth.ratelimit import OAUTH_IP, Limit
+
+    issued: list[str | None] = []
+    real_issue = StateStore.issue
+
+    async def counting(self: StateStore, **kwargs: Any) -> str | None:
+        state = await real_issue(self, **kwargs)
+        issued.append(state)
+        return state
+
+    monkeypatch.setattr(StateStore, "issue", counting)
+    monkeypatch.setattr(deps, "OAUTH_IP", Limit(OAUTH_IP.action, OAUTH_IP.scope, 1, 900))
+    await _app(env, owner)
+    browser = await signed_in(env)
+    assert (await browser.post(START, {})).status_code == 200
+    assert len(issued) == 1
+    for _ in range(2):
+        assert (await browser.post(START, {})).status_code == 429
+    assert len(issued) == 1
+
+
+async def test_a_callback_in_a_session_without_its_second_factor_is_rejected(
+    env: Env, owner: object, fake: FakeWithings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The session that started, its step-up still recent, no longer full. The middleware's gate
+    answers 403 first; with the gate switched off, the route's own check (no ``UserContext``)
+    still answers ``state_rejected`` before the state is taken or a code exchanged: two
+    independent checks (ADR 0003 section 2, #308)."""
+    from ownvitals.auth import gate
+
+    await _app(env, owner)
+    browser = await signed_in(env)
+    callback = _consent(fake, await _start(browser))
+    await env.run("UPDATE sessions SET mfa_at = NULL")
+    gated = await browser.get(callback)
+    assert (gated.status_code, reason(gated)) == (403, "two_factor_required")
+    monkeypatch.setattr(gate, "refusal", lambda *_: None)
+    assert _outcome(await browser.get(callback)) == "state_rejected"
+    assert _exchanges(fake) == 0

@@ -99,6 +99,21 @@ PLAN section 4.3, ADR 0004 section 7, roadmap Amendment 1. `connections.withings
   slot of its own (the owner's active jobs plus one) and only when none is queued or running. The
   worker reads devices, goals and capabilities and queues the backfills; if the job cannot be
   queued, the 6-hourly poll still finds the connection. Web makes no other Withings call.
+- One active `withings_connect` per owner, whatever row it names: a reconnect that stores a new
+  row while an older `withings_connect` job is still queued or running queues nothing for the
+  new row, which waits for the 6-hourly poll.
+- `withings_connect` bypasses `jobs_per_user`: its limit is the owner's active jobs plus one,
+  re-checked by `jobs.service.create` under the owner lock. What bounds it is the start limit
+  above (30 starts per user in 15 minutes) and the one-active-connect rule. The app is always
+  the newest `withings_apps` row.
+- The step-up window (`STEPUP_WINDOW`) and the state lifetime (`STATE_TTL_SECONDS`) are both 10
+  minutes, counted from different moments: the step-up from when it was passed, the state from
+  the start. The callback checks the step-up first, so a long stay at Withings (or a start late
+  in the step-up window) ends as `step_up_required`; the user steps up and starts again.
+- The second factor is checked twice: the middleware's gate answers a session that is not full
+  with 403 `two_factor_required`, and the callback itself answers `state_rejected` when it gets
+  no `UserContext` (the tests switch the gate off to show it). The per-IP start limit is reserved
+  before `withings.oauth.start`, so a refused start issues no state.
 
 ## keys rewrap
 
