@@ -104,10 +104,11 @@ TEXTS: Final = MappingProxyType(
             "En passkey på ditt ownvitals-konto nekades och har spärrats"
         ),
         "passkey_suspended.body": (
-            'En inloggning med din passkey "{name}" nekades och passkeyn har spärrats: dess '
-            "räknare gick bakåt, vilket kan betyda att den har kopierats.\n"
+            'Din passkey "{name}" nekades och har spärrats när den användes nyss: dess räknare '
+            "gick bakåt, vilket kan betyda att den har kopierats.\n"
             "Den kan inte användas längre. Ta bort den på säkerhetssidan och lägg till den "
-            "igen. Om du inte just försökte logga in med den, byt ditt lösenord.\n"
+            "igen. Om du inte just använde den för att logga in eller bekräfta att det är du, "
+            "byt ditt lösenord.\n"
         ),
         "qr_approved.subject": "En ny inloggning på ownvitals godkändes från din telefon",
         "qr_approved.body": (
