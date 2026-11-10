@@ -39,8 +39,9 @@ class RepairResult:
 def marked_for_resubscribe(public: Mapping[str, Any]) -> bool:
     """Whether ``connections.public`` carries the resubscribe mark (a strict ``True``).
 
-    Nothing writes the mark yet: the secret-rotation flow that sets it is a later issue, so a
-    caller passes ``resubscribe`` explicitly until then.
+    Nothing writes the mark: callers pass ``resubscribe`` explicitly. This reader is kept so a
+    later flow that records the mark needs no change here (#315; the Architect confirms whether
+    to add a writer or remove it).
     """
     return public.get(_RESUBSCRIBE) is True
 
