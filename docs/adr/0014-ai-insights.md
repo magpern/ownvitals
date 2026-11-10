@@ -111,6 +111,12 @@ provider's terms needs a new review reference; the admin page shows the referenc
   withdrawal commits first and the reply transaction sees `withdrawn_at` and stores nothing. The
   worker also re-checks consent before each model call, so no new call starts after withdrawal.
   Both transactions lock the consent row before any job row, so they can't deadlock.
+  *Implementation note (2026-11-10, #347, #355):* the code's order is the reverse for the store.
+  A job's final fenced transaction already holds its job row, so the store locks the job row first
+  and then the consent row `FOR SHARE NOWAIT`, while the withdrawal locks the consent row first
+  and then the job rows. A deadlock is impossible because the store never waits: a held consent
+  row raises `55P03` at once (`ownvitals_app`'s 5 s `lock_timeout` gives the same `55P03`), which
+  the store treats as a withdrawal (`ai_not_enabled`, nothing stored).
 - Withdrawal keeps the redacted audit rows (§6) and the spend records (§7): they
   hold no content. The confirmation says that data already sent is subject to the provider's
   retention (§2).
