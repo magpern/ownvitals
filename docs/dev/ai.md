@@ -2,10 +2,10 @@
 
 How ownvitals bounds what AI insights cost ([ADR 0014 §7](../adr/0014-ai-insights.md), D11,
 PLAN §7.4; #205), how a user consents and withdraws (§3), and the data-minimised tools the model
-may call (§4; #206), and the model client with its redacted audit log (§1, §5, §6; #207). The
-digest job comes with its own M7 issue and extends this file. Consent and tools are
-[below](#consent-and-withdrawal), the client [after them](#the-model-client-and-the-audit-log), the
-chat assistant (#208) [last](#the-chat-assistant).
+may call (§4; #206), and the model client with its redacted audit log (§1, §5, §6; #207). Consent
+and tools are [below](#consent-and-withdrawal), the client
+[after them](#the-model-client-and-the-audit-log), then the chat assistant (#208,
+[here](#the-chat-assistant)) and the weekly digest (issue 209, [last](#the-weekly-digest)).
 
 ## The pieces
 
@@ -139,8 +139,9 @@ the user has a live consent to the current text. Every AI entry point checks bot
 - **Withdraw**: `DELETE /api/ai/consent`, a full session only (no step-up), also while the flag
   is off. One transaction: close the live row (its lock first), cancel the user's queued and
   running `ai_chat_turn` / `ai_digest` jobs (`jobs.user.cancel`: a queued job ends at once, a
-  running one at its next checkpoint), delete `ai_messages` and `ai_conversations`. The consent
-  rows and the spend ledger stay (no content).
+  running one at its next checkpoint), delete `ai_messages` and `ai_conversations`, and (issue
+  209) `ai_digests` and the digest opt-in `ai_digest_prefs`. The consent rows and the spend ledger
+  stay (no content).
 - **Storing a reply or digest** (the chat and digest issues) first calls
   `consent.require_consent(fs.db, owner)` in the same fenced transaction: the live row is read
   `FOR SHARE`, so a withdrawal waits for the reply to commit and then deletes it, or commits
@@ -190,7 +191,8 @@ output.
   `views.ecg_read`. They come with the read views they need.
 - `scores` returns no components (they are free-form JSON); the device attribution of device
   findings is not returned.
-- `ai_purge_expired()` (90-day conversation retention) and `ai_digests` are not built.
+- `ai_purge_expired()` (90-day conversation retention) is not built; `ai_digests` came with issue
+  209 ([below](#the-weekly-digest)).
 - ADR 0003 §4's step-up table does not list "Give AI consent" yet (ADR 0014 Consequences).
 
 ## The model client and the audit log
@@ -407,3 +409,121 @@ Real PostgreSQL, synthetic users, the fake model behind the real egress client (
   not built: the categories that need the model's judgement (health claims, grounding,
   insufficient data) wait for that module.
 - The assistant has no rail item (a design change for the owner); it is reached from Settings.
+
+## The weekly digest
+
+ADR 0014 sections 3, 5 and 7, ADR 0010 section 8 (the nerve monthly summary), PLAN section 7.4,
+issue 209. Once a week the worker writes a digest for a user who opted in; the browser reads it
+on the assistant page, and one outbox mail says that it is waiting. Web never calls the model and
+never queues a digest.
+
+| Path | What |
+|---|---|
+| `backend/src/ownvitals/ai/digest_model.py` | `DIGEST_KIND`, `DigestInput` (the week only), the digest week, the weeks a job may still write, the fixed request, `ending_for` (pure) |
+| `backend/src/ownvitals/ai/digest.py` | the worker: `queue_if_due` and `then_digest` (when), `run_digest` (one run), the store |
+| `backend/src/ownvitals/ai/digest_store.py` | web side, the caller's `user_session`: the view and the opt-in |
+| `backend/src/ownvitals/ai/digest_routes.py` | `GET`/`PUT /api/ai/digest` |
+| `backend/migrations/versions/0026_ai_digest.py` | `ai_digest_prefs` and `ai_digests` (owned, forced RLS), the outbox kind `ai_digest_ready` and route `assistant` |
+| `frontend/src/components/assistant/DigestView.tsx`, `frontend/src/api/digest.ts` | the digest card under the conversations of `/assistant` |
+
+### When a digest is queued
+
+There is no cross-user scheduler query. The worker's registry wraps the findings notification pass
+(`notify_findings`, one owner, run after every rule evaluation of the 6-hourly poll and the nightly
+reconciliation) with `then_digest`: after each successful pass, `queue_if_due` asks for that
+owner only and queues one `ai_digest` job (origin `scheduler`, singleton `ai_digest`,
+`max_attempts` 1, input `{"week_start": "YYYY-MM-DD"}`) when **all** hold:
+
+1. `gates.check_locks`: `ai_insights` on in the environment, the model, the review and evaluation
+   references and the price. **With the defaults nothing is ever queued.**
+2. In the pass's fenced session: the stored flag and a live consent to the current text
+   (`consent.require_enabled(..., nowait=True)`: the fence holds the job row first).
+3. The owner's opt-in row exists, and no digest is stored for the week.
+
+The week is the last full ISO week (Monday to Sunday, UTC) before the day of the pass. A job may
+still write that week or the three before it (`week_ok`); a later or future week is
+`invalid_input`.
+
+### One run
+
+1. The week already stored, or no opt-in any more: the job completes without a call.
+2. `turn.run_turn(kind="digest")` with the one fixed user message of `digest_model.request` (the
+   period, the tools to read, the nerve metrics' monthly summary from `metric_summary` period 30
+   and the findings tool, quiet copy without nudges; dates only, no user data). The system
+   prompt is the chat's; 2,048 output tokens. The client checks every lock, the flag, the consent
+   and the budget before each call.
+3. The ending (`ending_for`): an answer that fits (1 to 16,000 characters) is stored `ready` and
+   queues one `ai_digest_ready` outbox row (route `assistant`, `/assistant`; the row has no
+   column for the text, the mail only says a summary is waiting). The cap stores the week as
+   `skipped_budget` (no call, no mail; the page says the week was skipped). A call that may have
+   been sent and failed, an unknown tool, the tool limit, no text or an answer too long store
+   `unavailable` (no mail), so a failing provider is tried once a week, never every six hours. A
+   missing consent or flag (`ai_not_enabled`), an owner lock (`ai_unavailable`) or the egress
+   block (`outbound_blocked`) fail the job and store nothing; a cancel stops it.
+4. The store, in the job's final fenced transaction: the consent `FOR SHARE NOWAIT` (a withdrawal
+   that holds or closed the row: `ai_not_enabled`, nothing stored), the opt-in `FOR SHARE` (gone:
+   nothing stored), the insert (`ON CONFLICT (owner_id, week_start) DO NOTHING`), then the mail.
+
+Lock order as the chat's: the job row, the consent row without waiting, the opt-in and the digest.
+A withdrawal takes the consent row, the job rows, then deletes the digests and the opt-in, so
+consenting again starts with the digest off.
+
+### The API
+
+| Route | What |
+|---|---|
+| `GET /api/ai/digest` | `available` (the flag and a live consent), `enabled` (the opt-in), the newest 12 digests: `week_start`, `status` (`ready`, `skipped_budget`, `unavailable`), `content` (only when ready) and `created_at`. Also while AI is off |
+| `PUT /api/ai/digest` | `{"enabled": bool}` (strict, closed). Opting in: 409 `ai_not_enabled` unless AI is enabled for the user (the consent row `FOR SHARE` in the same transaction); no step-up (the consent was given with one). Opting out always works and keeps the stored digests |
+
+### Data lifecycle
+
+- **Withdrawal** deletes `ai_digests` and `ai_digest_prefs` with the conversation history.
+- **Delete imported data** (`connections.purge`) deletes `ai_digests` (`IMPORTED`: text about that
+  data) and keeps `ai_digest_prefs` (`KEPT`: a setting, like the consent).
+- **Account deletion**: both through the `owner_id` cascade.
+- **Export** (`reports.export_allowlist`): `ai_digests` (id, week, status, text, created) and
+  `ai_digest_prefs` (id, opted in at).
+
+### Tests
+
+Real PostgreSQL, synthetic users, the fake model behind the real egress client (`tests/aidigest.py`
+on top of `tests/aichat.py`):
+
+| File | Covers |
+|---|---|
+| `test_ai_digest_model.py` | the week, the late weeks, the fixed request (the nerve metrics, quiet copy, the body scan), every ending, the bound, the input |
+| `test_ai_digest.py` | a digest written, stored and announced without its text; a stored week or an opt-out makes no call; an invalid week; no consent, the stored flag off, an owner lock, over the cap (skipped): no call; a failed turn stored `unavailable` once; withdrawal mid-call (cancelled, the digests and opt-in deleted) and of a queued job; the store's `NOWAIT` against a withdrawal holding the row, after a committed one, after an opt-out; one user's job never reads or writes another's digest (worker RLS) |
+| `test_ai_digest_queue.py` | the notification pass queues one job with the week only (singleton, one attempt) and none once stored; each owner lock, the stored flag, no, outdated or withdrawn consent, no opt-in (another's does not count), a stored week: nothing queued; the defaults never queue; the worker wraps the pass |
+| `test_ai_digest_routes.py` | the view is the user's own (RLS); opt-in needs AI enabled and a current consent, opt-out always; the closed body; a session needed; withdrawal, "delete imported data" and account deletion; the mail holds no health content in any language |
+| `ai_evals/test_digest_evals.py` | the digest's eval categories, each at 100 %: **privacy** (no cross-user data or identifier over every tool, the tier filter, the fixed request without history, another user's digest untouched), **prompt injection** (planted device text, unknown tools, out-of-range arguments, active content stored as text, the tool flood, an answer cannot mail its text), **consent** (none, outdated, the stored flag off, withdrawn during the call and between tool steps, consenting again starts with the digest off) |
+| `frontend/src/components/assistant/DigestView.test.tsx` | off by default and the request body, a ready digest as text with the label, skipped and failed weeks, the toggle disabled while AI is not available, a refused opt-in, nothing read without consent |
+
+Mutation checks run for the PR (each fails a test above): the store waiting on the consent row,
+the store without the consent check or the opt-in check, the queue without the consent or the
+locks or the opt-in, withdrawal keeping the digests or the opt-in, the cap stored as unavailable,
+the opt-in without the enabled check, the purge keeping the digests, retries, the pass not
+wrapped.
+
+### Assumptions and known gaps (digest)
+
+- **The design**: no mock-up covers the digest. It is built only from existing components (the
+  Settings row and toggle in a card, `MessageText`, the AI label), under the conversations of
+  `/assistant`, with no unread badge and no new rail item; the wording is ours. The Architect
+  and the owner may change both (AGENTS.md "UI design").
+- **The mail goes whatever `notify_email` says**, like `export_ready`: opting in to the digest
+  is the request; the mail says only that a summary is waiting. Choosing to respect the
+  notification switch instead is a one-line change.
+- **The digest is written in English** (the instruction says so): the worker does not read the
+  account language. A Swedish digest needs the locale passed into the request and a second
+  instruction, and a new `PROMPT_VERSION` if the system prompt changes.
+- **`PROMPT_VERSION` is not bumped**: the system prompt is unchanged. The digest instruction is a
+  new fixed text the owner's eval run (lock 3) must cover before an `ai_eval_ref` is set; with
+  none set, AI is off anyway.
+- **Users without a Withings connection get no digest**: the pass that queues it runs per
+  connection. They have no data to summarise.
+- **One try per week**: a failure after sending (or a refused body in a later tool step) stores
+  `unavailable`; the next week's digest is the retry. A transient error before sending is stored
+  the same way.
+- **Opting out keeps the stored digests**; withdrawal deletes them.
+- The digest's model judgement (grounding, health claims, insufficient data) waits for the
+  owner's `python -m ownvitals.ai.eval`, as the chat's does.

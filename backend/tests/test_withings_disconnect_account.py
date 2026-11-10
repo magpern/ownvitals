@@ -284,6 +284,10 @@ def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
         "INSERT INTO ai_conversations (owner_id) VALUES (:o)",
         "INSERT INTO ai_messages (owner_id, conversation_id, role, content) SELECT :o, id, "
         "'user', 'synthetic question' FROM ai_conversations WHERE owner_id = :o",
+        # Issue 209: the digest opt-in and one synthetic weekly digest.
+        "INSERT INTO ai_digest_prefs (owner_id) VALUES (:o)",
+        "INSERT INTO ai_digests (owner_id, week_start, status, content) "
+        "VALUES (:o, '2026-11-02', 'ready', 'synthetic digest')",
         # #211: an expired export record and one synthetic chunk of it.
         "INSERT INTO exports (owner_id, kind, state) VALUES (:o, 'data', 'expired')",
         "INSERT INTO export_chunks (owner_id, export_id, seq, bytes) SELECT :o, id, 0, "
@@ -350,6 +354,8 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
         "ai_audit",
         "ai_consents",
         "ai_conversations",
+        "ai_digest_prefs",
+        "ai_digests",
         "ai_messages",
         "ai_reservations",
         "ai_spend",
@@ -471,8 +477,9 @@ async def test_delete_imported_removes_only_that_owners_rows(
         "ai_reservations",
         "ai_consents",
         "ai_audit",
+        "ai_digest_prefs",
     }
-    assert {"ai_messages", "ai_conversations"} <= purged
+    assert {"ai_messages", "ai_conversations", "ai_digests"} <= purged
     assert {"exports", "export_chunks"} <= purged
     _partitions(database_url, True)
     try:

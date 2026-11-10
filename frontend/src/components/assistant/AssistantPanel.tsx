@@ -9,6 +9,7 @@ import { Notice } from '../forms'
 import { Card } from '../ui/Card'
 import { ConversationList, conversationUrl } from './ConversationList'
 import { ConversationPane } from './ConversationPane'
+import { DigestView } from './DigestView'
 import '../../styles/findings.css'
 import '../../styles/assistant.css'
 
@@ -16,7 +17,8 @@ import '../../styles/assistant.css'
 // on top: it shows the consent form when consent is not given (step-up included) and withdrawal
 // when it is. Only with a given consent and AI available does the conversation grid appear: the
 // list (left) and the chosen conversation (right, `?c=` in the address). A withdrawal deletes
-// every conversation on the server; the grid then goes, and the consent form comes back.
+// every conversation on the server; the grid then goes, and the consent form comes back. The
+// weekly digest (issue 209) sits under the grid while consent is given.
 
 export function AssistantPanel() {
   const t = useT()
@@ -84,6 +86,7 @@ export function AssistantPanel() {
           </div>
         </div>
       ) : null}
+      {on ? <DigestView /> : null}
     </div>
   )
 }

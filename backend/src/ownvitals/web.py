@@ -18,6 +18,7 @@ from ownvitals.admin.routes import install as install_admin
 from ownvitals.admin.routes import router as admin_router
 from ownvitals.ai.assistant_routes import router as ai_assistant_router
 from ownvitals.ai.consent_routes import router as ai_consent_router
+from ownvitals.ai.digest_routes import router as ai_digest_router
 from ownvitals.auth.setup import attach_state, detach_state
 from ownvitals.auth.setup import install as install_auth
 from ownvitals.config import Settings
@@ -86,6 +87,7 @@ FEATURE_ROUTERS = (
     notifications_router,
     ai_consent_router,
     ai_assistant_router,
+    ai_digest_router,
     exports_router,
     doctor_router,
 )

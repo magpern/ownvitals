@@ -23,4 +23,13 @@ export const assistant = {
   'delete.confirm': 'Delete this conversation and all its messages? This cannot be undone.',
   'delete.yes': 'Delete conversation',
   'delete.done': 'Conversation deleted.',
+  // Issue 209: the weekly digest, under the conversations.
+  'digest.title': 'Weekly summary',
+  'digest.toggle': 'Write a weekly summary',
+  'digest.help': "Once a week the assistant summarises the last week of your data. It is covered by your AI consent and counts toward this month's AI budget.",
+  'digest.empty': 'No weekly summary yet.',
+  'digest.week': 'Week of {date}',
+  'digest.skipped': "This week's summary was skipped: this month's AI budget for your account was used up.",
+  'digest.unavailable': "This week's summary couldn't be written.",
+  'digest.loadFailed': "The weekly summaries couldn't be loaded.",
 }

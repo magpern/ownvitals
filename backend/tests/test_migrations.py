@@ -16,7 +16,7 @@ from dbtools import (
     ready_to_downgrade,
 )
 
-HEAD = "0025_ai_job_failures"
+HEAD = "0026_ai_digest"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -25,6 +25,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0025_ai_job_failures",
         "0024_outbox_export_ready",
         "0023_ai_audit",
         "0022_exports",
@@ -88,11 +89,11 @@ def test_the_migrations_create_exactly_their_tables(
     flags and admin audit log (#12), 0007's connections table (#13), 0009's Withings tables,
     0011's derived tables (#181), 0012's mail outbox (#194), 0013's AI cost cap (#205),
     0020's notification holds (#195), 0021's AI consent and history (#206), 0022's exports
-    (#211) and 0023's AI audit log (#207).
+    (#211), 0023's AI audit log (#207) and 0026's weekly digest (issue 209).
     """
     from ownvitals.ai.audit import AI_AUDIT_OWNED
     from ownvitals.ai.budget import AI_OWNED
-    from ownvitals.ai.tables import AI_CONSENT_OWNED
+    from ownvitals.ai.tables import AI_CONSENT_OWNED, AI_DIGEST_OWNED
     from ownvitals.auth.tables import metadata
     from ownvitals.derived.tables import DERIVED_OWNED
     from ownvitals.ingest.tables import INGEST_OWNED
@@ -126,6 +127,7 @@ def test_the_migrations_create_exactly_their_tables(
             *AI_CONSENT_OWNED,
             *EXPORT_OWNED,
             *AI_AUDIT_OWNED,
+            *AI_DIGEST_OWNED,
         }
     assert applied_revisions(database_url) == []
     assert public_tables(database_url) == {"alembic_version"}  # downgraded: all of them gone

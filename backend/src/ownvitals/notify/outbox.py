@@ -4,7 +4,7 @@ web's sender claims and marks rows.
 A row holds a fixed ``kind``, its recipient (an owned row's ``owner_id``, or no one for an owner
 notice, which goes to the admins) and a route key from ``ROUTE_PATHS``: never an address, a
 subject, free text, a value or finding text. The database checks every kind and route (migrations
-``0012_outbox`` and ``0024_outbox_export_ready``), and these lists are the same
+``0012_outbox``, ``0024_outbox_export_ready`` and ``0026_ai_digest``), and these lists are the same
 (``tests/test_notify_outbox.py``).
 
 - **Mail to a user** (``queue_user_mail``): an owned ``mail_outbox`` row, written in its owner's
@@ -35,9 +35,9 @@ from ownvitals.db import system_session
 
 Factory = async_sessionmaker[AsyncSession]
 
-UserKind = Literal["findings_waiting", "connection_attention", "export_ready"]
+UserKind = Literal["findings_waiting", "connection_attention", "export_ready", "ai_digest_ready"]
 OwnerNoticeKind = Literal["connection_needs_reconnect"]
-UserRoute = Literal["overview", "findings", "connections", "settings_data"]
+UserRoute = Literal["overview", "findings", "connections", "settings_data", "assistant"]
 Outcome = Literal["sent", "failed", "retry"]
 
 USER_KINDS: Final[tuple[str, ...]] = get_args(UserKind)
@@ -55,6 +55,7 @@ ROUTE_PATHS: Final[Mapping[str, str]] = MappingProxyType(
         "findings": "/findings",
         "connections": "/connections",
         "settings_data": "/settings/data",
+        "assistant": "/assistant",
         "admin": "/admin",
     }
 )
