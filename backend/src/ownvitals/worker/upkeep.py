@@ -1,11 +1,12 @@
 """The worker's owner-less upkeep steps (ADR 0005 section 3, ADR 0003 section 1, ADR 0014
-section 6).
+section 6, ADR 0013 section 4).
 
 ``quietly`` runs one maintenance step that returns a count: a failure is logged by its class
 and retried at the next interval, a count above zero is logged, and ``DatabaseRoleError`` (a
 privileged role or a drifted queue) is raised so that it stops the worker. ``purge`` is the
 hourly purge tick: the auth purge, then the AI audit log's retention
-(``ownvitals.ai.audit_retention``). Logs carry counts and error classes only, never a row.
+(``ownvitals.ai.audit_retention``), then the export purge (``ownvitals.reports.export_purge``).
+Logs carry counts and error classes only, never a row.
 """
 
 import logging
@@ -17,6 +18,7 @@ from ownvitals.ai.audit_retention import purge_expired_audit
 from ownvitals.auth.purge import purge_expired
 from ownvitals.config import Settings
 from ownvitals.db import DatabaseRoleError
+from ownvitals.reports.export_purge import purge_expired_exports
 
 logger = logging.getLogger("ownvitals.worker.loop")
 
@@ -37,10 +39,11 @@ async def quietly(name: str, step: Callable[[], Awaitable[int]]) -> None:
 
 async def purge(factory: async_sessionmaker[AsyncSession], settings: Settings) -> None:
     """The hourly purge tick. Each step's failure is logged by its class and retried at the
-    next interval without stopping the other step; ``DatabaseRoleError`` stops the worker."""
+    next interval without stopping the other steps; ``DatabaseRoleError`` stops the worker."""
     await _auth_purge(factory, settings)
     months = settings.ai_audit_retention_months
     await quietly("ai audit purge", lambda: purge_expired_audit(factory, months))
+    await quietly("export purge", lambda: purge_expired_exports(factory))
 
 
 async def _auth_purge(factory: async_sessionmaker[AsyncSession], settings: Settings) -> None:

@@ -19,6 +19,8 @@ come with their own issues and extend this file. The ECG PDF of `reports/ecg_pdf
 | `backend/src/ownvitals/reports/export_files.py` | the archive's files: tables in pages, the recordings and signal, findings with their overlay state, estimates |
 | `backend/src/ownvitals/reports/export.py` | the `export_build` job kind (worker only) |
 | `backend/src/ownvitals/reports/export_store.py`, `export_routes.py` | `/api/exports`: request, list, download; the tidy of expired and failed rows |
+| `docker/postgres/exports/60-exports.sql` | the role `ownvitals_exports` and the definer function `exports_purge_expired()`, the cross-user purge (#333); idempotent, run as the superuser by `db-functions` after `50-ai.sql` |
+| `backend/src/ownvitals/reports/export_purge.py` | the worker's call of the purge, from the hourly purge tick (`worker/upkeep.py`) |
 | `frontend/src/components/reports/ExportCard.tsx`, `frontend/src/api/exports.ts` | "Export everything" in Settings → Your data |
 | `e2e/specs/export.spec.ts` | step-up → export → download |
 
@@ -49,7 +51,32 @@ come with their own issues and extend this file. The ECG PDF of `reports/ecg_pdf
    and `Content-Length`. With the last chunk the row becomes `expired` with `download_count` 1 and
    the chunks are deleted. Audit `export_downloaded` (attempt, completed); a build whose job ended
    without an archive is marked `build_failed` by the tidy and audited `export_failed` then.
-4. The SPA fetches the file (same-origin) and saves it as a blob; the shared step-up dialog
+   `completed` is true only once the server has sent the last chunk: the export is spent when
+   that chunk is handed over (so of parallel attempts at most one gets it), and a client that
+   drops during it has lost the export and requests a new one. A stream that cannot go on (a
+   later attempt began, the export expired meanwhile) is aborted (`DownloadAborted`), so the
+   connection breaks short of `Content-Length` and the browser reports a failed download
+   (uvicorn's "Exception in ASGI application" record of it is dropped by a filter, so no
+   traceback is logged; the body logs one line without an id). The SPA also refuses to save a
+   body shorter than its `Content-Length`, unless the response has a `Content-Encoding` (a proxy
+   compressed it; the header then counts encoded bytes).
+4. **The mail.** The transaction that marks the export ready also queues one `export_ready` row
+   in the owner's outbox (route `settings_data`, `/settings/data`; migration 0024). The text says
+   only that something the user asked for is waiting, for a short time, and links to Settings:
+   never to the file, never the export's id (T59). Web's sender sends it; the worker cannot.
+   It is sent whatever `notify_email` says (that setting is about findings): the user asked for
+   the export a moment before. The Swedish table holds the English text until the translation
+   PR (`UNTRANSLATED_SV`).
+5. **The purge** (`exports_purge_expired()`, hourly, every owner), exactly ADR 0013 §4's list:
+   ready exports past `expires_at` become `expired`, the chunks of failed and expired exports
+   are deleted (oldest export first), and `failed` and `expired` rows older than 90 days are
+   deleted. It returns three counts only and writes nothing else: no audit row (its role holds
+   nothing on `auth_events` or `jobs`), no build state. At most 100 exports a step and 1000
+   chunks a call, and the worker calls again while a call did something (at most 10 times a
+   tick). Export rows a download holds are skipped until the next call. The owner's own tidy
+   still runs on every list, request and download: it fails ended builds and records
+   `export_failed` and `export_expired` for what it changes.
+6. The SPA fetches the file (same-origin) and saves it as a blob; the shared step-up dialog
    handles `step_up_required` and `reauth_required` for both actions.
 
 ## The archive
@@ -90,23 +117,37 @@ Real PostgreSQL ([backend.md](backend.md)), synthetic accounts only:
 
 | File | Covers |
 |---|---|
-| `test_reports_export_api.py` | the request without recent auth, without step-up, with both; one build at a time; 3 a day; the list per user; a download streams once (headers, size, SHA-256) and is then refused; no export id in the logs; the download without step-up, cross-site (`cross-site`, `same-site`, `none`, missing) without counting, from another user (404); 3 attempts; expiry deletes the chunks; old rows go after 90 days; a build that ended without an archive; the size limit |
+| `test_reports_export_api.py` | the `export_ready` mail (one row, Settings link only, none for a failed build or one that left `building` before the ready update); no traceback for an aborted download; the events in the activity list; a client gone during the last chunk audited not completed; a superseded attempt aborted; the request without recent auth, without step-up, with both; one build at a time; 3 a day; the list per user; a download streams once (headers, size, SHA-256) and is then refused; no export id in the logs; the download without step-up, cross-site (`cross-site`, `same-site`, `none`, missing) without counting, from another user (404); 3 attempts; expiry deletes the chunks; old rows go after 90 days; a build that ended without an archive; the size limit |
 | `test_reports_export_contents.py` | two users with a row in every owned table: A's archive holds none of B's ids, email or events, and the other way round; exactly the allowlisted columns in JSON and CSV; no planted secret; the experimental tier with and without the switch, hidden findings marked |
 | `test_reports_export_allowlist.py` | every owned and account table and column is classified; no binary column exported |
 | `test_reports_export_format.py` | the CSV-injection rule, numbers untouched, round trips, canonical JSON, the chunked zip, the size limit |
 | `test_reports_export_db.py` | the vocabularies, forced RLS, one build per owner, chunks only of own exports, the cascade |
+| `test_reports_export_purge.py` | `exports_purge_expired()` for two owners (expiry, chunks, 90 days, what stays, ended builds left to the tidy), no audit row, counts only, no argument, bounded steps, a held row skipped, chunks oldest first; the app role alone may call it and cannot do it itself; guard 2, guard 9, the startup check and the digest; drift found and repaired; the Python layer and the worker's tick |
 
 ## Known gaps
 
-- **The cross-user purge** (`exports_purge_expired()`, ADR 0013 §4: a `SECURITY DEFINER` function
-  in `docker/postgres/exports/60-exports.sql`, pinned in `queue_digests.py` and guard 9, run
-  hourly by the worker) is not built: those files are changed by the open webhook-hardening PR.
-  Until it lands, an expired archive cannot be downloaded (the download checks `expires_at`), and
-  its chunks are deleted the next time its owner lists, requests or downloads; an archive of an
-  owner who never comes back stays in `export_chunks` (and in backups) until then.
-- **FIT** (`export_fit`, ADR 0013 §3) is off by default and not built.
-- **The `export_ready` mail** (ADR 0007's outbox) is not sent; the Settings row polls instead.
-- The export kinds are not yet in the activity list's allowlist (`activity_model.SHOWN`).
+- **FIT** (`export_fit`, ADR 0013 §3) is off by default and not built (#333 records it).
+- **No per-session binding of the download.** The download is authorised by the session cookie
+  and a step-up within 10 minutes, as ADR 0013 §4 states; it is not bound to the session that
+  requested the export, so another session of the same user with a fresh step-up can download it
+  too (#333 records it, nothing changes).
+- **A dropped last chunk spends the export** (above): the trade for "of parallel attempts at most
+  one gets the whole archive". The user requests a new export (3 a day).
+- **System-written expiry and failure events.** An export the purge expires has no
+  `export_expired` event, and a build whose job ended is failed (with `export_failed`) only by
+  its owner's tidy, when they next open Settings, request or download; until then its chunks
+  stay. Writing those events (or failing builds) across users from the definer would widen its
+  role to `auth_events`, an account table, so it waits for an ADR 0013 amendment (#333 review,
+  option b). Until then those events are not in the activity list for an owner who does not
+  come back.
+- A build whose job row is gone (not ended, missing) is not failed by the tidy; it keeps the
+  owner's one build slot. Jobs are not deleted today, so this cannot happen yet.
+- The UI shows the states of the mock-up button (export, preparing, ready with its size,
+  downloaded, failed with the largest part); those beyond the mock-up need the owner's design
+  check (#333).
+- The export events are in the activity list's allowlist (`activity_model.SHOWN`, #333), but no
+  screen shows that list yet; the export events the system caused (`export_ready`, and
+  `export_failed` and `export_expired` from the tidy) show no origin.
 - The download is a fetch saved as a blob (revoked a minute after the save starts), so the
   browser holds the whole archive in memory once.
 - Tables are paged on `id` (keyset), so a file is in id order, not time order, and the pages are
@@ -140,9 +181,9 @@ across users, single use, rate limit). Frontend: `components/reports/DoctorRepor
 
 Known gaps:
 
-- The doctor audit kinds are not in the activity list's allowlist; the tidy job's audited
-  `export_failed` and `export_expired` for doctor rows carry `export_kind` "data".
-- The cross-user purge above is still not built, for doctor rows too.
+- The tidy's audited `export_failed` and `export_expired` for doctor rows carry `export_kind`
+  "data" (the purge's carry the row's kind).
+- No `export_ready` mail for a doctor PDF (it is requested and fetched in one sitting).
 - The ECG picker offers the first page of recordings only (newest, with a signal).
 - ECG pages keep their own "Page i of k".
 - A month's min and max are the min and max of the daily minimums and maximums.

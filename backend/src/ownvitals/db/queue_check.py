@@ -18,7 +18,9 @@ and the rate functions
 their digests in ``ownvitals.db.outbox_digests``), each pinned like a queue function when it is
 installed, and the AI family's ``ai_reserve``, ``ai_settle``, ``ai_release``, ``ai_settle_lost``
 and ``ai_audit_purge`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 sections 6 and 7; #205, #331),
-owned by ``ownvitals_ai``: absent until that script has run, then all five, each pinned;
+owned by ``ownvitals_ai``: absent until that script has run, then all five, each pinned, and
+the export purge ``exports_purge_expired`` (``docker/postgres/exports/60-exports.sql``, ADR 0013
+section 4; #333), owned by ``ownvitals_exports`` and pinned the same way once installed;
 no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
 CHECK, index or partition expression of any table or domain calls one of ``SQL_TEXT_BUILTINS``.
 So nothing can shadow a built-in a function body calls, and nothing a function fires (a trigger,
@@ -69,6 +71,10 @@ from ownvitals.db.queue_expected_extra import (  # noqa: F401 (re-exported)
     AI_PINS,
     AI_ROLE,
     AI_VERSION,
+    EXPORTS_FUNCTION_NAMES,
+    EXPORTS_PINS,
+    EXPORTS_ROLE,
+    EXPORTS_VERSION,
     OUTBOX_FUNCTION_NAMES,
     OUTBOX_PINS,
     OUTBOX_ROLE,
@@ -181,6 +187,17 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
         rows = by_name.get(name, [])
         args, owner, config, acl = AI_PINS[name]
         expected = [name, args, "true", owner, config, AI_VERSION, QUEUE_DIGESTS[name], acl]
+        if len(rows) != 1 or rows[0] != expected:
+            found.append(
+                f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
+                "settings, version, md5 or ACL)"
+            )
+    for name in EXPORTS_FUNCTION_NAMES:
+        rows = by_name.get(name, [])
+        if not rows:
+            continue
+        args, owner, config, acl = EXPORTS_PINS[name]
+        expected = [name, args, "true", owner, config, EXPORTS_VERSION, QUEUE_DIGESTS[name], acl]
         if len(rows) != 1 or rows[0] != expected:
             found.append(
                 f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
