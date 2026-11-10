@@ -121,3 +121,39 @@ async def test_the_owner_purge_removes_only_the_session_users_notifications(
         await db.execute(purge)
     assert _events(database_url) == {USERIDS[1]}
     assert snapshot(database_url, (a, b)) == before
+
+
+@pytest.mark.usefixtures("clean_withings")
+async def test_the_account_purge_runs_only_in_a_system_session_and_only_for_its_owner(
+    factory: Factory, database_url: str
+) -> None:
+    """#362: the admin delete's ``webhook_events_purge_account(p_owner)``. The owner is an
+    argument, so it refuses inside any user session (even the owner's own) and deletes nothing
+    there; in a system session it removes only ``p_owner``'s notifications."""
+    app_id = new_app(database_url)
+    a = plant(database_url, new_user(), app_id=app_id, withings_userid=USERIDS[0])
+    b = plant(database_url, new_user(), app_id=app_id, withings_userid=USERIDS[1])
+    with superuser(database_url) as conn:
+        for userid in USERIDS:
+            conn.execute(
+                text(
+                    "INSERT INTO webhook_events (app_id, withings_userid, appli, startdate, "
+                    "enddate, dedupe_key) VALUES (:a, :u, 1, 1, 2, :k)"
+                ),
+                {"a": app_id, "u": userid, "k": f"synthetic-ctx-account-{userid}"},
+            )
+    before = snapshot(database_url, (a, b))
+    purge = text("SELECT public.webhook_events_purge_account(:o)")
+    for session_user in (a.user, b.user):
+        with pytest.raises(DBAPIError, match="bad_context"):
+            async with user_session(factory, make_context(session_user)) as db:
+                await db.execute(purge, {"o": a.user})
+    assert _events(database_url) == set(USERIDS)
+    with pytest.raises(DBAPIError, match="bad_owner"):
+        async with system_session(factory) as db:
+            await db.execute(purge, {"o": None})
+    assert _events(database_url) == set(USERIDS)
+    async with system_session(factory) as db:
+        await db.execute(purge, {"o": a.user})
+    assert _events(database_url) == {USERIDS[1]}
+    assert snapshot(database_url, (a, b)) == before

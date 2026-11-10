@@ -286,8 +286,9 @@ async def test_delete_purges_the_targets_webhook_events_as_the_users_own_delete_
     aenv: AdminEnv,
 ) -> None:
     """#362: webhook events have no ``owner_id`` and do not cascade with the account, so the
-    admin delete runs ``webhook_events_purge_owner`` first, as ``auth.purge.delete_account``
-    does. A refused delete removes none, and another user's events stay."""
+    admin delete purges them first (``webhook_events_purge_account``, in its system session),
+    as ``auth.purge.delete_account`` does. A refused delete removes none, and another user's
+    events stay."""
     admin = await caller(aenv)
     target = await _user(aenv, "sam@example.com", totp=True)
     kept = await _user(aenv, "kim@example.com")

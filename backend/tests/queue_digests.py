@@ -32,6 +32,7 @@ NAMES = (
     "webhook_secrets_apply",
     "webhook_event_insert",
     "webhook_events_purge_owner",
+    "webhook_events_purge_account",
     "metrics_withings_aggregates",
     "metrics_webhook_ages",
     "withings_rate_claim",

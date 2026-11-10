@@ -115,6 +115,7 @@ WITHINGS_FUNCTIONS = {
     "webhook_secrets_apply": SECRETS,
     "webhook_event_insert": EVENTS,
     "webhook_events_purge_owner": EVENTS,
+    "webhook_events_purge_account": EVENTS,
     "metrics_withings_aggregates": METRICS,
     "metrics_webhook_ages": METRICS,
 }
