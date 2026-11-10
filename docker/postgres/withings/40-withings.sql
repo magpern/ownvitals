@@ -16,8 +16,8 @@
 -- owners, and column SELECT only on the columns they read. They return counts and ages, never
 -- an id, a user, a measurement or a payload, and refuse to run inside a user session.
 -- 20-queue.sql admits ensure_month_partitions, webhook_secrets_apply, webhook_event_insert,
--- webhook_events_purge_owner, metrics_withings_aggregates and metrics_webhook_ages, and no
--- other function. A re-run keeps them.
+-- webhook_events_purge_owner, webhook_events_purge_account (#362), metrics_withings_aggregates
+-- and metrics_webhook_ages, and no other function. A re-run keeps them.
 
 DO $$
 BEGIN
@@ -546,6 +546,34 @@ ALTER FUNCTION public.webhook_events_purge_owner() OWNER TO ownvitals_webhook_ev
 REVOKE ALL ON FUNCTION public.webhook_events_purge_owner() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.webhook_events_purge_owner() TO ownvitals_app;
 COMMENT ON FUNCTION public.webhook_events_purge_owner() IS 'ownvitals-withings v1';
+
+-- The admin account delete (#362): the target's webhook events, found through p_owner's
+-- connection rows, so it runs before the users row (and its connections) go. A deliberate,
+-- narrow exception to "never an argument": the admin delete runs in a system session (no
+-- user), so there is no app.user_id to read. Only a system session may call it: with
+-- app.user_id set (a user session) it raises and deletes nothing. A static guard pins its one
+-- caller (ownvitals.auth.admin_accounts). The events are fetch triggers only: no value.
+CREATE OR REPLACE FUNCTION public.webhook_events_purge_account(p_owner uuid)
+  RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+BEGIN
+  IF coalesce(pg_catalog.current_setting('app.user_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'bad_context' USING ERRCODE = '42501';
+  END IF;
+  IF p_owner IS NULL THEN
+    RAISE EXCEPTION 'bad_owner' USING ERRCODE = '22023';
+  END IF;
+  DELETE FROM public.webhook_events AS e WHERE EXISTS (
+    SELECT 1 FROM public.connections AS c
+     WHERE c.owner_id = p_owner AND c.app_id = e.app_id
+       AND c.withings_userid = e.withings_userid);
+END
+$fn$;
+ALTER FUNCTION public.webhook_events_purge_account(uuid) OWNER TO ownvitals_webhook_events;
+REVOKE ALL ON FUNCTION public.webhook_events_purge_account(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.webhook_events_purge_account(uuid) TO ownvitals_app;
+COMMENT ON FUNCTION public.webhook_events_purge_account(uuid) IS 'ownvitals-withings v1';
 
 -- The metrics aggregates (#167, PLAN section 4.4 "Observability"), read by the worker for its
 -- /metrics gauges. Counts and ages only, aggregated across owners: never an id, a user, a value

@@ -34,6 +34,8 @@ WITHINGS_FUNCTION_NAMES = (
     "webhook_secrets_apply",
     "webhook_event_insert",
     "webhook_events_purge_owner",
+    # #362: the admin delete's purge, system session only (the owner is an argument).
+    "webhook_events_purge_account",
     # #167: the metrics aggregates, owned by the read-only ownvitals_metrics.
     "metrics_withings_aggregates",
     "metrics_webhook_ages",
@@ -65,6 +67,12 @@ WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
     ),
     "webhook_events_purge_owner": (
         "",
+        "ownvitals_webhook_events",
+        "search_path=pg_catalog, pg_temp",
+        "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
+    ),
+    "webhook_events_purge_account": (
+        "p_owner uuid",
         "ownvitals_webhook_events",
         "search_path=pg_catalog, pg_temp",
         "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
