@@ -180,7 +180,9 @@ default the Developer took; the Architect confirms or revises it.
   the exact message `duplicate`.
 - **Append lead.** `append_secret` refuses an `active_from` less than the entry-cache TTL after
   now (§1 routine step 1), before it mints or writes anything. The database function does not
-  check it: it does not know web's TTL.
+  check it: it does not know web's TTL. The clock is read before the advisory lock and the
+  commit, so a slow commit can leave the entry closer to its `active_from` than the TTL (a
+  known race, accepted: callers pick a lead well above the TTL).
 - **Cache TTL.** 60 s (`webhook_cache.CACHE_TTL`); `Cache.ttl` and `append_secret(cache_ttl=)`
   take it as a parameter. Reading it from `Settings` waits for the `config.py` lock.
 - **Retired seeds.** The key ring's `seed_for` returns a retired seed as a plain `WebhookSeed`;

@@ -24,6 +24,11 @@ The maint role's password, compose, `db-functions`, the `Dockerfile` and CI are 
 | `backend/tests/test_maint_privileges.py` | guard 11: maint's exact allowlist, its secret-column and forbidden-table registry, append-only |
 | `backend/tests/test_admin_routes_guard.py` | every route under `/api/admin` carries the gate and refuses each kind of caller |
 
+**A database without `70-admin-accounts.sql`** (the `db-functions` step not run, or an older
+volume) has none of the three `admin_account_*` definers, so every admin account change
+(disable, enable, delete) fails when it calls one and answers 500; the other admin routes are
+unaffected. Run `db-functions` against the database to fix it.
+
 ## The role `ownvitals_maint`
 
 `LOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT`, member of no role,
