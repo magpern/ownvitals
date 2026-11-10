@@ -10,6 +10,10 @@ row, and web sends it. Owner notices (mail to the admins) go the same way.
 | `mail_outbox` (owned, forced RLS) | `findings_waiting`, `connection_attention`, `export_ready` (#333, migration 0024) | its `owner_id` | `overview`, `findings`, `connections`, `settings_data` |
 | `owner_notices` (system; no app-role privilege) | `connection_needs_reconnect` | the admins (no column) | `admin` (fixed per kind) |
 
+`export_ready` (#333) is queued by the export build whatever `notify_email` says: that switch is
+the findings preference, and ADR 0013 section 4 offers no opt-out for a mail the user asked for
+minutes before. It says only that something is waiting and links to `/settings/data`.
+
 Besides those, only the send state: `state` (`pending`, `claimed`, `sent`, `failed`), `attempts`,
 `hold_until`, `created_at`, `updated_at`, `sent_at`. Never an address, a subject, free text, a
 value or finding text: the check constraints of migration `0012_outbox` admit exactly the lists in
