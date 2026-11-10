@@ -5,13 +5,14 @@ worker's hourly purge tick.
 Synthetic data only: owners are random UUIDs with ``example.test`` addresses, chunks hold
 made-up bytes, no content.
 
-- for two owners: ready exports past ``expires_at`` become expired, builds whose job ended become
-  failed (``build_failed``), the chunks of both go, failed and expired rows older than 90 days
-  go; a live ready export, a build whose job still runs and a younger record stay;
-- each export it expires or fails gets the owner's audit event, with only the id, the kind and
-  the fixed reason;
-- it returns four counts and nothing else, takes no argument, and a caller's ``app.user_id``
-  neither widens nor narrows it; the app role cannot do any of it itself;
+- for two owners: ready exports past ``expires_at`` become expired, the chunks of failed and
+  expired exports go, failed and expired rows older than 90 days go; a live ready export, any
+  build (even one whose job ended: the owner's tidy fails it) and a younger record stay;
+- it writes no audit row (ADR 0013 section 4 literally; the role holds nothing on
+  ``auth_events``);
+- it returns three counts and nothing else, takes no argument, and a caller's ``app.user_id``
+  neither widens nor narrows it; the app role cannot do any of it itself; rows a download holds
+  are skipped; chunks go oldest export first;
 - the role's attributes and grants (guard 2), the pin (guard 9, the startup check), the script's
   idempotence and refusal of a non-superuser; drift is found and repaired;
 - the Python layer calls again while a call did something, does nothing when the script is not
@@ -40,7 +41,6 @@ from jobtools import (  # noqa: F401 - fixtures
     queue_schema_fixture,
     run_script,
 )
-from ownvitals.auth.exports import DETAILS
 from ownvitals.db import DatabaseRoleError
 from ownvitals.db.queue_check import EXPORTS_PINS, QUEUE_QUERY, queue_problems
 from ownvitals.db.queue_digests import QUEUE_DIGESTS
@@ -52,7 +52,7 @@ from queue_guard import check_queue
 from role_guard import check_roles
 
 ROLE = "ownvitals_exports"
-PURGE = "SELECT expired, failed, chunks, deleted FROM exports_purge_expired()"
+PURGE = "SELECT expired, chunks, deleted FROM exports_purge_expired()"
 DRIFTED = "job queue does not match ADR 0005"
 F = "public.exports_purge_expired()"
 
@@ -146,18 +146,16 @@ def states(su: Connection) -> dict[uuid.UUID, tuple[str, str | None, int]]:
     return {r.id: (r.state, r.failure, int(r.chunks)) for r in rows}
 
 
-def audit(su: Connection) -> list[tuple[uuid.UUID, str, dict[str, Any], Any, Any]]:
-    rows = su.execute(
-        text(
-            "SELECT user_id, kind, detail, ip, browser FROM auth_events "
-            "WHERE kind LIKE 'export_%' ORDER BY kind, detail->>'export_id'"
-        )
-    ).all()
-    return [(r.user_id, r.kind, r.detail, r.ip, r.browser) for r in rows]
+def audit_rows(su: Connection) -> int:
+    return int(su.execute(text("SELECT count(*) FROM auth_events")).scalar_one())
 
 
-def call(app_database_url: str, user: uuid.UUID | None = None) -> Any:
+def call(
+    app_database_url: str, user: uuid.UUID | None = None, *, lock_timeout: bool = False
+) -> Any:
     with engine_for(app_database_url) as engine, engine.begin() as conn:
+        if lock_timeout:  # a step that waited on a held row would fail instead of hanging
+            conn.execute(text("SET LOCAL lock_timeout = '2s'"))
         if user is not None:
             conn.execute(text("SELECT set_config('app.user_id', :u, true)"), {"u": str(user)})
         return conn.execute(text(PURGE)).one()
@@ -193,12 +191,13 @@ def test_the_purge_covers_every_owner_and_keeps_what_is_live(
     young = plant(xp, bob, "expired", age="89 days", chunks=0)
 
     row = call(app_database_url)
-    assert tuple(row) == (2, 1, 2 * 2 + 2 + 2 + 2, 2)
-    assert list(row._fields) == ["expired", "failed", "chunks", "deleted"]
+    assert tuple(row) == (2, 2 * 2 + 2 + 2, 2)
+    assert list(row._fields) == ["expired", "chunks", "deleted"]
     assert states(xp) == {
         gone_a: ("expired", None, 0),
         gone_b: ("expired", None, 0),
-        ended: ("failed", "build_failed", 0),
+        # Not the purge's: the owner's tidy fails a build whose job ended (ADR 0013 section 4).
+        ended: ("building", None, 2),
         failed: ("failed", "build_failed", 0),
         live: ("ready", None, 2),
         running: ("building", None, 2),
@@ -207,30 +206,41 @@ def test_the_purge_covers_every_owner_and_keeps_what_is_live(
     assert old not in states(xp)
     assert old_failed not in states(xp)
     # A second call finds nothing more.
-    assert tuple(call(app_database_url)) == (0, 0, 0, 0)
+    assert tuple(call(app_database_url)) == (0, 0, 0)
 
 
-def test_each_export_it_changes_gets_its_owner_s_event_and_nothing_else(
-    xp: Connection, app_database_url: str
+def test_it_writes_no_audit_row(xp: Connection, app_database_url: str) -> None:
+    before = audit_rows(xp)
+    plant(xp, uuid.uuid4(), "ready", expires="-1 minute")
+    plant(xp, uuid.uuid4(), "failed", age="91 days")
+    assert tuple(call(app_database_url)) == (1, 4, 1)
+    assert audit_rows(xp) == before
+
+
+def test_an_export_a_download_holds_is_skipped_until_the_next_call(
+    xp: Connection, app_database_url: str, queue_schema: str
 ) -> None:
-    alice, bob = uuid.uuid4(), uuid.uuid4()
-    expired = plant(xp, alice, "ready", expires="-1 minute", kind="doctor_pdf")
-    ended = plant(xp, bob, "building", job_state="completed")
-    plant(xp, bob, "failed")  # already failed: its event was written then, none now
-    call(app_database_url)
-    events = audit(xp)
-    assert events == sorted(
-        [
-            (bob, "export_failed", {"export_id": str(ended), "export_kind": "data",
-                                    "reason": "build_failed"}, None, None),
-            (alice, "export_expired", {"export_id": str(expired), "export_kind": "doctor_pdf"},
-             None, None),
-        ],
-        key=lambda e: (e[1], e[2]["export_id"]),
-    )  # fmt: skip
-    # The details are exactly what ownvitals.auth.exports' models accept for each kind.
-    for _, kind, detail, _, _ in events:
-        DETAILS[kind].model_validate({**detail, "export_id": uuid.UUID(detail["export_id"])})
+    held = plant(xp, uuid.uuid4(), "ready", expires="-1 minute")
+    free = plant(xp, uuid.uuid4(), "ready", expires="-1 minute")
+    with engine_for(queue_schema) as engine, engine.connect() as other:
+        other.begin()
+        # What begin_download and take_last_chunk do: lock the export row.
+        other.execute(text("SELECT id FROM exports WHERE id = :id FOR UPDATE"), {"id": held})
+        assert tuple(call(app_database_url, lock_timeout=True)) == (1, 2, 0)
+        assert states(xp)[held] == ("ready", None, 2)
+        other.rollback()
+    assert tuple(call(app_database_url)) == (1, 2, 0)
+    assert states(xp)[held] == states(xp)[free] == ("expired", None, 0)
+
+
+def test_chunks_go_oldest_export_first(xp: Connection, app_database_url: str) -> None:
+    owner = uuid.uuid4()
+    newer = plant(xp, owner, "failed", age="1 day", chunks=600)
+    older = plant(xp, owner, "failed", age="2 days", chunks=600)
+    assert call(app_database_url).chunks == 1000
+    assert states(xp)[older][2] == 0
+    assert states(xp)[newer][2] == 200
+    assert call(app_database_url).chunks == 200
 
 
 def test_a_user_context_neither_widens_nor_narrows_it(
@@ -353,9 +363,9 @@ DRIFT = [
     f"ALTER FUNCTION {F} OWNER TO ownvitals_owner",
     # A body that deletes every export at once: same signature, settings and owner.
     "CREATE OR REPLACE FUNCTION public.exports_purge_expired(OUT expired integer, "
-    "OUT failed integer, OUT chunks integer, OUT deleted integer) LANGUAGE plpgsql "
+    "OUT chunks integer, OUT deleted integer) LANGUAGE plpgsql "
     "SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$ BEGIN "
-    "DELETE FROM public.exports; expired := 0; failed := 0; chunks := 0; deleted := 0; END $$",
+    "DELETE FROM public.exports; expired := 0; chunks := 0; deleted := 0; END $$",
     # An overload beside the shipped one.
     "CREATE FUNCTION public.exports_purge_expired(p_owner uuid) RETURNS integer "
     "LANGUAGE sql AS $$ SELECT 0 $$",
@@ -389,13 +399,15 @@ ROLE_DRIFT = [
     f"GRANT SELECT (bytes) ON public.export_chunks TO {ROLE}",
     f"GRANT SELECT (sha256) ON public.exports TO {ROLE}",
     f"GRANT UPDATE (download_count) ON public.exports TO {ROLE}",
-    f"GRANT SELECT (input) ON public.jobs TO {ROLE}",
-    f"GRANT INSERT (ip) ON public.auth_events TO {ROLE}",
+    f"GRANT SELECT (state) ON public.jobs TO {ROLE}",
+    # The ADR's purge writes no audit row: any privilege on auth_events is drift.
+    f"GRANT INSERT (user_id, kind, detail) ON public.auth_events TO {ROLE}",
     f"GRANT SELECT (detail) ON public.auth_events TO {ROLE}",
     f"GRANT DELETE ON public.auth_events TO {ROLE}",
+    f"GRANT UPDATE (failure) ON public.exports TO {ROLE}",
     f"GRANT TRUNCATE ON public.exports TO {ROLE}",
     f"REVOKE DELETE ON public.export_chunks FROM {ROLE}",
-    f"REVOKE INSERT (kind) ON public.auth_events FROM {ROLE}",
+    f"REVOKE UPDATE (state) ON public.exports FROM {ROLE}",
     f"GRANT CREATE ON SCHEMA public TO {ROLE}",
 ]
 
@@ -406,7 +418,7 @@ def test_guard_2_finds_a_drifted_role_and_the_script_repairs_it(
 ) -> None:
     xp.execute(text(statement))
     try:
-        assert check_roles(xp) != []
+        assert check_roles(xp) != []  # the script then revokes it again
     finally:
         run_script(reinstall, EXPORTS_SCRIPT.read_text(encoding="utf-8"))
     assert check_roles(xp) == []

@@ -32,5 +32,5 @@ QUEUE_DIGESTS: dict[str, str] = {
     "ai_release": "93c3fbb02fad8958fbd27dd5787109e0",
     "ai_settle_lost": "ecc06cf9b7dba927969b67efde57b041",
     "ai_audit_purge": "fd24e4446b1fed5052842c8d0fdc4c10",
-    "exports_purge_expired": "42e90a6c209d97bb818ab8d9985de31c",
+    "exports_purge_expired": "bb30016649530959d6205aca1cb7ae5e",
 }

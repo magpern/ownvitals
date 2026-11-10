@@ -94,7 +94,7 @@ EXPORTS_VERSION = "ownvitals-exports v1"
 _EXPORTS_ACL = f"ownvitals_app=X/{EXPORTS_ROLE},{EXPORTS_ROLE}=X/{EXPORTS_ROLE}"
 EXPORTS_PINS: dict[str, tuple[str, str, str, str]] = {
     "exports_purge_expired": (
-        "OUT expired integer, OUT failed integer, OUT chunks integer, OUT deleted integer",
+        "OUT expired integer, OUT chunks integer, OUT deleted integer",
         EXPORTS_ROLE,
         SEARCH_PATH,
         _EXPORTS_ACL,

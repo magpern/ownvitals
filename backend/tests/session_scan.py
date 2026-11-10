@@ -46,7 +46,7 @@ Each has its own allowlist, of packages (the package and everything under it) an
   reaper's ``ai_settle_lost``) and ``ownvitals.ai.audit_retention`` (#331: the audit retention's
   ``ai_audit_purge``), definer functions returning a count, the exact module
   ``ownvitals.reports.export_purge`` (#333: the export purge's ``exports_purge_expired``, a
-  definer function returning four counts), and the exact module
+  definer function returning three counts), and the exact module
   ``ownvitals.worker.metrics`` (#167: the metrics refresh calls ``queue_stats()`` and the two
   metrics aggregates, definer functions returning counts and ages that refuse a user session;
   the session itself reaches no owned row). The admin area opens

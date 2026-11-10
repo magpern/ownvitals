@@ -23,7 +23,8 @@ creates, with ``DELETE`` on ``ai_audit`` for the retention purge (#331) as its o
 privilege, owns the five AI functions, and the app role may ``EXECUTE`` them. The app role
 holds ``SELECT`` only on ``ai_spend`` and ``ai_reservations`` and nothing on ``ai_spend_global``.
 When ``docker/postgres/exports/60-exports.sql`` has run (#333, ADR 0013 section 4), the NOLOGIN
-role ``ownvitals_exports`` has exactly its attributes, the column grants that script creates and
+role ``ownvitals_exports`` has exactly its attributes, the column grants that script creates (no
+account table, no jobs) and
 ``DELETE`` on ``exports`` and ``export_chunks`` as its only table privileges, owns
 ``exports_purge_expired``, and the app role may ``EXECUTE`` it. Any other grantee fails.
 """
@@ -206,26 +207,18 @@ EXPORTS = "ownvitals_exports"
 EXPORTS_FUNCTIONS = {"exports_purge_expired": EXPORTS}
 # Its table-level privileges: DELETE of exports past their 90 days and of spent chunks.
 EXPORTS_RELATIONS = {"exports:r": {"DELETE"}, "export_chunks:r": {"DELETE"}}
-# Its column grants: what the purge reads and changes of exports, the join of a chunk to its
-# export, whether a build's job has ended, and the audit rows it writes (owner, kind, detail).
+# Its column grants: what the purge reads and changes of exports and the join of a chunk to its
+# export (ADR 0013 section 4: counts only, no audit row, no account table, no jobs).
 EXPORTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("exports", "id"): {(EXPORTS, "SELECT")},
     ("exports", "owner_id"): {(EXPORTS, "SELECT")},
-    ("exports", "kind"): {(EXPORTS, "SELECT")},
     ("exports", "state"): {(EXPORTS, "SELECT"), (EXPORTS, "UPDATE")},
-    ("exports", "job_id"): {(EXPORTS, "SELECT")},
     ("exports", "created_at"): {(EXPORTS, "SELECT")},
     ("exports", "expires_at"): {(EXPORTS, "SELECT")},
-    ("exports", "failure"): {(EXPORTS, "UPDATE")},
     ("export_chunks", "id"): {(EXPORTS, "SELECT")},
     ("export_chunks", "owner_id"): {(EXPORTS, "SELECT")},
     ("export_chunks", "export_id"): {(EXPORTS, "SELECT")},
-    ("jobs", "id"): {(EXPORTS, "SELECT")},
-    ("jobs", "owner_id"): {(EXPORTS, "SELECT")},
-    ("jobs", "state"): {(EXPORTS, "SELECT")},
-    ("auth_events", "user_id"): {(EXPORTS, "INSERT")},
-    ("auth_events", "kind"): {(EXPORTS, "INSERT")},
-    ("auth_events", "detail"): {(EXPORTS, "INSERT")},
+    ("export_chunks", "seq"): {(EXPORTS, "SELECT")},
 }
 EXPORTS_ATTRIBUTES = (False, False, False, False, False, True, False)
 _CALLABLE = {

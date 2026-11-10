@@ -10,28 +10,28 @@
 -- re-grants exactly its privileges, and replaces the function with its owner, ACL and version
 -- comment.
 --
--- exports_purge_expired() takes no argument and returns four counts, nothing else:
---   expired: ready exports past expires_at, now expired (one export_expired event each);
---   failed:  building exports whose job has ended without making them ready, now failed with
---            build_failed (one export_failed event each), as the owner's own tidy does;
+-- exports_purge_expired() takes no argument and returns three counts, nothing else (ADR 0013
+-- section 4's list, literally):
+--   expired: ready exports past expires_at, now expired;
 --   chunks:  chunks of failed and expired exports, deleted;
 --   deleted: failed and expired export rows older than 90 days, deleted (the record of ADR 0013
 --            section 4; any chunk left goes with them by the foreign key's cascade).
 -- At most 100 exports per step and 1000 chunks per call, oldest first, so one call is bounded;
--- the worker calls again while a call still did something. Rows another transaction holds (a
--- download that is starting or taking its last chunk) are skipped and come at the next call.
+-- the worker calls again while a call still did something. Export rows another transaction
+-- holds (a download that is starting or taking its last chunk) are skipped and come at the next
+-- call. The chunk step locks nothing ahead (that would need an UPDATE grant on export_chunks):
+-- a chunk a download deletes at the same time makes it wait, then it is gone.
 --
--- It is the only cross-user export path. The owner's own tidy (ownvitals.reports.export_store)
--- does the same for one user under row-level security; this does it for owners who never come
--- back. The audit rows it writes are the owner's (user_id = the export's owner_id) and hold only
--- the export id, its kind and the fixed reason, the details ownvitals.auth.exports' models allow.
+-- It is the only cross-user export path, and it writes no audit row: auth_events stays behind
+-- ownvitals.auth (ADR 0003 section 1). The owner's own tidy (ownvitals.reports.export_store)
+-- still fails ended builds and records export_expired and export_failed for one user under
+-- row-level security; an expiry done here has no event (docs/dev/reports.md, known gaps).
 --
 -- The role has BYPASSRLS (exports and export_chunks are under forced row-level security) and only
--- the column privileges the function needs: the state, age and job columns of exports, the ids
--- of export_chunks, the state of jobs, and INSERT of user_id, kind and detail on auth_events;
--- DELETE on exports and export_chunks. No health table, no other account table. 20-queue.sql
--- admits the function by name; its body is pinned by digest (ownvitals/db/queue_digests.py) and
--- checked by web and the worker at startup.
+-- the column privileges the function needs: the id, state and age columns of exports, the ids
+-- and order of export_chunks; DELETE on exports and export_chunks. No health table, no account
+-- table, no jobs. 20-queue.sql admits the function by name; its body is pinned by digest
+-- (ownvitals/db/queue_digests.py) and checked by web and the worker at startup.
 
 DO $$
 BEGIN
@@ -40,10 +40,8 @@ BEGIN
     RAISE EXCEPTION 'this script must run as the superuser';
   END IF;
   IF pg_catalog.to_regclass('public.exports') IS NULL
-     OR pg_catalog.to_regclass('public.export_chunks') IS NULL
-     OR pg_catalog.to_regclass('public.auth_events') IS NULL
-     OR pg_catalog.to_regclass('public.jobs') IS NULL THEN
-    RAISE EXCEPTION 'migrate to head first: exports, export_chunks, auth_events or jobs is missing';
+     OR pg_catalog.to_regclass('public.export_chunks') IS NULL THEN
+    RAISE EXCEPTION 'migrate to head first: exports or export_chunks is missing';
   END IF;
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_app') THEN
     RAISE EXCEPTION 'ownvitals_app does not exist; run docker/postgres/init/10-roles.sql first';
@@ -186,24 +184,18 @@ BEGIN
   END LOOP;
 END $$;
 
--- Exactly these privileges: USAGE on public; on exports the columns the function reads and
--- returns, UPDATE of state and failure, and DELETE; on export_chunks the columns that join a
--- chunk to its export, and DELETE; on jobs whether the build's job has ended; on auth_events
--- INSERT of the owner, the kind and the detail (the other columns take their defaults or stay
--- NULL: no address, no origin). Everything else was revoked above.
+-- Exactly these privileges: USAGE on public; on exports the columns the function reads,
+-- UPDATE of state, and DELETE; on export_chunks the columns that join a chunk to its export, and
+-- DELETE. Everything else was revoked above.
 GRANT USAGE ON SCHEMA public TO ownvitals_exports;
 
-GRANT SELECT (id, owner_id, kind, state, job_id, created_at, expires_at)
+GRANT SELECT (id, owner_id, state, created_at, expires_at)
   ON TABLE public.exports TO ownvitals_exports;
-GRANT UPDATE (state, failure) ON TABLE public.exports TO ownvitals_exports;
+GRANT UPDATE (state) ON TABLE public.exports TO ownvitals_exports;
 GRANT DELETE ON TABLE public.exports TO ownvitals_exports;
 
-GRANT SELECT (id, owner_id, export_id) ON TABLE public.export_chunks TO ownvitals_exports;
+GRANT SELECT (id, owner_id, export_id, seq) ON TABLE public.export_chunks TO ownvitals_exports;
 GRANT DELETE ON TABLE public.export_chunks TO ownvitals_exports;
-
-GRANT SELECT (id, owner_id, state) ON TABLE public.jobs TO ownvitals_exports;
-
-GRANT INSERT (user_id, kind, detail) ON TABLE public.auth_events TO ownvitals_exports;
 
 -- Any other function under the name (an overload) goes: it must exist once.
 DO $$
@@ -216,52 +208,38 @@ BEGIN
               AND p.oid::regprocedure::text <> 'exports_purge_expired()' LOOP
     EXECUTE format('DROP ROUTINE public.%s', r.signature);
   END LOOP;
+  -- An earlier draft with other OUT columns cannot be replaced in place: it goes first.
+  IF EXISTS (SELECT FROM pg_catalog.pg_proc p
+               JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public' AND p.proname = 'exports_purge_expired'
+                AND pg_catalog.pg_get_function_identity_arguments(p.oid)
+                    <> 'OUT expired integer, OUT chunks integer, OUT deleted integer') THEN
+    DROP FUNCTION public.exports_purge_expired();
+  END IF;
 END $$;
 
--- The purge (ADR 0013 section 4). Every owner's exports; nothing but the export rows, their
--- chunks and the audit rows of what it changed. The event kinds and details are fixed here.
+-- The purge (ADR 0013 section 4). Every owner's exports; nothing but the export rows and their
+-- chunks.
 CREATE OR REPLACE FUNCTION public.exports_purge_expired(
-  OUT expired integer, OUT failed integer, OUT chunks integer, OUT deleted integer)
+  OUT expired integer, OUT chunks integer, OUT deleted integer)
   LANGUAGE plpgsql
   SECURITY DEFINER
   SET search_path = pg_catalog, pg_temp
 AS $fn$
 BEGIN
-  WITH gone AS (
-    UPDATE public.exports e SET state = 'expired'
-     WHERE e.id IN (SELECT x.id FROM public.exports x
-                     WHERE x.state = 'ready' AND x.expires_at <= pg_catalog.now()
-                     ORDER BY x.expires_at, x.id
-                     LIMIT 100
-                     FOR UPDATE SKIP LOCKED)
-    RETURNING e.id, e.owner_id, e.kind)
-  INSERT INTO public.auth_events (user_id, kind, detail)
-  SELECT g.owner_id, 'export_expired',
-         pg_catalog.jsonb_build_object('export_id', g.id, 'export_kind', g.kind)
-    FROM gone g;
+  UPDATE public.exports e SET state = 'expired'
+   WHERE e.id IN (SELECT x.id FROM public.exports x
+                   WHERE x.state = 'ready' AND x.expires_at <= pg_catalog.now()
+                   ORDER BY x.expires_at, x.id
+                   LIMIT 100
+                   FOR UPDATE SKIP LOCKED);
   GET DIAGNOSTICS expired = ROW_COUNT;
-
-  WITH ended AS (
-    UPDATE public.exports e SET state = 'failed', failure = 'build_failed'
-     WHERE e.id IN (SELECT x.id FROM public.exports x
-                      JOIN public.jobs j ON j.id = x.job_id AND j.owner_id = x.owner_id
-                     WHERE x.state = 'building'
-                       AND j.state IN ('completed', 'failed', 'dead_letter', 'cancelled')
-                     ORDER BY x.created_at, x.id
-                     LIMIT 100
-                     FOR UPDATE OF x SKIP LOCKED)
-    RETURNING e.id, e.owner_id, e.kind)
-  INSERT INTO public.auth_events (user_id, kind, detail)
-  SELECT d.owner_id, 'export_failed',
-         pg_catalog.jsonb_build_object('export_id', d.id, 'export_kind', d.kind,
-                                       'reason', 'build_failed')
-    FROM ended d;
-  GET DIAGNOSTICS failed = ROW_COUNT;
 
   DELETE FROM public.export_chunks c
    WHERE c.id IN (SELECT k.id FROM public.export_chunks k
                     JOIN public.exports x ON x.owner_id = k.owner_id AND x.id = k.export_id
                    WHERE x.state IN ('failed', 'expired')
+                   ORDER BY x.created_at, k.export_id, k.seq
                    LIMIT 1000);
   GET DIAGNOSTICS chunks = ROW_COUNT;
 
