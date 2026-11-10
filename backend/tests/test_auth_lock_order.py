@@ -17,7 +17,6 @@ from oauthtools import fake_fixture, oenv_fixture, sign_in_with  # noqa: F401 - 
 from oidcfake import FakeProviders
 from ownvitals.auth import (
     accounts,
-    admin_accounts,
     email_routes,
     mfa,
     oauth_outcomes,
@@ -31,7 +30,17 @@ from ownvitals.auth.session_model import SessionGone
 from ownvitals.auth.sessions import resolve_session, rotate_session
 from ownvitals.auth.tokens import EMAIL_CHANGE_LIFETIME, issue_token
 from passkeytools import SoftAuthenticator, reauth, register
-from racetools import EMAIL, NEW, WAIT, Held, after, complete_reset, reset_token, sessions
+from racetools import (
+    EMAIL,
+    NEW,
+    WAIT,
+    Held,
+    admin_path,
+    after,
+    complete_reset,
+    reset_token,
+    sessions,
+)
 from smtpfake import SmtpFake
 
 SUB = "google-subject"
@@ -141,14 +150,16 @@ async def test_a_disable_waits_for_a_google_sign_in_in_flight(
 ) -> None:
     user_id, _ = await google_user(oenv)
     held = Held(monkeypatch, oauth_outcomes, "remember_device")
-    signing_in = asyncio.create_task(sign_in_with(Browser(oenv), fake, "google", sub=SUB))
-    await held.inside()
-    disabling = asyncio.create_task(admin_accounts.disable_account(oenv.factory, user_id))
-    await asyncio.sleep(WAIT)
-    assert not disabling.done()
-    held.release.set()
-    await signing_in
-    assert (await disabling)[1] == 1
+    async with admin_path(oenv) as admin:
+        await admin.actor()
+        signing_in = asyncio.create_task(sign_in_with(Browser(oenv), fake, "google", sub=SUB))
+        await held.inside()
+        disabling = asyncio.create_task(admin.disable(user_id))
+        await asyncio.sleep(WAIT)
+        assert not disabling.done()
+        held.release.set()
+        await signing_in
+        assert (await disabling)[1] == 1
     assert await sessions(oenv) == 0  # enable_account can bring back nothing
 
 
@@ -156,13 +167,14 @@ async def test_a_google_sign_in_after_a_disable_is_refused(
     oenv: Env, fake: FakeProviders, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     user_id, _ = await google_user(oenv)
+    async with admin_path(oenv) as admin:
 
-    async def disable() -> None:
-        await admin_accounts.disable_account(oenv.factory, user_id)
+        async def disable() -> None:
+            await admin.disable(user_id)
 
-    after(monkeypatch, oauth_outcomes, "identity_owner", disable)
-    browser = Browser(oenv)
-    await sign_in_with(browser, fake, "google", sub=SUB)
+        after(monkeypatch, oauth_outcomes, "identity_owner", disable)
+        browser = Browser(oenv)
+        await sign_in_with(browser, fake, "google", sub=SUB)
     assert not browser.signed_in
     assert await sessions(oenv) == 0
 
@@ -291,20 +303,23 @@ async def test_a_password_change_waits_for_a_sign_in_in_flight_and_revokes_it(
 
 
 async def test_the_admin_disable_lock_lets_a_foreign_key_check_through(env: Env) -> None:
-    """``_locked`` takes ``FOR NO KEY UPDATE``: a transaction that holds a session row and then
-    inserts an ``auth_events`` row for the user (a ``FOR KEY SHARE`` check) is not blocked by the
-    disable that waits for its session row. ``FOR UPDATE`` deadlocks here."""
+    """``admin_account_disable`` (70-admin-accounts.sql, #314) takes ``FOR NO KEY UPDATE``: a
+    transaction that holds a session row and then inserts an ``auth_events`` row for the user (a
+    ``FOR KEY SHARE`` check) is not blocked by the disable that waits for its session row, nor by
+    the ``FOR KEY SHARE`` the disable's audit row holds. ``FOR UPDATE`` deadlocks here."""
     user_id = await user_with_password(env)
     issued = await env.login(user_id)
-    async with env.db() as db:
-        await db.execute(
-            text("UPDATE sessions SET last_seen_at = now() WHERE id = :i"), {"i": issued.id}
-        )
-        disabling = asyncio.create_task(admin_accounts.disable_account(env.factory, user_id))
-        await asyncio.sleep(WAIT)
-        assert not disabling.done()  # it holds the user row and waits for the session row
-        await asyncio.wait_for(record_event(db, "sign_in", user_id=user_id), 5)
-    assert (await disabling)[1] == 1
+    async with admin_path(env) as admin:
+        await admin.actor()
+        async with env.db() as db:
+            await db.execute(
+                text("UPDATE sessions SET last_seen_at = now() WHERE id = :i"), {"i": issued.id}
+            )
+            disabling = asyncio.create_task(admin.disable(user_id))
+            await asyncio.sleep(WAIT)
+            assert not disabling.done()  # it holds the user row and waits for the session row
+            await asyncio.wait_for(record_event(db, "sign_in", user_id=user_id), 5)
+        assert (await disabling)[1] == 1
     assert await sessions(env) == 0
 
 

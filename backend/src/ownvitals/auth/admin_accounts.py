@@ -1,21 +1,23 @@
 """Account helpers for the admin Users view (#127, guard 8).
 
-``ownvitals_maint`` has no grant on the account tables, so these functions open their own
-``system_session`` on the app role. The admin area calls the names in
-``PUBLIC_ENTRY_POINTS`` and never sees a table. Nothing here reads ``password_hash``, a
-session token, an IP or a user agent.
+``ownvitals_maint`` has no grant on the account tables. The reads open their own
+``system_session`` on the app role; the changes run in the admin's audited transaction (#314).
+The admin area calls the names in ``PUBLIC_ENTRY_POINTS`` and never sees a table. Nothing here
+reads ``password_hash``, a session token, an IP or a user agent.
 
 - ``list_accounts`` / ``find_account``: a page, or one account, with the second factor, the
   live session count and the latest ``sign_in`` (never a measurement).
 - ``account_emails``: ``{id: email}`` for ids the caller already holds.
-- ``disable_account`` / ``enable_account``: ``disabled_at``, and disable also deletes every
-  session. Neither touches an admin (the role stays with the operator CLI), so the admin area
-  cannot undo an operator's disable of an admin either (#277).
-- ``delete_account``: the steps the user's own ``DELETE /api/auth/account`` runs after the
-  revoke (``auth.purge.delete_account``): the target's webhook events first, while its
-  connection rows still name them (they have no ``owner_id`` and do not cascade, #362), then
-  ``delete_user_account``. One transaction, so a refusal removes nothing. Refuses an admin and
-  an address that is not the account's.
+- ``disable_account`` / ``enable_account`` / ``delete_account``: given the session of
+  ``ownvitals.admin.db.admin_session``, whose ``ok`` audit row is that transaction's first
+  statement, each calls its definer of ``docker/postgres/maint/70-admin-accounts.sql`` (ADR 0002
+  section 3, amended by #314). The definer refuses unless that row is there, so the change and
+  the row commit or roll back together. Disable sets ``disabled_at`` and deletes every session;
+  enable clears it. Delete runs the steps of the user's own ``DELETE /api/auth/account`` after
+  the revoke (``auth.purge.delete_account``): the target's webhook events first (#362), the
+  ``account_deleted`` event, then the ``users`` row. None touches an admin (the role stays with
+  the operator CLI), so the admin area cannot undo an operator's disable of an admin either
+  (#277). A refusal raises before anything changed.
 """
 
 from collections.abc import Collection
@@ -24,11 +26,11 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ownvitals.auth.events import record_event
-from ownvitals.auth.sessions import count_live_sessions, revoke_user_sessions
+from ownvitals.auth.events import event_values, record_event
+from ownvitals.auth.sessions import count_live_sessions
 from ownvitals.auth.tables import auth_events, mfa_totp, users
 from ownvitals.config import Settings
 from ownvitals.db import system_session
@@ -36,10 +38,15 @@ from ownvitals.emailnorm import normalize_email
 
 Factory = async_sessionmaker[AsyncSession]
 MAX_IDS = 100
-# The admin delete's purge (40-withings.sql, #362): the target's webhook events, through the
-# definer, which refuses inside a user session. ``tests/test_purge_account_guard.py`` pins this
-# module as its one caller.
-_PURGE_ACCOUNT_EVENTS = text("SELECT public.webhook_events_purge_account(:owner)")
+# The admin account family (70-admin-accounts.sql, #314). Each answers an outcome, and disable
+# the kept ``disabled_at`` and the number of sessions deleted; nothing else.
+_DISABLE = text(
+    "SELECT outcome, disabled_at, sessions_revoked FROM public.admin_account_disable(:target)"
+)
+_ENABLE = text("SELECT public.admin_account_enable(:target)")
+_DELETE = text(
+    "SELECT public.admin_account_delete(:target, :email_normalized, :ip, :browser, :os, :place)"
+)
 RoleName = Literal["user", "admin"]
 SecondFactor = Literal["on", "setup_pending"]
 
@@ -91,20 +98,6 @@ async def delete_user_account(db: AsyncSession, user_id: UUID, *, ip: str | None
     """
     await record_event(db, "account_deleted", ip=ip)
     await db.execute(delete(users).where(users.c.id == user_id))
-
-
-async def _locked(db: AsyncSession, user_id: UUID) -> tuple[str, str] | None:
-    """``(role, email_normalized)`` with the row locked, or ``None``. The same lock and mode as
-    ``userlock.lock_user_row`` (first, ``FOR NO KEY UPDATE``), which this cannot call: it reads
-    ``password_hash``. A sign-in that waits for it finds the account disabled or gone."""
-    row = (
-        await db.execute(
-            select(users.c.role, users.c.email_normalized)
-            .where(users.c.id == user_id)
-            .with_for_update(key_share=True)
-        )
-    ).one_or_none()
-    return None if row is None else (row.role, row.email_normalized)
 
 
 async def _extras(
@@ -221,55 +214,51 @@ async def account_emails(factory: Factory, ids: Collection[UUID]) -> dict[UUID, 
     return {row.id: row.email for row in rows.all()}
 
 
-async def disable_account(factory: Factory, user_id: UUID) -> tuple[datetime, int]:
-    """Set ``disabled_at`` (an earlier value is kept) and delete every session.
+def _refuse(outcome: object) -> None:
+    """Raise the refusal a definer answered; return on ``ok``."""
+    if outcome == "ok":
+        return
+    if outcome == "not_found":
+        raise AccountMissing()
+    if outcome == "target_is_admin":
+        raise TargetIsAdmin()
+    if outcome == "email_mismatch":
+        raise EmailMismatch()
+    raise RuntimeError("the admin account function answered an unknown outcome")
+
+
+async def disable_account(db: AsyncSession, user_id: UUID) -> tuple[datetime, int]:
+    """Set ``disabled_at`` (an earlier value is kept) and delete every session, in the admin
+    transaction ``db`` (its ``ok`` audit row for ``user.disable`` and ``user_id`` first).
 
     Returns ``(disabled_at, sessions deleted)``. Raises ``AccountMissing`` or
     ``TargetIsAdmin`` and changes nothing in those cases.
     """
-    async with system_session(factory) as db:
-        locked = await _locked(db, user_id)
-        if locked is None:
-            raise AccountMissing()
-        if locked[0] == "admin":
-            raise TargetIsAdmin()
-        disabled_at = (
-            await db.execute(
-                update(users)
-                .where(users.c.id == user_id)
-                .values(disabled_at=func.coalesce(users.c.disabled_at, func.now()))
-                .returning(users.c.disabled_at)
-            )
-        ).scalar_one()
-        revoked = await revoke_user_sessions(db, user_id)
-    return disabled_at, revoked
+    row = (await db.execute(_DISABLE, {"target": user_id})).one()
+    _refuse(row.outcome)
+    return row.disabled_at, int(row.sessions_revoked)
 
 
-async def enable_account(factory: Factory, user_id: UUID) -> None:
-    """Clear ``disabled_at``. Raises ``AccountMissing`` or ``TargetIsAdmin`` and changes nothing
+async def enable_account(db: AsyncSession, user_id: UUID) -> None:
+    """Clear ``disabled_at`` in the admin transaction ``db`` (its ``ok`` audit row for
+    ``user.enable`` first). Raises ``AccountMissing`` or ``TargetIsAdmin`` and changes nothing
     in those cases."""
-    async with system_session(factory) as db:
-        locked = await _locked(db, user_id)
-        if locked is None:
-            raise AccountMissing()
-        if locked[0] == "admin":
-            raise TargetIsAdmin()
-        await db.execute(update(users).where(users.c.id == user_id).values(disabled_at=None))
+    _refuse((await db.execute(_ENABLE, {"target": user_id})).scalar_one())
 
 
-async def delete_account(factory: Factory, user_id: UUID, *, email: str, ip: str | None) -> None:
-    """The target's webhook events, then ``delete_user_account``, in one system-session
-    transaction. Refuses an admin and a mismatched address before either step, and then
-    nothing is deleted."""
-    async with system_session(factory) as db:
-        locked = await _locked(db, user_id)
-        if locked is None:
-            raise AccountMissing()
-        role, normalized = locked
-        if role == "admin":
-            raise TargetIsAdmin()
-        if normalized != normalize_email(email):
-            raise EmailMismatch()
-        # Before the users row: the definer finds the events through the connection rows.
-        await db.execute(_PURGE_ACCOUNT_EVENTS, {"owner": user_id})
-        await delete_user_account(db, user_id, ip=ip)
+async def delete_account(db: AsyncSession, user_id: UUID, *, email: str, ip: str | None) -> None:
+    """The target's webhook events, the ``account_deleted`` event and the account, in the admin
+    transaction ``db`` (its ``ok`` audit row for ``user.delete`` first). Refuses an admin and a
+    mismatched address before any step (``TargetIsAdmin``, ``EmailMismatch``), and then nothing
+    is deleted. The event has no ``user_id`` and carries the request's address and origin, as
+    ``delete_user_account`` writes it."""
+    event = event_values("account_deleted", ip=ip)
+    params = {
+        "target": user_id,
+        "email_normalized": normalize_email(email),
+        "ip": event["ip"],
+        "browser": event["browser"],
+        "os": event["os"],
+        "place": event["place"],
+    }
+    _refuse((await db.execute(_DELETE, params)).scalar_one())

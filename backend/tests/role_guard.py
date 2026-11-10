@@ -26,7 +26,13 @@ When ``docker/postgres/exports/60-exports.sql`` has run (#333, ADR 0013 section 
 role ``ownvitals_exports`` has exactly its attributes, the column grants that script creates (no
 account table, no jobs) and
 ``DELETE`` on ``exports`` and ``export_chunks`` as its only table privileges, owns
-``exports_purge_expired``, and the app role may ``EXECUTE`` it. Any other grantee fails.
+``exports_purge_expired``, and the app role may ``EXECUTE`` it. When
+``docker/postgres/maint/70-admin-accounts.sql`` has run (#314, ADR 0002 section 3), the NOLOGIN
+role ``ownvitals_admin_accounts`` (no ``BYPASSRLS``) has exactly its attributes, the column grants
+and the two ``DELETE`` privileges that script creates (no health table, no secret column), owns
+the three admin account functions, which only ``ownvitals_maint`` may ``EXECUTE``, and is the
+only grantee of ``webhook_events_purge_account``. The app role may execute none of those four.
+Any other grantee fails.
 """
 
 from collections.abc import Callable
@@ -222,6 +228,36 @@ EXPORTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("export_chunks", "seq"): {(EXPORTS, "SELECT")},
 }
 EXPORTS_ATTRIBUTES = (False, False, False, False, False, True, False)
+# 70-admin-accounts.sql (#314): the admin account family, owned by its own NOLOGIN role and
+# executable by maint alone. No BYPASSRLS: it touches system tables only.
+ADMIN_ACCOUNTS = "ownvitals_admin_accounts"
+ADMIN_ACCOUNTS_FUNCTIONS = {
+    "admin_account_disable": ADMIN_ACCOUNTS,
+    "admin_account_enable": ADMIN_ACCOUNTS,
+    "admin_account_delete": ADMIN_ACCOUNTS,
+}
+ADMIN_ACCOUNTS_ATTRIBUTES = (False, False, False, False, False, False, False)
+# Its table-level privileges: the account delete and the disable's sign-out everywhere.
+ADMIN_ACCOUNTS_RELATIONS = {"users:r": {"DELETE"}, "sessions:r": {"DELETE"}}
+# Its column grants (ADR 0002 section 3): never password_hash, a session token, or the audit
+# row's IP HMAC, and no write to the audit log.
+ADMIN_ACCOUNTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
+    ("users", "id"): {(ADMIN_ACCOUNTS, "SELECT")},
+    ("users", "role"): {(ADMIN_ACCOUNTS, "SELECT")},
+    ("users", "email_normalized"): {(ADMIN_ACCOUNTS, "SELECT")},
+    ("users", "disabled_at"): {(ADMIN_ACCOUNTS, "SELECT"), (ADMIN_ACCOUNTS, "UPDATE")},
+    ("sessions", "user_id"): {(ADMIN_ACCOUNTS, "SELECT")},
+    **{
+        ("auth_events", c): {(ADMIN_ACCOUNTS, "INSERT")}
+        for c in ("kind", "ip", "browser", "os", "place")
+    },
+    **{
+        ("admin_audit", c): {(ADMIN_ACCOUNTS, "SELECT")}
+        for c in ("xmin", "created_at", "actor_id", "action", "target_user_id", "outcome")
+    },
+}
+# The admin delete's purge (#362): its owner and, once the family is installed, that role alone.
+PURGE_ACCOUNT = "webhook_events_purge_account"
 _CALLABLE = {
     **WITHINGS_FUNCTIONS,
     **RATE_FUNCTIONS,
@@ -532,6 +568,10 @@ def check_roles(conn: Connection) -> list[str]:
     need(AI not in _grantees(databases), f"{AI} must hold nothing on the database")
     need(EXPORTS not in _grantees(databases), f"{EXPORTS} must hold nothing on the database")
     need(
+        ADMIN_ACCOUNTS not in _grantees(databases),
+        f"{ADMIN_ACCOUNTS} must hold nothing on the database",
+    )
+    need(
         not (WITHINGS_ROLES & _grantees(databases)),
         "webhook roles must hold nothing on the database",
     )
@@ -657,6 +697,10 @@ def check_roles(conn: Connection) -> list[str]:
         )
     # 60-exports.sql: absent until that script runs, then exactly its role and grants.
     exports_installed = _definer_role(need, conn, EXPORTS, EXPORTS_ATTRIBUTES, EXPORTS_FUNCTIONS)
+    # 70-admin-accounts.sql: absent until that script runs, then exactly its role and grants.
+    admin_installed = _definer_role(
+        need, conn, ADMIN_ACCOUNTS, ADMIN_ACCOUNTS_ATTRIBUTES, ADMIN_ACCOUNTS_FUNCTIONS
+    )
 
     # Schemas.
     schemas = _acl(
@@ -699,6 +743,16 @@ def check_roles(conn: Connection) -> list[str]:
         )
     else:
         need(EXPORTS not in _grantees(schemas), f"{EXPORTS} must not be a schema grantee")
+    if admin_installed:
+        need(
+            _privileges(schemas, ADMIN_ACCOUNTS, "public") == {"USAGE"},
+            f"{ADMIN_ACCOUNTS}: USAGE only on public",
+        )
+    else:
+        need(
+            ADMIN_ACCOUNTS not in _grantees(schemas),
+            f"{ADMIN_ACCOUNTS} must not be a schema grantee",
+        )
     need(not _privileges(schemas, "PUBLIC", "public"), "PUBLIC must have no privilege on public")
     need(
         {"USAGE", "CREATE"} <= _privileges(schemas, OWNER, "public"),
@@ -713,8 +767,10 @@ def check_roles(conn: Connection) -> list[str]:
         schema_grantees |= {AI}
     if exports_installed:
         schema_grantees |= {EXPORTS}
+    if admin_installed:
+        schema_grantees |= {ADMIN_ACCOUNTS}
     need(_grantees(schemas) <= schema_grantees, "unexpected grantee on a schema")
-    elsewhere = {APP, "PUBLIC", QUEUE, OUTBOX, AI, EXPORTS} | WITHINGS_ROLES
+    elsewhere = {APP, "PUBLIC", QUEUE, OUTBOX, AI, EXPORTS, ADMIN_ACCOUNTS} | WITHINGS_ROLES
     need(
         not [1 for o, g, _, _ in schemas if o != "public" and g in elsewhere],
         "no privilege for the app, PUBLIC, the queue or a webhook role on another schema",
@@ -810,6 +866,19 @@ def check_roles(conn: Connection) -> list[str]:
                 EXPORTS not in _grantees(relations, obj),
                 f"{obj}: {EXPORTS} must hold no table privilege",
             )
+        # The admin account role: column grants (below) and DELETE on users and sessions.
+        if admin_installed and obj in ADMIN_ACCOUNTS_RELATIONS:
+            allowed.add(ADMIN_ACCOUNTS)
+            need(
+                _privileges(relations, ADMIN_ACCOUNTS, obj) == ADMIN_ACCOUNTS_RELATIONS[obj],
+                f"{obj}: {ADMIN_ACCOUNTS} privileges must be exactly "
+                f"{sorted(ADMIN_ACCOUNTS_RELATIONS[obj])}",
+            )
+        else:
+            need(
+                ADMIN_ACCOUNTS not in _grantees(relations, obj),
+                f"{obj}: {ADMIN_ACCOUNTS} must hold no table privilege",
+            )
         need(_grantees(relations, obj) <= allowed, f"{obj}: unexpected grantee")
     need(
         not [1 for *_, grantable in relations if grantable], "no grantable privilege on a relation"
@@ -863,6 +932,10 @@ def check_roles(conn: Connection) -> list[str]:
         for key, extra in EXPORTS_COLUMNS.items():
             if key[0] in present:
                 expected_columns[key] = set(expected_columns.get(key, ())) | extra
+    if admin_installed:
+        for key, extra in ADMIN_ACCOUNTS_COLUMNS.items():
+            if key[0] in present:
+                expected_columns[key] = set(expected_columns.get(key, ())) | extra
     need(
         found_columns == expected_columns,
         f"column-level privileges in public must be exactly {expected_columns}, "
@@ -907,6 +980,10 @@ def check_roles(conn: Connection) -> list[str]:
         found_names = {signature.partition("(")[0] for signature in signatures}
         missing = set(EXPORTS_FUNCTIONS) - found_names
         need(not missing, f"export purge missing: {sorted(missing)}")
+    if admin_installed:
+        found_names = {signature.partition("(")[0] for signature in signatures}
+        missing = set(ADMIN_ACCOUNTS_FUNCTIONS) - found_names
+        need(not missing, f"admin account functions missing: {sorted(missing)}")
     for obj in sorted({o for o, *_ in functions}):
         signature = _bare_signature(obj)
         if queue_installed and signature in QUEUE_EXECUTE:
@@ -934,6 +1011,47 @@ def check_roles(conn: Connection) -> list[str]:
             need(
                 obj.endswith(f":{QUEUE}:true"),
                 f"{obj}: must be owned by ownvitals_queue and be SECURITY DEFINER",
+            )
+            need(
+                not any(grantable for o, _, _, grantable in functions if o == obj),
+                f"{obj}: no grantable privilege",
+            )
+        elif signature.partition("(")[0] in ADMIN_ACCOUNTS_FUNCTIONS and admin_installed:
+            # Maint's alone (#314); guard 11 checks that maint holds exactly these.
+            need(not _privileges(functions, APP, obj), f"{obj}: ownvitals_app may not execute it")
+            need(
+                _privileges(functions, ADMIN_ACCOUNTS, obj) == {"EXECUTE"},
+                f"{obj}: {ADMIN_ACCOUNTS} EXECUTE only",
+            )
+            need(
+                _privileges(functions, MAINT, obj) == {"EXECUTE"},
+                f"{obj}: {MAINT} must have EXECUTE and nothing else",
+            )
+            need(_grantees(functions, obj) <= {ADMIN_ACCOUNTS, MAINT}, f"{obj}: unexpected grantee")
+            need(
+                obj.endswith(f":{ADMIN_ACCOUNTS}:true"),
+                f"{obj}: must be owned by {ADMIN_ACCOUNTS} and be SECURITY DEFINER",
+            )
+            need(
+                not any(grantable for o, _, _, grantable in functions if o == obj),
+                f"{obj}: no grantable privilege",
+            )
+        elif signature.partition("(")[0] == PURGE_ACCOUNT and withings_installed:
+            # No runtime role calls it (#314): the admin account delete, once installed, alone.
+            need(not _privileges(functions, APP, obj), f"{obj}: ownvitals_app may not execute it")
+            need(
+                _privileges(functions, EVENTS, obj) == {"EXECUTE"}, f"{obj}: {EVENTS} EXECUTE only"
+            )
+            callers = {EVENTS, ADMIN_ACCOUNTS} if admin_installed else {EVENTS}
+            need(_grantees(functions, obj) == callers, f"{obj}: grantees must be {sorted(callers)}")
+            if admin_installed:
+                need(
+                    _privileges(functions, ADMIN_ACCOUNTS, obj) == {"EXECUTE"},
+                    f"{obj}: {ADMIN_ACCOUNTS} must have EXECUTE and nothing else",
+                )
+            need(
+                obj.endswith(f":{EVENTS}:true"),
+                f"{obj}: must be owned by {EVENTS} and be SECURITY DEFINER",
             )
             need(
                 not any(grantable for o, _, _, grantable in functions if o == obj),

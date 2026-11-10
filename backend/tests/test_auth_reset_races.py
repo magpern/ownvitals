@@ -21,8 +21,19 @@ from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture,
 from flows import Browser, signed_in, user_with_password
 from oauthtools import fake_fixture, oenv_fixture, sign_in_with  # noqa: F401 - fixtures
 from oidcfake import FakeProviders
-from ownvitals.auth import admin_accounts, oauth_outcomes, reset_routes, signin_routes
-from racetools import EMAIL, LINKED, WAIT, Held, after, complete_reset, reset_token, sessions
+from ownvitals.auth import oauth_outcomes, reset_routes, signin_routes
+from racetools import (
+    EMAIL,
+    LINKED,
+    WAIT,
+    AdminPath,
+    Held,
+    admin_path,
+    after,
+    complete_reset,
+    reset_token,
+    sessions,
+)
 
 # --- password sign-in vs reset ------------------------------------------------------------------
 
@@ -177,12 +188,13 @@ async def test_a_disable_between_the_password_check_and_the_session_wins(
     env: Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     user_id = await user_with_password(env)
+    async with admin_path(env) as admin:
 
-    async def disable() -> None:
-        await admin_accounts.disable_account(env.factory, user_id)
+        async def disable() -> None:
+            await admin.disable(user_id)
 
-    after(monkeypatch, signin_routes, "_check_password", disable)
-    assert (await Browser(env).sign_in(EMAIL)).status_code == 401
+        after(monkeypatch, signin_routes, "_check_password", disable)
+        assert (await Browser(env).sign_in(EMAIL)).status_code == 401
     assert await sessions(env) == 0
 
 
@@ -191,14 +203,16 @@ async def test_a_disable_waits_for_a_sign_in_in_flight_and_revokes_its_session(
 ) -> None:
     user_id = await user_with_password(env)
     held = Held(monkeypatch, signin_routes, "remember_device")
-    signing_in = asyncio.create_task(Browser(env).sign_in(EMAIL))
-    await held.inside()
-    disabling = asyncio.create_task(admin_accounts.disable_account(env.factory, user_id))
-    await asyncio.sleep(WAIT)
-    assert not disabling.done()
-    held.release.set()
-    assert (await signing_in).status_code == 200
-    _, revoked = await disabling
+    async with admin_path(env) as admin:
+        await admin.actor()
+        signing_in = asyncio.create_task(Browser(env).sign_in(EMAIL))
+        await held.inside()
+        disabling = asyncio.create_task(admin.disable(user_id))
+        await asyncio.sleep(WAIT)
+        assert not disabling.done()
+        held.release.set()
+        assert (await signing_in).status_code == 200
+        _, revoked = await disabling
     assert revoked == 1
     assert await sessions(env) == 0
 
@@ -211,6 +225,12 @@ async def test_the_concurrent_pairs_never_deadlock(env: Env) -> None:
     deadlock or serialization failure), and no session outlives the reset or the disable."""
     user_id = await user_with_password(env)
     original = await env.scalar("SELECT password_hash FROM users")
+    async with admin_path(env) as admin:
+        await admin.actor()
+        await _pairs(env, admin, user_id, original)
+
+
+async def _pairs(env: Env, admin: AdminPath, user_id: Any, original: object) -> None:
     for _ in range(4):
         await env.run(
             "UPDATE users SET disabled_at = NULL, password_hash = :h WHERE id = :u",
@@ -226,7 +246,7 @@ async def test_the_concurrent_pairs_never_deadlock(env: Env) -> None:
         await env.run("DELETE FROM sessions")
         login, disabled = await asyncio.gather(
             Browser(env).sign_in(EMAIL),
-            admin_accounts.disable_account(env.factory, user_id),
+            admin.disable(user_id),
         )
         assert login.status_code in (200, 401)
         assert disabled[1] in (0, 1)

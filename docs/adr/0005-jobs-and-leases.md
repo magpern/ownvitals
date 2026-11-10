@@ -1,7 +1,7 @@
 # ADR 0005: Jobs, leases, fencing and the worker
 
 Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88, and 2026-11-10 by
-#370 (see "Amendments").
+#370 and #314 (see "Amendments").
 Post-port review (#16, 2026-11-03): no decision changed; the queue hardening findings of the M1
 PRs are in #165.
 
@@ -187,6 +187,17 @@ queued ──claim──> running ──> completed | failed | cancelled
     `SELECT` of `owner_id`, `kind` and `route`, `DELETE` (30-day retention of sent and failed
     rows) and, on `owner_notices` only, `INSERT (kind, route)`; no account or health table.
     Their digests are in `ownvitals.db.outbox_digests`.
+  - from #314, the admin account family (ADR 0002 §3; amended 2026-11-10, #314):
+    `admin_account_disable(p_target uuid)`, `admin_account_enable(p_target uuid)` and
+    `admin_account_delete(p_target uuid, p_email_normalized text, p_ip text, p_browser text,
+    p_os text, p_place text)`, in `docker/postgres/maint/70-admin-accounts.sql`, owned by the
+    `NOLOGIN` role `ownvitals_admin_accounts` (`NOBYPASSRLS`, member of no role, no settings, no
+    default privileges) with the queue functions' `search_path` and the comment
+    `ownvitals-admin-accounts v1`; `ownvitals_maint` may execute them, `ownvitals_app` and
+    `PUBLIC` nothing. Each refuses unless its transaction already holds the matching `ok` admin
+    audit row. The role's privileges are exactly those ADR 0002 §3 lists (system tables only).
+    Their digests are in `ownvitals.db.queue_digests` with the others, and `20-queue.sql` admits
+    the three by name. `db-functions` runs the script last.
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day
@@ -396,6 +407,15 @@ A new advisory lock adds its row here in the PR that introduces it.
 - Threat model T44 to T51 cite this ADR.
 
 ## Amendments
+
+### 2026-11-10 (#314): the admin account family
+
+Recorded in §3 and marked "amended 2026-11-10, #314": ADR 0002 §3 requires an amendment here
+per new family. The admin area's disable, enable and delete run as three definer functions of a
+new family owned by `ownvitals_admin_accounts`, installed by the superuser script
+`docker/postgres/maint/70-admin-accounts.sql` (never a migration) and pinned like the others, so
+each change commits with its `ok` audit row (ADR 0002's amendment of the same date gives the
+conditions).
 
 ### 2026-11-10 (#370): the rate limiter's lanes follow live demand
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Entrypoint of the one-shot compose service `db-functions` (ADR 0005 section 3, #126): run
 # 20-queue.sql, then 30-maint.sql, then 40-withings.sql, then rate.sql, then 50-outbox.sql, then
-# 50-ai.sql, then 60-exports.sql as the
+# 50-ai.sql, then 60-exports.sql, then 70-admin-accounts.sql (#314) as the
 # superuser, in one transaction,
 # after the migrations and before web and the worker start. The runner is
 # ownvitals.db.install_functions.
@@ -51,4 +51,4 @@ exec python -m ownvitals.db.install_functions \
   /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \
   /app/db-functions/40-withings.sql /app/db-functions/rate.sql \
   /app/db-functions/50-outbox.sql /app/db-functions/50-ai.sql \
-  /app/db-functions/60-exports.sql
+  /app/db-functions/60-exports.sql /app/db-functions/70-admin-accounts.sql

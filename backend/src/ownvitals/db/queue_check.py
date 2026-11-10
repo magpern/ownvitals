@@ -20,7 +20,10 @@ installed, and the AI family's ``ai_reserve``, ``ai_settle``, ``ai_release``, ``
 and ``ai_audit_purge`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 sections 6 and 7; #205, #331),
 owned by ``ownvitals_ai``: absent until that script has run, then all five, each pinned, and
 the export purge ``exports_purge_expired`` (``docker/postgres/exports/60-exports.sql``, ADR 0013
-section 4; #333), owned by ``ownvitals_exports`` and pinned the same way once installed;
+section 4; #333), owned by ``ownvitals_exports`` and pinned the same way once installed, and the
+admin account family (``docker/postgres/maint/70-admin-accounts.sql``, ADR 0002 section 3; #314),
+owned by ``ownvitals_admin_accounts``: absent, or all three, each pinned, with
+``webhook_events_purge_account`` then executable by that role alone;
 no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
 CHECK, index or partition expression of any table or domain calls one of ``SQL_TEXT_BUILTINS``.
 So nothing can shadow a built-in a function body calls, and nothing a function fires (a trigger,
@@ -67,6 +70,10 @@ from ownvitals.db.queue_expected import (  # noqa: F401 (re-exported)
     WITHINGS_VERSION,
 )
 from ownvitals.db.queue_expected_extra import (  # noqa: F401 (re-exported)
+    ADMIN_ACCOUNTS_FUNCTION_NAMES,
+    ADMIN_ACCOUNTS_PINS,
+    ADMIN_ACCOUNTS_ROLE,
+    ADMIN_ACCOUNTS_VERSION,
     AI_FUNCTION_NAMES,
     AI_PINS,
     AI_ROLE,
@@ -79,6 +86,7 @@ from ownvitals.db.queue_expected_extra import (  # noqa: F401 (re-exported)
     OUTBOX_PINS,
     OUTBOX_ROLE,
     OUTBOX_VERSION,
+    PURGE_ACCOUNT_ADMIN_ACL,
     RATE_FUNCTION_NAMES,
     RATE_PINS,
     RATE_VERSION,
@@ -148,11 +156,15 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
                 f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
                 "search_path, version, md5 or ACL)"
             )
+    # The admin account family is all or nothing, like the AI family (#314).
+    admin_installed = any(by_name.get(name) for name in ADMIN_ACCOUNTS_FUNCTION_NAMES)
     for name in WITHINGS_FUNCTION_NAMES:
         rows = by_name.get(name, [])
         if not rows:
             continue
         args, owner, config, acl = WITHINGS_PINS[name]
+        if name == "webhook_events_purge_account" and admin_installed:
+            acl = PURGE_ACCOUNT_ADMIN_ACL
         expected = [name, args, "true", owner, config, WITHINGS_VERSION, QUEUE_DIGESTS[name], acl]
         if len(rows) != 1 or rows[0] != expected:
             found.append(
@@ -199,6 +211,14 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
         args, owner, config, acl = EXPORTS_PINS[name]
         expected = [name, args, "true", owner, config, EXPORTS_VERSION, QUEUE_DIGESTS[name], acl]
         if len(rows) != 1 or rows[0] != expected:
+            found.append(
+                f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
+                "settings, version, md5 or ACL)"
+            )
+    for name in ADMIN_ACCOUNTS_FUNCTION_NAMES if admin_installed else ():
+        args, owner, config, acl = ADMIN_ACCOUNTS_PINS[name]
+        version, digest = ADMIN_ACCOUNTS_VERSION, QUEUE_DIGESTS[name]
+        if by_name.get(name, []) != [[name, args, "true", owner, config, version, digest, acl]]:
             found.append(
                 f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
                 "settings, version, md5 or ACL)"

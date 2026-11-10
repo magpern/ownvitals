@@ -1,8 +1,8 @@
-"""The rate functions', the mail outbox's, the AI cost cap's and the export purge's expectations
-of the queue check (``ownvitals.db.queue_check``, ADR 0005 section 3, guard 9): names, versions,
-owners and pins of the functions admitted beside the queue. Split from
-``ownvitals.db.queue_expected``; no logic change. ``ownvitals.db.queue_check`` re-exports every
-public name here.
+"""The rate functions', the mail outbox's, the AI cost cap's, the export purge's and the admin
+account family's expectations of the queue check (``ownvitals.db.queue_check``, ADR 0005
+section 3, guard 9): names, versions, owners and pins of the functions admitted beside the
+queue. Split from ``ownvitals.db.queue_expected``; no logic change. ``ownvitals.db.queue_check``
+re-exports every public name here.
 """
 
 SEARCH_PATH = "search_path=pg_catalog, pg_temp"  # same value as queue_expected.SEARCH_PATH
@@ -100,3 +100,45 @@ EXPORTS_PINS: dict[str, tuple[str, str, str, str]] = {
         _EXPORTS_ACL,
     ),
 }
+# The admin account family (docker/postgres/maint/70-admin-accounts.sql, ADR 0002 section 3;
+# #314), owned by its own NOLOGIN role and executable by ownvitals_maint only. Absent until
+# db-functions has run that script; once one is present, all three must be, each pinned (its
+# digest in queue_digests.py with the others).
+ADMIN_ACCOUNTS_ROLE = "ownvitals_admin_accounts"
+ADMIN_ACCOUNTS_FUNCTION_NAMES = (
+    "admin_account_disable",
+    "admin_account_enable",
+    "admin_account_delete",
+)
+ADMIN_ACCOUNTS_VERSION = "ownvitals-admin-accounts v1"
+# Sorted as the query sorts the entries: "ownvitals_admin_accounts" comes before "ownvitals_maint".
+_ADMIN_ACCOUNTS_ACL = (
+    f"{ADMIN_ACCOUNTS_ROLE}=X/{ADMIN_ACCOUNTS_ROLE},ownvitals_maint=X/{ADMIN_ACCOUNTS_ROLE}"
+)
+ADMIN_ACCOUNTS_PINS: dict[str, tuple[str, str, str, str]] = {
+    "admin_account_disable": (
+        "p_target uuid, OUT outcome text, OUT disabled_at timestamp with time zone, "
+        "OUT sessions_revoked integer",
+        ADMIN_ACCOUNTS_ROLE,
+        SEARCH_PATH,
+        _ADMIN_ACCOUNTS_ACL,
+    ),
+    "admin_account_enable": (
+        "p_target uuid",
+        ADMIN_ACCOUNTS_ROLE,
+        SEARCH_PATH,
+        _ADMIN_ACCOUNTS_ACL,
+    ),
+    "admin_account_delete": (
+        "p_target uuid, p_email_normalized text, p_ip text, p_browser text, p_os text, "
+        "p_place text",
+        ADMIN_ACCOUNTS_ROLE,
+        SEARCH_PATH,
+        _ADMIN_ACCOUNTS_ACL,
+    ),
+}
+# webhook_events_purge_account (#362) is the delete's step: once the family is installed its ACL
+# is this one exactly (the family's role, called from admin_account_delete), and before it only
+# the owner's. No runtime role holds EXECUTE on it (#314).
+PURGE_ACCOUNT_ACL = "ownvitals_webhook_events=X/ownvitals_webhook_events"
+PURGE_ACCOUNT_ADMIN_ACL = f"{ADMIN_ACCOUNTS_ROLE}=X/ownvitals_webhook_events," + PURGE_ACCOUNT_ACL

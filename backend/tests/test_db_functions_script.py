@@ -192,7 +192,7 @@ def test_the_entrypoint_starts_the_runner_with_the_image_s_sql() -> None:
         "  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \\\n"
         "  /app/db-functions/40-withings.sql /app/db-functions/rate.sql \\\n"
         "  /app/db-functions/50-outbox.sql /app/db-functions/50-ai.sql \\\n"
-        "  /app/db-functions/60-exports.sql"
+        "  /app/db-functions/60-exports.sql /app/db-functions/70-admin-accounts.sql"
     )
     assert "PGPASSWORD" not in source
     assert "psql" not in source
