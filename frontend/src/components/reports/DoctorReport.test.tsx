@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { SIGNED_IN, fakeApi } from '../../test/fakeApi'
 import { renderAt } from '../../test/render'
@@ -64,6 +64,19 @@ describe('the doctor report row', () => {
     const sent = JSON.stringify(api.to('POST', '/api/reports/doctor')[0])
     expect(sent).toContain('"metrics":["weight"]')
     expect(sent).toContain('"recordings":[]')
+  })
+
+  it('does not offer the segmental tiles, which the report cannot take', async () => {
+    const segment = { ...TILE, key: 'segmental_muscle_mass:left_arm', unit: 'kg' }
+    fakeApi({
+      ...base,
+      'GET /api/metrics?range=1y': { metrics: [TILE, segment] },
+      'GET /api/reports/doctor': { exports: [] },
+    })
+    renderAt('/settings/data')
+    await screen.findByRole('button', { name: 'Weight' })
+    const group = screen.getByRole('group', { name: 'Metrics' })
+    expect(within(group).getAllByRole('button')).toHaveLength(1)
   })
 
   it('says it is preparing while a report builds', async () => {

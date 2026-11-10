@@ -1,10 +1,11 @@
 """Pure assembly of the segmental tiles (issue #324): ``segmental_muscle_mass:<position>``.
 
 Segmental values have no daily value, so no typical range and no sparkline: the tile carries the
-latest reading and the data state of the ``measures`` stream, like any other tile. A position with
-a reading is listed; one without is listed only while the stream is blocked, so the page says
-"not supported", "not shared" and so on instead of "not available" (the page reads an unlisted
-position as not available). No database, clock or Withings.
+latest reading and the data state of the ``measures`` stream, like any other tile. The reading is
+kept while the stream is blocked, as ``assemble.tile`` does (the page decides by state whether to
+show it). A position with a reading is listed; one without is listed only while the stream is
+blocked, so the page says "not supported", "not shared" and so on instead of "not available"
+(the page reads an unlisted position as not available). No database, clock or Withings.
 """
 
 from collections.abc import Sequence
@@ -22,7 +23,6 @@ PAGE_POSITIONS: Final = ("left_arm", "right_arm", "left_leg", "right_leg")
 
 
 def _tile(key: str, record: SegmentalRecord | None, stream: states.StreamState) -> MetricTileOut:
-    blocked = stream.state in states.BLOCKED
     return MetricTileOut(
         key=key,
         area="body",
@@ -32,7 +32,7 @@ def _tile(key: str, record: SegmentalRecord | None, stream: states.StreamState) 
         progress_percent=stream.progress_percent,
         progress=None,
         latest=None
-        if record is None or blocked
+        if record is None
         else LatestOut(day=record.day, value=float(record.value), n=1, method="reading"),
         typical_range=None,
         sparkline=[],

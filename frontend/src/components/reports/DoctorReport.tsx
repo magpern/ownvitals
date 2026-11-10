@@ -48,7 +48,9 @@ export function DoctorReport() {
 
   const tiles = useResource(metricsPath('1y'), decodeMetrics)
   const ecg = useResource(ecgListPath(0), decodeRecordingPage)
-  const choices = (tiles.data ?? []).filter((m) => m.latest !== null)
+  // The report takes the daily metrics only (the server refuses any other key): the segmental
+  // tiles (`segmental_muscle_mass:left_arm`, issue 324) are readings and carry a position after a colon.
+  const choices = (tiles.data ?? []).filter((m) => m.latest !== null && !m.key.includes(':'))
   const strips = (ecg.data?.recordings ?? []).filter((r) => r.hasSignal)
 
   const load = useCallback(async () => {

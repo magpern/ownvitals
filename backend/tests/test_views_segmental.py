@@ -27,7 +27,7 @@ LEFT_ARM, RIGHT_ARM, LEFT_LEG = 3, 2, 10  # withings-findings section 2 position
 async def segment_tiles(browser: Browser) -> dict[str, dict[str, Any]]:
     response = await browser.get("/api/metrics")
     assert response.status_code == 200, response.text
-    return {m["key"]: m for m in response.json()["metrics"] if m["key"].startswith(KEY)}
+    return {m["key"]: m for m in response.json()["metrics"] if "segment" in m["key"]}
 
 
 def reading(grpid: int, days_ago: int, *measures: tuple[int, int, int, int | None]) -> Any:
@@ -43,6 +43,7 @@ async def test_latest_segmental_value_per_position_as_a_tile(env: Env) -> None:
     await ingest(env, owner, link, extra=[older, newer, fat])
     tiles = await segment_tiles(browser)
     assert sorted(tiles) == [f"{KEY}:left_arm", f"{KEY}:left_leg", f"{KEY}:right_arm"]
+    assert not any(k.startswith("segmental_fat") for k in tiles)  # other segmental types
     arm = tiles[f"{KEY}:left_arm"]
     assert (arm["area"], arm["unit"], arm["stream"], arm["state"]) == (
         "body",
@@ -116,3 +117,25 @@ async def test_an_excluded_reading_is_not_the_latest(env: Env) -> None:
     )
     tiles = await segment_tiles(browser)
     assert tiles[f"{KEY}:left_arm"]["latest"]["value"] == 2.8
+
+
+async def test_a_blocked_stream_keeps_the_latest_reading_with_its_state(env: Env) -> None:
+    browser, owner = await user(env, "a@example.com")
+    link = connected_with_streams(owner, measures={"capability": "unsupported"})
+    await ingest(env, owner, link, extra=[reading(5_300_001, 2, (175, 2900, -3, LEFT_ARM))])
+    tiles = await segment_tiles(browser)
+    assert tiles[f"{KEY}:left_arm"]["state"] == "not_supported"
+    assert tiles[f"{KEY}:left_arm"]["latest"]["value"] == 2.9  # as assemble.tile keeps it
+    assert tiles[f"{KEY}:right_arm"]["latest"] is None
+
+
+async def test_the_day_is_the_local_day_of_the_reading(env: Env) -> None:
+    browser, owner = await user(env, "a@example.com")
+    link = connected_with_streams(owner)
+    day = TODAY - timedelta(days=3)
+    late = group(
+        5_400_001, epoch(day, 23, 30), (175, 3000, -3, LEFT_ARM)
+    )  # 00:30 or 01:30 next day
+    await ingest(env, owner, link, extra=[late])
+    tiles = await segment_tiles(browser)
+    assert tiles[f"{KEY}:left_arm"]["latest"]["day"] == (day + timedelta(days=1)).isoformat()
