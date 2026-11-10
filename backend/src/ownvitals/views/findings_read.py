@@ -50,12 +50,12 @@ from ownvitals.ecg.overlay import (
     RecordingKey,
     ecg_gate_overlay,
     estimate_view,
-    estimated_current,
     recording_device_id,
     resolve_links,
 )
 from ownvitals.ecg.validate_cli import input_fingerprint
 from ownvitals.flags import effective
+from ownvitals.views.findings_links import trigger_links
 from ownvitals.views.findings_models import (
     AREA_BY_LETTER,
     AREAS,
@@ -74,7 +74,6 @@ from ownvitals.views.findings_models import (
     NotificationCandidate,
     Reading,
     Tab,
-    TriggerLink,
     area_of,
     groups_of_evidence,
 )
@@ -315,25 +314,6 @@ async def read_finding(
     return FindingDetail(finding=view, readings=readings_of(rows), estimates=tuple(estimates))
 
 
-def _trigger_links(
-    linked: Mapping[int, Sequence[RecordingKey]], groups: Sequence[GroupKey]
-) -> tuple[TriggerLink, ...]:
-    connection: dict[int, UUID] = {}
-    for group in groups:
-        connection.setdefault(group.grpid, group.connection)
-    return tuple(
-        TriggerLink(
-            grpid=grpid,
-            connection=connection.get(grpid),
-            linked=len(recordings),
-            without_estimate=sum(
-                1 for r in recordings if not estimated_current(r.estimated, r.fingerprint)
-            ),
-        )
-        for grpid, recordings in linked.items()
-    )
-
-
 async def read_notification_candidates(
     db: AsyncSession, owner: UUID, settings: Settings, ids: Sequence[UUID]
 ) -> tuple[NotificationCandidate, ...]:
@@ -346,7 +326,7 @@ async def read_notification_candidates(
     switch = await _switch(db, settings)
     loaded = await _load(db, owner, switch, "notification", FindingsQuery(), ids, keep_hidden=True)
     return tuple(
-        NotificationCandidate(view, _trigger_links(loaded.linked[view.id], loaded.groups))
+        NotificationCandidate(view, trigger_links(loaded.linked[view.id], loaded.groups))
         for view in loaded.views
     )
 
