@@ -43,10 +43,16 @@ def _mail(root: Path, code: str) -> bool:
 def _checks(root: Path, code: str) -> bool:
     # The three ``locale`` columns share ``LOCALE_CHECK`` (``users``, the pending sign-up and the
     # OAuth flow); the outbox row has no language column (the language is looked up at send time).
-    check = re.search(r'LOCALE_CHECK\s*=\s*"([^"]*)"', _text(root / SRC / "auth/tables.py"))
-    widened = any(
-        "locale" in text and (f'"{code}"' in text or f"'{code}'" in text)
-        for text in (_text(p) for p in (root / "backend/migrations/versions").glob("*.py"))
+    # Each table's CHECK is named in ``tables.py``: a migration must name that constraint and the
+    # code, so widening one table of the three does not pass (#269).
+    tables = _text(root / SRC / "auth/tables.py")
+    check = re.search(r'LOCALE_CHECK\s*=\s*"([^"]*)"', tables)
+    names = re.findall(r'CheckConstraint\(LOCALE_CHECK,\s*name="([^"]+)"', tables)
+    migrations = [_text(p) for p in (root / "backend/migrations/versions").glob("*.py")]
+    quoted = (f'"{code}"', f"'{code}'")
+    widened = len(names) == 3 and all(
+        any(name in text and any(q in text for q in quoted) for text in migrations)
+        for name in names
     )
     return check is not None and f"'{code}'" in check.group(1) and widened
 

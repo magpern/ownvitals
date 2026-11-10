@@ -165,7 +165,7 @@ async def test_unknown_api_path_is_a_json_404(down_client: httpx.AsyncClient) ->
     response = await down_client.get("/api/does-not-exist")
     assert response.status_code == 404
     assert response.headers["content-type"] == "application/json"
-    assert response.json() == {"detail": "Not Found"}
+    assert response.json() == {"detail": {"reason": "not_found"}}
 
 
 async def test_api_docs_live_under_api_and_are_off_in_prod(

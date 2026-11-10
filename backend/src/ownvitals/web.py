@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ownvitals import __version__
 from ownvitals.admin.db import AdminDb
@@ -129,7 +130,7 @@ def _add_single_page_app(app: FastAPI, static_dir: Path) -> None:
     @app.get("/{path:path}", include_in_schema=False)
     async def single_page_app(path: str) -> FileResponse:
         if path == "api" or path.startswith("api/"):
-            raise HTTPException(status_code=404)
+            raise HTTPException(status_code=404, detail={"reason": "not_found"})
         try:
             candidate = (root / path).resolve()
             if candidate.is_relative_to(root) and candidate.is_file():
@@ -138,7 +139,7 @@ def _add_single_page_app(app: FastAPI, static_dir: Path) -> None:
             pass
         index = root / "index.html"
         if not index.is_file():
-            raise HTTPException(status_code=404)
+            raise HTTPException(status_code=404, detail={"reason": "not_found"})
         return FileResponse(index)
 
 
@@ -212,6 +213,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/api/openapi.json" if docs_enabled else None,
     )
     app.state.settings = settings
+
+    @app.exception_handler(StarletteHTTPException)
+    async def not_found_code(_: Request, exc: Exception) -> Response:
+        # The router's own 404 carries an English sentence; answer with the code (ADR 0015 s6).
+        if not isinstance(exc, StarletteHTTPException):
+            raise exc
+        if (exc.status_code, exc.detail) == (404, "Not Found"):
+            return JSONResponse({"detail": {"reason": "not_found"}}, status_code=404)
+        return JSONResponse(
+            {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
+        )
+
     app.include_router(api)
     # Before the SPA catch-all: Google's callback (``/oauth/google/callback``) is not under /api.
     install_auth(app)

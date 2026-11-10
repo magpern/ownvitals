@@ -111,7 +111,7 @@ export const settings = {
   'data.doctor.label': 'Rapport till din läkare',
   'data.doctor.help': 'En PDF för vald period och valda mått, med EKG-remsor i verklig skala. Kräver din autentiseringskod.',
   'data.doctor.note':
-    'Den visar dina mätvärden, ditt typiska intervall från dina egna senaste 90 dagar (inte ett kliniskt referensintervall) och vad Withings har rapporterat. Den innehåller inga skattningar, poäng eller AI-text.',
+    'Den visar dina mätvärden, ditt vanliga intervall från dina egna senaste 90 dagar (inte ett kliniskt referensintervall) och vad Withings har rapporterat. Den innehåller inga skattningar, poäng eller AI-text.',
   'data.doctor.from': 'Från',
   'data.doctor.to': 'Till',
   'data.doctor.period': 'Välj en period på högst 12 månader.',

@@ -85,7 +85,7 @@ def install(app: FastAPI) -> None:
         # Class and SQLSTATE only: the message carries row values (emails, hashes).
         text = describe_database_error(exc) if isinstance(exc, DBAPIError) else "database error"
         logger.error("database error: %s", text)
-        return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
+        return JSONResponse({"detail": {"reason": "internal"}}, status_code=500)
 
     @app.exception_handler(RequestValidationError)
     async def validation_failed(request: Request, exc: Exception) -> Response:
