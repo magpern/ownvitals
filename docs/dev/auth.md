@@ -207,7 +207,14 @@ The rules that make it hold:
   the row a rotation is replacing skips it when the rotation commits and never sees the new row
   (not in its snapshot), so without the lock the rotated session survives the reset.
 - **A Google sign-in re-checks its identity** under the lock: a reset that removed it, or a
-  disable, committed since it was read, and the sign-in fails (`invalid`).
+  disable, committed since it was read, and the sign-in fails (`invalid`; the log's `why` is
+  `identity_gone`, `account_gone` or `user_disabled`).
+- **Known gap: the email change's `UPDATE`.** `confirm_email_change` updates
+  `email_normalized`, a unique key, so that `UPDATE` takes `FOR UPDATE` on the user row, not
+  `NO KEY UPDATE`. A transaction that holds a session row and inserts an `auth_events` row can
+  still deadlock against an email confirm that is revoking sessions. Postgres detects it and
+  aborts one transaction (a 500, fail closed); no session survives. Not fixed (#261 review N4):
+  changing the key column needs that lock.
 - **A reset keeps only what its page could show.** Identities linked at or after the reset
   link's `created_at` are removed with the ones the user chose (`remove_methods`). A link stamps
   `created_at` with `clock_timestamp()` under the lock, and `reset_mail` takes the lock before
@@ -227,11 +234,13 @@ screen; the frontend words every code through the catalogue).
 - **Sign-outs are recorded** (`auth/routes.py`): `POST /logout` and ending this session from the
   list write `sign_out`; ending another of the user's sessions writes `session_signed_out`, which
   the user's remaining sessions see in the list; `/logout-all` writes `logout_everywhere` with
-  the number of sessions. No row holds a session id. Each path takes the user row first ("Lock
+  the number of sessions, only when it revoked at least one (always, in practice:
+  `require_stepup` needs a live session, so the count is at least 1). No row holds a session id. Each path takes the user row first ("Lock
   order" above): the event's foreign key takes `FOR KEY SHARE` on the user row after the session
   row is locked, which would otherwise deadlock with an account deletion
   (`tests/test_auth_signout_races.py`). The event is written in a savepoint after the revoke: a
-  failed insert is logged by class and SQLSTATE and the session still ends. A sign-out that finds
+  failed insert is logged by class and SQLSTATE and the session still ends. So the event is
+  not atomic with the revoke: a sign-out can commit without its event, never the reverse. A sign-out that finds
   its session already gone records nothing. No notice mail is defined for a sign-out, so none is
   sent (a new notice kind is a later issue; `auth/notices.py` is unchanged).
 - **Origin** (`auth/event_origin.py`, migration `0019_auth_event_origin`): every `auth_events`
@@ -253,7 +262,10 @@ screen; the frontend words every code through the catalogue).
   `email_changed`, `google_linked` and `google_unlinked`, and the export's and doctor PDF's
   events under their own names (`export_requested`, `export_ready`, `export_failed`,
   `export_downloaded`, `export_expired`, `doctor_pdf_requested`, `doctor_pdf_downloaded`; #333).
-  Every other kind stays hidden until it is named there. Nothing else of `detail` is read;
+  Every other kind stays hidden until it is named there. The origin of a failed or refused
+  attempt (`sign_in_failed`, `reauth_failed`, `mfa_failed`, `passkey_suspended`) is the
+  requester's, which may be an attacker's, not the user's own device: that is intended, it is
+  what lets the user spot it. Nothing else of `detail` is read;
   `mfa_reset` (the operator's doing) and `export_ready`, `export_failed` and `export_expired`
   (the build's, the purge's or another request's tidy's doing) show no origin.
 - **Only the caller's rows** (guard 7): `auth_events` is a system table without RLS, so the
