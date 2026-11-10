@@ -10,7 +10,7 @@ from sqlalchemy.engine import Connection
 from dbtools import PARENT, drop_tables, migrated, owner_connection, run_rls_helper
 from ownvitals.ai.audit import AI_AUDIT_OWNED
 from ownvitals.ai.budget import AI_OWNED
-from ownvitals.ai.tables import AI_CONSENT_OWNED
+from ownvitals.ai.tables import AI_CONSENT_OWNED, AI_DIGEST_OWNED
 from ownvitals.db import SYSTEM_TABLES
 from ownvitals.derived.tables import DERIVED_OWNED
 from ownvitals.ingest.tables import INGEST_OWNED
@@ -66,6 +66,7 @@ def test_the_migrated_schema_meets_the_contract(database_url: str) -> None:
                 *AI_CONSENT_OWNED,
                 *EXPORT_OWNED,
                 *AI_AUDIT_OWNED,
+                *AI_DIGEST_OWNED,  # issue 209: the weekly digest (0026)
             }
     finally:
         engine.dispose()
