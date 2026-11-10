@@ -21,6 +21,7 @@ from authtools import (  # noqa: F401 - fixtures
     make_settings,
 )
 from flows import Browser, only_user_id, signed_in
+from ownvitals.config_rpid import ends_in_a_number
 from passkeytools import RP_ID, register_options, signin_options, unb64
 
 SRC = Path(__file__).resolve().parent.parent / "src"
@@ -95,6 +96,46 @@ def test_the_relying_party_follows_the_public_base_url() -> None:
 def test_a_foreign_relying_party_id_is_refused(rp_id: str) -> None:
     with pytest.raises(ValidationError):
         make_settings(URL, webauthn_rp_id=rp_id)
+
+
+@pytest.mark.parametrize(
+    "host", ["0x7f.0x1", "app.0x7f", "ownvitals.123", "ownvitals.0X1F.", "0x", "4294967295"]
+)
+def test_a_host_a_browser_reads_as_an_address_has_no_relying_party(host: str) -> None:
+    """WHATWG "ends in a number" (#282): ``0x7f.0x1`` is ``127.0.0.1`` to a browser."""
+    assert ends_in_a_number(host)
+    assert make_settings(URL, public_base_url=f"http://{host}:8000").passkey_rp_id is None
+    with pytest.raises(ValidationError):
+        make_settings(URL, public_base_url=f"http://{host}:8000", webauthn_rp_id=host)
+
+
+@pytest.mark.parametrize("host", ["ownvitals.test", "0x7f.test", "app.v2", "123a.test", "x.0xg"])
+def test_a_name_that_only_holds_digits_or_hex_is_still_a_name(host: str) -> None:
+    assert not ends_in_a_number(host)
+    assert make_settings(URL, public_base_url=f"https://{host}").passkey_rp_id == host
+
+
+@pytest.mark.parametrize(
+    ("public_base_url", "rp_id"),
+    [
+        ("https://localhost", None),
+        ("https://app.localhost", None),
+        ("https://localhost", "localhost"),
+        ("https://app.localhost", "localhost"),
+    ],
+)
+def test_a_localhost_relying_party_is_refused_in_prod(
+    public_base_url: str, rp_id: str | None
+) -> None:
+    overrides: dict[str, object] = {"public_base_url": public_base_url, "webauthn_rp_id": rp_id}
+    assert make_settings(URL, **overrides).passkey_rp_id in ("localhost", "app.localhost")
+    with pytest.raises(ValidationError, match="must not be localhost"):
+        make_settings(URL, environment="prod", **overrides)
+
+
+def test_a_real_relying_party_is_accepted_in_prod() -> None:
+    settings = make_settings(URL, environment="prod", public_base_url=f"https://app.{RP_ID}")
+    assert settings.passkey_rp_id == f"app.{RP_ID}"
 
 
 def test_a_passkey_as_second_factor_is_refused_until_the_owner_decides() -> None:

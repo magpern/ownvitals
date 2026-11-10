@@ -255,7 +255,7 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, WebhookSetti
 
     @model_validator(mode="after")
     def _check_webauthn_rp_id(self) -> "Settings":
-        check_rp_id(self.public_base_url, self.webauthn_rp_id)
+        check_rp_id(self.public_base_url, self.webauthn_rp_id, self.environment)
         return self
 
     @model_validator(mode="after")
