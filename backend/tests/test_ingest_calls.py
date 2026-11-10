@@ -395,8 +395,11 @@ async def test_a_backfill_fan_out_on_one_account_spends_no_attempt_on_the_limite
     elapsed = time.monotonic() - started
     assert done == [["synthetic"] * CALLS] * len(jobs)  # no JobFailure("rate_limited")
     assert reasons["granted"] == CALLS * len(jobs)  # one token per call, none for a refusal
-    assert reasons["busy"] + reasons["wait"] > 0  # the fan-out did hit the limiter
-    assert set(reasons) <= {"granted", "busy", "wait"}
+    # One account on one lane is always the limiter's winner, so this fan-out sees ``busy`` (the
+    # four slots) and never ``wait``; a lane or another account's turn is waited out the same way
+    # (test_a_queue_refusal_is_asked_again_within_the_attempt).
+    assert reasons["busy"] > 0  # the fan-out did hit the limiter
+    assert set(reasons) <= {"granted", "busy"}
     spent = before - _remaining(database_url, app_id)
     refill = elapsed * 100 / 60
     assert CALLS * len(jobs) - refill - 0.5 <= spent <= CALLS * len(jobs) + 0.5

@@ -158,7 +158,9 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     through_fake(monkeypatch, fake)
     # The synthetic history is 30 days: walk 45, not 17 years of windows, so the backfill is a
     # handful of calls per stream. Every call goes through the real rate limiter (#294): the
-    # parallel streams' refused claims are waited out within the attempt, not failed.
+    # parallel streams' refused claims are waited out within the attempt, not failed. That makes
+    # this flow about 80 s: a higher lane's demand holds the turn for 30 s after its job stops
+    # asking (the lane stall, #370).
     monkeypatch.setattr(streams, "FLOOR", datetime.now(UTC) - timedelta(days=45))
 
     def measure_count() -> int:
@@ -177,6 +179,15 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
         backfills = _states(database_url, "withings_backfill")
         assert backfills
         assert set(backfills) == {"completed"}, backfills  # none failed on a limiter refusal
+        assert scalar(
+            database_url,
+            "SELECT count(*) FROM jobs WHERE kind = 'withings_backfill' AND attempt <> 1",
+        ) == 0  # fmt: skip
+        assert scalar(
+            database_url,
+            "SELECT count(*) FROM job_events e JOIN jobs j ON j.id = e.job_id "
+            "WHERE j.kind = 'withings_backfill' AND e.payload->>'category' = 'rate_limited'",
+        ) == 0  # fmt: skip
         assert measure_count() == len(expected)
         status = scalar(
             database_url,
