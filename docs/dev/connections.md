@@ -144,6 +144,8 @@ It runs in the `migrate` service, the only one with the owner role's URL and pas
 no `maint` service; `ownvitals_maint` is web's admin login). `migrate` has no mail settings, so
 pass web's with `-e` (above: the local mailpit; on the server, the deployed SMTP settings);
 without them the mails stay unsent and `keys wipe --resend`, run the same way, sends them.
+A dedicated `maint` service with the owner URL and the mail settings would be a `compose.yaml`
+change (a shared-file lock), so it is left to its own issue.
 The command refuses while `pg_stat_activity` shows the
 app role in this database, and while the configured KEK id already has a check row. It loads
 no KEK and calls no provider. Per account, in one transaction: credential columns become null,
