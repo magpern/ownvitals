@@ -5,8 +5,10 @@ token is consumed when ``claim`` grants it and is never refunded: the call may a
 left. Four global slots lease the in-flight calls; ``release`` frees the slot only, and a
 slot whose lease has expired is free the next time someone claims. Lanes, highest first, are
 the same numbers as the job queue: user sync now, webhook, poll, reconcile, backfill. A
-higher lane that has asked recently wins, the same lane is round-robin, and one account's
-backfill is capped while another account is waiting.
+highest lane that is still waiting wins: one that asked within 10 seconds and has not been
+granted since, or the caller itself (#370), so a lane whose job stopped asking holds nothing.
+The same lane is round-robin, and one account's backfill is capped while another account's
+backfill is waiting.
 
 ``pause`` is the 601 hold. The wait is finite: non-positive and NaN become 60 seconds, and
 anything longer than 15 minutes, including an infinite provider value, becomes 15 minutes.

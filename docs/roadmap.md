@@ -26,6 +26,24 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 10 (2026-11-10, Architect): the rate limiter's lane rule follows live demand
+
+- **Changes:** PLAN §4.4's lanes ("highest first: user \"sync now\" > webhook > poll > reconcile
+  > backfill") and ADR 0005 §8 are read as a priority **between callers that are waiting at the
+  same time**. A lane that was served and stopped asking holds nothing; a lane that is still
+  waiting (asked within 10 s and not granted since) wins over every lower lane. The per-user
+  backfill cap applies only while another user's backfill is waiting. Implemented in
+  `withings_rate_claim` (`ownvitals-rate v2`, #370); details in ADR 0005, amendment
+  2026-11-10 (#370).
+- **Evidence:** the synthetic M1 flow through the real limiter (#294, PR #369) took 81 s instead
+  of 12 s, with two ~30 s stretches in which every claim got `wait` and none was granted: the
+  old rule let a higher lane win for 30 s after its job stopped asking. With continuous
+  higher-lane traffic a backfill could stay refused past the 60 s per-call wait bound and fail
+  its attempts. `tests/test_withings_rate.py` reproduces both on the old function and passes on
+  the new one; the M1 flow makes no `wait` refusal any more.
+- **Not changed:** the budget (100 a minute), tokens never refunded, four slots with leases, the
+  601 pause, the backfill share of a quarter. Not verified against real Withings traffic.
+
 ### Amendment 9 (2026-11-09, owner): hostnames, ports, no host firewall, no trusted proxies, staging mail
 
 - **Changes:**

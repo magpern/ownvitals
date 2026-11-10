@@ -1,6 +1,7 @@
 # ADR 0005: Jobs, leases, fencing and the worker
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88 (see "Amendments").
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88, and 2026-11-10 by
+#370 (see "Amendments").
 Post-port review (#16, 2026-11-03): no decision changed; the queue hardening findings of the M1
 PRs are in #165.
 
@@ -324,7 +325,9 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
   therefore never multiply work (PLAN §4.4).
 - **Priorities and fairness.** A lane per job (user "sync now" > webhook > poll > reconcile >
   backfill) and a per-owner fairness key in `queue_claim`'s order (round-robin, each user's backfill
-  share capped). That changes `queue_claim` and bumps its version.
+  share capped). That changes `queue_claim` and bumps its version. In the rate limiter a lane
+  competes only while its demand is live: asked within 10 s and not granted since, or the caller
+  itself; a served lane holds nothing (amended 2026-11-10, #370).
 - **Rate-limit hold.** A run that can't get a rate token, or meets a paused bucket (status 601 →
   `wait_seconds` or 60 s), goes back to `queued` with `available_at` at the bucket's resume time
   **without spending an attempt**, like a hand-back. Tokens count as consumed when claimed and are
@@ -393,6 +396,34 @@ A new advisory lock adds its row here in the PR that introduces it.
 - Threat model T44 to T51 cite this ADR.
 
 ## Amendments
+
+### 2026-11-10 (#370): the rate limiter's lanes follow live demand
+
+Architect decision for §8 ("Priorities and fairness"), marked "amended 2026-11-10, #370", with
+roadmap Amendment 10. `withings_rate_claim` (`docker/postgres/withings/rate.sql`) let the
+highest lane that had asked **within 30 s** win every claim, so once a job of a higher lane
+(connect, webhook, poll) was served and stopped asking, every lower lane got `wait` for up to
+30 s with no grant at all; a higher lane asking every few seconds held lower lanes indefinitely,
+past the per-call wait bound of `ingest/calls.py` (60 s), so a backfill failed attempts as
+`rate_limited`. The synthetic M1 flow (#294, #369) showed two such ~30 s stalls.
+
+- **Live demand.** A demand row `(app, account, lane)` competes only while it asked within
+  10 s **and** has not been granted since (`granted_at IS NULL OR seen_at > granted_at`), plus
+  the caller's own row (its clock is read before it waits on the bucket row, so a parallel
+  stream of the same row may have been granted after it). 10 s is twice the longest re-ask of
+  `_take` (5 s, stretched by up to 25 % of jitter), so a waiting lane never drops out between
+  its asks. The highest live lane wins; the same lane stays round-robin by `granted_at`.
+- **The backfill share** uses the same liveness for the other account: one account's backfill is
+  held at a quarter of the budget only while another account's backfill is live and under its
+  share. The set of candidates is therefore never empty (the caller is in it, and a capped
+  caller is excluded only for a live, uncapped one), so no claim waits for a turn nobody takes.
+- **Unchanged:** tokens, slots, the 601 pause, the 2-minute demand cleanup and the 60 s window of
+  the share. No table, column or signature changes; the three functions' comment becomes
+  `ownvitals-rate v2` (`RATE_VERSION`) and the claim's digest is regenerated.
+- **Consequence:** priority now applies between callers that are waiting at the same time. A
+  higher lane loses nothing it asks for, but between its calls (while it is making one) a lower
+  lane may be served. A waiting row that goes away (its attempt ended) holds the turn for at
+  most 10 s. Synthetic only: not verified against real Withings traffic.
 
 ### 2026-10-31 (#49): follow-ups of the #41 review
 
