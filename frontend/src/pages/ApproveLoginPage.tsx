@@ -90,6 +90,10 @@ function ApproveRequest() {
   }, [status, ready, nonce, t])
 
   let view: View = outcome ?? { kind: 'reading' }
+  // The session could not be read: say so instead of staying on "Reading the code" (issue 304).
+  if (outcome === null && status === 'error') {
+    view = { kind: 'failed', title: t('auth.guard.unreachable'), message: t('auth.guard.retry') }
+  }
   if (outcome === null && status === 'ready') {
     if (!ready) view = { kind: 'signInFirst' }
     else if (nonce === null) {

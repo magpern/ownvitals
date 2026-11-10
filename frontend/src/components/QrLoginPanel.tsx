@@ -70,10 +70,13 @@ export function QrLoginPanel({ onClose, onSignedIn }: { onClose: () => void; onS
             setView({ kind: 'ended', state })
           }
         }
-        stopStream.current = watchQrLogin(started.id, onState)
+        // The expiry timer exists before the stream can report: a state delivered at once
+        // (scanned, approved) then clears it, instead of the timer being set after and expiring
+        // a code that is already past its scan window (issue 304).
         timer.current = window.setTimeout(() => {
           if (current()) onState('expired')
         }, started.expiresIn * 1000)
+        stopStream.current = watchQrLogin(started.id, onState)
       },
       (caught: unknown) => {
         if (current()) setView({ kind: 'error', message: qrErrorMessage(caught) })
