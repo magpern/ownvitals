@@ -32,7 +32,7 @@ export const errors = {
   'reason.export_download_spent': 'Den här exporten har försökts tre gånger. Starta en ny.',
   'reason.download_same_origin_required': 'Starta nedladdningen från sidan Inställningar i ownvitals.',
   'reason.step_up_required': 'Det här kräver en ny kod från din autentiseringsapp.',
-  'reason.reauth_required': 'Det här kräver ditt lösenord igen.',
+  'reason.reauth_required': 'Bekräfta att det är du: logga in igen och fortsätt sedan.',
   'reason.reauth_stale': 'Inloggningen hos Google var inte tillräckligt färsk. Försök igen.',
   'reason.busy': 'Servern är upptagen. Försök igen om några sekunder.',
   'oauth.invalid': 'Inloggningen kunde inte slutföras. Försök igen.',
