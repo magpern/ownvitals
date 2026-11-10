@@ -22,6 +22,7 @@ from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
 from ownvitals.auth.flowtools import reserve
 from ownvitals.auth.ratelimit import (
     AI_CHAT_ACCOUNT,
+    AI_CONVERSATION_ACCOUNT,
     DOCTOR_PDF_ACCOUNT,
     EXPORT_ACCOUNT,
     OAUTH_IP,
@@ -214,6 +215,12 @@ async def reserve_ai_chat(request: Request, ctx: UserContext) -> None:
     """One slot of the chat limit (``AI_CHAT_ACCOUNT``, 20 messages per hour; ADR 0014 section 8).
     Raises ``RateLimited`` (429 with ``Retry-After``) above it."""
     await reserve(request, [Bucket(AI_CHAT_ACCOUNT, str(ctx.user_id))])
+
+
+async def reserve_ai_conversation(request: Request, ctx: UserContext) -> None:
+    """One slot of the conversation creation limit (``AI_CONVERSATION_ACCOUNT``, 30 per hour).
+    Raises ``RateLimited`` (429 with ``Retry-After``) above it."""
+    await reserve(request, [Bucket(AI_CONVERSATION_ACCOUNT, str(ctx.user_id))])
 
 
 def request_device_token(request: Request) -> str | None:

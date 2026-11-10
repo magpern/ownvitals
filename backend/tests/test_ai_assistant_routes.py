@@ -253,3 +253,26 @@ def test_the_job_kind_is_the_consent_modules_ai_kind() -> None:
     from ownvitals.ai.consent import AI_JOB_KINDS
 
     assert CHAT_KIND in AI_JOB_KINDS  # a withdrawal cancels it
+
+
+async def test_creating_conversations_is_limited_to_thirty_an_hour(chat: ChatEnv) -> None:
+    alice = await user(chat, "synthetic-route-conv-a@example.com")
+    bob = await user(chat, "synthetic-route-conv-b@example.com")
+    for n in range(30):
+        assert (await alice.browser.post("/api/ai/conversations")).status_code == 201, n
+    over = await alice.browser.post("/api/ai/conversations")
+    _refused(over, 429, "rate_limited")
+    assert over.headers.get("retry-after")
+    assert count("ai_conversations", alice.id) == 30
+    # The limit is per user.
+    assert (await bob.browser.post("/api/ai/conversations")).status_code == 201
+
+
+async def test_a_refused_creation_takes_no_slot_of_the_creation_limit(chat: ChatEnv) -> None:
+    alice = await user(chat, "synthetic-route-conv-c@example.com")
+    with settings_changed(chat, ai_insights=False):
+        for _ in range(31):  # more refusals than the limit allows
+            _refused(await alice.browser.post("/api/ai/conversations"), 409, "ai_not_enabled")
+    for n in range(30):  # all 30 slots are still free
+        assert (await alice.browser.post("/api/ai/conversations")).status_code == 201, n
+    _refused(await alice.browser.post("/api/ai/conversations"), 429, "rate_limited")

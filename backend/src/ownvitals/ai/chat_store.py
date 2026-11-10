@@ -137,13 +137,20 @@ async def _enabled(db: AsyncSession, ctx: UserContext, settings: Settings) -> No
 
 
 async def create_conversation(
-    factory: Factory, ctx: UserContext, settings: Settings
+    factory: Factory,
+    ctx: UserContext,
+    settings: Settings,
+    *,
+    reserve: Callable[[], Awaitable[None]] | None = None,
 ) -> ConversationView:
-    """A new, empty conversation; only while AI is enabled for the user."""
+    """A new, empty conversation; only while AI is enabled for the user. ``reserve`` (the
+    creation limit) is taken last, so a refused request takes no slot."""
     require_context(ctx)
     new_id = uuid.uuid4()
     async with user_session(factory, ctx) as db:
         await _enabled(db, ctx, settings)
+        if reserve is not None:
+            await reserve()
         row = (await db.execute(_NEW, {"id": new_id, "o": ctx.user_id})).one()
     return ConversationView(new_id, row.created_at, row.updated_at, 0)
 
