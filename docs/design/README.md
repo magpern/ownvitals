@@ -302,3 +302,10 @@ the mock-ups have (recorded 2026-11-09 under rule 3; the owner may review it). R
   stays easy). Withdrawing consent (Settings, or the AI row shown on this page) deletes every
   conversation; the page then shows the consent form again.
 - No new colour, icon, chart style or component.
+
+## Not in the mock-ups: TOTP enrolment, re-authentication needed (#282)
+
+The two-factor setup screen when the server answers `reauth_required` is not drawn in the
+mock-ups. It uses the existing error `Notice` with the catalogue message (en "Confirm it is you:
+sign in again, then continue.", sv "Bekräfta att det är du: logga in igen och fortsätt sedan.");
+no new component, state or token.

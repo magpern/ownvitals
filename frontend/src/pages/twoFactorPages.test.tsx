@@ -142,7 +142,7 @@ describe('forced enrolment', () => {
   it('shows an error when the enrolment cannot be started', async () => {
     fakeApi({ ...enrolRoutes(), 'POST /api/auth/mfa/totp/start': reason(403, 'reauth_required') })
     renderAt('/two-factor/setup')
-    expect(await screen.findByRole('alert')).toHaveTextContent('This needs your password again.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Confirm it is you: sign in again, then continue.')
     expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled()
   })
 

@@ -29,7 +29,7 @@ export const errors = {
   'reason.export_download_spent': 'This export was tried three times. Start a new one.',
   'reason.download_same_origin_required': 'Start the download from your ownvitals Settings page.',
   'reason.step_up_required': 'This needs a fresh code from your authenticator app.',
-  'reason.reauth_required': 'This needs your password again.',
+  'reason.reauth_required': 'Confirm it is you: sign in again, then continue.',
   'reason.reauth_stale': 'The sign-in at Google was not recent enough. Try again.',
   'reason.busy': 'The server is busy. Try again in a few seconds.',
   'oauth.invalid': 'The sign-in could not be completed. Try again.',
