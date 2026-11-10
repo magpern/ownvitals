@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from ownvitals.views.findings_routes import FindingOut
+from ownvitals.views.findings_schema import FindingOut
 
 
 class ProgressOut(BaseModel):
