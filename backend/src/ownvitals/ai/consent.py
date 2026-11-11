@@ -200,6 +200,19 @@ async def give(
     return ConsentState(int(row.consent_version), str(row.locale), row.given_at, current)
 
 
+async def cancel_ai_jobs(db: AsyncSession, ctx: UserContext) -> int:
+    """Cancel the user's queued and running AI jobs in the caller's transaction (a queued one
+    ends at once, a running one at its next checkpoint); the number this call cancelled."""
+    jobs = (await db.execute(_AI_JOBS, {"o": ctx.user_id, "kinds": list(AI_JOB_KINDS)})).all()
+    cancelled = 0
+    for job in jobs:
+        # Counted only when this call cancels it: a running job whose cancel was already
+        # requested is not counted again.
+        if await user_jobs.cancel(db, ctx, job.id) is not None and job.cancel_requested_at is None:
+            cancelled += 1
+    return cancelled
+
+
 async def withdraw(factory: Factory, ctx: UserContext) -> Withdrawn:
     """Close the live consent, cancel the user's AI jobs and delete the conversation history,
     in one transaction (the consent row's lock first, then the job rows)."""
@@ -208,16 +221,7 @@ async def withdraw(factory: Factory, ctx: UserContext) -> Withdrawn:
     deleted: dict[str, int] = {}
     async with user_session(factory, ctx) as db:
         closed = (await db.execute(_CLOSE, params)).first() is not None
-        jobs = (await db.execute(_AI_JOBS, {**params, "kinds": list(AI_JOB_KINDS)})).all()
-        cancelled = 0
-        for job in jobs:
-            # Counted only when this withdrawal cancels it: a running job whose cancel was
-            # already requested is not counted again.
-            if (
-                await user_jobs.cancel(db, ctx, job.id) is not None
-                and job.cancel_requested_at is None
-            ):
-                cancelled += 1
+        cancelled = await cancel_ai_jobs(db, ctx)
         for table in HISTORY_TABLES:
             result = await db.execute(delete(table).where(table.c.owner_id == ctx.user_id))
             deleted[table.name] = int(result.rowcount)  # pyright: ignore[reportAttributeAccessIssue]
