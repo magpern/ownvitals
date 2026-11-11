@@ -63,6 +63,7 @@ _STORED = text("SELECT 1 FROM ai_digests WHERE owner_id = :o AND week_start = :w
 _RUNNING = text(
     "SELECT 1 FROM jobs WHERE owner_id = :o AND kind = :kind AND state = 'running' LIMIT 1"
 )
+_EMAIL_ON = text("SELECT 1 FROM user_profiles WHERE owner_id = :o AND notify_email")
 _INSERT = text(
     "INSERT INTO ai_digests (owner_id, week_start, status, content) "
     "VALUES (:o, :w, :status, :content) "
@@ -81,7 +82,12 @@ async def _due(fs: FencedSession, owner: UUID, week: date) -> bool:
 async def _queueable(fs: FencedSession, owner: UUID, week: date) -> bool:
     """``_due`` and no digest job running: a queued one collapses into the singleton, a running
     one does not, and a second job could bill the same week twice. (The run itself uses
-    ``_due`` only: it is the running job.)"""
+    ``_due`` only: it is the running job.)
+
+    The check and the enqueue are not one step: two passes can both see "due". The singleton key
+    (``SINGLETON_KEY``) makes the second enqueue collapse into the first while one is queued, and
+    ``_store`` inserts under ``UNIQUE (owner_id, week_start)`` with ``ON CONFLICT DO NOTHING``, so
+    a second run stores nothing and queues no second mail."""
     if not await _due(fs, owner, week):
         return False
     return (await fs.db.execute(_RUNNING, {"o": owner, "kind": DIGEST_KIND})).first() is None
@@ -158,14 +164,21 @@ def _store(
         try:
             await consent.require_consent(fs.db, owner, nowait=True)
         except consent.AiNotEnabled as refused:
-            if refused.reason == "no_consent":  # withdrawn, or a withdrawal holds the row
+            # Withdrawn, or a withdrawal holds the row (a NOWAIT conflict reads as no_consent on
+            # purpose: the run stops cancelled and the next due pass tries again).
+            if refused.reason == "no_consent":
                 raise RunStopped("cancelled") from None
             raise JobFailure("ai_not_enabled") from None
         params = {"o": owner, "w": week}
         if (await fs.db.execute(_OPTED_IN_SHARE, params)).first() is None:
             return  # opted out meanwhile: nothing is kept
         inserted = await fs.db.execute(_INSERT, {**params, "status": status, "content": content})
-        if inserted.first() is not None and status == "ready":
+        # The mail follows the user's own email setting (``notify_email``, as the findings mail).
+        if (
+            inserted.first() is not None
+            and status == "ready"
+            and (await fs.db.execute(_EMAIL_ON, params)).first() is not None
+        ):
             await queue_user_mail(fs.db, owner, "ai_digest_ready", "assistant")
 
     return store

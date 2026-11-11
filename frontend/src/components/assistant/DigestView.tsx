@@ -16,6 +16,14 @@ import { MessageText } from './MessageText'
 // failed week shows one quiet sentence. No nudge, no count of unread digests: the mail ("your
 // weekly summary is waiting") links to this page and says nothing else.
 
+// The first day of the budget month that ends on `resetsOn` (the first of the next month). A
+// skipped week from before it was skipped under an earlier month's budget: no reset date for it.
+function budgetMonthStart(resetsOn: string): string {
+  const [year, month] = resetsOn.split('-').map(Number)
+  const prev = month === 1 ? [year - 1, 12] : [year, month - 1]
+  return `${String(prev[0]).padStart(4, '0')}-${String(prev[1]).padStart(2, '0')}-01`
+}
+
 function DigestItem({ digest, resetsOn }: { digest: Digest; resetsOn: string | null }) {
   const t = useT()
   const f = useFormat()
@@ -31,7 +39,7 @@ function DigestItem({ digest, resetsOn }: { digest: Digest; resetsOn: string | n
         <p className="ov-muted">
           {digest.status !== 'skipped_budget'
             ? t('assistant.digest.unavailable')
-            : resetsOn !== null
+            : resetsOn !== null && digest.weekStart >= budgetMonthStart(resetsOn)
               ? t('assistant.digest.skippedUntil', { date: f.day(resetsOn) })
               : t('assistant.digest.skipped')}
         </p>

@@ -56,13 +56,34 @@ def _job(job_id: uuid.UUID) -> Any:
     return sql("SELECT state, error_category, input FROM jobs WHERE id = :j", j=job_id).one()
 
 
+def _email_on(owner: uuid.UUID, on: bool = True) -> None:
+    sql(
+        "INSERT INTO user_profiles (owner_id, notify_email) VALUES (:o, :on) "
+        "ON CONFLICT (owner_id) DO UPDATE SET notify_email = :on",
+        o=owner,
+        on=on,
+    )
+
+
 # --- a digest written ----------------------------------------------------------------------------
+
+
+async def test_no_mail_is_queued_while_notify_email_is_off(chat: ChatEnv) -> None:
+    who = await digest_user(chat, "synthetic-digest-m@example.com")
+    await queue_digest(chat, who)
+    chat.fake.script = [tools(("list_metrics", {})), answer(DIGEST_TEXT)]
+    execution = await run_digest_job(chat)
+    assert execution is not None
+    assert execution.result == "completed"
+    assert digests(who.id) == [(WEEK, "ready", DIGEST_TEXT)]
+    assert digest_mail(who.id) == []
 
 
 async def test_a_due_digest_is_written_stored_and_announced_without_its_content(
     chat: ChatEnv,
 ) -> None:
     who = await digest_user(chat, "synthetic-digest-a@example.com")
+    _email_on(who.id)
     job_id = await queue_digest(chat, who)
     # The job row holds the week only, never text or another id (T47).
     assert _job(job_id).input == {"week_start": WEEK.isoformat()}

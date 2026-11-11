@@ -48,6 +48,7 @@ def test_a_trailing_dot_localhost_still_works_outside_prod(host: str) -> None:
         ("https://localhost-app.ownvitals.test", None),
         ("https://notlocalhost.test", None),
         ("https://localhost.ownvitals.test", None),
+        ("https://mylocalhost", None),
     ],
 )
 def test_a_name_that_only_contains_localhost_is_accepted_in_prod(
