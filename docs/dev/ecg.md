@@ -286,7 +286,7 @@ when one did, or when the user id or the V4 flags are refused. V2 is report-only
 | `OC2 positions N` | how many distinct wear-position codes are stored (not the codes) |
 | `OC2` | pass only when the owner answers yes and at least one code is stored |
 | `OC3 lowpass` | pass when, on every strip long enough for a 4 s Welch spectrum, power from 5–15 Hz is ≥ 30 dB above power above 40 Hz (the ADR's figure), on the stored signal |
-| `OC3 mains` | yes when a 50 or 60 Hz line's ±1 Hz power is ≥ 10 dB above the side bands 3–10 Hz away and ≥ 1% of the 5–15 Hz power (our choices for the ADR's yes/no) |
+| `OC3 mains` | yes when a 50 or 60 Hz line's ±1 Hz power is ≥ 10 dB above the side bands 3–10 Hz away and ≥ 1% of the 5–15 Hz power (our choices for the ADR's yes/no); `not-observable` when no line was found and a strip's sampling rate is at or below 120 Hz, since a 60 Hz line is then at or above Nyquist (#315) |
 | `OC4` | not-applicable when every recording has one lead. Otherwise pass when each extra lead has the same length and ≥ 95% of R-peaks (both directions) lie within 20 ms. One sampling rate is stored per recording, so "equal rate" is that single rate; an unsupported rate fails toward "not simultaneous" |
 | `OC5` | pass when every recording shares connection and timestamp with a live measure group that has a type in {130, 135, 136, 137, 138} and the same device id (or, when the recording names a device and the group has none, the same model). A recording with no device id does not match. `OC5 without` is the count with no such group |
 | `OC5 late-link` | `not-applicable` until the notification hold records why it ended (#88) |
@@ -398,8 +398,8 @@ Known gaps (decided in #307; changes would be their own issues): the job is clai
 scheduler's lane (3), not the backfill lane (5): `queue_enqueue` maps only `withings_backfill` to
 lane 5 (as for `derive_normalize`), and mapping more kinds is a change to a security-critical SQL
 function, so it stays as is. Every `ecg` pass queues the recompute, and the nightly reconciliation
-is the only sweep trigger, so a module version bump reaches stale estimates within 24 h; the overlay covers the gap (above). No sweep
-runs at worker start.
+is the guaranteed sweep trigger, so a module version bump reaches stale estimates within 24 h;
+the overlay covers the gap (above). No sweep runs at worker start.
 
 Tests: `tests/analysis/rules/test_ecg.py` and `test_ecg_intervals.py` (every rule case, the
 undecided days, origin, the switch, E6's provenance into the overlay; no database),

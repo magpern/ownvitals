@@ -333,7 +333,7 @@ CREATE POLICY owner_isolation ON <t>
     nothing. It then runs the user's own revoke-first disconnect (ADR 0004 §7) on each live
     Withings row in the owner's context, and fails `upstream_unavailable` (dead-lettered, one
     attempt) when any revoke did not finish;
-  - the admin route reads only the job's `state` and `error_category`, through `ownvitals_maint`'s
+  - the admin route reads only the job's `state`, through `ownvitals_maint`'s
     existing column grant on `jobs` (§4), in an audited read transaction (`user.revoke_wait`),
     for up to `ADMIN_REVOKE_WAIT_SECONDS`; then it runs `admin_account_delete` as before, whatever
     the revoke's outcome, and records it on the `user.delete` row (`revoke`: `none`, `revoked`
