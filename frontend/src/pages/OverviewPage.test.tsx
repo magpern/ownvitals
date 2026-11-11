@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { SIGNED_IN, fakeApi, reason } from '../test/fakeApi'
 import {
@@ -10,6 +10,7 @@ import {
   fakeStatus,
   fakeStream,
 } from '../test/overviewFixtures'
+import { fakeProfile } from '../test/profileFixtures'
 import { renderAt } from '../test/render'
 
 // The overview, the area pages and the freshness line, end to end against synthetic API answers
@@ -19,13 +20,14 @@ const FINDINGS = 'GET /api/findings?tab=live&limit=20'
 
 function open(
   url: string,
-  more: { metrics?: unknown[]; status?: unknown; findings?: unknown } = {},
+  more: { metrics?: unknown[]; status?: unknown; findings?: unknown; profile?: unknown } = {},
 ) {
   fakeApi({
     'GET /api/auth/session': SIGNED_IN,
     'GET /api/metrics': fakeMetrics(more.metrics ?? [fakeMetric('weight')]),
     'GET /api/status': more.status ?? fakeStatus(),
     [FINDINGS]: more.findings ?? fakeFindings(),
+    ...(more.profile === undefined ? {} : { 'GET /api/profile': more.profile }),
   })
   return renderAt(url)
 }
@@ -178,10 +180,16 @@ describe('the overview: range', () => {
     expect(links[0]).toHaveAttribute('aria-current', 'true')
   })
 
-  it('falls back to 7 days for a range it does not know', async () => {
-    open('/?range=forever')
+  it('falls back to the saved range, else 7 days, for a range it does not know', async () => {
+    open('/?range=forever', { profile: fakeProfile({ chart_range: '7d' }) })
     const nav = await screen.findByRole('navigation', { name: 'Range' })
-    expect(within(nav).getByRole('link', { name: '7 days' })).toHaveAttribute('aria-current', 'true')
+    await waitFor(() => expect(within(nav).getByRole('link', { name: '7 days' })).toHaveAttribute('aria-current', 'true'))
+  })
+
+  it('lets a saved range win over the default when the address has none', async () => {
+    open('/', { profile: fakeProfile({ chart_range: '6mo' }) })
+    const nav = await screen.findByRole('navigation', { name: 'Range' })
+    await waitFor(() => expect(within(nav).getByRole('link', { name: '6 months' })).toHaveAttribute('aria-current', 'true'))
   })
 })
 
