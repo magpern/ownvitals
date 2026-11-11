@@ -84,6 +84,18 @@ describe.each(combos)('the %s page in %s', (page, locale) => {
   it('names no host but its own origin outside plain links', () => {
     const urls = attr(html, /(?:href|src|srcSet|content)="(https?:\/\/[^"]+)"/g)
     for (const url of urls) expect(url.startsWith(ORIGIN), url).toBe(true)
+    const [block] = attr(html, /<script type="application\/ld\+json">(.*?)<\/script>/gs)
+    const strings: string[] = []
+    const walk = (value: unknown, key: string) => {
+      if (typeof value === 'string') {
+        if (key !== '@context') strings.push(value)
+      } else if (value !== null && typeof value === 'object') {
+        for (const [k, v] of Object.entries(value)) walk(v, k)
+      }
+    }
+    walk(JSON.parse(block ?? ''), '')
+    for (const value of strings.filter((v) => /^https?:|^\/\//i.test(v))) expect(value.startsWith(ORIGIN + '/'), value).toBe(true)
+    expect(strings.some((v) => v.startsWith(ORIGIN))).toBe(true)
     const external = attr(html, /<a [^>]*href="(https?:\/\/[^"]+)"/g)
     expect(external.every((url) => url.startsWith(ORIGIN))).toBe(true)
   })
@@ -146,7 +158,7 @@ describe('the images', () => {
 describe('the head helpers', () => {
   it('accepts a bare https origin only', () => {
     expect(normaliseOrigin('https://example.test/')).toBe(ORIGIN)
-    for (const bad of ['http://example.test', 'https://example.test/x', 'https://example.test/?q=1', 'ftp://example.test', 'nope']) {
+    for (const bad of ['http://localhost', 'http://localhost:8000', 'http://example.test', 'https://example.test/x', 'https://example.test/?q=1', 'ftp://example.test', 'nope']) {
       expect(() => normaliseOrigin(bad), bad).toThrow()
     }
   })

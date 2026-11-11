@@ -18,16 +18,12 @@ export interface PageMeta {
   jsonLd: string
 }
 
-// The JSON-LD vocabulary identifier. It names a vocabulary and is never fetched; it is joined here
-// so the source scan for remote hosts (src/sources.test.ts) keeps flagging real third-party URLs.
-const SCHEMA_CONTEXT = ['https:', 'schema.org'].join('//')
-
 type Text = (key: MessageKey) => string
 
 /** An https origin with no path or trailing slash, or an error: a bad origin must fail the build. */
 export function normaliseOrigin(origin: string): string {
   const url = new URL(origin)
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && url.hostname === 'localhost')) {
+  if (url.protocol !== 'https:') {
     throw new Error(`The public origin must be https, got "${origin}"`)
   }
   if (url.pathname !== '/' || url.search !== '' || url.hash !== '' || url.username !== '') {
@@ -49,7 +45,7 @@ export function pageMeta(page: PublicPage, locale: Locale, origin: string, t: Te
   const description = t(page === 'home' ? 'site.meta.home.description' : 'site.meta.features.description')
   const title = t(page === 'home' ? 'site.meta.home.title' : 'site.meta.features.title')
   const jsonLd = safeJson({
-    '@context': SCHEMA_CONTEXT,
+    '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
     name: 'ownvitals',
     url: `${base}${publicPath('home', locale)}`,

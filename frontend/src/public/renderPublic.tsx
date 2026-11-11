@@ -26,15 +26,12 @@ export function textFor(locale: Locale): (key: MessageKey) => string {
   return (key) => interpolate(lookup(CATALOGUES[locale], EN, key))
 }
 
-// The one script-like element of a public page is the JSON-LD data block (ADR 0016 section 3): a
+// The one script element of a public page is the JSON-LD data block (ADR 0016 section 3): a
 // browser never executes it. It is written as a string, with its JSON already made safe by
-// `safeJson`, because JSX would escape the quotes. The tag name is a constant so the source scan
-// for script elements (src/sources.test.ts) stays strict for everything else; public.test.ts
-// checks that exactly this one block is in the output.
-const DATA_TAG = 'script'
-
+// `safeJson`, because JSX would escape the quotes. The source scan exempts exactly this opening
+// tag in this file (src/test/sourceScan.ts); public.test.ts checks the output holds only this block.
 function dataBlock(json: string): string {
-  return `<${DATA_TAG} type="application/ld+json">${json}</${DATA_TAG}>`
+  return `<script type="application/ld+json">${json}</script>`
 }
 
 export function renderPublicPage({ page, locale, origin, stylesheet }: RenderOptions): string {

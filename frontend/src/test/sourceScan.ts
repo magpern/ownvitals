@@ -92,6 +92,11 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 const XML_NAMESPACE =
   /http:\/\/www\.w3\.org\/(?:2000\/svg|1999\/xlink|1999\/xhtml|XML\/1998\/namespace)(?=["'\s>)]|$)/g
 
+// The JSON-LD vocabulary identifier (`"@context": "https://schema.org"`) names a vocabulary and is
+// never fetched. Exactly that string; the lookahead stops `https://schema.org.evil.example` and
+// `https://schema.org@evil.example` from passing as it.
+const SCHEMA_CONTEXT = /https:\/\/schema\.org(?=["'\s>)]|$)/g
+
 // Where the authority of a URL (userinfo, host and port) starts: after `scheme:` and two or more
 // slashes, or after two or more slashes alone (a protocol-relative URL). A browser reads a
 // backslash as a slash in an http(s) URL, so any run of slashes and backslashes counts: `//host`,
@@ -140,7 +145,7 @@ function hostOf(authority: string): string {
  * quote, `(` or `=` (`"//intranet/x"`, `src=//cdn/x`).
  */
 export function remoteUrls(text: string): string[] {
-  const plain = text.replace(XML_NAMESPACE, '')
+  const plain = text.replace(XML_NAMESPACE, '').replace(SCHEMA_CONTEXT, '')
   const found: string[] = []
   for (const match of plain.matchAll(URL_AUTHORITY)) {
     const [whole = '', scheme, authority = ''] = match
@@ -233,6 +238,9 @@ export function dataUrls(text: string): string[] {
   return text.match(DATA_URL) ?? []
 }
 
+const PUBLIC_RENDERER = 'src/public/renderPublic.tsx'
+const JSON_LD_OPENING = /<script type="application\/ld\+json">/g
+
 /**
  * What the CSP (`default-src 'self'`, no inline script or style, no `data:`) forbids or makes
  * useless in a shipped source file or in the built `index.html`.
@@ -264,7 +272,10 @@ export function cspViolations(path: string, text: string): string[] {
     add(/\son[a-z]+\s*=/i, 'an inline event handler')
   } else if (path.endsWith('.tsx') || path.endsWith('.ts')) {
     add(/\bstyle=[{"']/, 'an inline style attribute')
-    add(/<style\b|<script\b/i, 'a style or script element')
+    // The one script element a source may write is the JSON-LD data block of the prerendered
+    // public pages (ADR 0016 section 3), in that file only and with exactly this opening tag.
+    const scripted = path === PUBLIC_RENDERER ? text.replace(JSON_LD_OPENING, '') : text
+    if (/<style\b|<script\b/i.test(scripted)) found.push('a style or script element')
   }
   return found
 }
