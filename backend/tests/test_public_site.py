@@ -31,6 +31,9 @@ def dirs(tmp_path: Path) -> tuple[Path, Path]:
     (public / "features" / "index.html").write_text(FEATURES, encoding="utf-8")
     (public / "robots.txt").write_text("User-agent: *\nDisallow: /api/\n", encoding="utf-8")
     (public / "sitemap.xml").write_text("<urlset/>", encoding="utf-8")
+    (public / "public.css").write_text(".pub{margin:0}", encoding="utf-8")
+    (public / "img").mkdir()
+    (public / "img" / "Dashboard.png").write_bytes(b"\x89PNG synthetic")
     (public / "internal.html").write_text("not listed", encoding="utf-8")
     (tmp_path / "secret.txt").write_text(SECRET, encoding="utf-8")
     return static, public
@@ -175,3 +178,29 @@ async def test_a_listed_path_that_is_a_directory_is_not_served(
         assert response.status_code == 200, path
         assert response.text == SHELL, path
         assert response.headers["x-robots-tag"] == "noindex, nofollow", path
+
+
+async def test_no_public_response_sets_a_cookie(client: httpx.AsyncClient) -> None:
+    # Every file kind of the public set, on GET and HEAD (ADR 0016 section 5).
+    for path in (
+        "/",
+        "/features",
+        "/robots.txt",
+        "/sitemap.xml",
+        "/public.css",
+        "/img/Dashboard.png",
+    ):
+        for method in ("GET", "HEAD"):
+            response = await client.request(method, path)
+            assert response.status_code == 200, (method, path)
+            assert "set-cookie" not in response.headers, (method, path)
+            assert "x-robots-tag" not in response.headers, (method, path)
+            assert response.headers["cache-control"] == "public, max-age=300", (method, path)
+
+
+def test_the_listed_images_are_exact_names() -> None:
+    images = sorted(p for p in PUBLIC_PATHS if p.startswith("img/"))
+    assert len(images) == 6
+    assert public_relative_file("img/") is None
+    assert public_relative_file("img/Other.png") is None
+    assert public_relative_file("img/../index.html") is None
