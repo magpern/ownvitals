@@ -9,6 +9,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -20,6 +21,7 @@ from jobtools import (  # noqa: F401 - fixtures
     admin_fixture,
     engine_for,
     ensure_user,
+    new_job,
     queue_schema_fixture,
 )
 from ownvitals.config import Settings
@@ -138,6 +140,74 @@ def test_a_running_job_is_not_doubled_however_old(admin: Connection, app: Engine
     )
     assert schedule(app, "withings_reconcile", 24 * 3600) == 0
     assert len(jobs_for(admin, live)) == 1
+
+
+def import_job(
+    admin: Connection, owner: uuid.UUID, connection: uuid.UUID, kind: str, state: str
+) -> uuid.UUID:
+    """A synthetic import job of ``connection``: the connect (as the OAuth callback queues it) or
+    one stream's backfill (as the connect queues it), in ``state``."""
+    payload: dict[str, str] = {"connection_id": str(connection)}
+    if kind == "withings_backfill":
+        payload["stream"] = "measures"
+    columns: dict[str, Any] = {"kind": kind, "state": state, "input": json.dumps(payload)}
+    now = datetime.now(UTC)
+    if state == "running":
+        columns |= {
+            "attempt": 1,
+            "leased_by": "synthetic-worker",
+            "lease_expires_at": now + timedelta(minutes=1),
+            "heartbeat_at": now,
+            "lease_version": 1,
+        }
+    elif state != "queued":
+        columns |= {"attempt": 1, "finished_at": now}
+        if state in {"failed", "dead_letter"}:
+            columns["error_category"] = "rate_limited"
+    return new_job(admin, owner, **columns)
+
+
+@pytest.mark.parametrize("kind", ["withings_connect", "withings_backfill"])
+@pytest.mark.parametrize("state", ["queued", "running"])
+def test_an_active_import_keeps_the_poll_and_the_reconcile_away(
+    admin: Connection, app: Engine, kind: str, state: str
+) -> None:
+    """#407: the first tick after a connect found the new connection due. Its poll queued a
+    second backfill per unfinished stream, and its reconcile outranked the backfills in the rate
+    limiter. While the import is active the connection gets neither; it stays due."""
+    owner, live = connection_row(admin)
+    started = import_job(admin, owner, live, kind, state)
+    assert schedule(app, "withings_poll") == 0
+    assert schedule(app, "withings_reconcile", 24 * 3600) == 0
+    assert [row.kind for row in jobs_for(admin, live)] == [kind]
+    admin.execute(
+        text(
+            "UPDATE jobs SET state = 'completed', finished_at = now(), leased_by = NULL, "
+            "lease_expires_at = NULL, heartbeat_at = NULL WHERE id = :id"
+        ),
+        {"id": started},
+    )
+    assert schedule(app, "withings_poll") == 1
+    assert schedule(app, "withings_reconcile", 24 * 3600) == 1
+
+
+@pytest.mark.parametrize("state", ["completed", "failed", "dead_letter", "cancelled"])
+def test_a_finished_import_does_not_hold_the_schedule(
+    admin: Connection, app: Engine, state: str
+) -> None:
+    owner, live = connection_row(admin)
+    import_job(admin, owner, live, "withings_backfill", state)
+    assert schedule(app, "withings_poll") == 1
+
+
+def test_an_import_holds_only_its_own_connection(admin: Connection, app: Engine) -> None:
+    """One connection's import never holds another connection's schedule."""
+    owner, importing = connection_row(admin)
+    _, other = connection_row(admin)
+    import_job(admin, owner, importing, "withings_backfill", "queued")
+    assert schedule(app, "withings_poll") == 1
+    assert [row.kind for row in jobs_for(admin, importing)] == ["withings_backfill"]
+    assert [row.kind for row in jobs_for(admin, other)] == ["withings_poll"]
 
 
 def test_another_owners_job_does_not_make_a_connection_look_scheduled(
