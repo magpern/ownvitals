@@ -161,3 +161,17 @@ async def test_public_files_only_without_static_dir_is_not_served(
             response = await c.get("/")
     assert response.status_code == 404
     assert response.headers["x-robots-tag"] == "noindex, nofollow"
+
+
+async def test_a_listed_path_that_is_a_directory_is_not_served(
+    dirs: tuple[Path, Path], client: httpx.AsyncClient
+) -> None:
+    public = dirs[1]
+    (public / "contact" / "index.html").mkdir(parents=True)  # index.html is a directory
+    (public / "robots.txt").unlink()
+    (public / "robots.txt").mkdir()
+    for path in ("/contact", "/robots.txt"):
+        response = await client.get(path)
+        assert response.status_code == 200, path
+        assert response.text == SHELL, path
+        assert response.headers["x-robots-tag"] == "noindex, nofollow", path
