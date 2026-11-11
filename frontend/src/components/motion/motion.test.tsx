@@ -1,4 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
+import { hydrateRoot } from 'react-dom/client'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CountUp } from './CountUp'
 import { Reveal } from './Reveal'
@@ -148,6 +150,35 @@ describe('Reveal', () => {
     act(() => view.show())
     expect(el).toHaveClass('ov-reveal--in')
     expect(el).toBeVisible()
+  })
+
+  it('is visible in the server-rendered markup and adds the hidden class only after mount', () => {
+    fakeMatchMedia(false)
+    fakeIntersection()
+    // The server snapshot of useReducedMotion is true, so the prerendered card is in its final state.
+    const html = renderToString(<Reveal>card</Reveal>)
+    expect(html).toContain('ov-reveal--in')
+    expect(html).not.toContain('ov-reveal--pre')
+    // Hydrating it with motion on: nothing hidden until the layout effect has run, then --pre.
+    const container = document.createElement('div')
+    container.innerHTML = html
+    document.body.appendChild(container)
+    const origError = console.error
+    console.error = () => {}
+    act(() => {
+      hydrateRoot(container, <Reveal>card</Reveal>)
+    })
+    console.error = origError
+    const el = container.querySelector('.ov-reveal') as HTMLElement
+    expect(el).toHaveClass('ov-reveal--pre')
+    expect(el).not.toHaveClass('ov-reveal--in')
+    container.remove()
+  })
+
+  it('has no hidden class on the first render, before mount effects run', () => {
+    fakeMatchMedia(false)
+    fakeIntersection()
+    expect(renderToString(<Reveal>card</Reveal>)).not.toContain('ov-reveal--pre')
   })
 
   it('reveals at once without IntersectionObserver, and keeps the children and tag it was given', () => {

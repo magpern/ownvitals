@@ -38,9 +38,15 @@
   transition-delay: 0s !important;
 }
 
-/* Reveal: fade and rise, in DOM order. The hidden state exists only until the component adds
-   --in (it adds it at once when motion is off or there is no IntersectionObserver). */
+/* Reveal: fade and rise, in DOM order. Visible by default; the component adds --pre only after
+   mount (so prerendered markup is never hidden) and --in when the card is shown. */
 .ov-reveal {
+  transition:
+    opacity var(--ov-dur-base) var(--ov-ease-out),
+    transform var(--ov-dur-base) var(--ov-ease-out);
+}
+
+.ov-reveal--pre {
   opacity: 0;
   transform: translateY(var(--ov-reveal-y));
 }
@@ -48,9 +54,6 @@
 .ov-reveal--in {
   opacity: 1;
   transform: none;
-  transition:
-    opacity var(--ov-dur-base) var(--ov-ease-out),
-    transform var(--ov-dur-base) var(--ov-ease-out);
   transition-delay: calc(min(var(--ov-reveal-i, 0), var(--ov-stagger-steps)) * var(--ov-stagger));
 }
 
