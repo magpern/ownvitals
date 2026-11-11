@@ -26,7 +26,8 @@ Each has its own allowlist, of packages (the package and everything under it) an
   ``ownvitals analysis check`` (read only, counts and versions out). The exact module
   ``ownvitals.ai.consent`` (#206) reads and writes the caller's own AI consent rows, cancels the
   caller's AI jobs and deletes their conversation history on withdrawal; the AI tools read only
-  through ``views.reads`` and ``views.findings_read``. The exact module ``ownvitals.ai.chat_store``
+  through ``views.reads``, ``views.findings_read`` and (``ecg_summary``, #401)
+  ``views.ecg_read``. The exact module ``ownvitals.ai.chat_store``
   (#208) reads and writes the caller's own conversations and messages, queues their
   ``ai_chat_turn`` jobs and cancels them on a delete; the turn itself is a job kind
   (``ownvitals.ai.assistant``) and reads and writes through the fence. The exact module

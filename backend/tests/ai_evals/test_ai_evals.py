@@ -170,6 +170,9 @@ async def test_privacy(chat: ChatEnv) -> None:
             assert len(outputs) == 1
             if name == "scores":
                 assert outputs[0] == {"scores": []}  # the HIS is experimental: absent
+            elif name == "ecg_summary":
+                assert outputs[0]["recordings"] > 0
+                assert "estimates" not in outputs[0]  # our estimates are experimental: absent
             else:
                 items = outputs[0]["findings"]
                 assert all(i["tier"] != "experimental" for i in items)
@@ -182,6 +185,8 @@ async def test_privacy(chat: ChatEnv) -> None:
             args = {"status": status, "period": period}
             category.add(f"tier_findings_{status}_{period}", tier("findings", args))
     category.add("tier_his_score", tier("scores", {"kind": "his"}))
+    for period in (30, 90, 180, 365):
+        category.add(f"tier_ecg_estimates_{period}", tier("ecg_summary", {"period": period}))
 
     async def system_prompt_holds_no_user_data() -> None:
         _, seen, _ = await turns.turn(a.ctx, "synthetic question", [answer("Synthetic.")])

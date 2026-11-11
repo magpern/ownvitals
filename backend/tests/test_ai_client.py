@@ -123,7 +123,7 @@ async def test_over_the_cap_nothing_is_sent(aicall: AiCall, user_cap: int, globa
         ({"ai_provider_review_ref": "   "}, "ai_provider_review_missing"),
         ({"ai_eval_ref": ""}, "ai_eval_mismatch"),
         ({"ai_eval_ref": "synthetic-model-1/2/1"}, "ai_eval_mismatch"),  # another prompt
-        ({"ai_eval_ref": "synthetic-model-1/1/2"}, "ai_eval_mismatch"),  # another tool set
+        ({"ai_eval_ref": "synthetic-model-1/1/1"}, "ai_eval_mismatch"),  # an older tool set
         ({"ai_eval_ref": "synthetic-other/1/1"}, "ai_eval_mismatch"),  # another model
         ({"app_secret_key": None}, "ai_not_configured"),
     ],
