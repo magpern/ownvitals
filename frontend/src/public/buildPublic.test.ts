@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ROOT } from '../test/sourceScan'
-import { imageFiles } from './images'
+import { imageFiles, sourceFile } from './images'
 import { allPublicPaths } from './routes'
 import { builtPages, builtPaths, legalApproved } from './site'
 
@@ -65,7 +65,7 @@ describe('what the build emits', () => {
 
   it('copies the images byte for byte from docs/design', () => {
     for (const name of imageFiles()) {
-      const source = readFileSync(join(REPO, 'docs', 'design', 'mockups', 'png', name))
+      const source = readFileSync(join(REPO, 'docs', 'design', 'mockups', 'png', sourceFile(name)))
       expect(readFileSync(join(built, 'img', name)).equals(source), name).toBe(true)
     }
   })

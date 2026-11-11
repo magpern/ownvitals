@@ -16,9 +16,14 @@ export interface PublicImage {
 
 export const PUBLIC_IMAGES: readonly PublicImage[] = [
   { id: 'dashboard', light: 'Dashboard.png', dark: 'Dashboard.dark.png', width: 1440, height: 1500, alt: 'site.shot.dashboard.alt' },
-  { id: 'findings', light: 'Findings.png', dark: 'Findings.dark.png', width: 1440, height: 1300, alt: 'site.shot.findings.alt' },
+  { id: 'findings', light: 'Insights.png', dark: 'Insights.dark.png', width: 1440, height: 1300, alt: 'site.shot.findings.alt' },
   { id: 'connections', light: 'Connections.png', dark: 'Connections.dark.png', width: 1440, height: 1650, alt: 'site.shot.connections.alt' },
 ]
+
+/** The mock-up file in docs/design/mockups/png/ a served name is copied from. */
+export function sourceFile(file: string): string {
+  return file.startsWith('Insights') ? file.replace('Insights', 'Findings') : file
+}
 
 /** The URL path a build serves an image file at. */
 export function imageUrl(file: string): string {

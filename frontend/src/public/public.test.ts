@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { LOCALES } from '../i18n/locale'
-import { PUBLIC_IMAGES, imageFiles } from './images'
+import { PUBLIC_IMAGES, imageFiles, sourceFile } from './images'
 import { normaliseOrigin, safeJson } from './meta'
 import { renderPublicPage } from './renderPublic'
 import { PUBLIC_PAGES, alternates, allPublicPaths, publicPath } from './routes'
@@ -125,8 +125,8 @@ describe('the images', () => {
       'Connections.png',
       'Dashboard.dark.png',
       'Dashboard.png',
-      'Findings.dark.png',
-      'Findings.png',
+      'Insights.dark.png',
+      'Insights.png',
     ])
     const shown = [...attr(html, /<img [^>]*src="([^"]+)"/g), ...attr(html, /<source [^>]*srcSet="([^"]+)"/g)]
     expect(shown.sort()).toEqual(imageFiles().map((file) => `/img/${file}`).sort())
@@ -135,7 +135,7 @@ describe('the images', () => {
   it('exist in docs/design with the stated dimensions', () => {
     for (const image of PUBLIC_IMAGES) {
       for (const file of [image.light, image.dark]) {
-        const path = join(PNG_DIR, file)
+        const path = join(PNG_DIR, sourceFile(file))
         expect(existsSync(path), file).toBe(true)
         const header = readFileSync(path).subarray(0, 24)
         expect(header.readUInt32BE(16), `${file} width`).toBe(image.width)

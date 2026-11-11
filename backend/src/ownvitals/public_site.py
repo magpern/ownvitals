@@ -29,8 +29,8 @@ PUBLIC_FILES: Final = (
     "public.css",
     "img/Dashboard.png",
     "img/Dashboard.dark.png",
-    "img/Findings.png",
-    "img/Findings.dark.png",
+    "img/Insights.png",
+    "img/Insights.dark.png",
     "img/Connections.png",
     "img/Connections.dark.png",
 )

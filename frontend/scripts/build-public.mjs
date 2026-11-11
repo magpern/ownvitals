@@ -16,11 +16,13 @@ if (!origin) throw new Error('OWNVITALS_PUBLIC_ORIGIN is required (an https orig
 const server = await createServer({ root, configFile: false, logLevel: 'error', appType: 'custom', server: { middlewareMode: true, hmr: false } })
 let files
 let images
+let sourceFile
 try {
   const site = await server.ssrLoadModule('/src/public/site.ts')
   const imagesModule = await server.ssrLoadModule('/src/public/images.ts')
   files = site.siteFiles(origin, site.legalApproved(process.env.OWNVITALS_PUBLIC_LEGAL_APPROVED))
   images = imagesModule.imageFiles()
+  sourceFile = imagesModule.sourceFile
 } finally {
   await server.close()
 }
@@ -48,4 +50,4 @@ writeFileSync(join(out, 'public.css'), readFileSync(join(scratch, 'assets', css[
 rmSync(scratch, { recursive: true, force: true })
 
 mkdirSync(join(out, 'img'), { recursive: true })
-for (const name of images) copyFileSync(join(root, '..', 'docs', 'design', 'mockups', 'png', name), join(out, 'img', name))
+for (const name of images) copyFileSync(join(root, '..', 'docs', 'design', 'mockups', 'png', sourceFile(name)), join(out, 'img', name))
