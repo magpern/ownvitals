@@ -42,13 +42,20 @@ function DigestItem({ digest, resetsOn }: { digest: Digest; resetsOn: string | n
         <p className="ov-muted">
           {digest.status !== 'skipped_budget'
             ? t('assistant.digest.unavailable')
-            : resetsOn !== null && digest.createdAt.slice(0, 10) >= budgetMonthStart(resetsOn)
+            : resetsOn !== null && utcDay(digest.createdAt) >= budgetMonthStart(resetsOn)
               ? t('assistant.digest.skippedUntil', { date: f.day(resetsOn) })
               : t('assistant.digest.skipped')}
         </p>
       )}
     </article>
   )
+}
+
+/** The UTC calendar day of an ISO timestamp: the budget month is UTC (`ai/budget.py`), whatever
+ * offset the API wrote or the browser uses. */
+function utcDay(iso: string): string {
+  const at = new Date(iso)
+  return Number.isNaN(at.getTime()) ? iso.slice(0, 10) : at.toISOString().slice(0, 10)
 }
 
 export function DigestView() {
