@@ -40,7 +40,9 @@ test('connects the fake Withings, waits for the import and reaches the overview'
   await dialog.getByRole('button', { name: 'Confirm' }).click()
 
   await expect(page).toHaveURL(/\/onboarding\?withings=connected/)
+  // The heading only turns to "imported" once /api/status lists streams and none is importing (#408).
   await expect(page.getByRole('heading', { name: 'Your history is imported' })).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText('Waiting for the first stream to start…')).toHaveCount(0)
   await page.getByRole('link', { name: 'Go to the overview' }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
