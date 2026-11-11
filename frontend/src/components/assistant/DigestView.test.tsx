@@ -20,8 +20,13 @@ function consent(state: 'none' | 'given') {
   }
 }
 
-function digest(week_start: string, status: string, content: string | null = null) {
-  return { week_start, status, content, created_at: '2026-11-10T03:00:00Z' }
+function digest(
+  week_start: string,
+  status: string,
+  content: string | null = null,
+  created_at = '2026-11-10T03:00:00Z',
+) {
+  return { week_start, status, content, created_at }
 }
 
 interface State {
@@ -99,6 +104,15 @@ describe('the weekly digest', () => {
     })
     renderAt('/assistant')
     expect(await screen.findByText(/This week's summary was skipped.*It resets on .*2026/)).toBeInTheDocument()
+  })
+
+  it('gives no reset date for a skipped week of an earlier month', async () => {
+    digestApi({ enabled: true, digests: [digest('2026-09-28', 'skipped_budget', null, '2026-10-06T03:00:00Z')] }, true, {
+      'GET /api/ai/budget': { paused: true, resets_on: '2026-12-01' },
+    })
+    renderAt('/assistant')
+    expect(await screen.findByText("This week's summary was skipped: this month's AI budget for your account was used up.")).toBeInTheDocument()
+    expect(screen.queryByText(/It resets on/)).not.toBeInTheDocument()
   })
 
   it('cannot be turned on while AI is not available, but can be turned off', async () => {

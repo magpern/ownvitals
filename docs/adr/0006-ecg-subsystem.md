@@ -1,6 +1,6 @@
 # ADR 0006: The ECG subsystem: data contract, quality gate, descriptive analysis and validation
 
-Status: Accepted (2026-10-31, #39); amended 2026-10-31 and 2026-11-01 by #88 and #40 (see the amendments file). Assumptions A1 to
+Status: Accepted (2026-10-31, #39); amended 2026-10-31, 2026-11-01, 2026-11-09 and 2026-11-10 by #88, #40, #281 and #315/#367 (see the amendments file). Assumptions A1 to
 A9 stay open until the owner's probe and checks (§2); two questions are blocked on the owner (see
 the end).
 
