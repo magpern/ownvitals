@@ -19,9 +19,10 @@ import { MessageText } from './MessageText'
 // The first day of the budget month that ends on `resetsOn` (the first of the next month). A
 // skipped week from before it was skipped under an earlier month's budget: no reset date for it.
 function budgetMonthStart(resetsOn: string): string {
-  const [year, month] = resetsOn.split('-').map(Number)
-  const prev = month === 1 ? [year - 1, 12] : [year, month - 1]
-  return `${String(prev[0]).padStart(4, '0')}-${String(prev[1]).padStart(2, '0')}-01`
+  const year = Number(resetsOn.slice(0, 4))
+  const month = Number(resetsOn.slice(5, 7))
+  const [y, m] = month === 1 ? [year - 1, 12] : [year, month - 1]
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-01`
 }
 
 function DigestItem({ digest, resetsOn }: { digest: Digest; resetsOn: string | null }) {
