@@ -138,8 +138,9 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   3. `docker compose --profile maint run --rm maint python -m ownvitals keys wipe --confirm`, as
      the owner role (never given to web or worker), with no KEK. It refuses while any app-role
      session is connected or while the configured KEK id already has a check row. Per user, in one
-     transaction: an `auth_events` row `connections_wiped`; **each connection row set to
-     `needs_reconnect` with its credential columns removed** (classbeat deletes the rows;
+     transaction: an `auth_events` row `connections_wiped`; **one connection row per provider set to
+     `needs_reconnect` with its credential columns removed, every other row of that provider
+     `disconnected`** (amended 2026-11-11, #394; classbeat deletes the rows;
      ownvitals keeps them, so the imported health data that references them stays, Architect
      decision 2026-10-31); and TOTP reset the way `admin mfa-reset` does. After the commit, a mail
      says what was removed and what to do, with no token or account detail. Then every check row
@@ -306,7 +307,8 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
   generation can never overwrite a newer one (PLAN §4.3).
 - **Status changes** (`needs_reconnect`, `last_error`, `last_used_at`) are conditional on the
   generation that was read, so a stale 401 from before a refresh or reconnect can't flip a fresh
-  connection. One counter does what classbeat needed `wrapped_dek` and, later, a separate
+  connection. A disconnect does not bump the generation (it writes no token), so a status change that
+  could race it is also conditional on `status = 'connected'` (amended 2026-11-11, #394). One counter does what classbeat needed `wrapped_dek` and, later, a separate
   `generation` column for.
 - **The M1 refresh protocol is PLAN §4.3** (intent row, call, one CAS transaction to
   `generation + 1`, first use only after the commit, one recovery retry within 8 hours, then
@@ -470,6 +472,25 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 - Threat model T29 to T43 cite this ADR.
 
 ## Amendments
+
+### 2026-11-11 (#394): the #311 item 3 decision
+
+Architect decision; the code already behaves this way (#363, `connections/wipe.py`), so the ADR
+now says it. Made in place above and marked "amended 2026-11-11, #394": §3 and §6.
+
+- **`keys wipe` and the live unique index.** §1's partial unique index on `(owner_id, provider)
+  WHERE status <> 'disconnected'` allows one live row per provider, so "each connection row set
+  to `needs_reconnect`" could not hold for a user with a live row and older `disconnected` rows.
+  `clear_credentials` sets **one row per provider** to `needs_reconnect` (the live row, else the
+  most recently updated one) and leaves every other row `disconnected`. Both states allow empty
+  credentials. Running it again picks the same row.
+- **Disconnect and the generation.** A disconnect is not a token write, so it leaves
+  `token_generation` unchanged; the generation guard alone would let a decrypt-failure update
+  that read the row earlier flip a just-disconnected row back to `needs_reconnect`. Status
+  changes that follow an unlocked read (`open_withings`, `open_credentials`) therefore also
+  require `status = 'connected'` in the `UPDATE` (#363). The alternative, bumping the generation
+  on disconnect, was rejected: it would make a stale refresh result look like a lost race rather
+  than a disconnect.
 
 ### 2026-11-10 (#365): the admin delete revokes first
 
