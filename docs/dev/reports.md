@@ -183,8 +183,10 @@ across users, single use, rate limit). Frontend: `components/reports/DoctorRepor
 
 Known gaps:
 
-- The tidy's audited `export_failed` and `export_expired` for doctor rows carry `export_kind`
-  "data" (the purge's carry the row's kind).
+- The owner's tidy (`_tidied` in `export_routes.py`) audits `export_failed` and `export_expired`
+  without setting `export_kind`, so for a doctor PDF row the event says `"data"` (the default of
+  the event detail) instead of `"doctor_pdf"`. The purge writes no audit event, so it is not
+  affected.
 - No `export_ready` mail for a doctor PDF (it is requested and fetched in one sitting).
 - The ECG picker offers the first page of recordings only (newest, with a signal).
 - ECG pages keep their own "Page i of k".
