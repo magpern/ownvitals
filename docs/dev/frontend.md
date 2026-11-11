@@ -149,6 +149,14 @@ Overview (#425): `Value` takes `count={{ value, format }}` and renders a `CountU
 fading `--ov-glow` halo (no ring or arc), ready for the health score when the API sends one. A
 count-up number is in the DOM three times (`.ov-sr`, sizer, live digits): tests query `.ov-sr`.
 
+Overview remainder (#438): `DeltaChip` (pure `deltaModel.ts`) shows the latest value against the median
+of the tile's own sparkline days, neutral blue or attention orange, never green or red, fading in after
+the number; `.ov-chart--draw` clip-path reveals a chart once at mount (the box outlives data refreshes,
+so nothing replays); `useNewReading(day)` + `Sparkline pulse` give one 600 ms halo on a new reading
+(not on first mount, not hidden, not reduced); `.ov-page` in `AppFrame` cross-fades route content
+(opacity only, CSS fallback, no View Transitions API). The health-score card stays "not available":
+the overview API carries no score yet, so `ScoreReadout` is not wired.
+
 CSP (rule 8): `sources.test.ts` forbids a `style=` attribute but not the `element.style` property
 API, so JS sets animated values with `el.style.setProperty('--x', ...)` on a class-styled element
 (`motionCss.test.ts` pins both). Only opacity and transform animate.

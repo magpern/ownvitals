@@ -74,9 +74,11 @@ interface Props {
   attention?: boolean
   /** Read out by a screen reader. Without it the sparkline is decoration: the tile says it in text. */
   label?: string
+  /** A new reading just arrived: a soft halo pulses once on the last point (reduced motion: none). */
+  pulse?: boolean
 }
 
-export function Sparkline({ points, attention = false, label }: Props) {
+export function Sparkline({ points, attention = false, label, pulse = false }: Props) {
   const { line, band, last, outside } = sparkPaths(points)
   return (
     <svg
@@ -91,6 +93,7 @@ export function Sparkline({ points, attention = false, label }: Props) {
       {outside.map((o) => (
         <circle key={`${fixed(o.x)}`} cx={o.x} cy={o.y} r={2} className="ov-c-out" />
       ))}
+      {last === null || !pulse ? null : <circle cx={last.x} cy={last.y} r={3.5} className="ov-c-pulse" />}
       {last === null ? null : (
         <circle cx={last.x} cy={last.y} r={3.5} className={attention ? 'ov-c-last ov-c-last--attn' : 'ov-c-last'} />
       )}

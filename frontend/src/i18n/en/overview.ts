@@ -36,6 +36,7 @@ export const overview = {
   'metric.sleep': 'Sleep',
   'metric.healthScore': 'Health score',
   'range.within': 'Within your typical range {range}',
+  'delta.vs': '{change} vs your {days}-day median',
   'range.above': 'Above your typical range {range}',
   'range.below': 'Below your typical range {range}',
   'tile.foot': '{day} · {count} days with data in {days}',

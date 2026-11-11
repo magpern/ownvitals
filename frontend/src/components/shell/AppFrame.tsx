@@ -70,7 +70,9 @@ export function AppFrame({ title, active, path, status, children }: AppFrameProp
             <FreshnessLine status={statusResource.data} />
             <main className="ov-content">
               {error ? <Notice kind="error">{error}</Notice> : null}
-              {children}
+              <div className="ov-page" key={path}>
+                {children}
+              </div>
             </main>
           </div>
           <PhoneTabs active={active === null ? null : phoneTabOf(active)} path={path} />

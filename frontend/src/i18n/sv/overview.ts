@@ -37,6 +37,7 @@ export const overview = {
   'metric.sleep': 'Sömn',
   'metric.healthScore': 'Hälsopoäng',
   'range.within': 'Inom ditt vanliga intervall {range}',
+  'delta.vs': '{change} mot din median över {days} dagar',
   'range.above': 'Över ditt vanliga intervall {range}',
   'range.below': 'Under ditt vanliga intervall {range}',
   'tile.foot': '{day} · {count} dagar med data på {days}',
