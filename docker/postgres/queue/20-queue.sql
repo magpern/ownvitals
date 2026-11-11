@@ -209,8 +209,8 @@ END $$;
 -- metrics_withings_aggregates and metrics_webhook_ages (40-withings.sql), and
 -- withings_rate_claim, withings_rate_release and withings_rate_pause (rate.sql), and
 -- mail_outbox_claim, mail_outbox_mark and owner_notice_queue (50-outbox.sql, #194), and
--- ai_reserve, ai_settle, ai_release, ai_settle_lost (ai/50-ai.sql, #205) and ai_audit_purge
--- (#331), and exports_purge_expired (exports/60-exports.sql, #333), and admin_account_disable,
+-- ai_reserve, ai_settle, ai_release, ai_settle_lost (ai/50-ai.sql, #205), ai_audit_purge
+-- (#331) and ai_purge_expired (#395), and exports_purge_expired (exports/60-exports.sql, #333), and admin_account_disable,
 -- admin_account_enable and admin_account_delete (maint/70-admin-accounts.sql, #314) and
 -- admin_account_revoke (#365), are admitted here by name, and no other function is.
 -- Their bodies are pinned by digest with the queue functions (ownvitals/db/queue_digests.py;
@@ -232,6 +232,7 @@ BEGIN
             'withings_rate_claim', 'withings_rate_release', 'withings_rate_pause',
             'mail_outbox_claim', 'mail_outbox_mark', 'owner_notice_queue',
             'ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost', 'ai_audit_purge',
+            'ai_purge_expired',
             'exports_purge_expired',
             'admin_account_disable', 'admin_account_enable', 'admin_account_delete',
             'admin_account_revoke'))

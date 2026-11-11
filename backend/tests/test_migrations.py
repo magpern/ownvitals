@@ -16,7 +16,7 @@ from dbtools import (
     ready_to_downgrade,
 )
 
-HEAD = "0026_ai_digest"
+HEAD = "0027_ai_conversation_retention"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -25,6 +25,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0026_ai_digest",
         "0025_ai_job_failures",
         "0024_outbox_export_ready",
         "0023_ai_audit",

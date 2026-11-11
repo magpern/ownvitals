@@ -16,9 +16,10 @@ and the rate functions
 ``withings_rate_release`` and ``withings_rate_pause`` admitted the same way, and the mail outbox's
 ``mail_outbox_claim``, ``mail_outbox_mark`` and ``owner_notice_queue`` (#194, ADR 0007 section 3;
 their digests in ``ownvitals.db.outbox_digests``), each pinned like a queue function when it is
-installed, and the AI family's ``ai_reserve``, ``ai_settle``, ``ai_release``, ``ai_settle_lost``
-and ``ai_audit_purge`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 sections 6 and 7; #205, #331),
-owned by ``ownvitals_ai``: absent until that script has run, then all five, each pinned, and
+installed, and the AI family's ``ai_reserve``, ``ai_settle``, ``ai_release``, ``ai_settle_lost``,
+``ai_audit_purge`` and ``ai_purge_expired`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 sections
+5 to 7; #205, #331, #395), owned by ``ownvitals_ai``: absent until that script has run, then all
+six, each pinned, and
 the export purge ``exports_purge_expired`` (``docker/postgres/exports/60-exports.sql``, ADR 0013
 section 4; #333), owned by ``ownvitals_exports`` and pinned the same way once installed, and the
 admin account family (``docker/postgres/maint/70-admin-accounts.sql``, ADR 0002 section 3; #314,

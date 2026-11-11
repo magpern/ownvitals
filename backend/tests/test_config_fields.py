@@ -72,6 +72,7 @@ ADDED = frozenset(
         "ai_provider_review_ref",
         "ai_eval_ref",
         "ai_audit_retention_months",  # issue 331: the audit log's retention (ADR 0014 §6)
+        "ai_conversation_retention_days",  # issue 395: the conversation retention (ADR 0014 §5)
         "webhook_cache_ttl_seconds",  # issue 322: web's webhook entry cache TTL (ADR 0008)
     }
 )

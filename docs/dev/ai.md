@@ -56,15 +56,16 @@ cascade; the month's global total keeps the spend.
 
 ## The functions
 
-Owned by `ownvitals_ai` (`NOLOGIN BYPASSRLS`, column grants and `DELETE` on `ai_audit` for the
-audit retention, listed in ADR 0005 §3),
+Owned by `ownvitals_ai` (`NOLOGIN BYPASSRLS`, column grants and `DELETE` on `ai_audit` and
+`ai_conversations` for the two retention purges, listed in ADR 0005 §3),
 `SECURITY DEFINER`, `search_path = pg_catalog, pg_temp`, comment `ownvitals-ai v1`, `EXECUTE` for
 `ownvitals_app` only. None takes an owner id: `ai_reserve`, `ai_settle` and `ai_release` act for
 the transaction's `app.user_id` and raise `42501` without one. One lock order everywhere: the
 month's global row, the user's row, the reservation. Their digests are pinned with the queue's in
-`ownvitals/db/queue_digests.py`; `20-queue.sql` admits the five (these four and the audit
-retention's `ai_audit_purge`, [below](#audit-retention)) by name, and the queue check (startup and
-every new connection) refuses a database where one differs or one of the five is missing.
+`ownvitals/db/queue_digests.py`; `20-queue.sql` admits the six (these four, the audit
+retention's `ai_audit_purge`, [below](#audit-retention), and the conversation retention's
+`ai_purge_expired`, [below](#conversation-retention)) by name, and the queue check (startup and
+every new connection) refuses a database where one differs or one of the six is missing.
 
 ### Changing a function
 
@@ -89,8 +90,6 @@ jobs only, no model call:
 
 ## Known gaps
 
-- `ai_purge_expired()` (ADR 0014 §5's 90-day conversation retention) belongs with the
-  conversation table and is not in this family yet.
 - No admin view: an admin-visible aggregate (how many users are at the cap this month) needs a
   read path for `ownvitals_maint` or a count-only definer function; not built.
 - An account deleted while a reservation is open leaves its amount in the month's global
@@ -191,8 +190,6 @@ output.
   `views.ecg_read`. They come with the read views they need.
 - `scores` returns no components (they are free-form JSON); the device attribution of device
   findings is not returned.
-- `ai_purge_expired()` (90-day conversation retention) is not built; `ai_digests` came with issue
-  209 ([below](#the-weekly-digest)).
 - ADR 0003 §4's step-up table does not list "Give AI consent" yet (ADR 0014 Consequences).
 
 ## The model client and the audit log
@@ -301,6 +298,28 @@ without `ai_reserve`).
 | `test_ai_audit_purge.py` | rows past retention go for every owner, younger ones stay, the 12-month boundary, a longer setting, the limit oldest first, a user context changes nothing; a shorter retention or a limit out of bounds refused (function and Python); the app role still cannot delete; batches; not installed; the setting; the worker tick with AI on and off, and one failing step not stopping the other |
 | `test_ai_functions.py` | with the family: callable by the app role only, pins, digests, drift (a purge without the floor, the function dropped, the role's `ai_audit` grants) |
 
+### Conversation retention
+
+ADR 0014 §5, #395. A conversation last updated (its last message) more than
+`OWNVITALS_AI_CONVERSATION_RETENTION_DAYS` days ago (default 90, from 30 to 90: never kept
+longer than the ADR's 90 days) is deleted with its messages by the same hourly purge tick, after
+the audit purge and whether or not `ai_insights` is on (the `ai conversation purge` step).
+`ai.conversation_retention.purge_expired_conversations` calls `ai_purge_expired(p_days, p_limit)`
+(`50-ai.sql`, owned by `ownvitals_ai`, `EXECUTE` for the app role only) in a session with no
+user, at most 500 conversations per transaction and 10 transactions per tick, oldest first,
+served by migration 0027's index on `ai_conversations (updated_at, id)`; it returns a count. The
+role reads only `ai_conversations.id` and `updated_at` and may `DELETE` there; the messages go by
+the foreign key's cascade (which runs as the table owner, outside row security). The function
+refuses fewer than 30 or more than 90 days (`22023`): a caller with the app role can neither keep
+history longer nor wipe every user's recent history. The age is checked again on the row the
+`DELETE` locks, so a reply that holds the conversation's lock and touches `updated_at` keeps it.
+Without `50-ai.sql` nothing is called; withdrawal and account deletion still remove history.
+
+| Test file | Covers |
+|---|---|
+| `test_ai_conversation_purge.py` | expired conversations go with their messages for every owner, the boundary to the minute, the limit oldest first; **two users**: one user's expired history goes and the other's young history stays whole, a caller's context changes nothing, the app role alone reaches only its own rows; a conversation touched while the purge waits on its lock stays; a retention or limit out of bounds refused (function and Python); batches; not installed; the setting; the worker tick with AI on and off, with the setting, and a failing step not stopping it |
+| `test_ai_functions.py` | the sixth function with the family: pins, digest, drift (a purge without the floor, dropped, the role's `ai_conversations` grants) |
+
 | Test file | Covers |
 |---|---|
 | `test_ai_client.py` | from web, AI off in the worker, no or outdated consent, the flag off (environment and stored), over either cap, each owner lock, unpriced, no key file, a cancelled job, a body failing the scan: zero requests, no reservation, no audit row; one call settled at its cost; retries within one reservation (429, 529, connect); the retry limit; 400 to 413 released; 500, 502, timeout and a malformed answer charged; withdrawal or cancel between attempts; overrun; a lost lease; the audit append-only |
@@ -405,8 +424,6 @@ Real PostgreSQL, synthetic users, the fake model behind the real egress client (
 - The request scan (`requests.check_body`) refuses a UUID or an email address anywhere in the
   body, the user's own text included: such a message fails the turn as `ai_unavailable` ("couldn't
   answer") with nothing sent. The page does not say why.
-- `ai_purge_expired()` (90-day conversation retention, ADR 0014 section 5) is not built; account
-  deletion and withdrawal remove conversations meanwhile.
 - A month refused by the global cap only shows at the turn (`ai_budget_exhausted` as its failure):
   `GET /api/ai/budget` reflects the user's cap (the app role cannot read the global row).
 - A transient database error during a turn retries the job (`upstream_unavailable`, up to
@@ -546,9 +563,6 @@ wrapped.
 
 Each waits for its own scheduled issue (none is filed until it is scheduled):
 
-- `ai_purge_expired()`: the 90-day conversation retention of ADR 0014 section 5 (a worker
-  maintenance task through a narrow definer function). Withdrawal and account deletion remove
-  conversations meanwhile. `ai_digests` itself is built ([above](#the-weekly-digest)).
 - `ecg_summary`, `sleep_summary` and `activity_summary` (ADR 0014 section 4): they need read views
   the API does not have yet.
 - The real-model evals (`python -m ownvitals.ai.eval`, ADR 0014 section 9) and the `eval` audit

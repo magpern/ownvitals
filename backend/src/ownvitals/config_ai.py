@@ -22,6 +22,11 @@ class AiSettings(BaseSettings):
     # than this many months are deleted by the worker's hourly purge. At least 12, the ADR's
     # period (``ai_audit_purge`` refuses fewer): the owner may keep them longer, never shorter.
     ai_audit_retention_months: int = Field(default=12, ge=12, le=120)
+    # The conversation retention (ADR 0014 section 5, open question 5): a conversation last
+    # updated more than this many days ago is deleted, with its messages, by the worker's hourly
+    # purge. At most the ADR's 90 days; at least 30 (``ai_purge_expired`` refuses either side),
+    # so no setting keeps history longer and none wipes every user's recent history.
+    ai_conversation_retention_days: int = Field(default=90, ge=30, le=90)
     # Experimental findings and scores (the HIS) to the model (ADR 0014 section 4, open question
     # 4): only for an account that passes the experimental gate (the owner-only switch) **and**
     # only when this is true. Default false: the owner opts in explicitly.

@@ -48,8 +48,9 @@ Each has its own allowlist, of packages (the package and everything under it) an
   ``ownvitals.notify.outbox`` (#194: web's outbox sender claims and marks rows only through the
   outbox's ``SECURITY DEFINER`` functions and holds no ``UserContext``, ADR 0007 section 3; the
   session itself reaches no owned row), the exact modules ``ownvitals.ai.budget`` (#205: the
-  reaper's ``ai_settle_lost``) and ``ownvitals.ai.audit_retention`` (#331: the audit retention's
-  ``ai_audit_purge``), definer functions returning a count, the exact module
+  reaper's ``ai_settle_lost``), ``ownvitals.ai.audit_retention`` (#331: the audit retention's
+  ``ai_audit_purge``) and ``ownvitals.ai.conversation_retention`` (#395: the conversation
+  retention's ``ai_purge_expired``), definer functions returning a count, the exact module
   ``ownvitals.reports.export_purge`` (#333: the export purge's ``exports_purge_expired``, a
   definer function returning three counts), and the exact module
   ``ownvitals.worker.metrics`` (#167: the metrics refresh calls ``queue_stats()`` and the two
@@ -117,9 +118,14 @@ KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
 FLAGS_SYSTEM_SESSION = ("ownvitals.flags.routes",)
 # The outbox's claim and mark (#194): calls of its definer functions, without a user.
 NOTIFY_SYSTEM_SESSION = ("ownvitals.notify.outbox",)
-# The AI reaper (#205): ``ai_settle_lost``, and the audit retention (#331): ``ai_audit_purge``,
-# definer functions that return a count; the session itself reaches no owned row.
-AI_SYSTEM_SESSION = ("ownvitals.ai.budget", "ownvitals.ai.audit_retention")
+# The AI reaper (#205): ``ai_settle_lost``, the audit retention (#331): ``ai_audit_purge``, and
+# the conversation retention (#395): ``ai_purge_expired``, definer functions that return a count;
+# the session itself reaches no owned row.
+AI_SYSTEM_SESSION = (
+    "ownvitals.ai.budget",
+    "ownvitals.ai.audit_retention",
+    "ownvitals.ai.conversation_retention",
+)
 # The worker's metrics refresh (#167): the metrics aggregates and ``queue_stats()``, definer
 # functions returning counts and ages; the session itself reaches no owned row.
 METRICS_SYSTEM_SESSION = ("ownvitals.worker.metrics",)
