@@ -2,6 +2,7 @@ import type { MetricTile } from '../../api/overview'
 import { useT } from '../../i18n'
 import { useFormat } from '../../i18n/useFormat'
 import type { MessageKey } from '../../i18n/en'
+import { Reveal } from '../motion'
 import { Link } from '../../router/Router'
 import { RangeBar, rangePosition } from '../charts/RangeBar'
 import { Sparkline } from '../charts/Sparkline'
@@ -22,6 +23,8 @@ interface Props {
   valueText?: string | null
   /** The tile's name when the overview catalogue has none for the key (the body page). */
   name?: string
+  /** Position among the tiles of its area: the reveal is staggered by it. */
+  index?: number
 }
 
 /** The data state under a tile, with the progress the two counting states carry. */
@@ -36,7 +39,7 @@ function State({ kind, tile, children }: { kind: DataStateKind; tile: MetricTile
   return <DataState kind={kind}>{children}</DataState>
 }
 
-export function Tile({ tile, range, valueText, name: given }: Props) {
+export function Tile({ tile, range, valueText, name: given, index = 0 }: Props) {
   const t = useT()
   const f = useFormat()
   const kind = stateKind(tile.state)
@@ -54,14 +57,20 @@ export function Tile({ tile, range, valueText, name: given }: Props) {
   const rangeText = band === null ? '' : `${f.quantity(band.low, tile.unit, digits)}–${f.quantity(band.high, tile.unit, digits)}`
   const position = latest !== null && band !== null ? rangePosition(latest.value, band.low, band.high) : null
 
+  const format = (n: number) => f.quantity(n, tile.unit, digits)
   return (
+    <Reveal index={index}>
     <Card level={3} title={<Link to={`/m/${tile.key}?range=${range}`}>{name}</Link>}>
       <div className={tile.state === 'stale' ? 'ov-tile ov-tile--old' : 'ov-tile'} data-state={tile.state}>
         {latest === null ? (
           kind === null ? <p className="ov-muted">{t('overview.tile.noValue')}</p> : null
         ) : (
           <>
-            <Value value={valueText ?? f.quantity(latest.value, tile.unit, digits)} unit={valueText ? undefined : f.unit(tile.unit)} />
+            <Value
+              value={valueText ?? format(latest.value)}
+              unit={valueText ? undefined : f.unit(tile.unit)}
+              count={valueText ? undefined : { value: latest.value, format }}
+            />
             {tile.sparkline.length > 0 ? (
               <div className="ov-tile__spark">
                 <Sparkline
@@ -92,5 +101,6 @@ export function Tile({ tile, range, valueText, name: given }: Props) {
         )}
       </div>
     </Card>
+    </Reveal>
   )
 }

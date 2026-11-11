@@ -144,6 +144,11 @@ because `tokens.test.ts` only knows that file's theme rules.
 - `<Skeleton width height>` and `<SkeletonSwap loading skeleton>`: size the block like the content;
   the content cross-fades in.
 
+Overview (#425): `Value` takes `count={{ value, format }}` and renders a `CountUp` (estimates stay still);
+`Tile` takes `index` and reveals itself staggered; `ScoreReadout` is the plain score figure with a
+fading `--ov-glow` halo (no ring or arc), ready for the health score when the API sends one. A
+count-up number is in the DOM three times (`.ov-sr`, sizer, live digits): tests query `.ov-sr`.
+
 CSP (rule 8): `sources.test.ts` forbids a `style=` attribute but not the `element.style` property
 API, so JS sets animated values with `el.style.setProperty('--x', ...)` on a class-styled element
 (`motionCss.test.ts` pins both). Only opacity and transform animate.

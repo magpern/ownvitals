@@ -48,7 +48,7 @@ describe('the nerve health page', () => {
     const link = await screen.findByRole('link', { name: 'Nerve health score' })
     expect(link.getAttribute('href')).toBe('/m/nerve_health_score?range=7d')
     const card = link.closest('.ov-card') as HTMLElement
-    expect(within(card).getByText('72')).toBeTruthy()
+    expect(within(card).getByText('72', { selector: '.ov-sr' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Nerve response score' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Nerve measures' })).toBeTruthy()
   })

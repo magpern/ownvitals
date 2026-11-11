@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useT } from '../../i18n'
+import { CountUp } from '../motion'
 import { Card } from './Card'
 import { SourceMark, type Source } from './TierMark'
 
@@ -25,9 +26,11 @@ interface ValueProps {
   size?: 'default' | 'large'
   /** An estimate by ownvitals (owner flag only): italic, dotted, "est." in front. */
   estimated?: boolean
+  /** A number that counts up to `count.value`, written by `count.format`; `value` is then ignored. */
+  count?: { value: number; format: (n: number) => string }
 }
 
-export function Value({ value, unit, size = 'default', estimated = false }: ValueProps) {
+export function Value({ value, unit, size = 'default', estimated = false, count }: ValueProps) {
   const t = useT()
   const classes = ['ov-value']
   if (size === 'large') classes.push('ov-value--large')
@@ -35,7 +38,9 @@ export function Value({ value, unit, size = 'default', estimated = false }: Valu
   return (
     <span className={classes.join(' ')}>
       {estimated ? <span className="ov-value__est">{t('ui.estimate')} </span> : null}
-      <span className="ov-value__num">{value}</span>
+      <span className="ov-value__num">
+        {count === undefined ? value : <CountUp value={count.value} format={count.format} still={estimated} />}
+      </span>
       {unit === undefined ? null : <span className="ov-value__unit">{unit}</span>}
     </span>
   )
