@@ -308,8 +308,8 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 - **Status changes** (`needs_reconnect`, `last_error`, `last_used_at`) are conditional on the
   generation that was read, so a stale 401 from before a refresh or reconnect can't flip a fresh
   connection. A disconnect does not bump the generation (it writes no token), so the decrypt-failure
-  update in `open_withings` is also conditional on `status = 'connected'` (#363; amended
-  2026-11-11, #394). `open_credentials` has the generation guard only: open gap, #397. One counter does what classbeat needed `wrapped_dek` and, later, a separate
+  updates in `open_withings` and `open_credentials` are also conditional on
+  `status = 'connected'` (#363; amended 2026-11-11, #394, #397). One counter does what classbeat needed `wrapped_dek` and, later, a separate
   `generation` column for.
 - **The M1 refresh protocol is PLAN §4.3** (intent row, call, one CAS transaction to
   `generation + 1`, first use only after the commit, one recovery retry within 8 hours, then
@@ -487,9 +487,9 @@ now says it. Made in place above and marked "amended 2026-11-11, #394": §3 and 
   credentials. Running it again picks the same row.
 - **Disconnect and the generation.** A disconnect is not a token write, so it leaves
   `token_generation` unchanged; the generation guard alone would let a decrypt-failure update
-  that read the row earlier flip a just-disconnected row back to `needs_reconnect`. `open_withings` therefore also requires `status = 'connected'` in that
-  `UPDATE` (#363). **Open gap:** `open_credentials`'s decrypt-failure update
-  (`connections/credential_rows.py`) has the generation guard only; the fix is tracked in #397.
+  that read the row earlier flip a just-disconnected row back to `needs_reconnect`. `open_withings` (#363) and `open_credentials`
+  (`connections/credential_rows.py`, #397) therefore also require `status = 'connected'` in that
+  `UPDATE`.
   The alternative, bumping the generation on disconnect, was rejected: it would make a stale refresh result look like a lost race rather
   than a disconnect.
 
