@@ -70,6 +70,7 @@ def _email_on(owner: uuid.UUID, on: bool = True) -> None:
 
 async def test_no_mail_is_queued_while_notify_email_is_off(chat: ChatEnv) -> None:
     who = await digest_user(chat, "synthetic-digest-m@example.com")
+    _email_on(who.id, False)
     await queue_digest(chat, who)
     chat.fake.script = [tools(("list_metrics", {})), answer(DIGEST_TEXT)]
     execution = await run_digest_job(chat)

@@ -17,7 +17,9 @@ import { MessageText } from './MessageText'
 // weekly summary is waiting") links to this page and says nothing else.
 
 // The first day of the budget month that ends on `resetsOn` (the first of the next month). A
-// skipped week from before it was skipped under an earlier month's budget: no reset date for it.
+// skipped week stored before it (by `createdAt`: a week's digest runs at least 7 days after the
+// week starts, so it is skipped under the budget of the month it ran in) was skipped under an
+// earlier month's budget: no reset date for it.
 function budgetMonthStart(resetsOn: string): string {
   const year = Number(resetsOn.slice(0, 4))
   const month = Number(resetsOn.slice(5, 7))
@@ -40,7 +42,7 @@ function DigestItem({ digest, resetsOn }: { digest: Digest; resetsOn: string | n
         <p className="ov-muted">
           {digest.status !== 'skipped_budget'
             ? t('assistant.digest.unavailable')
-            : resetsOn !== null && digest.weekStart >= budgetMonthStart(resetsOn)
+            : resetsOn !== null && digest.createdAt.slice(0, 10) >= budgetMonthStart(resetsOn)
               ? t('assistant.digest.skippedUntil', { date: f.day(resetsOn) })
               : t('assistant.digest.skipped')}
         </p>

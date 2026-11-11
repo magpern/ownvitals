@@ -85,9 +85,11 @@ async def _queueable(fs: FencedSession, owner: UUID, week: date) -> bool:
     ``_due`` only: it is the running job.)
 
     The check and the enqueue are not one step: two passes can both see "due". The singleton key
-    (``SINGLETON_KEY``) makes the second enqueue collapse into the first while one is queued, and
-    ``_store`` inserts under ``UNIQUE (owner_id, week_start)`` with ``ON CONFLICT DO NOTHING``, so
-    a second run stores nothing and queues no second mail."""
+    (``SINGLETON_KEY``) covers queued jobs only, so the race is narrowed, not closed: if the
+    queued job starts running between the check and the enqueue, a second job can still call the
+    model. ``_store`` inserts under ``UNIQUE (owner_id, week_start)`` with ``ON CONFLICT DO
+    NOTHING``, which keeps it to one stored digest and one mail, and the budget cap bounds the
+    cost."""
     if not await _due(fs, owner, week):
         return False
     return (await fs.db.execute(_RUNNING, {"o": owner, "kind": DIGEST_KIND})).first() is None

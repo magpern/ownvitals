@@ -20,8 +20,13 @@ function consent(state: 'none' | 'given') {
   }
 }
 
-function digest(week_start: string, status: string, content: string | null = null) {
-  return { week_start, status, content, created_at: '2026-11-10T03:00:00Z' }
+function digest(
+  week_start: string,
+  status: string,
+  content: string | null = null,
+  created_at = '2026-11-10T03:00:00Z',
+) {
+  return { week_start, status, content, created_at }
 }
 
 interface State {
@@ -94,7 +99,7 @@ describe('the weekly digest', () => {
   })
 
   it('gives the reset date of a skipped week while the budget is used up', async () => {
-    digestApi({ enabled: true, digests: [digest('2026-11-02', 'skipped_budget')] }, true, {
+    digestApi({ enabled: true, digests: [digest('2026-10-26', 'skipped_budget')] }, true, {
       'GET /api/ai/budget': { paused: true, resets_on: '2026-12-01' },
     })
     renderAt('/assistant')
@@ -102,7 +107,7 @@ describe('the weekly digest', () => {
   })
 
   it('gives no reset date for a skipped week of an earlier month', async () => {
-    digestApi({ enabled: true, digests: [digest('2026-10-19', 'skipped_budget')] }, true, {
+    digestApi({ enabled: true, digests: [digest('2026-09-28', 'skipped_budget', null, '2026-10-06T03:00:00Z')] }, true, {
       'GET /api/ai/budget': { paused: true, resets_on: '2026-12-01' },
     })
     renderAt('/assistant')
