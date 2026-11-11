@@ -309,6 +309,36 @@ def test_a_waiting_lane_that_went_quiet_holds_for_ten_seconds_at_most(
             release(conn, lease)
 
 
+def test_a_claim_never_moves_the_last_ask_backwards(
+    schema: None, database_url: str, app_database_url: str
+) -> None:
+    """A delayed claim read its clock before a sibling stream's ask; it must not undo it."""
+    app_id = _seed(database_url, budget=8)
+    account = uuid.uuid4()
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        first = claim(conn, app_id, account, LANE_BACKFILL)
+        assert first.lease_id is not None
+        release(conn, first.lease_id)
+    with engine_for(database_url) as engine, engine.begin() as conn:
+        later = conn.execute(
+            text(
+                "UPDATE withings_rate_demand SET seen_at = clock_timestamp() + interval "
+                "'1 hour' WHERE account_id = :account RETURNING seen_at"
+            ),
+            {"account": account},
+        ).scalar_one()
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        again = claim(conn, app_id, account, LANE_BACKFILL)
+        assert again.lease_id is not None
+        release(conn, again.lease_id)
+    with engine_for(database_url) as engine, engine.begin() as conn:
+        kept = conn.execute(
+            text("SELECT seen_at FROM withings_rate_demand WHERE account_id = :account"),
+            {"account": account},
+        ).scalar_one()
+    assert kept == later
+
+
 def test_the_caller_is_always_asking(
     schema: None, database_url: str, app_database_url: str
 ) -> None:
