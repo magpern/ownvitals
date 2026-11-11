@@ -2,12 +2,13 @@ import type { MetricTile } from '../../api/overview'
 import { useT } from '../../i18n'
 import { useFormat } from '../../i18n/useFormat'
 import type { MessageKey } from '../../i18n/en'
-import { Reveal } from '../motion'
+import { Reveal, useNewReading } from '../motion'
 import { Link } from '../../router/Router'
 import { RangeBar, rangePosition } from '../charts/RangeBar'
 import { Sparkline } from '../charts/Sparkline'
 import { Card } from '../ui/Card'
 import { DataState, type DataStateKind } from '../ui/DataState'
+import { DeltaChip } from './DeltaChip'
 import { Value } from '../ui/Value'
 import { detailKey, digitsOf, showsValue, stateKind, type RangeId } from './overviewModel'
 
@@ -57,6 +58,7 @@ export function Tile({ tile, range, valueText, name: given, index = 0 }: Props) 
   const rangeText = band === null ? '' : `${f.quantity(band.low, tile.unit, digits)}–${f.quantity(band.high, tile.unit, digits)}`
   const position = latest !== null && band !== null ? rangePosition(latest.value, band.low, band.high) : null
 
+  const pulse = useNewReading(latest?.day ?? null)
   const format = (n: number) => f.quantity(n, tile.unit, digits)
   return (
     <Reveal index={index}>
@@ -71,11 +73,13 @@ export function Tile({ tile, range, valueText, name: given, index = 0 }: Props) 
               unit={valueText ? undefined : f.unit(tile.unit)}
               count={valueText ? undefined : { value: latest.value, format }}
             />
+            {valueText ? null : <DeltaChip tile={tile} digits={digits} attention={position !== null && position !== 'within'} />}
             {tile.sparkline.length > 0 ? (
               <div className="ov-tile__spark">
                 <Sparkline
                   points={tile.sparkline.map((p) => ({ value: p.value, low: band?.low, high: band?.high }))}
                   attention={position !== null && position !== 'within'}
+                  pulse={pulse}
                 />
               </div>
             ) : null}

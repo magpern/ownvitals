@@ -128,3 +128,60 @@
   animation: none;
   display: none;
 }
+
+/* Stat-strip delta chip: fades in after the tile's number (item 3). */
+.ov-delta {
+  margin: 0;
+  color: var(--ov-series);
+  font-size: var(--ov-text-sm);
+  font-variant-numeric: tabular-nums;
+  animation: ov-fade-in var(--ov-dur-base) var(--ov-ease-out) calc(var(--ov-dur-count) * 0.6) both;
+}
+
+.ov-delta--attn {
+  color: var(--ov-attn);
+}
+
+/* Chart draw-in: the plot is revealed left to right once, when the chart first mounts. The box
+   persists across data refreshes, so zoom, hover and refresh never replay it (item 4). */
+.ov-chart--draw {
+  animation: ov-draw var(--ov-dur-slow) var(--ov-ease-out);
+}
+
+@keyframes ov-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0);
+  }
+}
+
+/* Sparkline pulse: one 600 ms halo on the last point of a new reading (item 9). */
+.ov-c-pulse {
+  fill: var(--ov-series);
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ov-pulse calc(var(--ov-dur-slow) * 1.25) var(--ov-ease-out) 1 both;
+  pointer-events: none;
+}
+
+@keyframes ov-pulse {
+  from {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(3.2);
+  }
+}
+
+/* Page transition: the route content cross-fades in, opacity only; shell and rail stay put (item 6).
+   CSS fallback; the View Transitions API is not used. */
+.ov-page {
+  animation: ov-fade-in var(--ov-dur-base) var(--ov-ease-out) both;
+}
