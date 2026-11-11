@@ -116,6 +116,8 @@ def test_the_worker_registry_holds_the_withings_kinds_and_the_api_none() -> None
         assert kind.input_model is expected
     assert worker_registry() is not registry  # a new one each time; nothing shared
     assert KINDS.names() == []  # the API's registry: POST /api/jobs still refuses every kind
+    # ADR 0005 section 4 (amended 2026-11-11, #383): the issuer's one exception, one kind only.
+    assert [kind.name for kind in registry if kind.disabled_owner] == [ADMIN_REVOKE_KIND]
 
 
 def test_only_registered_kinds_are_scheduled_and_the_targets_reach_the_runs() -> None:

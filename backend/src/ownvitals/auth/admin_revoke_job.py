@@ -4,10 +4,13 @@ An admin's account delete revokes the target's Withings grant first, as the user
 does. The admin web path never holds the target's context, so ``admin_account_revoke`` (an
 audited admin transaction) queues this job through ``queue_enqueue_admin_revoke``, naming the
 audit row's admin and the admin's session; the job issuer gives it the target's context when
-it is claimed, as for any job (a disabled or deleted target fails ``account_disabled``).
+it is claimed. The kind is registered with ``disabled_owner=True``, so a target the admin
+disabled first is still issued (ADR 0005 section 4, amended 2026-11-11, #383); a deleted one
+fails ``account_disabled``.
 
 ``execute_admin_revoke`` first checks that session again (``admin_stepped_up``): a live, full
-session of that admin, who is still an admin and not disabled, with a step-up inside the admin
+session of that admin, who is still an admin and not disabled, whose TOTP was entered in it
+(not on a QR approval's behalf, as ``SessionInfo.role``), with a step-up inside the admin
 write window plus ``JOB_SLACK``. Otherwise it fails ``invalid_input`` and revokes nothing. It
 then runs the user's own revoke-first disconnect on each live Withings row of the target, and
 fails ``upstream_unavailable`` when any revoke did not finish (the job has one attempt, so it is
@@ -56,8 +59,9 @@ async def admin_stepped_up(factory: Factory, admin_id: UUID, session_id: UUID) -
     """Whether ``session_id`` is a live session of ``admin_id`` that passed its second factor
     within the admin window and stepped up within the admin write window, both allowing
     ``JOB_SLACK`` for the time the job waited, and the account is an admin that is not
-    disabled. A timestamp after now is not a proof (the fail-closed lower bound of
-    ``session_model._within``)."""
+    disabled. A second factor entered on the approving phone for a QR login does not count
+    (``mfa_by_approval``, as ``SessionInfo.role``). A timestamp after now is not a proof (the
+    fail-closed lower bound of ``session_model._within``)."""
     now = func.now()
     query = (
         select(sessions.c.id)
@@ -66,6 +70,7 @@ async def admin_stepped_up(factory: Factory, admin_id: UUID, session_id: UUID) -
             sessions.c.id == session_id,
             sessions.c.user_id == admin_id,
             sessions.c.expires_at > now,
+            sessions.c.mfa_by_approval.is_(False),
             sessions.c.mfa_at <= now,
             sessions.c.mfa_at >= now - (ADMIN_MFA_WINDOW + JOB_SLACK),
             sessions.c.stepup_at <= now,
@@ -149,7 +154,7 @@ def admin_revoke_kind(
         await execute_admin_revoke(job, held, inner=inner, budget=limit, sleep=sleep)
         return Complete()
 
-    return JobKind(ADMIN_REVOKE_KIND, AdminRevokeInput, run)
+    return JobKind(ADMIN_REVOKE_KIND, AdminRevokeInput, run, disabled_owner=True)
 
 
 def register_admin_revoke_kind(registry: KindRegistry) -> None:

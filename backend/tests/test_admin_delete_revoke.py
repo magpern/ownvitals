@@ -192,6 +192,28 @@ async def test_a_slow_worker_does_not_hold_the_delete_and_web_calls_nothing(
     ]
 
 
+async def test_a_target_the_admin_disabled_first_is_still_revoked(
+    aenv: AdminEnv, linked: Linked
+) -> None:
+    """Disable, then delete (#383, ADR 0005 section 4 amended 2026-11-11): the issuer admits
+    this one kind for a disabled owner, so the grant is revoked, not reported ``failed``."""
+    admin = await caller(aenv)
+    target = linked.ctx.user_id
+    disabled = await admin.request("POST", f"/api/admin/users/{target}/disable")
+    assert disabled.status_code == 200, disabled.text
+    async with worker(aenv.env, linked):
+        response = await _delete(admin, target)
+    assert response.status_code == 204, response.text
+    assert _revokes(linked) == ["notify:revoke", "notify:revoke", "v2/oauth2:revoke"]
+    assert await aenv.env.scalar("SELECT count(*) FROM users WHERE id = :u", u=target) == 0
+    assert await _trail(aenv) == [
+        ("user.disable", "ok", {}),
+        ("user.revoke", "ok", {}),
+        ("user.revoke_wait", "ok", {}),
+        ("user.delete", "ok", {"revoke": "revoked"}),
+    ]
+
+
 # --- no connection, and a refused delete -------------------------------------------------------
 
 
@@ -328,6 +350,27 @@ async def test_the_job_checks_the_admins_live_step_up(aenv: AdminEnv) -> None:
         assert not await admin_stepped_up(factory, admin, fresh), change
     await aenv.env.run("UPDATE users SET disabled_at = now() WHERE id = :u", u=admin)
     assert not await admin_stepped_up(factory, admin, session)  # a disabled admin
+
+
+_BY_APPROVAL = (
+    "UPDATE sessions SET origin = 'qr_approval', approved_factor = 'totp', "
+    "approved_by_session_id = id, mfa_by_approval = :by WHERE id = :i"
+)
+
+
+async def test_a_second_factor_entered_on_the_approving_phone_is_no_admin_proof(
+    aenv: AdminEnv,
+) -> None:
+    """Parity with ``SessionInfo.role`` (#383): a QR-approved session whose TOTP was entered on
+    the phone (``mfa_by_approval``) is no admin session; one that passed TOTP itself is."""
+    admin = await aenv.env.user("admin@example.com", role="admin")
+    factory = aenv.env.factory
+    own = await _session(aenv, admin)
+    await aenv.env.run(_BY_APPROVAL, i=own, by=False)
+    assert await admin_stepped_up(factory, admin, own)
+    approved = await _session(aenv, admin)
+    await aenv.env.run(_BY_APPROVAL, i=approved, by=True)
+    assert not await admin_stepped_up(factory, admin, approved)
 
 
 async def _settled(aenv: AdminEnv, owner_id: UUID) -> Any:

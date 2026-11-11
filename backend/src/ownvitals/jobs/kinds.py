@@ -46,6 +46,10 @@ class JobKind:
     name: str
     input_model: type[BaseModel]
     run: "Callable[[JobRun], Awaitable[Outcome]]"
+    # Issued for an owner that is disabled but still exists, when its row's origin is
+    # ``operator`` (ADR 0005 section 4, amended 2026-11-11, #383). Only ``withings_admin_revoke``
+    # sets it; a test pins that.
+    disabled_owner: bool = False
 
     def __post_init__(self) -> None:
         if not KIND_NAME.match(self.name):

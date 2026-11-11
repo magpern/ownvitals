@@ -8,6 +8,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
+from uuid import UUID
 
 import pytest
 from sqlalchemy import text
@@ -99,6 +100,66 @@ async def test_an_inactive_owner_fails_the_job_with_account_disabled(jenv: JobsE
     assert (row.state, row.error_category) == ("failed", "account_disabled")
     assert calls == []
     assert jenv.kinds(job_id) == ["claimed", "failed"]
+
+
+async def _ran_for(jenv: JobsEnv, job_id: UUID, *, disabled_owner: bool) -> tuple[Any, list[Any]]:
+    """Run the claimed test job; the handler records the context it was given."""
+    seen: list[Any] = []
+
+    async def run(job_run: JobRun) -> Complete:
+        ctx = job_run.ctx
+        seen.append((ctx.user_id, ctx.role, ctx.connections))
+        return Complete()
+
+    registry = registry_for(run, disabled_owner=disabled_owner)
+    await execute(await claim(jenv), jenv.factory, registry, jenv.config(), asyncio.Event())
+    return jenv.row(job_id), seen
+
+
+async def test_a_flagged_operator_job_of_a_disabled_owner_is_issued(jenv: JobsEnv) -> None:
+    """ADR 0005 section 4, amended 2026-11-11 (#383): the one exception, as the owner's own
+    ``role="user"`` context with its connection refs."""
+    owner, job_id = jenv.job(origin="operator", idempotency_key=None, request_hash=None)
+    jenv.accounts.disabled.add(owner)
+    connection_id = uuid.uuid4()
+    jenv.accounts.refs = frozenset({("withings", connection_id)})
+    row, seen = await _ran_for(jenv, job_id, disabled_owner=True)
+    assert row.state == "completed"
+    assert seen == [(owner, "user", frozenset({("withings", connection_id)}))]
+
+
+@pytest.mark.parametrize(
+    ("origin", "flagged", "gone"),
+    [
+        ("user", True, False),  # not an operator job
+        ("webhook", True, False),
+        ("operator", False, False),  # a kind without the flag
+        ("operator", True, True),  # an owner that no longer exists
+    ],
+)
+async def test_every_other_job_of_an_inactive_owner_still_fails_account_disabled(
+    jenv: JobsEnv, origin: str, flagged: bool, gone: bool
+) -> None:
+    keys: dict[str, Any] = (
+        {} if origin == "user" else {"idempotency_key": None, "request_hash": None}
+    )
+    owner, job_id = jenv.job(origin=origin, **keys)
+    (jenv.accounts.missing if gone else jenv.accounts.disabled).add(owner)
+    row, seen = await _ran_for(jenv, job_id, disabled_owner=flagged)
+    assert (row.state, row.error_category) == ("failed", "account_disabled")
+    assert seen == []
+    assert jenv.kinds(job_id) == ["claimed", "failed"]
+
+
+async def test_the_exception_is_asked_only_for_an_inactive_owner(jenv: JobsEnv) -> None:
+    owner, _ = jenv.job()
+    execution = await claim(jenv)
+    assert (await issue(jenv.factory, execution.claimed, jenv.accounts)).active
+    jenv.accounts.disabled.add(owner)
+    assert not (await issue(jenv.factory, execution.claimed, jenv.accounts)).active
+    issued = await issue(jenv.factory, execution.claimed, jenv.accounts, disabled_owner=True)
+    assert issued.active
+    assert await NO_ACCOUNTS.owner_exists(jenv.factory, owner) is False
 
 
 async def test_the_default_account_directory_fails_closed(jenv: JobsEnv) -> None:
