@@ -72,6 +72,17 @@ def test_a_constant_baseline_gives_the_minimum_half_width_in_both_bands() -> Non
     assert (pulse.low, pulse.high) == (59.0, 63.0)
 
 
+def test_a_constant_trailing_display_band_is_never_zero_width() -> None:
+    # the chart's band (TRAILING, q - 89 ... q): a flat series has MAD 0, so only the
+    # minimum half-width keeps the band from collapsing to a line (#394)
+    flat = constant(Q - timedelta(days=89), 90, "80.0")
+    got = band(display_band("weight", flat, Q))
+    assert got.mad == 0.0
+    assert got.half_width == pytest.approx(0.45)
+    assert got.low < got.median < got.high
+    assert (got.low, got.high) == (pytest.approx(79.55), pytest.approx(80.45))
+
+
 def test_the_minimum_applies_to_the_display_band_only_when_the_scaled_mad_is_below_it() -> None:
     # a = 0.15: 1.5 * 1.4826 * a = 0.334 < 0.45 <= 2.5 * 1.4826 * a = 0.556
     data = preceding(Q, [80.15, 79.85] * 45)

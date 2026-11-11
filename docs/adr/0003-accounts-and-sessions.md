@@ -141,7 +141,9 @@ else changes.
 | First TOTP enrolment (no confirmed factor) | the sign-in itself (§2) | — (no factor yet) | Architect decision |
 | Admin writes (#12) | — | yes, within **5 minutes** | classbeat ADR 0011 §6 |
 | M3: add or remove a passkey, approve a QR login | M3 ADR | yes | PLAN §6 |
-| M7: export | M7 ADR | yes | PLAN §6 |
+| M7: export (request) | yes | yes | PLAN §6; ADR 0013 §4 (amended 2026-11-11, #394) |
+| M7: doctor PDF (request) | — | yes | PLAN §6; ADR 0013 §6 (amended 2026-11-11, #394) |
+| M7: download of an export or doctor PDF | — | yes, and a same-origin page | ADR 0013 §4 |
 
 - **Reading PLAN §6 under mandatory TOTP** (Architect decision, 2026-10-31):
   - **"disable 2FA"** means removing the factor: the user's other sessions are revoked and the
@@ -259,6 +261,13 @@ accepted risk.
 - Threat model T1 to T18 cite this ADR.
 
 ## Amendments
+
+### 2026-11-11 (#394): the §4 table rows for M7
+
+Made in place above and marked "amended 2026-11-11, #394": the "M7: export" row now says what
+ADR 0013 §4 and §6 decided and `reports/export_routes.py` and `reports/doctor_routes.py` do: the
+export request needs recent authentication and a step-up (`require_sensitive`), the doctor PDF
+request a step-up only (`require_stepup`), and a download of either a step-up on a same-origin page.
 
 ### 2026-10-31 (#49): follow-ups of the #41 review
 

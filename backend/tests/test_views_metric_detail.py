@@ -141,6 +141,18 @@ async def test_a_series_below_the_policy_gets_no_trend_and_no_change_points(env:
     assert len([p for p in body["series"] if p["value"] is not None]) == 4
 
 
+async def test_a_constant_series_still_gets_a_band_of_the_minimum_width(env: Env) -> None:
+    browser, owner = await user(env, "const@example.com")
+    connection = connected_with_streams(owner)
+    await ingest(env, owner, connection, dict.fromkeys(days_back(100), 80.0))
+    body = await detail(browser, query="?range=90d")
+    band = body["band"]
+    assert band["median"] == 80.0
+    assert band["low"] == pytest.approx(79.55)
+    assert band["high"] == pytest.approx(80.45)
+    assert body["method"]["parameters"]["band_min_half_width"] == 0.45
+
+
 @pytest.mark.parametrize(
     ("query", "days"), [("", 90), ("?range=30d", 30), ("?range=1y", 365), ("?range=6mo", 182)]
 )
