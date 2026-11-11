@@ -28,13 +28,16 @@ owner must confirm it. Nothing here is approved.
 | 19 | Health data is special-category data; explicit consent Art. 9(2)(a); privacy notice, DPIA, processor agreements, transfer check, 72 h breach procedure are M8 gate items (privacy 4-5, security) | PLAN-operations §9.3; PLAN D7; ADR 0016 item 6 |
 | 20 | No analytics, ads, tracking, third-party content; public pages set no cookies, no JavaScript (cookies, privacy 5) | ADR 0016 §1, §5 (Decision, "no Set-Cookie", "No analytics"); `public_site.py` |
 | 21 | Cookie names, attributes (`__Host-`, Secure, no Domain, HttpOnly/SameSite) and lifetimes (cookies) | `backend/src/ownvitals/auth/cookies.py:11-27,33-85` (session 30 d via `session_absolute_days`; device 365 d; csrf 30 d, JS-readable, SameSite Strict; oauth 10 min; pending 24 h; pre 5 min) |
-| 22 | Theme choice in localStorage `ownvitals.theme` (cookies) | `frontend/src/theme/theme.ts:5,17,27-38` |
+| 22 | Theme choice in localStorage `ownvitals.theme` and language choice `ov-locale` (cookies) | `frontend/src/theme/theme.ts:5,17,27-38`; `frontend/src/i18n/resolve.ts:8,37,45` |
 | 23 | Row-level security enforces per-user ownership (security) | AGENTS.md "Security rules" (owner_id, forced RLS); ADR 0002 |
-| 24 | Logs never contain measurement values, tokens, webhook secrets (security) | AGENTS.md "Health data" (log-redaction tests) |
+| 24 | Logs are designed not to contain measurement values, tokens, webhook secrets (security) | AGENTS.md "Health data" (log-redaction tests) |
 | 25 | Webhooks verified and only a trigger to fetch (security) | AGENTS.md "Security rules"; PLAN §4.4; ADR 0004 |
 | 26 | Findings tiered, some experimental; not medical advice, not Withings-endorsed (terms 2, 4) | PLAN D9; ADR 0016 item 6; ADR 0015 health-wording rule |
-| 27 | Mail contains no health measurements (privacy 5) | NOT VERIFIED in this PR: `auth/mails.py` and `mail_texts/` not audited line by line; finding-notice mail content (#316) must be checked by the owner/Architect |
-| 28 | Transport encryption (TLS) for health data (privacy 9) | PLAN-operations §9 (SWAG/Cloudflare, SSL Full strict) as planned; deployment is owner-run, so the statement is an owner confirmation |
+| 27 | Mail contains no measurements; it carries link, account email, passkey name, sign-in browser and place (privacy 5) | Verified by the reviewer: `notify/templates/__init__.py:48-60` and `notify/templates/base.py` (fixed templates, `{link}` only); `auth/mails.py`, `auth/mail_texts/en.py`; `keys_cli.py:103-116` |
+| 28 | Transport encryption (TLS) (privacy 9, bracketed for the owner) | PLAN-operations §9 (SWAG/Cloudflare, SSL Full strict) as planned; deployment is owner-run, so the statement is an owner confirmation |
 | 29 | Backups: nightly encrypted dump to another machine (privacy 5-6) | PLAN-operations §9.1 table; retention period and provider are owner placeholders |
 | 30 | Hosting, email provider, processor agreements, controller identity, contacts, authority, liability, governing law | OWNER placeholders; no code or ADR fixes them |
 | 31 | Signup limited to invite/closed until M8 (terms 1) | `docs/dev/admin.md` signup mode table (`open` refused until M8) |
+| 32 | A plain disconnect keeps imported rows until the account goes; deletion is opt-in (`delete_imported`); no health-data consent step exists yet (privacy 4, 7) | `backend/src/ownvitals/auth/purge.py` docstring; `docs/dev/connections.md` (#163); PLAN-operations §9.3 (consent is an M8 gate item) |
+| 33 | The CSRF cookie is set by `GET /api/auth/session` whenever the app loads signed out (cookies) | `backend/src/ownvitals/auth/routes.py:141-144` |
+| 34 | Web also calls Google sign-in hosts and does the one Withings code exchange (security) | `egress/core.py:46-49`; roadmap Amendment 1 |
