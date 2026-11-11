@@ -37,7 +37,7 @@ function is `SECURITY DEFINER` with `search_path = pg_catalog, pg_temp`, the com
 | `queue_enqueue(...)` | webhook or scheduler job owned by the connection's owner; a queued singleton collapses and its `available_at` moves 30 s out, a follow-up of a running one is queued 30 s out too, and an insert that meets a queued row of the key (one handed back after the check) collapses into it (namespace 1); a job whose input names a `secret_id` (`notify_update` must) has the same id in `target_secret_id`, or is refused `invalid target` | the job id |
 | `queue_cancel_for_secret(kind, secret_id)` | cancels queued jobs of that kind for that webhook secret, any owner; waits for a queued row another transaction holds (never skips it), and any error fails the call | the count |
 | `queue_replay(id)` | a new queued job from a dead-lettered one, under the owner's job-creation lock (namespace 1); the terminal row stays | `(job_id, owner_id)` |
-| `queue_schedule(kind, interval_seconds)` | the scheduler (#164): through `queue_enqueue`, one `withings_poll` or `withings_reconcile` job (origin `scheduler`) for every `connected` connection with none queued or running and none created in the last `interval_seconds` (3600 to 604800); at most 500 per call | the count |
+| `queue_schedule(kind, interval_seconds)` | the scheduler (#164): through `queue_enqueue`, one `withings_poll` or `withings_reconcile` job (origin `scheduler`) for every `connected` connection with none queued or running and none created in the last `interval_seconds` (3600 to 604800), and no `withings_connect` or `withings_backfill` of it queued or running (an import in progress: it stays due until the import ends, #407); at most 500 per call | the count |
 
 No user code may run as `ownvitals_queue`: the script, the queue check and guard 9 all refuse
 any other user-defined function, operator, trigger or rule, and any default, check, index or
@@ -268,6 +268,6 @@ synthetic owners (random UUIDs) and the test-only kind `test_kind` only:
 | `test_jobs_runner.py`, `test_jobs_cancel.py` | runs end to end, retries, cancel |
 | `test_jobs_api.py`, `test_jobs_stream.py`, `test_jobs_events.py` | the API, SSE and the hub |
 | `test_jobs_errors.py`, `test_worker.py` | categories and backoff; the worker process |
-| `test_queue_schedule.py` | `queue_schedule`: due connections only, no doubling, refused kinds and intervals, its ACL (#164) |
+| `test_queue_schedule.py` | `queue_schedule`: due connections only, no doubling, no poll or reconcile during a connection's import (#407), refused kinds and intervals, its ACL (#164) |
 | `test_worker_kinds.py` | the worker's registry and the API's empty one, the process entry's wiring, the target check through the runner, the current callback, the reconcile and recovery handlers, the loop's schedule (#164) |
 | `test_worker_withings_e2e.py` | a webhook queues `withings_sync`, the worker runs it against the fake and the measures are stored (#164; synthetic data) |

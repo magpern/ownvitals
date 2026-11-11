@@ -652,7 +652,10 @@ END $$;
 
 -- The scheduler (PLAN section 4.4, ADR 0002 section 4, ADR 0005 section 8): one job of p_kind
 -- for every connected connection that has none queued or running and none created in the last
--- p_interval_seconds. Only the poll and the reconciliation are scheduled. Each job is created by
+-- p_interval_seconds. A connection whose import is still active (a withings_connect or a
+-- withings_backfill queued or running for it) is skipped and stays due: a poll would queue a
+-- second backfill per unfinished stream, and a reconcile would outrank the backfills in the rate
+-- limiter (#407). Only the poll and the reconciliation are scheduled. Each job is created by
 -- queue_enqueue (origin scheduler) and gets its context only when claimed. At most 500 per call;
 -- the rest stay due for the next call. Returns the count, never an owner or a connection id.
 CREATE OR REPLACE FUNCTION public.queue_schedule(p_kind text, p_interval_seconds integer)
@@ -679,6 +682,13 @@ BEGIN
                   AND j.input ->> 'connection_id' = r.id::text
                   AND (j.state IN ('queued', 'running')
                        OR j.created_at > now() - make_interval(secs => p_interval_seconds))) THEN
+      CONTINUE;
+    END IF;
+    IF EXISTS (SELECT FROM public.jobs j
+                WHERE j.owner_id = r.owner_id
+                  AND j.kind IN ('withings_connect', 'withings_backfill')
+                  AND j.input ->> 'connection_id' = r.id::text
+                  AND j.state IN ('queued', 'running')) THEN
       CONTINUE;
     END IF;
     PERFORM public.queue_enqueue(

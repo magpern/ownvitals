@@ -15,7 +15,7 @@ QUEUE_DIGESTS: dict[str, str] = {
     "queue_enqueue": "7d38c78ebf3c6a283a52761e8879dee0",
     "queue_cancel_for_secret": "3c636c9a296eb48f31700e60618ccea5",
     "queue_replay": "a67d043bfec77b4610deb8671aad1846",
-    "queue_schedule": "90ff11344c5e69c710635daa26babaac",
+    "queue_schedule": "39df09ad185cefb6335a073719b4629d",
     "ensure_month_partitions": "a9ac3a83947bf5ffee3cd23f87440474",
     "webhook_secrets_apply": (
         # md5(pg_get_functiondef) of this function body
