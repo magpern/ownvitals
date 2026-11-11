@@ -301,6 +301,26 @@ async def test_the_store_does_not_wait_on_a_withdrawal_that_holds_the_consent_ro
     assert digest_mail(who.id) == []
 
 
+async def test_a_second_store_of_the_same_week_keeps_one_digest_and_one_mail(
+    chat: ChatEnv,
+) -> None:
+    """The narrowed queue race can run two jobs for one week: the second ``_store`` hits
+    ``UNIQUE (owner_id, week_start)`` and ``ON CONFLICT DO NOTHING`` keeps the first digest and
+    sends no second mail. Without the clause the insert raises and this test fails."""
+    who = await digest_user(chat, "synthetic-digest-m@example.com")
+    _email_on(who.id)
+    await queue_digest(chat, who)
+    chat.fake.script = [tools(("list_metrics", {})), answer(DIGEST_TEXT)]
+    await run_digest_job(chat)
+    assert digests(who.id) == [(WEEK, "ready", DIGEST_TEXT)]
+    job = _running(chat, await queue_digest(chat, who), who.id)
+    store = digest._store(who.id, WEEK, "ready", "Other synthetic text.")  # pyright: ignore[reportPrivateUsage]
+    async with job.fenced() as fs:
+        await store(fs)
+    assert digests(who.id) == [(WEEK, "ready", DIGEST_TEXT)]
+    assert digest_mail(who.id) == [("ai_digest_ready", "assistant")]
+
+
 async def test_the_store_refuses_after_a_committed_withdrawal(chat: ChatEnv) -> None:
     who = await digest_user(chat, "synthetic-digest-l@example.com")
     job = _running(chat, await queue_digest(chat, who), who.id)
