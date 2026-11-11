@@ -1,7 +1,7 @@
 # ADR 0005: Jobs, leases, fencing and the worker
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88, and 2026-11-10 by
-#370, #314 and #365 (see "Amendments").
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88, 2026-11-10 by
+#370, #314 and #365, and 2026-11-11 by #383 (see "Amendments").
 Post-port review (#16, 2026-11-03): no decision changed; the queue hardening findings of the M1
 PRs are in #165.
 
@@ -241,7 +241,13 @@ queued ──claim──> running ──> completed | failed | cancelled
 
 - **The job issuer** (ADR 0002 §1) acts on the claimed row alone:
   1. it asks `ownvitals.auth` (guard 8) whether the owner exists and is not disabled; otherwise the
-     job fails with `account_disabled`;
+     job fails with `account_disabled`. **One exception** (amended 2026-11-11, #383): a job whose
+     row is `withings_admin_revoke` with origin `operator` (only `queue_enqueue_admin_revoke`
+     writes that pair, or the operator's `queue_replay` of such a job) is issued for an owner that is disabled but still exists. The runner reads
+     the row's `kind` and `origin` as the bare owner, fenced, only after the owner was found not
+     active, and the kind must be registered with `disabled_owner=True`, which no other kind
+     sets (a test pins it). Every other kind, and any job of a deleted owner, still fails
+     `account_disabled`. The handler still re-checks the admin's stepped-up session first;
   2. it issues a context with `role="user"` (a job never carries admin authority) and the owner's
      connection refs, read through `ownvitals.connections` in that owner's `user_session`;
   3. the job's row and input are then read in a `user_session` with that context.
@@ -420,6 +426,29 @@ A new advisory lock adds its row here in the PR that introduces it.
 - Threat model T44 to T51 cite this ADR.
 
 ## Amendments
+
+### 2026-11-11 (#383): the admin revoke runs for a disabled target
+
+Recorded in §4 and marked "amended 2026-11-11, #383". Follow-up of the #380 review (M8 human
+security review item).
+
+- Context: the issuer refused every job of a disabled owner, so an admin who disabled an account
+  and then deleted it (the common workflow) left the grant live at Withings and recorded
+  `revoke: failed` (ADR 0002's #365 amendment named the gap).
+- Decision: the issuer's one exception in §4. It is keyed on the job row (kind and origin, which
+  only `queue_enqueue_admin_revoke` and the operator's replay of its job write together;
+  `queue_enqueue` refuses origin `operator` and the user's create writes `user`) and on a registry flag only that kind sets; the owner
+  must still exist. The context is the same `role="user"` context as for any job, and the
+  handler's admin step-up check (ADR 0002 §3, #365) runs before any provider call. No definer
+  changes.
+- Alternatives: **revoking when an admin disables an account** makes disable irreversible for
+  the Withings connection (a product change for the owner), leaves accounts disabled before the
+  change unrevoked, and still fails when the worker is down at the disable; **clearing
+  `disabled_at` around the revoke** reopens sign-in for that window; **returning the kind from
+  `queue_claim`** changes a pinned queue function for what one fenced read gives.
+- Consequences: a disabled target's admin delete revokes as for an active one. A disabled
+  owner's job of this kind reads its own row once more (fenced, as the bare owner). A deleted
+  owner's job, or any other kind, is refused exactly as before.
 
 ### 2026-11-10 (#365): the admin delete's revoke job
 

@@ -657,7 +657,8 @@ and marked "amended 2026-11-10, #365":
 - Consequences: two more pinned functions and one job kind; the admin delete holds the request
   for up to `ADMIN_REVOKE_WAIT_SECONDS` (as the user's delete holds for `REVOKE_WAIT_SECONDS`)
   and writes three audit rows (`user.revoke`, `user.revoke_wait`, `user.delete`) when the target
-  has a live connection, one more (`user.revoke`) otherwise. A target the admin disabled first is
-  refused by the job issuer, so its grant is reported `failed`, not revoked. A delete refused
+  has a live connection, one more (`user.revoke`) otherwise. A target the admin disabled first was
+  refused by the job issuer, so its grant was reported `failed`, not revoked; from 2026-11-11
+  (#383) the issuer admits this one kind for a disabled owner (ADR 0005 §4). A delete refused
   after its revoke ran (the address changed in between) leaves a revoked connection and the
   account.
