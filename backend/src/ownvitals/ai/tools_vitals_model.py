@@ -28,7 +28,7 @@ StreamPeriod = Literal[7, 14, 30, 60, 90]
 ECG_MAX_ITEMS: Final = 90  # recordings listed per result (the counts cover the whole period)
 STREAM_MAX_POINTS: Final = 90
 # Withings' ``afib`` codes (withings-findings section 3) and the two words for the rest.
-CLASSIFICATIONS: Final = ("negative", "positive", "inconclusive", "not_reported", "undocumented")
+EcgClassification = Literal["negative", "positive", "inconclusive", "not_reported", "undocumented"]
 
 # Output field -> the normalised metric key it reads (prefix + Withings field name).
 SLEEP_KEYS: Final[Mapping[str, str]] = MappingProxyType(
@@ -79,13 +79,13 @@ class ActivitySummaryArgs(Closed):
 
 
 class EcgClassCount(Closed):
-    classification: str
+    classification: EcgClassification
     count: int
 
 
 class EcgRecordingItem(Closed):
     day: date
-    classification: str
+    classification: EcgClassification
     heart_rate_bpm: int | None
     qrs_duration_ms: float | None
     pr_interval_ms: float | None
