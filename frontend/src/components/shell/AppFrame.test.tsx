@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { t } from '../../i18n'
 import { APP_ROUTES } from '../../router/appRoutes'
@@ -100,10 +100,11 @@ describe('the app frame', () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/connections')
     await screen.findByRole('heading', { level: 1, name: 'Connections' })
-    expect(document.title).toBe('Connections · ownvitals')
+    // The title is set in an effect, which can run just after the heading is in the document.
+    await waitFor(() => expect(document.title).toBe('Connections · ownvitals'))
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'Sleep' }))
     await screen.findByRole('heading', { level: 1, name: 'Sleep' })
-    expect(document.title).toBe('Sleep · ownvitals')
+    await waitFor(() => expect(document.title).toBe('Sleep · ownvitals'))
   })
 
   it('does not take a trailing slash for another page', async () => {
