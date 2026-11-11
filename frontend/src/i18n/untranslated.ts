@@ -23,10 +23,6 @@ export const SAME_IN_SV: Readonly<Record<string, string>> = {
   'detail.day.status': 'the same word in Swedish: status',
   'detail.reading.firmware': 'the same word in Swedish: firmware',
   'detail.reading.rawFormula': 'a formula, the same in both languages',
-  'detail.range.30d': 'the same abbreviation in Swedish: 30 d',
-  'detail.range.90d': 'the same abbreviation in Swedish: 90 d',
-  'overview.range.30d': 'the same abbreviation in Swedish: 30 d',
-  'overview.range.90d': 'the same abbreviation in Swedish: 90 d',
   'settings.theme.system': 'the same word in Swedish: system',
   'settings.tier.trend': 'the same word in Swedish: trend',
   'settings.tier.system': 'the same word in Swedish: system',
@@ -36,6 +32,4 @@ export const SAME_IN_SV: Readonly<Record<string, string>> = {
   'settings.temperature.unit.c': 'a unit',
   'settings.temperature.unit.f': 'a unit',
   'settings.format.iso': 'an ISO date, the same in every language',
-  'settings.range.30d': 'the same abbreviation in Swedish: 30 d',
-  'settings.range.90d': 'the same abbreviation in Swedish: 90 d',
 }

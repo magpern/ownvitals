@@ -3,8 +3,10 @@ import type { overview as en } from '../en/overview'
 // Swedish for the overview area (glossary: docs/dev/i18n.md). `satisfies` makes a missing or extra key a type error.
 export const overview = {
   'range.label': 'Period',
-  'range.30d': '30 d',
-  'range.90d': '90 d',
+  'range.7d': '7 dagar',
+  'range.30d': '30 dagar',
+  'range.90d': '3 månader',
+  'range.6mo': '6 månader',
   'range.1y': '1 år',
   'range.all': 'Alla',
   'section.needsLook': 'Värt att titta på',

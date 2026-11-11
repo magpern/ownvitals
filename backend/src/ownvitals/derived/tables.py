@@ -64,7 +64,7 @@ THEMES = ("system", "light", "dark")
 WEIGHT_UNITS = ("kg", "lb", "st")
 TEMPERATURE_UNITS = ("c", "f")
 DATETIME_FORMATS = ("d_mon_y", "mon_d_y", "iso")
-CHART_RANGES = ("30d", "90d", "6mo", "1y")
+CHART_RANGES = ("7d", "30d", "90d", "6mo", "1y")
 OVERVIEW_GROUPS = ("body", "heart", "nerve", "activity")
 # scores.components.status (ADR 0012 section 1); only ``computed`` has a value.
 SCORE_STATUSES = ("computed", "insufficient_data", "not_available", "not_supported", "not_set")
@@ -222,7 +222,7 @@ user_profiles = Table(
     Column("weight_unit", Text, nullable=False, server_default=text("'kg'")),
     Column("temperature_unit", Text, nullable=False, server_default=text("'c'")),
     Column("datetime_format", Text, nullable=False, server_default=text("'d_mon_y'")),
-    Column("chart_range", Text, nullable=False, server_default=text("'90d'")),
+    Column("chart_range", Text, nullable=False, server_default=text("'7d'")),
     Column(
         "overview_order",
         ARRAY(Text),

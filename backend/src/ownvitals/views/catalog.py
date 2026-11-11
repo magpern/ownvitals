@@ -71,9 +71,9 @@ STATUS_STREAMS: Final = (
 
 # ``?range=`` of the metric detail: the profile's chart ranges (``derived.tables.CHART_RANGES``)
 # and ``all``. Days of the window; ``all`` runs from the first day with data.
-RANGE_DAYS: Final = MappingProxyType({"30d": 30, "90d": 90, "6mo": 182, "1y": 365})
+RANGE_DAYS: Final = MappingProxyType({"7d": 7, "30d": 30, "90d": 90, "6mo": 182, "1y": 365})
 RANGES: Final = (*RANGE_DAYS, "all")
-DEFAULT_RANGE: Final = "90d"
+DEFAULT_RANGE: Final = "7d"
 
 SPARKLINE_DAYS: Final = 30
 BAND_DAYS: Final = 90  # the display band's window (ADR 0010 section 2)

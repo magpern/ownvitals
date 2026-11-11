@@ -163,14 +163,25 @@ describe('the overview: range', () => {
   it('marks the chosen range and links the others', async () => {
     open('/?range=1y')
     const nav = await screen.findByRole('navigation', { name: 'Range' })
-    expect(within(nav).getByRole('link', { name: '1 y' })).toHaveAttribute('aria-current', 'true')
-    expect(within(nav).getByRole('link', { name: '30 d' })).toHaveAttribute('href', '/?range=30d')
+    expect(within(nav).getByRole('link', { name: '1 year' })).toHaveAttribute('aria-current', 'true')
+    expect(within(nav).getByRole('link', { name: '30 days' })).toHaveAttribute('href', '/?range=30d')
   })
 
-  it('falls back to 90 days for a range it does not know', async () => {
+  it('offers the six ranges, each as a deep link', async () => {
+    open('/?range=7d')
+    const nav = await screen.findByRole('navigation', { name: 'Range' })
+    const links = within(nav).getAllByRole('link')
+    expect(links.map((l) => l.textContent)).toEqual(['7 days', '30 days', '3 months', '6 months', '1 year', 'All'])
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(
+      ['7d', '30d', '90d', '6mo', '1y', 'all'].map((r) => `/?range=${r}`),
+    )
+    expect(links[0]).toHaveAttribute('aria-current', 'true')
+  })
+
+  it('falls back to 7 days for a range it does not know', async () => {
     open('/?range=forever')
     const nav = await screen.findByRole('navigation', { name: 'Range' })
-    expect(within(nav).getByRole('link', { name: '90 d' })).toHaveAttribute('aria-current', 'true')
+    expect(within(nav).getByRole('link', { name: '7 days' })).toHaveAttribute('aria-current', 'true')
   })
 })
 
