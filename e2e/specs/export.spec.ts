@@ -7,6 +7,7 @@ import { answerWithings, registerApp, resetWorld } from '../helpers/fake-withing
 import { enrolAuthenticator, newAccount, signInWithPassword, signUpAndConfirm, typeCode } from '../helpers/flows.ts'
 import { ageStepUp, createInvite } from '../helpers/invite.ts'
 import { resetRateLimits } from '../helpers/ratelimit.ts'
+import { holdScheduler } from '../helpers/scheduler.ts'
 import type { Authenticator } from '../helpers/totp.ts'
 
 // The JSON/CSV export (issue 211, ADR 0013 section 4): "Export…" asks for a fresh code, the
@@ -73,14 +74,18 @@ function countFor(email: string, table: 'jobs' | 'measure_groups', where: string
 
 // The import is over for the export when the measures are in and no job is left. The jobs matter
 // because an export request counts the queued and running ones against the per-user job limit
-// (`jobs_per_user`, 2) and answers 429 `busy`; the backfill jobs can stay queued after "Your
-// history is imported". The measures matter because the job queue can be empty before they are:
-// a backfill attempt whose rate claim is refused ends `rate_limited` and spends an attempt, so
-// the measures backfill can be dead-lettered (3 attempts) with nothing imported.
+// (`jobs_per_user`, 2) and answers 429 `busy`. The measures matter because the job queue can be
+// empty before they are: a backfill attempt whose rate claim is refused ends `rate_limited` and
+// spends an attempt, so the measures backfill can be dead-lettered (3 attempts) with nothing
+// imported. The import alone is one connect and seven backfills, about 270 calls at the
+// limiter's 100 a minute: about 2 minutes. A scheduler tick during it adds a poll and a reconcile
+// (`holdScheduler`) and makes it about 5.
 const ACTIVE = "state IN ('queued', 'running')"
 const MEASURES_DEAD = "kind = 'withings_backfill' AND input->>'stream' = 'measures' AND state = 'dead_letter'"
+const IMPORT_WAIT = 240_000
+const IMPORT_WAIT_WITH_TICK = 480_000
 
-async function waitForImport(email: string): Promise<void> {
+async function waitForImport(email: string, timeout: number): Promise<void> {
   await expect
     .poll(
       () => {
@@ -89,7 +94,7 @@ async function waitForImport(email: string): Promise<void> {
         const active = countFor(email, 'jobs', ACTIVE)
         return groups > 0 && active === 0 ? 'imported' : `${String(groups)} groups, ${String(active)} jobs`
       },
-      { timeout: 240_000, intervals: [2_000] },
+      { timeout, intervals: [2_000] },
     )
     .toMatch(/^(imported|measures backfill dead-lettered)$/)
   expect(countFor(email, 'jobs', MEASURES_DEAD), 'the measures backfill was dead-lettered').toBe(0)
@@ -165,9 +170,12 @@ test('step-up, export, download once', async ({ page }) => {
 
 // The fake account: connect fake-withings' synthetic user (as onboarding.spec.ts does), wait for
 // the first import and its jobs to end, then export; the archive holds the imported measure
-// groups and measures.
+// groups and measures. The worker's scheduler is held off the new connection (`holdScheduler`)
+// so its 5-minute tick, which falls wherever the worker's start puts it, cannot add a poll and a
+// reconcile to the import. The end of the import is read from the jobs, not from the onboarding
+// page: its "Your history is imported" can show before the connect job has written the streams.
 test('the fake Withings account: connect, import, export, download', async ({ page }) => {
-  test.setTimeout(480_000)
+  test.setTimeout(IMPORT_WAIT + 240_000)
   registerApp(resetWorld())
   await answerWithings(page)
   const account = newAccount('export-withings')
@@ -181,8 +189,15 @@ test('the fake Withings account: connect, import, export, download', async ({ pa
   await typeCode(dialog, await authenticator.next())
   await dialog.getByRole('button', { name: 'Confirm' }).click()
   await expect(page).toHaveURL(/\/onboarding\?withings=connected/)
-  await expect(page.getByRole('heading', { name: 'Your history is imported' })).toBeVisible({ timeout: 60_000 })
-  await waitForImport(account.email)
+  // Only when a tick got to the connection first (the second or so since the callback) does the
+  // import carry its poll and reconcile; the wait is then sized for them.
+  const held = holdScheduler(account.email)
+  if (!held) {
+    test.info().annotations.push({ type: 'scheduler', description: 'a tick polled the new connection first' })
+    test.setTimeout(IMPORT_WAIT_WITH_TICK + 240_000)
+  }
+  await expect(page.getByText('Step 3 of 3')).toBeVisible()
+  await waitForImport(account.email, held ? IMPORT_WAIT : IMPORT_WAIT_WITH_TICK)
 
   const entries = await exportAndDownload(page, account.email, authenticator)
   const manifest = JSON.parse(text(entries, 'manifest.json')) as Manifest
