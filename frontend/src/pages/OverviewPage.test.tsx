@@ -20,7 +20,7 @@ const FINDINGS = 'GET /api/findings?tab=live&limit=20'
 
 function open(
   url: string,
-  more: { metrics?: unknown[]; status?: unknown; findings?: unknown; profile?: unknown } = {},
+  more: { metrics?: unknown[]; status?: unknown; findings?: unknown; profile?: object } = {},
 ) {
   fakeApi({
     'GET /api/auth/session': SIGNED_IN,
