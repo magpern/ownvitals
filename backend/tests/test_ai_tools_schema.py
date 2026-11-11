@@ -26,6 +26,7 @@ from ownvitals.ai.pricing import Price
 from ownvitals.ai.requests import PROMPT_VERSION, eval_ref
 from ownvitals.ai.tools import run_tool
 from ownvitals.ai.tools_model import OUTPUT_FIELDS, OUTPUT_VARIANTS, TOOLS, check_fields
+from ownvitals.ai.tools_vitals_model import EcgClassification
 from ownvitals.config import Settings
 from test_ai_tools_plant import (  # noqa: F401 - fixture
     CALLS,
@@ -99,10 +100,10 @@ PINNED: dict[str, dict[str, Any]] = {
         "truncated": bool,
         "estimates": "list[EcgEstimateItem]",
     },
-    "EcgClassCount": {"classification": str, "count": int},
+    "EcgClassCount": {"classification": EcgClassification, "count": int},
     "EcgRecordingItem": {
         "day": date,
-        "classification": str,
+        "classification": EcgClassification,
         "heart_rate_bpm": int | None,
         "qrs_duration_ms": float | None,
         "pr_interval_ms": float | None,

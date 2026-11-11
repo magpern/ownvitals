@@ -30,6 +30,7 @@ from ownvitals.ai.tools_vitals_model import (
     ActivitySummaryArgs,
     ActivitySummaryOut,
     EcgClassCount,
+    EcgClassification,
     EcgEstimateItem,
     EcgRecordingItem,
     EcgSummaryArgs,
@@ -69,10 +70,13 @@ def recording_day(recording: Recording) -> date:
         return recording.recorded_at.astimezone(UTC).date()
 
 
-def classification(code: int | None) -> str:
+def classification(code: int | None) -> EcgClassification:
     if code is None:
         return "not_reported"
-    return AFIB_MEANING.get(code, "undocumented")
+    meaning = AFIB_MEANING.get(code)
+    if meaning == "negative" or meaning == "positive" or meaning == "inconclusive":
+        return meaning
+    return "undocumented"
 
 
 async def _recordings_in(
@@ -131,10 +135,13 @@ def _estimate(day: date, view: EstimateView) -> EcgEstimateItem | None:
 async def ecg_summary(
     factory: Factory, ctx: UserContext, settings: Settings, args: EcgSummaryArgs, now: datetime
 ) -> EcgSummaryOut:
+    # The period ends on ``now``'s (UTC) date while recording days are local: a recording from
+    # the last hours of a local day ahead of UTC can fall one day past ``last`` and be left out.
+    # Kept as is: every tool shares this anchor and a user zone needs a lookup (issue #415).
     last = now.date()
     first = last - timedelta(days=args.period - 1)
     found = await _recordings_in(factory, ctx, first, last)
-    counts = Counter(classification(r.afib) for _, r in found)
+    counts: Counter[EcgClassification] = Counter(classification(r.afib) for _, r in found)
     shown = found[:ECG_MAX_ITEMS]
     base: dict[str, Any] = {
         "period_days": args.period,
