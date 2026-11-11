@@ -217,3 +217,13 @@
     font-size: 3rem;
   }
 }
+
+/* The Reveal wrapper is the grid item; the card inside still fills the row height. */
+.ov-tiles > .ov-reveal {
+  display: flex;
+  flex-direction: column;
+}
+
+.ov-tiles > .ov-reveal > .ov-card {
+  flex: 1;
+}
