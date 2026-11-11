@@ -1,0 +1,127 @@
+/*
+ * Motion primitives (docs/design/motion.md, #424): reveal, count-up, skeleton. Durations and
+ * easings come from tokens.css only. Only opacity and transform animate, so nothing shifts.
+ *
+ * Reduced motion (rule 1): under `prefers-reduced-motion: reduce`, or with `data-motion="off"` on
+ * <html> (the Settings override), every animation and transition collapses to 0.01ms and the
+ * shimmer stops. The block is here and not in tokens.css because tokens.test.ts only knows the
+ * theme rules of that file.
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ov-motion: 0;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
+}
+
+:root[data-motion='off'] {
+  --ov-motion: 0;
+}
+
+:root[data-motion='off'] *,
+:root[data-motion='off'] *::before,
+:root[data-motion='off'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0s !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+}
+
+/* Reveal: fade and rise, in DOM order. The hidden state exists only until the component adds
+   --in (it adds it at once when motion is off or there is no IntersectionObserver). */
+.ov-reveal {
+  opacity: 0;
+  transform: translateY(var(--ov-reveal-y));
+}
+
+.ov-reveal--in {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--ov-dur-base) var(--ov-ease-out),
+    transform var(--ov-dur-base) var(--ov-ease-out);
+  transition-delay: calc(min(var(--ov-reveal-i, 0), var(--ov-stagger-steps)) * var(--ov-stagger));
+}
+
+@media (max-width: 40rem) {
+  :root {
+    --ov-stagger-steps: 5;
+  }
+}
+
+/* Count-up: the final text sets the width (hidden sizer), the animated digits sit on top of it. */
+.ov-countup {
+  display: inline-grid;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-countup__final,
+.ov-countup__live {
+  grid-area: 1 / 1;
+}
+
+.ov-countup__final {
+  visibility: hidden;
+}
+
+/* Skeleton: a flat block of the content's size with one slow shimmer, only while loading. */
+.ov-skeleton {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  width: var(--ov-skel-w, 100%);
+  height: var(--ov-skel-h, 1em);
+  border-radius: var(--ov-radius-sm);
+  background: var(--ov-raised);
+}
+
+.ov-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--ov-surface), transparent);
+  opacity: 0.6;
+  transform: translateX(-100%);
+  animation: ov-shimmer var(--ov-dur-shimmer) linear infinite;
+}
+
+@keyframes ov-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Content that replaces a skeleton cross-fades in. */
+.ov-swap-in {
+  animation: ov-fade-in var(--ov-dur-base) var(--ov-ease-out) both;
+}
+
+@keyframes ov-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Shimmer becomes a static block (rule 1). */
+@media (prefers-reduced-motion: reduce) {
+  .ov-skeleton::after {
+    animation: none;
+    display: none;
+  }
+}
+
+:root[data-motion='off'] .ov-skeleton::after {
+  animation: none;
+  display: none;
+}

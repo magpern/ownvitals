@@ -125,6 +125,29 @@ follow the account is that issue's question.
 The app renders only after the theme is applied, so it is never painted in the wrong theme. One gap
 remains on a cold load: see "Not here yet".
 
+### Motion (M10, #424)
+
+[docs/design/motion.md](../design/motion.md) is the design (provisional). Tokens `--ov-dur-*`,
+`--ov-ease-*`, `--ov-stagger`, `--ov-glow`, `--ov-sheen` are in `tokens.css`; `styles/motion.css`
+holds the reduced-motion block (`prefers-reduced-motion: reduce` or `data-motion="off"` on
+`<html>`: durations 0.01 ms, shimmer off) and the classes below. It is not in `tokens.css`
+because `tokens.test.ts` only knows that file's theme rules.
+
+`src/components/motion/` (import from `components/motion`):
+
+- `useReducedMotion()`: true for the media query or the override; every JS animation calls it.
+- `<CountUp value format? still? />`: final text in the DOM from the first render (hidden sizer,
+  `.ov-sr` text), animated digits `aria-hidden`, one shared rAF loop, runs once when first on
+  screen. Pass `still` for estimates (rule 5). Write the number with the app's formatters.
+- `<Reveal index? as? className?>`: fade and rise once on first view, delay `index` x
+  `--ov-stagger` capped by `--ov-stagger-steps` (8, 5 on phone). Final state at once without motion.
+- `<Skeleton width height>` and `<SkeletonSwap loading skeleton>`: size the block like the content;
+  the content cross-fades in.
+
+CSP (rule 8): `sources.test.ts` forbids a `style=` attribute but not the `element.style` property
+API, so JS sets animated values with `el.style.setProperty('--x', ...)` on a class-styled element
+(`motionCss.test.ts` pins both). Only opacity and transform animate.
+
 ### Fonts
 
 IBM Plex Sans (UI) and Plex Mono (ids, versions, raw values), OFL-1.1, self-hosted through

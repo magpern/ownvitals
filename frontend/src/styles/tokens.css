@@ -124,6 +124,24 @@
   --ov-content-width: 64rem;
   --ov-rail-width: 14.5rem;
   --ov-page-width: 77.5rem;
+
+  /* Motion (docs/design/motion.md). Reduced motion zeroes the durations in motion.css. */
+  --ov-dur-instant: 90ms;
+  --ov-dur-fast: 160ms;
+  --ov-dur-base: 240ms;
+  --ov-dur-slow: 480ms;
+  --ov-dur-count: 700ms;
+  --ov-dur-shimmer: 1400ms;
+  --ov-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ov-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ov-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ov-stagger: 40ms;
+  --ov-stagger-steps: 8;
+  --ov-lift-y: -2px;
+  --ov-reveal-y: 8px;
+  --ov-glow: 0 0 24px color-mix(in srgb, var(--ov-brand) 22%, transparent);
+  --ov-sheen: linear-gradient(135deg, color-mix(in srgb, var(--ov-brand) 7%, var(--ov-surface)), var(--ov-surface) 60%);
+  --ov-motion: 1;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -164,6 +182,7 @@
     --ov-google-text: #e3e3e3;
     --ov-scrim: rgba(0, 0, 0, 0.6);
     --ov-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
+  --ov-glow: 0 0 32px color-mix(in srgb, var(--ov-brand) 32%, transparent);
   }
 }
 
@@ -210,4 +229,5 @@
   --ov-google-text: #e3e3e3;
   --ov-scrim: rgba(0, 0, 0, 0.6);
   --ov-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
+  --ov-glow: 0 0 32px color-mix(in srgb, var(--ov-brand) 32%, transparent);
 }
