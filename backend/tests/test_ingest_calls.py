@@ -420,3 +420,27 @@ async def test_a_backfill_fan_out_on_one_account_spends_no_attempt_on_the_limite
     spent = before - _remaining(database_url, app_id)
     refill = elapsed * 100 / 60
     assert CALLS * len(jobs) - refill - 0.5 <= spent <= CALLS * len(jobs) + 0.5
+
+
+async def test_a_wait_is_never_below_the_limiters_retry_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _script(monkeypatch, [_refused("busy", 3.0), GRANTED])
+    clock = _Clock()
+    await calls._take(cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock, jitter=_NONE)
+    assert clock.slept[0] == pytest.approx(3.0, abs=0.2)
+
+
+async def test_the_default_jitter_only_stretches_a_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    _script(monkeypatch, [_refused("busy"), GRANTED])
+    bounds: list[tuple[float, float]] = []
+
+    def uniform(low: float, high: float) -> float:
+        bounds.append((low, high))
+        return high
+
+    monkeypatch.setattr(calls.random, "uniform", uniform)
+    clock = _Clock()
+    await calls._take(cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock)
+    assert bounds == [(1.0, 1.25)]
+    assert clock.slept[0] > 0.2

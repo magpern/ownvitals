@@ -382,3 +382,16 @@ def test_oc3_mains_is_not_observable_when_a_mains_line_is_above_nyquist() -> Non
     # Above 120 Hz both lines are observable, so an absent line is a plain "no".
     wide = _rec(sampling_hz=300, leads=(_sine((10.0, 1000)),))
     assert "OC3 mains no" in evaluate((wide,), (), OwnerAnswers()).lines
+
+
+def test_oc3_mains_cut_off_is_exactly_120_hz_and_one_blind_strip_decides() -> None:
+    # SYNTHETIC. At exactly 120 Hz a 60 Hz line sits at Nyquist, so it is still not observable.
+    edge = _rec(sampling_hz=120, leads=(_sine((10.0, 1000), fs=120),))
+    assert "OC3 mains not-observable" in evaluate((edge,), (), OwnerAnswers()).lines
+    # A wide strip with no line does not make a blind strip observable: one blind strip decides.
+    blind = _rec(sampling_hz=110, leads=(_sine((10.0, 1000), fs=110),))
+    wide = _rec(sampling_hz=300, leads=(_sine((10.0, 1000)),))
+    assert "OC3 mains not-observable" in evaluate((blind, wide), (), OwnerAnswers()).lines
+    # A line found on any strip still reads "yes".
+    seen = _rec(sampling_hz=300, leads=(_sine((10.0, 1000), (50.0, 800)),))
+    assert "OC3 mains yes" in evaluate((blind, seen), (), OwnerAnswers()).lines
