@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { enrolAuthenticator, newAccount, signInWithPassword, signUpAndConfirm, typeCode } from '../helpers/flows.ts'
 import { answerWithings, registerApp, resetWorld } from '../helpers/fake-withings.ts'
 import { ageStepUp, createInvite } from '../helpers/invite.ts'
+import { holdScheduler } from '../helpers/scheduler.ts'
 
 // Onboarding (issue 196): a fresh account signs up, enrols the authenticator and is offered Withings.
 async function freshAccount(page: Parameters<typeof signUpAndConfirm>[0], label: string) {
@@ -40,7 +41,14 @@ test('connects the fake Withings, waits for the import and reaches the overview'
   await dialog.getByRole('button', { name: 'Confirm' }).click()
 
   await expect(page).toHaveURL(/\/onboarding\?withings=connected/)
-  await expect(page.getByRole('heading', { name: 'Your history is imported' })).toBeVisible({ timeout: 60_000 })
+  // The real import is one connect and seven backfills: about 2 minutes, about 5 when a scheduler
+  // tick polls the connection first (#403, docs/dev/e2e.md). The heading only turns to "imported"
+  // once /api/status lists streams and none is importing (#408).
+  const held = holdScheduler(account.email)
+  const wait = held ? 240_000 : 480_000
+  test.setTimeout(wait + 120_000)
+  await expect(page.getByRole('heading', { name: 'Your history is imported' })).toBeVisible({ timeout: wait })
+  await expect(page.getByText('Waiting for the first stream to start…')).toHaveCount(0)
   await page.getByRole('link', { name: 'Go to the overview' }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
