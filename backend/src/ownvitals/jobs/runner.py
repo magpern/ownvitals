@@ -8,6 +8,8 @@ the attempt ended, exactly once and fenced:
   instead when a cancel was requested meanwhile);
 - ``RunStopped``: ``cancelled``, a hand-back on shutdown (the attempt not counted), or nothing
   when the lease is lost (the reaper owns the job then);
+- ``RunStopped`` raised by ``store`` (it met a withdrawal, #352): the store is rolled back and
+  the job is ``cancelled``, not failed;
 - a failure: retried with backoff or ``failed``; a ``JobFailure`` raised by ``store`` rolls the
   store back and counts the same way (any other exception there is ``internal``, a database blip
   ``upstream_unavailable``).
@@ -209,6 +211,8 @@ async def execute(
         if run.fatal is not None:  # the heartbeat met it after the run's last checkpoint
             raise run.fatal
         await _finish(execution, factory, outcome)
+    except RunStopped as stopped:  # the store met a withdrawal (rolled back): a cancel
+        await _stopped(execution, factory, stopped.reason)
     except JobFailure as failure:  # the kind's store refused (rolled back): its category
         await _failed(execution, factory, run, failure)
     except DatabaseRoleError:

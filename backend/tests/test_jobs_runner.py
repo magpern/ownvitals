@@ -32,6 +32,7 @@ from ownvitals.jobs import (
     queue,
     transitions,
 )
+from ownvitals.jobs.errors import RunStopped
 from ownvitals.jobs.runner import Execution, execute, hand_back
 
 pytestmark = pytest.mark.usefixtures("jenv")
@@ -208,6 +209,27 @@ async def test_a_failing_store_rolls_back_and_counts_as_the_attempts_failure(
     assert "progress" not in jenv.kinds(job_id)  # the store's write was rolled back
     if state == "queued":
         assert jenv.events(job_id)[-1][2]["category"] == "upstream_unavailable"
+
+
+async def test_a_store_that_meets_a_withdrawal_cancels_the_job_instead_of_failing_it(
+    jenv: JobsEnv,
+) -> None:
+    """A ``RunStopped("cancelled")`` raised by the store (#352) rolls the store back and ends the
+    job ``cancelled``, with no error category and no retry."""
+    _, job_id = jenv.job()
+
+    async def stopped(fs: FencedSession) -> None:
+        await store_progress(fs)
+        raise RunStopped("cancelled")
+
+    async def run(job_run: JobRun) -> Complete:
+        return Complete(stopped)
+
+    execution = await run_next(jenv, registry_for(run))
+    row = jenv.row(job_id)
+    assert (execution.result, execution.settled) == ("cancelled", True)
+    assert (row.state, row.error_category) == ("cancelled", None)
+    assert "progress" not in jenv.kinds(job_id)  # the store's write was rolled back
 
 
 @pytest.mark.parametrize("before_store", ["cancel", "lease_lost"])

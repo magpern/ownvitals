@@ -11,6 +11,7 @@ import asyncio
 import uuid
 from typing import Any
 
+import pytest
 from sqlalchemy import text
 
 from aichat import (  # noqa: F401 - fixtures
@@ -32,7 +33,8 @@ from fakemodel import text as answer
 from ownvitals.ai import assistant, consent
 from ownvitals.ai.chat_model import CHAT_KIND
 from ownvitals.db import user_session
-from ownvitals.jobs import JobFailure, JobRun
+from ownvitals.jobs import JobRun
+from ownvitals.jobs.errors import RunStopped
 from ownvitals.jobs.fence import Lease
 from ownvitals.jobs.withings import lane_for
 
@@ -250,14 +252,10 @@ async def test_the_store_does_not_wait_on_a_withdrawal_that_holds_the_consent_ro
         await withdrawing.execute(
             text("UPDATE ai_consents SET withdrawn_at = now() WHERE owner_id = :o"), {"o": who.id}
         )
-        refused: JobFailure | None = None
-        try:
+        with pytest.raises(RunStopped) as refused:  # a withdrawal is a cancel, not a failure
             async with asyncio.timeout(STORE_SECONDS), job.fenced() as fs:
                 await store(fs)
-        except JobFailure as failure:
-            refused = failure
-        assert refused is not None
-        assert refused.category == "ai_not_enabled"
+        assert refused.value.reason == "cancelled"
         # The withdrawal goes on: the job row is free again.
         await withdrawing.execute(
             text("SELECT id FROM jobs WHERE id = :j FOR UPDATE"), {"j": job_id}

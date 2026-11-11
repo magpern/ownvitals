@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import Column, MetaData, Table, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.ai.consent import cancel_ai_jobs
 from ownvitals.ai.tables import ai_conversations, ai_digests, ai_messages
 from ownvitals.connections.repository import delete_disconnected_row
 from ownvitals.context import UserContext
@@ -104,6 +105,9 @@ async def purge_imported(factory: Factory, ctx: UserContext) -> None:
     user's rows are left alone. The queue's events follow their job.
     """
     async with user_session(factory, ctx) as db:
+        # A running chat turn or digest would store text about the data being deleted: cancel
+        # them first (the job rows, then the history, the order withdrawal and the stores use).
+        await cancel_ai_jobs(db, ctx)
         for table in IMPORTED:
             await db.execute(delete(table).where(table.c.owner_id == ctx.user_id))
 

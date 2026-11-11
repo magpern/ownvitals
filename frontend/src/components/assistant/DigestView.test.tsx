@@ -87,6 +87,20 @@ describe('the weekly digest', () => {
     expect(screen.getByText("This week's summary couldn't be written.")).toBeInTheDocument()
   })
 
+  it('names the weekly email in the toggle help', async () => {
+    digestApi()
+    renderAt('/assistant')
+    expect(await screen.findByText(/You get an email when a summary is ready\./)).toBeInTheDocument()
+  })
+
+  it('gives the reset date of a skipped week while the budget is used up', async () => {
+    digestApi({ enabled: true, digests: [digest('2026-10-26', 'skipped_budget')] }, true, {
+      'GET /api/ai/budget': { paused: true, resets_on: '2026-12-01' },
+    })
+    renderAt('/assistant')
+    expect(await screen.findByText(/This week's summary was skipped.*It resets on .*2026/)).toBeInTheDocument()
+  })
+
   it('cannot be turned on while AI is not available, but can be turned off', async () => {
     digestApi({ available: false, enabled: false })
     renderAt('/assistant')

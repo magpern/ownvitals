@@ -10,7 +10,7 @@ the 6-hourly poll and the nightly reconciliation, so no cross-user query is need
 ``ai_insights`` on in the environment and every owner lock open (``gates.check_locks``: with the
 defaults nothing is ever queued), the stored flag and a live consent to the current text
 (``consent.require_enabled``, the consent row ``FOR SHARE NOWAIT`` because the fenced session
-already holds the job row), the digest opt-in, and no digest stored for the week yet.
+already holds the job row), the digest opt-in, no digest stored for the week yet and none running.
 
 **One run**, for the job's user only (``job.ctx``; every statement also names the owner):
 
@@ -19,7 +19,7 @@ already holds the job row), the digest opt-in, and no digest stored for the week
 2. The turn (``ai.turn.run_turn``, kind ``digest``, 2,048 output tokens): the client checks every
    lock, the flag, the consent and the budget before each call; tools read as the job's user.
 3. ``Complete(store)``: the store reads the live consent ``FOR SHARE NOWAIT`` (a withdrawal that
-   holds or has closed the row: nothing stored, ``ai_not_enabled``), then the opt-in
+   holds or has closed the row: nothing stored, the job ends ``cancelled``), then the opt-in
    (``FOR SHARE``; gone: nothing stored), and inserts the week. A ``ready`` digest also queues
    one ``ai_digest_ready`` outbox row (a fixed text, never the digest; ADR 0007). The cap stores
    the week as ``skipped_budget`` and a call that may have been billed as ``unavailable``
@@ -49,6 +49,7 @@ from ownvitals.ai.tables import DigestStatus
 from ownvitals.ai.turn import run_turn
 from ownvitals.config import Settings
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
+from ownvitals.jobs.errors import RunStopped
 from ownvitals.jobs.fence import FencedSession
 from ownvitals.jobs.kinds import Outcome
 from ownvitals.jobs.run import JobRun
@@ -59,6 +60,9 @@ logger = logging.getLogger(__name__)
 _OPTED_IN = text("SELECT 1 FROM ai_digest_prefs WHERE owner_id = :o")
 _OPTED_IN_SHARE = text("SELECT 1 FROM ai_digest_prefs WHERE owner_id = :o FOR SHARE")
 _STORED = text("SELECT 1 FROM ai_digests WHERE owner_id = :o AND week_start = :w")
+_RUNNING = text(
+    "SELECT 1 FROM jobs WHERE owner_id = :o AND kind = :kind AND state = 'running' LIMIT 1"
+)
 _INSERT = text(
     "INSERT INTO ai_digests (owner_id, week_start, status, content) "
     "VALUES (:o, :w, :status, :content) "
@@ -72,6 +76,15 @@ async def _due(fs: FencedSession, owner: UUID, week: date) -> bool:
     if (await fs.db.execute(_OPTED_IN, params)).first() is None:
         return False
     return (await fs.db.execute(_STORED, params)).first() is None
+
+
+async def _queueable(fs: FencedSession, owner: UUID, week: date) -> bool:
+    """``_due`` and no digest job running: a queued one collapses into the singleton, a running
+    one does not, and a second job could bill the same week twice. (The run itself uses
+    ``_due`` only: it is the running job.)"""
+    if not await _due(fs, owner, week):
+        return False
+    return (await fs.db.execute(_RUNNING, {"o": owner, "kind": DIGEST_KIND})).first() is None
 
 
 async def queue_if_due(
@@ -95,7 +108,7 @@ async def queue_if_due(
         try:
             async with job.fenced() as fs:
                 await consent.require_enabled(fs.db, owner, settings, nowait=True)
-                due = await _due(fs, owner, week)
+                due = await _queueable(fs, owner, week)
         except consent.AiNotEnabled:
             return False
         if not due:
@@ -144,7 +157,9 @@ def _store(
     async def store(fs: FencedSession) -> None:
         try:
             await consent.require_consent(fs.db, owner, nowait=True)
-        except consent.AiNotEnabled:
+        except consent.AiNotEnabled as refused:
+            if refused.reason == "no_consent":  # withdrawn, or a withdrawal holds the row
+                raise RunStopped("cancelled") from None
             raise JobFailure("ai_not_enabled") from None
         params = {"o": owner, "w": week}
         if (await fs.db.execute(_OPTED_IN_SHARE, params)).first() is None:
