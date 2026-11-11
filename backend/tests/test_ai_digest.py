@@ -302,7 +302,7 @@ async def test_the_store_does_not_wait_on_a_withdrawal_that_holds_the_consent_ro
 
 
 async def test_a_second_store_of_the_same_week_keeps_one_digest_and_one_mail(
-    chat: ChatEnv,
+    chat: ChatEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The narrowed queue race can run two jobs for one week: the second ``_store`` hits
     ``UNIQUE (owner_id, week_start)`` and ``ON CONFLICT DO NOTHING`` keeps the first digest and
@@ -315,9 +315,16 @@ async def test_a_second_store_of_the_same_week_keeps_one_digest_and_one_mail(
     assert digests(who.id) == [(WEEK, "ready", DIGEST_TEXT)]
     job = _running(chat, await queue_digest(chat, who), who.id)
     store = digest._store(who.id, WEEK, "ready", "Other synthetic text.")  # pyright: ignore[reportPrivateUsage]
+    mails: list[str] = []
+
+    async def spy(*args: Any, **kwargs: Any) -> None:
+        mails.append("queued")
+
+    monkeypatch.setattr(digest, "queue_user_mail", spy)
     async with job.fenced() as fs:
         await store(fs)
     assert digests(who.id) == [(WEEK, "ready", DIGEST_TEXT)]
+    assert mails == []  # the conflict skips the mail itself, not only the outbox collapsing it
     assert digest_mail(who.id) == [("ai_digest_ready", "assistant")]
 
 

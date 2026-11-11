@@ -151,6 +151,8 @@ async def test_the_narrowed_race_still_stores_one_digest_and_queues_no_third_job
         hidden.setattr(digest_module, "_RUNNING", text("SELECT 1 WHERE false"))
         await run_notify_pass(chat, who)
     assert sorted(j.state for j in digest_jobs(who.id)) == ["queued", "running"]
+    # A running job holds the singleton key, so the enqueue delays the new one; make it claimable.
+    sql("UPDATE jobs SET available_at = now() WHERE state = 'queued' AND owner_id = :o", o=who.id)
     before = chat.fake.attempts
     chat.fake.script = [tools(("list_metrics", {})), answer("Synthetic digest text.")]
     execution = await run_digest_job(chat)
@@ -158,7 +160,9 @@ async def test_the_narrowed_race_still_stores_one_digest_and_queues_no_third_job
     assert execution.result == "completed"
     stored = sql("SELECT count(*) FROM ai_digests WHERE owner_id = :o", o=who.id).scalar()
     assert stored == 1
-    assert chat.fake.attempts == before + 1  # the second job did call the model, once
+    assert (
+        chat.fake.attempts == before + 2
+    )  # the second job called the model: a tool call, then the answer
     attempts = chat.fake.attempts
     await run_notify_pass(chat, who)  # the week is stored now: nothing more is queued
     assert [j.state for j in digest_jobs(who.id)].count("queued") == 0
