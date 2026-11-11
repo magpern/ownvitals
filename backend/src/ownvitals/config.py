@@ -136,6 +136,8 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, WebhookSetti
     database_maint_password: SecretStr | None = None
     # The built single-page app (the image sets it); unset: the API only.
     static_dir: Path | None = None
+    # The prerendered public site (ADR 0016), served only with ``static_dir``; unset: none.
+    public_dir: Path | None = None
 
     # Accounts and sessions.
     # From the file ``app_secret_key`` (at least 32 bytes); the web app refuses to start without
