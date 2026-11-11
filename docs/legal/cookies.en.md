@@ -17,4 +17,4 @@ When you open the app (including the sign-in page), sign in or start signing in,
 | `__Host-ownvitals_pending` | Carries a pending sign-up step (HttpOnly) | 24 hours |
 | `__Host-ownvitals_pre` | Carries the step before a session exists (HttpOnly) | 5 minutes |
 
-The app also stores your light/dark theme choice in your browser's local storage (key `ownvitals.theme`) and your language choice (key `ov-locale`); these are settings kept on your device, never sent to us. You can delete cookies and site data in your browser; you will then be signed out. [Owner: confirm the app stores nothing else in the browser before publishing.]
+The app also stores your light/dark theme choice in your browser's local storage (key `ownvitals.theme`) your language choice (key `ov-locale`) and that you have seen the cookie notice (key `ownvitals.cookie-notice`, value is a version number); these are settings kept on your device, never sent to us. You can delete cookies and site data in your browser; you will then be signed out. [Owner: confirm the app stores nothing else in the browser before publishing.]

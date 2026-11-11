@@ -61,4 +61,9 @@ export const shell = {
   'route.data.later': 'Export and delete come in M6.',
   'route.admin.title': 'Admin',
   'route.admin.later': 'The admin pages come later.',
+  'cookies.title': 'Cookies and local storage',
+  'cookies.text':
+    'ownvitals uses only what is needed to keep you signed in and to remember your theme and language. There is no tracking and no advertising, so there is nothing to accept.',
+  'cookies.link': 'Read the cookie statement',
+  'cookies.ok': 'Got it',
 } satisfies Record<string, string>
