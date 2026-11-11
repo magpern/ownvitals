@@ -73,7 +73,8 @@ async def open_credentials(
 
     A missing key leaves the row unchanged (``key_unavailable``). A GCM failure sets
     ``needs_reconnect`` and ``decrypt_failed`` only when the generation is still the one
-    that was read, then raises. The failure is raised after the session commits.
+    that was read and the row is still connected (a disconnect keeps the generation, ADR
+    0004 section 6), then raises. The failure is raised after the session commits.
     """
     failure: str | None = None
     opened: OpenConnection | None = None
@@ -119,6 +120,7 @@ async def open_credentials(
                         _C.id == row.id,
                         _C.owner_id == ctx.user_id,
                         _C.token_generation == row.token_generation,
+                        _C.status == _CONNECTED,  # a disconnect keeps the generation
                     )
                     .values(
                         status="needs_reconnect",
