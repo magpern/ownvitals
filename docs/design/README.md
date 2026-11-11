@@ -9,6 +9,9 @@ screenshot of each. The owner's design canvas is
 <https://claude.ai/artifact/HQrrU1y3u2sxh29c4Xqp7p> (private; agents work from the repository
 copy, which is identical to it).
 
+**Motion and liveliness (M10):** a provisional proposal, awaiting the owner, is in
+[motion.md](motion.md). Until the owner accepts it, nothing in it is binding.
+
 ## Rules for agents
 
 1. **Build what the mock-ups show.** Layout, components, states, tokens, type, icons and the
