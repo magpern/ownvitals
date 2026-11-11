@@ -44,7 +44,7 @@ from ownvitals.ai.digest_model import DIGEST_KIND
 from ownvitals.connections.purge import purge_imported
 from ownvitals.db import user_session
 from ownvitals.jobs import JobRun
-from ownvitals.jobs.errors import RunStopped
+from ownvitals.jobs.errors import JobFailure, RunStopped
 from ownvitals.jobs.fence import Lease
 
 SYNTHETIC = True
@@ -288,6 +288,20 @@ async def test_the_store_refuses_after_a_committed_withdrawal(chat: ChatEnv) -> 
         async with job.fenced() as fs:
             await store(fs)
     assert refused.value.reason == "cancelled"
+    assert digests(who.id) == []
+
+
+async def test_the_store_fails_the_job_on_an_outdated_consent(chat: ChatEnv) -> None:
+    """Only a withdrawal is a cancel; a consent for an older text still fails the job."""
+    who = await digest_user(chat, "synthetic-digest-r@example.com")
+    job = _running(chat, await queue_digest(chat, who), who.id)
+    sql(
+        "UPDATE ai_consents SET consent_version = consent_version + 1 WHERE owner_id = :o", o=who.id
+    )
+    store = digest._store(who.id, WEEK, "ready", DIGEST_TEXT)  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(JobFailure, match="ai_not_enabled"):
+        async with job.fenced() as fs:
+            await store(fs)
     assert digests(who.id) == []
 
 

@@ -34,7 +34,7 @@ from ownvitals.ai import assistant, consent
 from ownvitals.ai.chat_model import CHAT_KIND
 from ownvitals.db import user_session
 from ownvitals.jobs import JobRun
-from ownvitals.jobs.errors import RunStopped
+from ownvitals.jobs.errors import JobFailure, RunStopped
 from ownvitals.jobs.fence import Lease
 from ownvitals.jobs.withings import lane_for
 
@@ -261,6 +261,37 @@ async def test_the_store_does_not_wait_on_a_withdrawal_that_holds_the_consent_ro
             text("SELECT id FROM jobs WHERE id = :j FOR UPDATE"), {"j": job_id}
         )
     assert count("ai_messages", who.id) == 1  # only the question; the answer was not stored
+
+
+async def test_the_store_fails_the_job_on_an_outdated_consent(chat: ChatEnv) -> None:
+    """Only a withdrawal is a cancel; a consent for an older text still fails the job."""
+    who = await user(chat, "synthetic-chat-m@example.com")
+    conv = await conversation(chat, who)
+    posted = await send(who, conv, "synthetic question")
+    job_id = uuid.UUID(posted.json()["job_id"])
+    sql(
+        "UPDATE jobs SET state = 'running', attempt = 1, lease_version = 1, "
+        "leased_by = 'synthetic-worker', lease_expires_at = now() + interval '10 minutes', "
+        "heartbeat_at = now(), started_at = now() WHERE id = :j",
+        j=job_id,
+    )
+    sql(
+        "UPDATE ai_consents SET consent_version = consent_version + 1 WHERE owner_id = :o", o=who.id
+    )
+    job = JobRun(
+        chat.worker_factory,
+        Lease(job_id, 1, make_context(who.id)),
+        kind=CHAT_KIND,
+        input=None,  # pyright: ignore[reportArgumentType]
+        attempt=1,
+        lease_seconds=60,
+        shutdown=asyncio.Event(),
+    )
+    store = assistant._store(who.id, conv, "synthetic answer")  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(JobFailure, match="ai_not_enabled"):
+        async with job.fenced() as fs:
+            await store(fs)
+    assert count("ai_messages", who.id) == 1
 
 
 async def test_without_a_withdrawal_the_store_shares_the_consent_row(chat: ChatEnv) -> None:
