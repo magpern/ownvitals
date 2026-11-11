@@ -1,3 +1,4 @@
+import uuid
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,8 @@ from dbtools import (
     public_tables,
     ready_to_downgrade,
 )
+from jobtools import ensure_user
+from ownvitals.derived.tables import user_profiles
 
 HEAD = "0028_chart_range_7d"
 
@@ -212,3 +215,109 @@ def test_the_migrations_use_the_migration_url_and_its_password_file(
     finally:
         ready_to_downgrade(owner_database_url)
         command.downgrade(config, "base")
+
+
+def _profile_rows(database_url: str, ranges: list[str | None]) -> list[uuid.UUID]:
+    """Synthetic owners with a profile each; ``None`` leaves ``chart_range`` to its default."""
+    owners = [uuid.uuid4() for _ in ranges]
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            for owner, chart_range in zip(owners, ranges, strict=True):
+                ensure_user(connection, owner)
+                if chart_range is None:
+                    connection.execute(
+                        text("INSERT INTO user_profiles (owner_id) VALUES (:o)"), {"o": owner}
+                    )
+                else:
+                    connection.execute(
+                        text("INSERT INTO user_profiles (owner_id, chart_range) VALUES (:o, :r)"),
+                        {"o": owner, "r": chart_range},
+                    )
+    finally:
+        engine.dispose()
+    return owners
+
+
+def _chart_ranges(database_url: str, owners: list[uuid.UUID]) -> list[str]:
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            found = dict(
+                connection.execute(
+                    text(
+                        "SELECT owner_id, chart_range FROM user_profiles WHERE owner_id = ANY(:o)"
+                    ),
+                    {"o": owners},
+                ).all()
+            )
+    finally:
+        engine.dispose()
+    return [found[owner] for owner in owners]
+
+
+def test_a_new_profile_row_defaults_to_7_days_and_a_saved_value_stays(
+    database_url: str, owner_database_url: str
+) -> None:
+    """The column default is ``7d`` (0028); an explicit ``90d`` is kept."""
+    with migrated(owner_database_url):
+        owners = _profile_rows(database_url, [None, "90d"])
+        assert _chart_ranges(database_url, owners) == ["7d", "90d"]
+
+
+def test_downgrading_0028_maps_7d_rows_to_30d_and_restores_the_narrow_check(
+    database_url: str, owner_database_url: str
+) -> None:
+    with migrated(owner_database_url):
+        owners = _profile_rows(database_url, ["7d", None, "90d", "1y"])
+        command.downgrade(alembic_config(), "0027_ai_conversation_retention")
+        assert applied_revisions(database_url) == ["0027_ai_conversation_retention"]
+        # The 7d rows (saved and defaulted) became 30d; the others are untouched.
+        assert _chart_ranges(database_url, owners) == ["30d", "30d", "90d", "1y"]
+        engine = create_engine(database_url)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("DELETE FROM user_profiles WHERE owner_id = ANY(:o)"), {"o": owners}
+                )
+            with pytest.raises(DBAPIError, match="user_profiles_chart_range"), engine.begin() as c:
+                c.execute(
+                    text("INSERT INTO user_profiles (owner_id, chart_range) VALUES (:o, '7d')"),
+                    {"o": owners[0]},
+                )
+            with engine.begin() as connection:
+                connection.execute(
+                    text("INSERT INTO user_profiles (owner_id) VALUES (:o)"), {"o": owners[0]}
+                )
+                default = connection.execute(
+                    text("SELECT chart_range FROM user_profiles WHERE owner_id = :o"),
+                    {"o": owners[0]},
+                ).scalar_one()
+            assert default == "90d"
+        finally:
+            engine.dispose()
+        command.upgrade(alembic_config(), "head")  # the revision is repeatable
+        assert applied_revisions(database_url) == [HEAD]
+
+
+def test_the_model_default_of_the_chart_range_is_the_migrated_default(
+    database_url: str, owner_database_url: str
+) -> None:
+    """``derived/tables.py`` and migration 0028 state the default twice; they must agree."""
+    declared = user_profiles.c.chart_range.server_default
+    assert declared is not None
+    with migrated(owner_database_url):
+        engine = create_engine(database_url)
+        try:
+            with engine.connect() as connection:
+                actual = connection.execute(
+                    text(
+                        "SELECT column_default FROM information_schema.columns WHERE "
+                        "table_schema = 'public' AND table_name = 'user_profiles' "
+                        "AND column_name = 'chart_range'"
+                    )
+                ).scalar_one()
+        finally:
+            engine.dispose()
+    assert str(declared.arg) == "'7d'"  # type: ignore[union-attr]
+    assert actual.split("::")[0] == str(declared.arg)  # type: ignore[union-attr]

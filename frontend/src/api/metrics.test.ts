@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dayUrl, decodeMetricDetail, isRange, metricUrl, readingPath } from './metrics'
+import { DEFAULT_RANGE, RANGES, dayUrl, decodeMetricDetail, isRange, metricUrl, readingPath } from './metrics'
 import { syntheticMetric } from '../test/metricFixtures'
 
 // Synthetic data only (see metricFixtures.ts).
@@ -34,5 +34,12 @@ describe('addresses', () => {
     expect(isRange('30d')).toBe(true)
     expect(isRange('2d')).toBe(false)
     expect(isRange(null)).toBe(false)
+  })
+})
+
+describe('DEFAULT_RANGE', () => {
+  it('is 7 days, and one of the offered ranges', () => {
+    expect(DEFAULT_RANGE).toBe('7d')
+    expect(RANGES).toContain(DEFAULT_RANGE)
   })
 })

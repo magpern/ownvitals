@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SIGNED_IN, fakeApi } from '../test/fakeApi'
+import { SIGNED_IN, fakeApi, reason } from '../test/fakeApi'
 import { FINGERPRINT, syntheticDay, syntheticTrendNotReady, syntheticInsufficient, syntheticMetric, syntheticReading } from '../test/metricFixtures'
 import { fakeProfile } from '../test/profileFixtures'
 import { renderAt } from '../test/render'
@@ -100,6 +100,17 @@ describe('the metric screen', () => {
     const api = fakeApi({
       ...SESSION,
       'GET /api/profile': fakeProfile({ chart_range: '7d' }),
+      'GET /api/metrics/weight?range=7d': syntheticMetric({ range: '7d' }),
+    })
+    renderAt('/m/weight')
+    await screen.findByRole('heading', { level: 2, name: 'Weight' })
+    expect(api.to('GET', '/api/metrics/weight?range=7d')).toHaveLength(1)
+  })
+
+  it('opens on 7 days when the profile cannot be read and the address has no range', async () => {
+    const api = fakeApi({
+      ...SESSION,
+      'GET /api/profile': reason(500, 'failed'),
       'GET /api/metrics/weight?range=7d': syntheticMetric({ range: '7d' }),
     })
     renderAt('/m/weight')

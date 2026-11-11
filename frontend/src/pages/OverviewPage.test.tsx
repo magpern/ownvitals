@@ -186,6 +186,19 @@ describe('the overview: range', () => {
     await waitFor(() => expect(within(nav).getByRole('link', { name: '7 days' })).toHaveAttribute('aria-current', 'true'))
   })
 
+  it('falls back to a saved range other than 7 days for a range it does not know', async () => {
+    open('/?range=forever', { profile: fakeProfile({ chart_range: '1y' }) })
+    const nav = await screen.findByRole('navigation', { name: 'Range' })
+    await waitFor(() => expect(within(nav).getByRole('link', { name: '1 year' })).toHaveAttribute('aria-current', 'true'))
+    expect(within(nav).getByRole('link', { name: '7 days' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('falls back to a saved 3 months for a range it does not know', async () => {
+    open('/?range=forever', { profile: fakeProfile({ chart_range: '90d' }) })
+    const nav = await screen.findByRole('navigation', { name: 'Range' })
+    await waitFor(() => expect(within(nav).getByRole('link', { name: '3 months' })).toHaveAttribute('aria-current', 'true'))
+  })
+
   it('lets a saved range win over the default when the address has none', async () => {
     open('/', { profile: fakeProfile({ chart_range: '6mo' }) })
     const nav = await screen.findByRole('navigation', { name: 'Range' })
