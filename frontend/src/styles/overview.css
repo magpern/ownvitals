@@ -181,3 +181,39 @@
     display: block;
   }
 }
+
+/* Score readout: a plain large figure with a soft glow that fades in once (motion.md items 1, 2).
+   Only the glow's opacity animates; it never pulses and does not depend on the value. */
+.ov-score {
+  position: relative;
+  display: inline-block;
+  color: var(--ov-text);
+  font-size: var(--ov-text-score);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--ov-weight-semibold);
+  line-height: 1;
+}
+
+.ov-score__glow {
+  position: absolute;
+  inset: 10% 5%;
+  border-radius: 50%;
+  box-shadow: var(--ov-glow);
+  animation: ov-glow-in var(--ov-dur-slow) var(--ov-ease-out) both;
+}
+
+.ov-score__num {
+  position: relative;
+}
+
+@keyframes ov-glow-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 40rem) {
+  .ov-score {
+    font-size: 3rem;
+  }
+}

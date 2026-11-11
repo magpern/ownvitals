@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { fakeIntersection, fakeMatchMedia } from '../motion/motionFakes'
 import { Mono, Num, Value, ValueCard } from './Value'
 
 // The value styles: a number and its unit, a raw value in mono, and the estimate that never looks
@@ -77,5 +78,18 @@ describe('ValueCard', () => {
     expect(container).toHaveTextContent('Estimated by ownvitals · experimental · only you see this')
     expect(container.querySelector('.ov-card--experimental')).not.toBeNull()
     expect(container.querySelector('.ov-value--estimate')).toHaveTextContent('est. 41')
+  })
+})
+
+describe('Value count', () => {
+  it('counts a number: the final text is there, an estimate stays still', () => {
+    fakeMatchMedia(false)
+    fakeIntersection()
+    const format = (n: number) => n.toFixed(1)
+    const { container, rerender } = render(<Value value="" count={{ value: 78.4, format }} />)
+    expect(screen.getByText('78.4', { selector: '.ov-sr' })).toBeInTheDocument()
+    expect(container.querySelector('.ov-countup')).not.toBeNull()
+    rerender(<Value value="" estimated count={{ value: 78.4, format }} />)
+    expect(container.querySelector('.ov-countup__live')).toHaveTextContent('78.4')
   })
 })

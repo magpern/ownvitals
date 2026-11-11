@@ -39,16 +39,16 @@ export function OverviewPage() {
           return (
             <>
               <AreaSection title={t('overview.section.body')} link={<Link to="/body">{t('overview.link.bodyComposition')}</Link>}>
-                {BODY_KEYS.map((key) => {
+                {BODY_KEYS.map((key, i) => {
                   const tile = by(key)
-                  return tile === undefined ? null : <Tile key={key} tile={tile} range={range} />
+                  return tile === undefined ? null : <Tile key={key} tile={tile} range={range} index={i} />
                 })}
               </AreaSection>
               <AreaSection title={t('overview.section.heart')} link={<Link to="/heart/ecg">{t('overview.link.ecg')}</Link>}>
-                {HEART_KEYS.map((key) => {
-                  if (key === 'blood_pressure') return bp === null ? null : <Tile key={key} tile={bp.tile} range={range} valueText={bp.value} />
+                {HEART_KEYS.map((key, i) => {
+                  if (key === 'blood_pressure') return bp === null ? null : <Tile key={key} tile={bp.tile} range={range} valueText={bp.value} index={i} />
                   const tile = by(key)
-                  return tile === undefined ? null : <Tile key={key} tile={tile} range={range} />
+                  return tile === undefined ? null : <Tile key={key} tile={tile} range={range} index={i} />
                 })}
               </AreaSection>
               <AreaSection title={t('overview.section.more')}>

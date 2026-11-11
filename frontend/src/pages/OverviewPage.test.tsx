@@ -41,7 +41,7 @@ describe('the overview: tiles', () => {
   it('shows a value, the typical range and the sparkline for an up-to-date metric', async () => {
     open('/overview', { metrics: [fakeMetric('weight')] })
     const card = await tile('Weight')
-    expect(within(card).getByText(/78\.4/)).toBeInTheDocument()
+    expect(within(card).getByText(/78\.4/, { selector: '.ov-sr' })).toBeInTheDocument()
     expect(within(card).getAllByText(/77\.6/).length).toBeGreaterThan(0)
     expect(card.querySelector('.ov-tile__spark')).not.toBeNull()
     // The phone's range bar is in the markup; the stylesheet decides which one shows.
@@ -116,7 +116,7 @@ describe('the overview: tiles', () => {
   it('shows the stale state without hiding the last value', async () => {
     open('/overview', { metrics: [fakeMetric('weight', { state: 'stale' })] })
     const card = await tile('Weight')
-    expect(within(card).getByText(/78\.4/)).toBeInTheDocument()
+    expect(within(card).getByText(/78\.4/, { selector: '.ov-sr' })).toBeInTheDocument()
   })
 
   it('links a tile to its detail screen and carries the range', async () => {
