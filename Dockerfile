@@ -23,6 +23,9 @@ RUN npm run build
 # argument (production by default; staging passes its own). OWNVITALS_PUBLIC_LEGAL_APPROVED is the
 # owner's legal gate: declared here without a value, so the legal pages are left out unless the
 # owner passes exactly `true` (`--build-arg`); no committed file sets it (a frontend test checks).
+# The public build copies the owner-approved mock-ups from ../docs/design/mockups/png, which is
+# /docs/... here (WORKDIR /spa); .dockerignore lets exactly this folder through.
+COPY docs/design/mockups/png /docs/design/mockups/png
 ARG OWNVITALS_PUBLIC_ORIGIN=https://ownvitals.eu
 ARG OWNVITALS_PUBLIC_LEGAL_APPROVED
 RUN npm run build:public
