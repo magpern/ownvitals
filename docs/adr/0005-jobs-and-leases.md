@@ -460,24 +460,26 @@ callable by that family's role alone); the job kind `withings_admin_revoke` is c
 issued like any other (§4), and its handler re-checks the admin's stepped-up session before it
 revokes (ADR 0002's amendment of the same date gives the conditions).
 
-### 2026-11-11 (#344): the export purge family and the events the system causes
+### 2026-11-11 (#333): the export purge family and the events the system causes
 
 Recorded here because ADR 0002 §3 requires an amendment per definer family (ADR 0013 §4
 describes the function). The cross-user export purge is one definer function,
 `exports_purge_expired()`, owned by its own `NOLOGIN` role `ownvitals_exports`
-(`BYPASSRLS`, no inherited role), installed by the superuser script
+(`BYPASSRLS`, no inherited role; function and role are shipped by #344), installed by the superuser script
 `docker/postgres/exports/60-exports.sql` (never a migration, run by `db-functions` after
-`50-ai.sql`) and pinned by digest in `queue_digests.py`, checked in `queue_check.py` and
-admitted by guard 9. The role holds only column grants on `exports` (`SELECT` of the id,
+`50-ai.sql`) and pinned by digest in `queue_digests.py`, checked in `queue_check.py`, admitted by name in
+`20-queue.sql` and by guard 9, and its role is checked by guard 2 (`role_guard`). The role holds only column grants on `exports` (`SELECT` of the id,
 owner, state and age columns, `UPDATE (state)`, `DELETE`) and `export_chunks` (`SELECT` of the
 ids and order, `DELETE`); nothing on an account table or `jobs`. `EXECUTE` goes to the app
 role (the worker's hourly upkeep tick) only.
 
 The function writes no `auth_events` row: that table stays behind `ownvitals.auth` (ADR 0003
-§1) and widening the role to it was refused in the #333 review. The events a system action
-causes are therefore written by an owner-context path: the build writes `export_ready` (and
-`export_failed`) in its fenced transaction, and `export_expired` and `export_failed` from the
-owner's tidy are written when that owner next opens Settings or requests or downloads. They
+§1) and widening the role to it was refused in the review of #344. The events a system action
+causes are therefore written by an owner-context path through `record_event`, each in its own
+transaction: the build writes `export_ready` (and `export_failed`) after its fenced transaction
+has committed (only the `export_ready` mail is queued inside that transaction), and
+`export_expired` and `export_failed` from the owner's tidy are written when that owner next
+opens Settings or requests or downloads. They
 carry no origin (`activity_model.NO_ORIGIN`). An owner who does not come back gets no event for
 the expiry; that gap is documented in `docs/dev/reports.md`.
 
