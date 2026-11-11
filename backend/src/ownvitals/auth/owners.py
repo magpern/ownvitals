@@ -3,7 +3,8 @@ only ``ownvitals.auth`` touches the account tables (guard 8). The worker loads t
 imports nothing web-only (``tests/egress_worker.py``).
 
 ``ACCOUNTS`` is the worker's account directory (``ownvitals.jobs.issuer.Accounts``): an owner is
-active when the account exists and is not disabled. Its connection refs are the owner's live
+active when the account exists and is not disabled; ``owner_exists`` answers the issuer's one
+exception (ADR 0005 section 4, amended 2026-11-11, #383). Its connection refs are the owner's live
 rows, read through ``ownvitals.connections`` in that owner's session.
 """
 
@@ -29,12 +30,22 @@ async def owner_active(db: AsyncSession, user_id: UUID) -> bool:
     return row is not None
 
 
+async def owner_exists(db: AsyncSession, user_id: UUID) -> bool:
+    """Whether the user exists, disabled or not (the issuer's one exception, ADR 0005 section 4,
+    amended 2026-11-11, #383). ``db`` is a ``system_session``."""
+    return (await db.execute(select(users.c.id).where(users.c.id == user_id))).first() is not None
+
+
 class AuthAccounts:
     """The account directory the worker's job issuer asks (``Accounts``)."""
 
     async def owner_active(self, factory: Factory, owner_id: UUID) -> bool:
         async with system_session(factory) as db:
             return await owner_active(db, owner_id)
+
+    async def owner_exists(self, factory: Factory, owner_id: UUID) -> bool:
+        async with system_session(factory) as db:
+            return await owner_exists(db, owner_id)
 
     async def connection_refs(
         self, factory: Factory, ctx: UserContext

@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 
 Factory = async_sessionmaker[AsyncSession]
 
+_ORIGIN = text(
+    "SELECT kind, origin FROM jobs "
+    "WHERE id = :job_id AND owner_id = :owner_id AND lease_version = :v"
+)
 _LOAD = text(
     "SELECT kind, input, attempt, target_secret_id FROM jobs "
     "WHERE id = :job_id AND owner_id = :owner_id AND lease_version = :v"
@@ -78,6 +82,19 @@ async def _record(execution: Execution, factory: Factory, write: Any) -> None:
     except LeaseLost:
         execution.result = "lost"
     execution.settled = True
+
+
+async def _runs_disabled(factory: Factory, lease: Lease, registry: KindRegistry) -> bool:
+    """Whether the job, read fenced as its bare owner, is an ``operator`` job of a kind
+    registered with ``disabled_owner`` (ADR 0005 section 4, amended 2026-11-11, #383). A lost
+    lease is no: the failure that follows records nothing either."""
+    try:
+        async with fenced_session(factory, lease) as fs:
+            row = (await fs.db.execute(_ORIGIN, lease.params())).one()
+    except LeaseLost:
+        return False
+    kind = registry.get(row.kind)
+    return kind is not None and kind.disabled_owner and row.origin == "operator"
 
 
 async def hand_back(execution: Execution, factory: Factory) -> None:
@@ -138,6 +155,8 @@ async def execute(
 ) -> None:
     claimed = execution.claimed
     issued = await issue(factory, claimed, config.accounts)
+    if not issued.active and await _runs_disabled(factory, issued.lease, registry):
+        issued = await issue(factory, claimed, config.accounts, disabled_owner=True)
     execution.lease = issued.lease
     if not issued.active:
         await _record(execution, factory, lambda fs: transitions.fail(fs, "account_disabled"))

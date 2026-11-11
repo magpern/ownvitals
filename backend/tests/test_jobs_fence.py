@@ -8,6 +8,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
+from uuid import UUID
 
 import pytest
 from sqlalchemy import text
@@ -21,6 +22,7 @@ from jobcore import (
     registry_for,
 )
 from jobtools import KIND, admin_fixture, queue_schema_fixture  # noqa: F401 - fixtures
+from ownvitals.auth.owners import ACCOUNTS
 from ownvitals.db import DatabaseRoleError, user_session
 from ownvitals.jobs import (
     NO_ACCOUNTS,
@@ -34,8 +36,8 @@ from ownvitals.jobs import (
     transitions,
 )
 from ownvitals.jobs.fence import CALL_LEASE_MARGIN_SECONDS, Lease
-from ownvitals.jobs.issuer import issue
-from ownvitals.jobs.runner import Execution, RunConfig, execute
+from ownvitals.jobs.issuer import issue, owner_context
+from ownvitals.jobs.runner import Execution, RunConfig, _runs_disabled, execute
 
 REMAINING = "SELECT extract(epoch FROM lease_expires_at - now()) FROM jobs WHERE id = :id"
 DRIFT = "the job queue does not match ADR 0005 section 3: planted by the test"
@@ -99,6 +101,105 @@ async def test_an_inactive_owner_fails_the_job_with_account_disabled(jenv: JobsE
     assert (row.state, row.error_category) == ("failed", "account_disabled")
     assert calls == []
     assert jenv.kinds(job_id) == ["claimed", "failed"]
+
+
+async def _ran_for(jenv: JobsEnv, job_id: UUID, *, disabled_owner: bool) -> tuple[Any, list[Any]]:
+    """Run the claimed test job; the handler records the context it was given."""
+    seen: list[Any] = []
+
+    async def run(job_run: JobRun) -> Complete:
+        ctx = job_run.ctx
+        seen.append((ctx.user_id, ctx.role, ctx.connections))
+        return Complete()
+
+    registry = registry_for(run, disabled_owner=disabled_owner)
+    await execute(await claim(jenv), jenv.factory, registry, jenv.config(), asyncio.Event())
+    return jenv.row(job_id), seen
+
+
+async def test_a_flagged_operator_job_of_a_disabled_owner_is_issued(jenv: JobsEnv) -> None:
+    """ADR 0005 section 4, amended 2026-11-11 (#383): the one exception, as the owner's own
+    ``role="user"`` context with its connection refs."""
+    owner, job_id = jenv.job(origin="operator", idempotency_key=None, request_hash=None)
+    jenv.accounts.disabled.add(owner)
+    connection_id = uuid.uuid4()
+    jenv.accounts.refs = frozenset({("withings", connection_id)})
+    row, seen = await _ran_for(jenv, job_id, disabled_owner=True)
+    assert row.state == "completed"
+    assert seen == [(owner, "user", frozenset({("withings", connection_id)}))]
+
+
+@pytest.mark.parametrize(
+    ("origin", "flagged", "gone"),
+    [
+        ("user", True, False),  # not an operator job
+        ("webhook", True, False),
+        ("operator", False, False),  # a kind without the flag
+        ("operator", True, True),  # an owner that no longer exists
+    ],
+)
+async def test_every_other_job_of_an_inactive_owner_still_fails_account_disabled(
+    jenv: JobsEnv, origin: str, flagged: bool, gone: bool
+) -> None:
+    keys: dict[str, Any] = (
+        {} if origin == "user" else {"idempotency_key": None, "request_hash": None}
+    )
+    owner, job_id = jenv.job(origin=origin, **keys)
+    (jenv.accounts.missing if gone else jenv.accounts.disabled).add(owner)
+    row, seen = await _ran_for(jenv, job_id, disabled_owner=flagged)
+    assert (row.state, row.error_category) == ("failed", "account_disabled")
+    assert seen == []
+    assert jenv.kinds(job_id) == ["claimed", "failed"]
+
+
+async def test_the_exception_is_asked_only_for_an_inactive_owner(jenv: JobsEnv) -> None:
+    owner, _ = jenv.job()
+    execution = await claim(jenv)
+    assert (await issue(jenv.factory, execution.claimed, jenv.accounts)).active
+    jenv.accounts.disabled.add(owner)
+    assert not (await issue(jenv.factory, execution.claimed, jenv.accounts)).active
+    issued = await issue(jenv.factory, execution.claimed, jenv.accounts, disabled_owner=True)
+    assert issued.active
+    assert await NO_ACCOUNTS.owner_exists(jenv.factory, owner) is False
+
+
+async def test_the_real_directory_admits_a_disabled_owner_but_never_a_deleted_one(
+    jenv: JobsEnv,
+) -> None:
+    """``AuthAccounts`` against the database (#383): ``owner_exists`` is what refuses a deleted
+    owner under the exception, so it is checked here, not only through the fake."""
+    owner, _ = jenv.job(origin="operator", idempotency_key=None, request_hash=None)
+    execution = await claim(jenv)
+    factory = jenv.factory
+    assert await ACCOUNTS.owner_exists(factory, owner)
+    jenv.sql("UPDATE users SET disabled_at = now() WHERE id = :u", u=owner)
+    assert not await ACCOUNTS.owner_active(factory, owner)
+    assert await ACCOUNTS.owner_exists(factory, owner)  # disabled, still there
+    issued = await issue(factory, execution.claimed, ACCOUNTS, disabled_owner=True)
+    assert issued.active
+    jenv.sql("DELETE FROM users WHERE id = :u", u=owner)
+    assert not await ACCOUNTS.owner_exists(factory, owner)
+    assert not await ACCOUNTS.owner_exists(factory, uuid.uuid4())  # never existed
+    # The claimed row of an owner deleted since its claim: still refused under the exception.
+    gone = await issue(factory, execution.claimed, ACCOUNTS, disabled_owner=True)
+    assert not gone.active
+    assert gone.lease.ctx.connections == frozenset()
+
+
+async def test_a_lost_lease_never_admits_the_exception(jenv: JobsEnv) -> None:
+    """``_runs_disabled`` answers no when its fenced read loses the lease (#383)."""
+    owner, _ = jenv.job(origin="operator", idempotency_key=None, request_hash=None)
+    execution = await claim(jenv)
+    registry = registry_for(_never, disabled_owner=True)
+    bare = owner_context(owner)
+    held = Lease(execution.claimed.job_id, execution.claimed.lease_version, bare)
+    assert await _runs_disabled(jenv.factory, held, registry)  # the live lease: yes
+    stale = Lease(execution.claimed.job_id, execution.claimed.lease_version + 1, bare)
+    assert not await _runs_disabled(jenv.factory, stale, registry)
+
+
+async def _never(job_run: JobRun) -> Complete:
+    raise AssertionError("the handler must not run")
 
 
 async def test_the_default_account_directory_fails_closed(jenv: JobsEnv) -> None:
