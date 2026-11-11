@@ -51,7 +51,7 @@ OWNER_NOTICE_ROUTES: Final[Mapping[str, str]] = MappingProxyType(
 # ``public_base_url`` plus this path (T12): the row never holds a URL.
 ROUTE_PATHS: Final[Mapping[str, str]] = MappingProxyType(
     {
-        "overview": "/",
+        "overview": "/overview",
         "findings": "/findings",
         "connections": "/connections",
         "settings_data": "/settings/data",

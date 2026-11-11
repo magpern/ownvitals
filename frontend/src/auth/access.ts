@@ -14,7 +14,9 @@ export type Access = 'anonymous' | 'enrol' | 'challenge' | 'ready'
 export const SIGN_IN_PATH = '/signin'
 export const ENROL_PATH = '/two-factor/setup'
 export const CHALLENGE_PATH = '/two-factor'
-export const HOME_PATH = '/'
+// The signed-in start page. `/` belongs to the public home page (ADR 0016 section 2): the server
+// answers it with the prerendered page, and the app's own `/` only redirects here.
+export const HOME_PATH = '/overview'
 
 export function accessOf(session: SessionState | null): Access {
   if (session === null || !session.authenticated) return 'anonymous'

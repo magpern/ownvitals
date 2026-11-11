@@ -1,3 +1,4 @@
+import { HOME_PATH } from '../auth/access'
 import { useDisplay } from '../display/DisplayContext'
 import { startRange } from '../lib/display'
 import { convertDetail } from '../lib/displayDetail'
@@ -23,7 +24,7 @@ function Crumbs({ name }: { name: string }) {
   const t = useT()
   return (
     <nav className="ov-metric__crumbs" aria-label={t('detail.crumb')}>
-      <Link to="/">{t('shell.nav.overview')}</Link>
+      <Link to={HOME_PATH}>{t('shell.nav.overview')}</Link>
       <span aria-hidden="true">/</span>
       <span aria-current="page">{name}</span>
     </nav>

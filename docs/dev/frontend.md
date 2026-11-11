@@ -430,3 +430,30 @@ analysis; only what is shown is converted, in `lib/display.ts` and `lib/displayD
 `f.day()` follows the date format. A metric or overview address with no `?range=` starts on the
 saved range (when the screen offers it) once the profile is read; the overview passes its range to
 `/api/metrics?range=`.
+
+## The public site build (ADR 0016, #430)
+
+`npm run build:public` (`scripts/build-public.mjs`) writes `dist-public/` after the SPA build; the
+Dockerfile runs it in the `spa` stage and copies the result to `/app/public`, where
+`OWNVITALS_PUBLIC_DIR` points. It loads `src/public/site.ts` through Vite's SSR loader and emits the
+four pages (`/`, `/features`, `/sv`, `/sv/features`), `sitemap.xml`, `robots.txt` (disallows only
+`/api/`), `public.css` (`src/styles/public-entry.css`: tokens, fonts, then `public.css`) and the six
+`img/*` mock-ups of `imageFiles()`. The font files stay under `/assets/` (the SPA build has the same
+content-hashed files, so the server finds them in `dist/`).
+
+- `OWNVITALS_PUBLIC_ORIGIN` (required; the Dockerfile argument defaults to `https://ownvitals.eu`, staging
+  passes its own) is validated: https, bare origin.
+- `OWNVITALS_PUBLIC_LEGAL_APPROVED` is the owner's legal gate: only the exact value `true` builds the legal
+  pages (`LEGAL_PAGES` in `site.ts`, empty until the legal-draft issue). A frontend test fails if a committed
+  Dockerfile, compose file, `.env*`, workflow or script sets it.
+- The server's `PUBLIC_FILES` (`backend/src/ownvitals/public_site.py`) must equal the non-page files the build
+  emits; `src/public/buildPublic.test.ts` compares them.
+
+**The `/` route.** With `OWNVITALS_PUBLIC_DIR` set, the server answers the exact path `/` with the public home
+for everyone, signed in or not (ADR 0016 owner question 3, default: yes). The app's start page moved to
+`/overview` (`HOME_PATH`); a client-side or dev-server `/` redirects there and keeps its query. The public pages
+link to `/signin`, which sends a signed-in visitor on to `/overview`.
+
+The SPA's own `/` route redirects to `/overview` and keeps the query, but only the dev server and
+client-side navigation reach it: the production server answers `/` with the public home whatever
+the query, so links to the app use `HOME_PATH` (`/overview`).

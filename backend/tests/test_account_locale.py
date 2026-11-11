@@ -270,7 +270,7 @@ async def test_a_google_sign_up_stores_its_language_through_the_flow_row(
     assert started.status_code == 200
     assert await oenv.scalar("SELECT locale FROM oauth_flows") == "sv"
     callback = fake.complete(started.json()["authorization_url"])
-    assert location(await browser.get(callback)) == "/"
+    assert location(await browser.get(callback)) == "/overview"
     assert await oenv.scalar("SELECT locale FROM users") == "sv"
     assert await session_locale(browser) == "sv"
 

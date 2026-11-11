@@ -150,3 +150,12 @@ def test_the_worker_process_does_not_load_mail_through_the_outbox() -> None:
 def test_the_reachability_check_sees_mail_through_the_sender() -> None:
     """The check above would fail if the outbox module imported the sender."""
     assert loaded_watched_modules(("ownvitals.notify.sender",)) != []
+
+
+def test_every_mail_path_is_a_route_of_the_app() -> None:
+    # ROUTE_PATHS mirrors frontend/src/router/appRoutes.ts: "/" is the public home page, not the
+    # app (ADR 0016), so a moved screen must move here too.
+    source = (Path(__file__).parents[2] / "frontend/src/router/appRoutes.ts").read_text("utf-8")
+    patterns = set(re.findall(r"pattern: '(/[^']*)'", source))
+    for route, path in ROUTE_PATHS.items():
+        assert path in patterns, route

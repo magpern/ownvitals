@@ -36,3 +36,4 @@ probe-output*
 .vscode/
 .DS_Store
 Thumbs.db
+frontend/dist-public/

@@ -81,7 +81,8 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 
 | File | Held by |
 |---|---|
-| `backend/pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile`, `.github/workflows/ci.yml`, `frontend/package.json` and lock, `frontend/src/main.tsx`, `config.py`, `config_secrets.py`, `web.py`, `appPages.tsx`, `worker/kinds.py` | — (free now; #372 was the last holder of `config.py`, #371 of `auth/ratelimit.py` and `auth/deps.py`, #373 of `rate.sql`: all merged on 2026-11-10); the issues that need them take the lock when they start (planner's note: `appPages.tsx` takes one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds; the next free migration number is 0027; 0026 is the weekly digest) |
+| `Dockerfile` | #430 (build and ship dist-public; `compose.yaml` stays unchanged: the image sets `OWNVITALS_PUBLIC_DIR`) |
+| `backend/pyproject.toml`, `uv.lock`, `compose.yaml`, `Dockerfile` (except while #430 holds it), `.github/workflows/ci.yml`, `frontend/package.json` and lock, `frontend/src/main.tsx`, `config.py`, `config_secrets.py`, `web.py`, `appPages.tsx`, `worker/kinds.py` | — (free now; #372 was the last holder of `config.py`, #371 of `auth/ratelimit.py` and `auth/deps.py`, #373 of `rate.sql`: all merged on 2026-11-10); the issues that need them take the lock when they start (planner's note: `appPages.tsx` takes one line per screen issue; `web.py` for routes; `jobs/kinds.py` and `worker/**` for job kinds; the next free migration number is 0027; 0026 is the weekly digest) |
 | `docs/status.md`, `docs/status/completed.md` | Architect |
 | everything else | — (released) |
 

@@ -61,7 +61,7 @@ describe('sign in with your phone', () => {
     expect(window.location.pathname).toBe('/signin')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await waitFor(() => {
-      expect(window.location.pathname).toBe('/')
+      expect(window.location.pathname).toBe('/overview')
     })
   })
 

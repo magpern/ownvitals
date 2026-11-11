@@ -39,7 +39,7 @@ const tile = async (name: string) => {
 
 describe('the overview: tiles', () => {
   it('shows a value, the typical range and the sparkline for an up-to-date metric', async () => {
-    open('/', { metrics: [fakeMetric('weight')] })
+    open('/overview', { metrics: [fakeMetric('weight')] })
     const card = await tile('Weight')
     expect(within(card).getByText(/78\.4/)).toBeInTheDocument()
     expect(within(card).getAllByText(/77\.6/).length).toBeGreaterThan(0)
@@ -49,7 +49,7 @@ describe('the overview: tiles', () => {
   })
 
   it('writes blood pressure as one value only when both numbers are there', async () => {
-    open('/', {
+    open('/overview', {
       metrics: [
         fakeMetric('systolic_bp', { area: 'heart', unit: 'mmHg', latest: { day: '2026-11-01', value: 118, n: 1, method: 'last' } }),
         fakeMetric('diastolic_bp', { area: 'heart', unit: 'mmHg', latest: { day: '2026-11-01', value: 76, n: 1, method: 'last' } }),
@@ -59,7 +59,7 @@ describe('the overview: tiles', () => {
   })
 
   it('shows no number for blood pressure when the diastolic value is missing', async () => {
-    open('/', {
+    open('/overview', {
       metrics: [
         fakeMetric('systolic_bp', { area: 'heart', unit: 'mmHg', latest: { day: '2026-11-01', value: 118, n: 1, method: 'last' } }),
         fakeMetric('diastolic_bp', { area: 'heart', unit: 'mmHg', ...NO_VALUE }),
@@ -70,7 +70,7 @@ describe('the overview: tiles', () => {
   })
 
   it('shows the progress and no number for insufficient data', async () => {
-    open('/', {
+    open('/overview', {
       metrics: [
         fakeMetric('fat_ratio', {
           state: 'insufficient_data',
@@ -87,7 +87,7 @@ describe('the overview: tiles', () => {
   })
 
   it('shows the percentage while the history imports, and an incomplete import', async () => {
-    open('/', {
+    open('/overview', {
       metrics: [
         fakeMetric('weight', { state: 'importing', progress_percent: 35, ...NO_VALUE }),
         fakeMetric('muscle_mass', { state: 'incomplete', ...NO_VALUE }),
@@ -106,7 +106,7 @@ describe('the overview: tiles', () => {
     ['needs_reconnect', 'Needs reconnect', /has to be renewed/],
     ['withings_plus_needed', 'Withings+ needed', /only with Withings\+/],
   ])('shows %s as a state with its explanation and no number', async (state, label, detail) => {
-    open('/', { metrics: [fakeMetric('visceral_fat', { state, ...NO_VALUE })] })
+    open('/overview', { metrics: [fakeMetric('visceral_fat', { state, ...NO_VALUE })] })
     const card = await tile('Visceral fat')
     expect(within(card).getByText(label)).toBeInTheDocument()
     expect(within(card).getByText(detail)).toBeInTheDocument()
@@ -114,25 +114,25 @@ describe('the overview: tiles', () => {
   })
 
   it('shows the stale state without hiding the last value', async () => {
-    open('/', { metrics: [fakeMetric('weight', { state: 'stale' })] })
+    open('/overview', { metrics: [fakeMetric('weight', { state: 'stale' })] })
     const card = await tile('Weight')
     expect(within(card).getByText(/78\.4/)).toBeInTheDocument()
   })
 
   it('links a tile to its detail screen and carries the range', async () => {
-    open('/?range=90d', { metrics: [fakeMetric('weight')] })
+    open('/overview?range=90d', { metrics: [fakeMetric('weight')] })
     const link = await screen.findByRole('link', { name: 'Weight' })
     expect(link).toHaveAttribute('href', '/m/weight?range=90d')
   })
 
   it('shows the health score as not available, with no number', async () => {
-    open('/')
+    open('/overview')
     expect(await screen.findByText('Health score')).toBeInTheDocument()
     expect(screen.getByText("The health score isn't computed yet.")).toBeInTheDocument()
   })
 
   it('stays quiet: no streaks, rings or nudges', async () => {
-    open('/', { metrics: [fakeMetric('weight')] })
+    open('/overview', { metrics: [fakeMetric('weight')] })
     await screen.findByText('Needs a look')
     expect(document.body.textContent).not.toMatch(/streak|ring|goal|keep it up|congrat/i)
   })
@@ -140,7 +140,7 @@ describe('the overview: tiles', () => {
 
 describe('the overview: needs a look', () => {
   it('shows nothing-to-see when there are no live findings', async () => {
-    open('/')
+    open('/overview')
     expect(await screen.findByText('Nothing needs a look right now.')).toBeInTheDocument()
   })
 
@@ -148,7 +148,7 @@ describe('the overview: needs a look', () => {
     const findings = [1, 2, 3, 4].map((i) =>
       fakeFinding({ id: `00000000-0000-4000-8000-00000000000${i}`, seen_at: i === 1 ? null : '2026-11-01T08:00:00Z' }),
     )
-    open('/', { findings: fakeFindings(findings) })
+    open('/overview', { findings: fakeFindings(findings) })
     const section = (await screen.findByText('Needs a look')).closest('section') as HTMLElement
     expect(within(section).getAllByText(/Confidence: medium/)).toHaveLength(3)
     expect(within(section).getAllByText('new')).toHaveLength(1)
@@ -156,51 +156,51 @@ describe('the overview: needs a look', () => {
   })
 
   it('shows the link to all findings when the server has more', async () => {
-    open('/', { findings: fakeFindings([fakeFinding()], 20) })
+    open('/overview', { findings: fakeFindings([fakeFinding()], 20) })
     expect(await screen.findByRole('link', { name: /All live findings/ })).toBeInTheDocument()
   })
 })
 
 describe('the overview: range', () => {
   it('marks the chosen range and links the others', async () => {
-    open('/?range=1y')
+    open('/overview?range=1y')
     const nav = await screen.findByRole('navigation', { name: 'Range' })
     expect(within(nav).getByRole('link', { name: '1 year' })).toHaveAttribute('aria-current', 'true')
-    expect(within(nav).getByRole('link', { name: '30 days' })).toHaveAttribute('href', '/?range=30d')
+    expect(within(nav).getByRole('link', { name: '30 days' })).toHaveAttribute('href', '/overview?range=30d')
   })
 
   it('offers the six ranges, each as a deep link', async () => {
-    open('/?range=7d')
+    open('/overview?range=7d')
     const nav = await screen.findByRole('navigation', { name: 'Range' })
     const links = within(nav).getAllByRole('link')
     expect(links.map((l) => l.textContent)).toEqual(['7 days', '30 days', '3 months', '6 months', '1 year', 'All'])
     expect(links.map((l) => l.getAttribute('href'))).toEqual(
-      ['7d', '30d', '90d', '6mo', '1y', 'all'].map((r) => `/?range=${r}`),
+      ['7d', '30d', '90d', '6mo', '1y', 'all'].map((r) => `/overview?range=${r}`),
     )
     expect(links[0]).toHaveAttribute('aria-current', 'true')
   })
 
   it('falls back to the saved range, else 7 days, for a range it does not know', async () => {
-    open('/?range=forever', { profile: fakeProfile({ chart_range: '7d' }) })
+    open('/overview?range=forever', { profile: fakeProfile({ chart_range: '7d' }) })
     const nav = await screen.findByRole('navigation', { name: 'Range' })
     await waitFor(() => expect(within(nav).getByRole('link', { name: '7 days' })).toHaveAttribute('aria-current', 'true'))
   })
 
   it('falls back to a saved range other than 7 days for a range it does not know', async () => {
-    open('/?range=forever', { profile: fakeProfile({ chart_range: '1y' }) })
+    open('/overview?range=forever', { profile: fakeProfile({ chart_range: '1y' }) })
     const nav = await screen.findByRole('navigation', { name: 'Range' })
     await waitFor(() => expect(within(nav).getByRole('link', { name: '1 year' })).toHaveAttribute('aria-current', 'true'))
     expect(within(nav).getByRole('link', { name: '7 days' })).not.toHaveAttribute('aria-current')
   })
 
   it('falls back to a saved 3 months for a range it does not know', async () => {
-    open('/?range=forever', { profile: fakeProfile({ chart_range: '90d' }) })
+    open('/overview?range=forever', { profile: fakeProfile({ chart_range: '90d' }) })
     const nav = await screen.findByRole('navigation', { name: 'Range' })
     await waitFor(() => expect(within(nav).getByRole('link', { name: '3 months' })).toHaveAttribute('aria-current', 'true'))
   })
 
   it('lets a saved range win over the default when the address has none', async () => {
-    open('/', { profile: fakeProfile({ chart_range: '6mo' }) })
+    open('/overview', { profile: fakeProfile({ chart_range: '6mo' }) })
     const nav = await screen.findByRole('navigation', { name: 'Range' })
     await waitFor(() => expect(within(nav).getByRole('link', { name: '6 months' })).toHaveAttribute('aria-current', 'true'))
   })
@@ -210,7 +210,7 @@ describe('the freshness line', () => {
   const line = async () => within(await screen.findByRole('region', { name: 'Data freshness' }))
 
   it('says when Withings last synced and where the last reading is from', async () => {
-    open('/')
+    open('/overview')
     const fresh = await line()
     expect(fresh.getByText(/Withings synced/)).toBeInTheDocument()
     expect(fresh.getByText(/Last reading/)).toBeInTheDocument()
@@ -222,13 +222,13 @@ describe('the freshness line', () => {
   })
 
   it('shows a sync that is more than two days old as stale', async () => {
-    open('/', { status: fakeStatus({ last_sync_at: '2026-10-28T11:30:00Z' }) })
+    open('/overview', { status: fakeStatus({ last_sync_at: '2026-10-28T11:30:00Z' }) })
     const fresh = await line()
     expect(fresh.getByText(/Withings last synced/)).toBeInTheDocument()
   })
 
   it('shows an import in progress with its percentage', async () => {
-    open('/', {
+    open('/overview', {
       status: fakeStatus({
         streams: [fakeStream('measures', 'importing', { progress_percent: 42 })],
         importing: ['measures'],
@@ -239,7 +239,7 @@ describe('the freshness line', () => {
   })
 
   it('shows an import that stopped', async () => {
-    open('/', {
+    open('/overview', {
       status: fakeStatus({ streams: [fakeStream('measures', 'incomplete')], incomplete: ['measures'] }),
     })
     const fresh = await line()
@@ -247,7 +247,7 @@ describe('the freshness line', () => {
   })
 
   it('shows a connection that needs renewing, with a way to fix it', async () => {
-    open('/', {
+    open('/overview', {
       status: fakeStatus({ connection: 'needs_reconnect', broken_connections: ['withings'] }),
     })
     const fresh = await line()
@@ -256,7 +256,7 @@ describe('the freshness line', () => {
   })
 
   it('keeps what a stream cannot give behind Details', async () => {
-    open('/', {
+    open('/overview', {
       status: fakeStatus({ streams: [fakeStream('ecg', 'not_supported')] }),
     })
     const fresh = await line()
@@ -281,7 +281,7 @@ describe('the freshness line', () => {
 
 describe('the rail', () => {
   it('shows the connection as a dot, and marks an area whose stream cannot be read as n/a', async () => {
-    open('/', {
+    open('/overview', {
       status: fakeStatus({
         streams: [fakeStream('ecg', 'not_supported'), fakeStream('sleep_summary', 'not_shared')],
       }),
@@ -292,7 +292,7 @@ describe('the rail', () => {
   })
 
   it('flags a connection that needs a look', async () => {
-    open('/', { status: fakeStatus({ connection: 'needs_reconnect', broken_connections: ['withings'] }) })
+    open('/overview', { status: fakeStatus({ connection: 'needs_reconnect', broken_connections: ['withings'] }) })
     const rail = await screen.findByRole('navigation', { name: 'Main' })
     expect(await within(rail).findByLabelText('Withings needs a look')).toBeInTheDocument()
   })

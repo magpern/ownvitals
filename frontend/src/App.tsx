@@ -1,5 +1,5 @@
-import { RequireReady, RequireSignedOut } from './auth/guards'
-import { accessOf, isAdmin } from './auth/access'
+import { Redirect, RequireReady, RequireSignedOut } from './auth/guards'
+import { HOME_PATH, accessOf, isAdmin } from './auth/access'
 import { SessionProvider, useSession } from './auth/SessionContext'
 import { PlainFrame } from './components/PlainFrame'
 import { StepUpProvider } from './components/StepUp'
@@ -24,7 +24,7 @@ function NotFound() {
     <section className="card">
       <h1 className="card__title">{t('shell.notFound')}</h1>
       <p>
-        <Link to="/">{t('shell.backToStart')}</Link>
+        <Link to={HOME_PATH}>{t('shell.backToStart')}</Link>
       </p>
     </section>
   )
@@ -72,8 +72,18 @@ function Routes() {
   return <PlainFrame>{otherPage(path)}</PlainFrame>
 }
 
+// An old `/?range=90d` keeps its query.
+function RootRedirect() {
+  const { search } = useRouter()
+  return <Redirect to={`${HOME_PATH}${search}`} />
+}
+
 function otherPage(path: string) {
   switch (path) {
+    case '/':
+      // The public home page owns `/` when the server has it; without it (the dev server) the
+      // app's start page is the signed-in one.
+      return <RootRedirect />
     case '/signin':
       return (
         <RequireSignedOut>

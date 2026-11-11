@@ -29,7 +29,7 @@ export function OverviewPage() {
   const status = useStatus()
   return (
     <Stack gap="lg">
-      <RangeSelector path="/" range={range} />
+      <RangeSelector path="/overview" range={range} />
       <ResourceView resource={findings}>{(data) => <NeedsLook findings={data} />}</ResourceView>
       <ResourceView resource={metrics}>
         {(tiles) => {

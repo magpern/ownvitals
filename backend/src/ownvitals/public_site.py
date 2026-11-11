@@ -20,9 +20,20 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 PAGE_ROUTES: Final = ("", "features", "security", "privacy", "terms", "cookies", "contact")
-# Exact files at the root of the public build. Image names are added here by the issue that
-# ships them, one by one (ADR 0016 item 4), never as a prefix.
-PUBLIC_FILES: Final = ("sitemap.xml", "robots.txt", "public.css")
+# Exact files of the public build, by their path from its root. The image names are the six
+# mock-ups of frontend/src/public/images.ts (ADR 0016 item 4), listed one by one, never as a
+# prefix or glob; a frontend test holds this tuple equal to what the build emits.
+PUBLIC_FILES: Final = (
+    "sitemap.xml",
+    "robots.txt",
+    "public.css",
+    "img/Dashboard.png",
+    "img/Dashboard.dark.png",
+    "img/Insights.png",
+    "img/Insights.dark.png",
+    "img/Connections.png",
+    "img/Connections.dark.png",
+)
 
 _PAGE_PATHS: Final = frozenset(
     "/".join(part for part in (locale, route) if part)

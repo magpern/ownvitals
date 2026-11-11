@@ -28,7 +28,7 @@ describe('the app frame', () => {
     expect(await within(screen.getByRole('main')).findByText('Needs a look')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /ann@example\.test/ })).toBeInTheDocument()
     // The top bar's logo (the phone's brand) goes home, too.
-    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/')
+    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/overview')
   })
 
   // The screens built so far (src/pages/appPages.tsx) have their own tests.

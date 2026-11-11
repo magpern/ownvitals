@@ -11,5 +11,8 @@
 **/.pytest_cache
 **/.ruff_cache
 frontend/dist
+frontend/dist-public
 docs
+# The mock-ups the public build copies (scripts/build-public.mjs reads ../docs/design/mockups/png).
+!docs/design/mockups/png
 *.md

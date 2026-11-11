@@ -3,7 +3,7 @@ Subject: ownvitals: något väntar på dig
 
 Något nytt väntar på dig i ownvitals.
 
-Öppna det här: https://ownvitals.example.test/
+Öppna det här: https://ownvitals.example.test/overview
 
 Det här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du har loggat in.
 

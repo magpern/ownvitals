@@ -61,7 +61,7 @@ export interface AppRoute {
 }
 
 export const APP_ROUTES: readonly AppRoute[] = [
-  { id: 'overview', pattern: '/', title: 'shell.route.overview.title', later: 'shell.route.overview.later', nav: 'overview' },
+  { id: 'overview', pattern: '/overview', title: 'shell.route.overview.title', later: 'shell.route.overview.later', nav: 'overview' },
   { id: 'body', pattern: '/body', title: 'shell.route.body.title', later: 'shell.route.body.later', nav: 'body' },
   { id: 'heart', pattern: '/heart', title: 'shell.route.heart.title', later: 'shell.route.heart.later', nav: 'heart' },
   { id: 'nerve', pattern: '/nerve', title: 'shell.route.nerve.title', later: 'shell.route.nerve.later', nav: 'nerve' },

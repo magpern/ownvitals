@@ -3,7 +3,7 @@ Subject: ownvitals: a connection needs your attention
 
 One of your connections in ownvitals needs your attention.
 
-Open it here: https://ownvitals.example.test/
+Open it here: https://ownvitals.example.test/overview
 
 This email says no more than that on purpose: what is waiting is shown only after you sign in.
 

@@ -127,7 +127,7 @@ describe('a session through its second factor', () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/')
     expect(await screen.findByText('Needs a look')).toBeInTheDocument()
-    expect(here()).toBe('/')
+    expect(here()).toBe('/overview')
   })
 
   it.each(['/signin', '/signup', '/two-factor', '/two-factor/setup'])(
@@ -136,7 +136,7 @@ describe('a session through its second factor', () => {
       fakeApi({ 'GET /api/auth/session': SIGNED_IN })
       renderAt(path)
       await waitFor(() => {
-        expect(here()).toBe('/')
+        expect(here()).toBe('/overview')
       })
     },
   )
@@ -153,7 +153,7 @@ describe('a session through its second factor', () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/signin?return_to=https%3A%2F%2Fevil.example%2F')
     await waitFor(() => {
-      expect(here()).toBe('/')
+      expect(here()).toBe('/overview')
     })
   })
 
@@ -161,7 +161,7 @@ describe('a session through its second factor', () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     guarded('/anywhere', 'signed-out')
     await waitFor(() => {
-      expect(here()).toBe('/')
+      expect(here()).toBe('/overview')
     })
     expect(screen.queryByText('inside the guard')).toBeNull()
   })

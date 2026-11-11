@@ -89,8 +89,9 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 // XML namespaces are identifiers, not requests (every SVG names one or two). The lookahead stops
 // `http://www.w3.org/2000/svg.evil.example` from passing as one.
+// The sitemap protocol namespace (src/public/site.ts writes sitemap.xml) is one more such identifier.
 const XML_NAMESPACE =
-  /http:\/\/www\.w3\.org\/(?:2000\/svg|1999\/xlink|1999\/xhtml|XML\/1998\/namespace)(?=["'\s>)]|$)/g
+  /http:\/\/(?:www\.w3\.org\/(?:2000\/svg|1999\/xlink|1999\/xhtml|XML\/1998\/namespace)|www\.sitemaps\.org\/schemas\/sitemap\/0\.9)(?=["'\s>)]|$)/g
 
 // The JSON-LD vocabulary identifier (`"@context": "https://schema.org"`) names a vocabulary and is
 // never fetched. Exactly that string; the lookahead stops `https://schema.org.evil.example` and

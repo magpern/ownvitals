@@ -19,6 +19,16 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build
+# The prerendered public site (ADR 0016), into /spa/dist-public. The canonical origin is a build
+# argument (production by default; staging passes its own). OWNVITALS_PUBLIC_LEGAL_APPROVED is the
+# owner's legal gate: declared here without a value, so the legal pages are left out unless the
+# owner passes exactly `true` (`--build-arg`); no committed file sets it (a frontend test checks).
+# The public build copies the owner-approved mock-ups from ../docs/design/mockups/png, which is
+# /docs/... here (WORKDIR /spa); .dockerignore lets exactly this folder through.
+COPY docs/design/mockups/png /docs/design/mockups/png
+ARG OWNVITALS_PUBLIC_ORIGIN=https://ownvitals.eu
+ARG OWNVITALS_PUBLIC_LEGAL_APPROVED
+RUN npm run build:public
 
 # --- runtime ----------------------------------------------------------------------------
 FROM python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df AS runtime
@@ -29,7 +39,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
     OWNVITALS_ENVIRONMENT=prod \
-    OWNVITALS_STATIC_DIR=/app/static
+    OWNVITALS_STATIC_DIR=/app/static \
+    OWNVITALS_PUBLIC_DIR=/app/public
 # The image fails closed: prod (https public URL, no API docs, no password inside a database URL)
 # unless the stack sets OWNVITALS_ENVIRONMENT itself, as compose.yaml does for the local stack.
 
@@ -47,6 +58,9 @@ COPY backend/migrations ./migrations
 COPY backend/src ./src
 # The built single-page app, owned by root: web serves it, the app user cannot change it.
 COPY --from=spa /spa/dist ./static
+# The prerendered public site (ADR 0016), also owned by root. Web answers the fixed set of public
+# paths from it (ownvitals.public_site) and everything else from ./static.
+COPY --from=spa /spa/dist-public ./public
 # The locale manifest the backend reads as SUPPORTED_LOCALES (ADR 0015 section 1; ownvitals.locales).
 COPY --from=spa /spa/src/i18n/locales.json ./locales.json
 # The database functions and their runner script (compose's db-functions one-shot): installed from

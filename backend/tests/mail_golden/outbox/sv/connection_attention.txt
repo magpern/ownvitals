@@ -3,7 +3,7 @@ Subject: ownvitals: en anslutning behöver din uppmärksamhet
 
 En av dina anslutningar i ownvitals behöver din uppmärksamhet.
 
-Öppna den här: https://ownvitals.example.test/
+Öppna den här: https://ownvitals.example.test/overview
 
 Det här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du har loggat in.
 
