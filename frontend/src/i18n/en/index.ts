@@ -17,12 +17,13 @@ import { passkeys } from './passkeys'
 import { security } from './security'
 import { settings } from './settings'
 import { shell } from './shell'
+import { site } from './site'
 import { ui } from './ui'
 
 // English is the source of every message and the fallback for a key a language lacks. An area is
 // one file in this folder, and one line here and in ../sv/index.ts.
 
-export const EN_AREAS = { common, errors, codes, detail, health, auth, account, security, shell, ui, overview, settings, passkeys, connections, ecg, findings, body, nerve, assistant }
+export const EN_AREAS = { common, errors, codes, detail, health, auth, account, security, shell, ui, overview, settings, passkeys, connections, ecg, findings, body, nerve, assistant, site }
 
 export type Areas = typeof EN_AREAS
 export type MessageKey = {
@@ -50,4 +51,5 @@ export const EN: Messages = {
   ...prefixed('body', body),
   ...prefixed('nerve', nerve),
   ...prefixed('assistant', assistant),
+  ...prefixed('site', site),
 }

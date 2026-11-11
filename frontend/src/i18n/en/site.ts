@@ -1,0 +1,70 @@
+// The public pages (/ and /features, ADR 0016): prerendered, no script. Health wording rule of
+// ADR 0015: no claim of diagnosis, treatment or medical advice, and no endorsement by Withings.
+export const site = {
+  skip: 'Skip to the content',
+  'nav.label': 'Site',
+  'nav.home': 'Overview',
+  'nav.features': 'Features',
+  'nav.language': 'Language',
+  'meta.home.title': 'ownvitals: your Withings data on one dashboard',
+  'meta.home.description':
+    'ownvitals is a free website that pulls your own Withings data, keeps it private to you, analyses it and shows it on one dashboard.',
+  'meta.features.title': 'Features: ownvitals',
+  'meta.features.description':
+    'Trends, findings with a stated source and confidence, ECG and sleep views, optional AI help, and export and delete of your data.',
+  'meta.app.description': 'A free website that shows your own Withings data on a dashboard.',
+  'meta.image.alt': 'The ownvitals overview with synthetic example data',
+  'home.title': 'Your Withings data, in one quiet dashboard',
+  'home.lead':
+    'ownvitals connects to your own Withings account, fetches your measurements, and shows the trends and findings in a calm, readable way. Free, and your data stays yours.',
+  'cta.signUp': 'Create a free account',
+  'cta.signIn': 'Sign in',
+  'cta.features': 'See all features',
+  'home.points.title': 'What you get',
+  'home.point.trends.title': 'Trends, not noise',
+  'home.point.trends.text':
+    'Weight, blood pressure, heart, sleep and activity over a week, a month or all time, with your typical range drawn in.',
+  'home.point.findings.title': 'Findings with their source',
+  'home.point.findings.text':
+    'Every finding says where its rule comes from, how confident it is and how good the data behind it is.',
+  'home.point.yours.title': 'Your data stays yours',
+  'home.point.yours.text':
+    'Each account sees only its own data. You can export it or delete it. No advertising and no analytics.',
+  'home.shots.title': 'A look inside',
+  'home.shots.note': 'The screens below show synthetic example data, not a real person.',
+  'shot.dashboard.alt': 'The overview: score tiles and trend charts for body, heart, sleep and activity, with synthetic data',
+  'shot.findings.alt': 'The findings list: each finding with its tier, confidence and data quality, with synthetic data',
+  'shot.connections.alt': 'The connections screen: Withings status, how updates arrive and which data streams are available, with synthetic data',
+  'home.end.title': 'Ready to look at your own numbers?',
+  'home.end.text': 'Sign in, or create an account and connect Withings. It takes a few minutes.',
+  'features.title': 'Features',
+  'features.lead': 'What ownvitals does with the data your Withings devices record.',
+  'features.overview.title': 'One overview',
+  'features.overview.text': 'A single page with the state of your body, heart, sleep and activity, and how each has moved lately.',
+  'features.body.title': 'Body',
+  'features.body.text': 'Weight and body composition over time, each with a typical range and a link to the day-by-day readings.',
+  'features.heart.title': 'Heart and ECG',
+  'features.heart.text': 'Blood pressure and heart rate trends, and your ECG recordings to open and read, with the intervals shown.',
+  'features.sleep.title': 'Sleep and activity',
+  'features.sleep.text': 'How long and how well you slept, and how active you were, as trends you can compare with your own past.',
+  'features.nerve.title': 'Nerve health',
+  'features.nerve.text': 'Trends from the nerve health measurements your device records, shown the same way as everything else.',
+  'features.findings.title': 'Findings you can check',
+  'features.findings.text':
+    'Each finding carries a tier, its source, a confidence and a data-quality note, and says what it is not. Nothing here is a diagnosis.',
+  'features.connections.title': 'Connected to Withings',
+  'features.connections.text':
+    'You connect your own account once. New measurements arrive by notification and by a regular sync, and you see the status at any time.',
+  'features.assistant.title': 'An optional assistant',
+  'features.assistant.text':
+    'Ask questions about your numbers in plain language. It is off unless it is switched on, and your sign-in details never go to it.',
+  'features.data.title': 'Export and delete',
+  'features.data.text': 'Download everything stored about you, or delete it, from your settings.',
+  'features.security.title': 'Careful sign-in',
+  'features.security.text': 'A second factor, passkeys and a list of where you are signed in, with a fresh code needed for protected actions.',
+  'features.languages.title': 'English and Swedish, light and dark',
+  'features.languages.text': 'Choose the language and the theme, or let the device decide.',
+  'footer.disclaimer':
+    'ownvitals is not a medical device and gives no medical advice, diagnosis or treatment. It is an independent project, not affiliated with or endorsed by Withings.',
+  'footer.nocookies': 'These pages set no cookies and load nothing from other sites.',
+} satisfies Record<string, string>
