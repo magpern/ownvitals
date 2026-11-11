@@ -243,8 +243,8 @@ queued ──claim──> running ──> completed | failed | cancelled
   1. it asks `ownvitals.auth` (guard 8) whether the owner exists and is not disabled; otherwise the
      job fails with `account_disabled`. **One exception** (amended 2026-11-11, #383): a job whose
      row is `withings_admin_revoke` with origin `operator` (only `queue_enqueue_admin_revoke`
-     writes that pair, or the operator's `queue_replay` of such a job) is issued for an owner that is disabled but still exists. The runner reads
-     the row's `kind` and `origin` as the bare owner, fenced, only after the owner was found not
+     writes that pair, or the operator's `queue_replay` of such a job) is issued for an owner
+     that is disabled but still exists. The runner reads the row's `kind` and `origin` as the bare owner, fenced, only after the owner was found not
      active, and the kind must be registered with `disabled_owner=True`, which no other kind
      sets (a test pins it). Every other kind, and any job of a deleted owner, still fails
      `account_disabled`. The handler still re-checks the admin's stepped-up session first;
