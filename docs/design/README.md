@@ -9,6 +9,9 @@ screenshot of each. The owner's design canvas is
 <https://claude.ai/artifact/HQrrU1y3u2sxh29c4Xqp7p> (private; agents work from the repository
 copy, which is identical to it).
 
+**Motion and liveliness (M10):** accepted by the owner 2026-11-11 (provisional, for the
+owner's M8 review): [motion.md](motion.md).
+
 ## Rules for agents
 
 1. **Build what the mock-ups show.** Layout, components, states, tokens, type, icons and the
