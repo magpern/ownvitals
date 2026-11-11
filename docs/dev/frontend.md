@@ -148,6 +148,12 @@ CSP (rule 8): `sources.test.ts` forbids a `style=` attribute but not the `elemen
 API, so JS sets animated values with `el.style.setProperty('--x', ...)` on a class-styled element
 (`motionCss.test.ts` pins both). Only opacity and transform animate.
 
+`Reveal` is visible by default: the hidden `ov-reveal--pre` class is added only after mount, so
+prerendered markup (the `useReducedMotion` server snapshot is "reduced") never flashes or reveals
+twice on hydration. The public pages (ADR 0016) ship no script: their motion is CSS only,
+`styles/public-lively.css`, and exists only under `prefers-reduced-motion: no-preference`
+(`src/public/lively.test.ts`); below-the-fold reveals use `animation-timeline: view()` where supported.
+
 ### Fonts
 
 IBM Plex Sans (UI) and Plex Mono (ids, versions, raw values), OFL-1.1, self-hosted through

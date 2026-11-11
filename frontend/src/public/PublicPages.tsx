@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { MessageKey } from '../i18n/en'
 import { LOCALES, LOCALE_NAMES, type Locale } from '../i18n/locale'
+import { Mockup, StatStrip, Steps } from './PublicLively'
 import { PUBLIC_IMAGES, imageUrl } from './images'
 import { APP_LINKS, publicPath, type PublicPage } from './routes'
 
@@ -72,11 +73,15 @@ function Actions({ t }: { t: Text }) {
 function Home({ locale, t }: Omit<Props, 'page'>) {
   return (
     <>
-      <section className="pub-hero">
-        <h1>{t('site.home.title')}</h1>
-        <p className="pub-lead">{t('site.home.lead')}</p>
-        <Actions t={t} />
+      <section className="pub-hero pub-hero--split">
+        <div>
+          <h1>{t('site.home.title')}</h1>
+          <p className="pub-lead">{t('site.home.lead')}</p>
+          <Actions t={t} />
+        </div>
+        <Mockup t={t} />
       </section>
+      <StatStrip t={t} />
       <section aria-labelledby="points">
         <h2 id="points">{t('site.home.points.title')}</h2>
         <ul className="pub-cards">
@@ -91,6 +96,7 @@ function Home({ locale, t }: Omit<Props, 'page'>) {
           <a href={publicPath('features', locale)}>{t('site.cta.features')}</a>
         </p>
       </section>
+      <Steps t={t} />
       <section aria-labelledby="shots">
         <h2 id="shots">{t('site.home.shots.title')}</h2>
         <p className="pub-note">{t('site.home.shots.note')}</p>
