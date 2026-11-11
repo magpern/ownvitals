@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from sqlalchemy import text
 
 from aichat import (  # noqa: F401 - fixtures
     ChatEnv,
@@ -23,6 +24,8 @@ from aichat import (  # noqa: F401 - fixtures
 from aidigest import digest_jobs, digest_user, opt_in, run_digest_job, run_notify_pass
 from authtools import auth_schema_fixture, clean_auth_fixture  # noqa: F401 - fixtures
 from fakemodel import text as answer
+from fakemodel import tools
+from ownvitals.ai import digest as digest_module
 from ownvitals.ai.digest_model import digest_week
 from ownvitals.config import Settings
 from ownvitals.notify.findings_job import KIND as NOTIFY_KIND
@@ -126,6 +129,44 @@ async def test_no_second_digest_is_queued_while_one_runs(chat: ChatEnv) -> None:
     )
     await run_notify_pass(chat, who)
     assert [j.state for j in digest_jobs(who.id)] == ["running"]
+
+
+async def test_the_narrowed_race_still_stores_one_digest_and_queues_no_third_job(
+    chat: ChatEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check and the enqueue are not one step (``_queueable``): a queued job that starts
+    running between them lets a second one through. Simulated by hiding the running job from
+    the check. The second job stores the week once, a later pass queues nothing, and no further
+    model call is made (the ``ON CONFLICT`` path is in ``test_ai_digest.py``)."""
+    who = await digest_user(chat, "synthetic-queue-race@example.com")
+    await run_notify_pass(chat, who)
+    (job,) = digest_jobs(who.id)
+    sql(
+        "UPDATE jobs SET state = 'running', attempt = 1, lease_version = 1, "
+        "leased_by = 'synthetic-worker', lease_expires_at = now() + interval '10 minutes', "
+        "heartbeat_at = now(), started_at = now() WHERE id = :j",
+        j=job.id,
+    )
+    with monkeypatch.context() as hidden:  # only this patch: the fixtures' patches stay
+        hidden.setattr(digest_module, "_RUNNING", text("SELECT 1 WHERE false"))
+        await run_notify_pass(chat, who)
+    assert sorted(j.state for j in digest_jobs(who.id)) == ["queued", "running"]
+    # A running job holds the singleton key, so the enqueue delays the new one; make it claimable.
+    sql("UPDATE jobs SET available_at = now() WHERE state = 'queued' AND owner_id = :o", o=who.id)
+    before = chat.fake.attempts
+    chat.fake.script = [tools(("list_metrics", {})), answer("Synthetic digest text.")]
+    execution = await run_digest_job(chat)
+    assert execution is not None
+    assert execution.result == "completed"
+    stored = sql("SELECT count(*) FROM ai_digests WHERE owner_id = :o", o=who.id).scalar()
+    assert stored == 1
+    assert (
+        chat.fake.attempts == before + 2
+    )  # the second job called the model: a tool call, then the answer
+    attempts = chat.fake.attempts
+    await run_notify_pass(chat, who)  # the week is stored now: nothing more is queued
+    assert [j.state for j in digest_jobs(who.id)].count("queued") == 0
+    assert chat.fake.attempts == attempts
 
 
 async def test_a_week_already_stored_queues_nothing(chat: ChatEnv) -> None:

@@ -115,6 +115,16 @@ describe('the weekly digest', () => {
     expect(screen.queryByText(/It resets on/)).not.toBeInTheDocument()
   })
 
+  it('reads the creation time as a UTC day, whatever offset the API wrote', async () => {
+    // 2026-11-01T00:30+02:00 is 2026-10-31 in UTC: an earlier budget month, so no reset date.
+    digestApi({ enabled: true, digests: [digest('2026-11-23', 'skipped_budget', null, '2026-11-01T00:30:00+02:00')] }, true, {
+      'GET /api/ai/budget': { paused: true, resets_on: '2026-12-01' },
+    })
+    renderAt('/assistant')
+    expect(await screen.findByText("This week's summary was skipped: this month's AI budget for your account was used up.")).toBeInTheDocument()
+    expect(screen.queryByText(/It resets on/)).not.toBeInTheDocument()
+  })
+
   it('cannot be turned on while AI is not available, but can be turned off', async () => {
     digestApi({ available: false, enabled: false })
     renderAt('/assistant')
