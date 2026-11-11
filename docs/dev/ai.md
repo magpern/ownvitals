@@ -468,7 +468,7 @@ still write that week or the three before it (`week_ok`); a later or future week
    missing consent or flag (`ai_not_enabled`), an owner lock (`ai_unavailable`) or the egress
    block (`outbound_blocked`) fail the job and store nothing; a cancel stops it.
 4. The store, in the job's final fenced transaction: the consent `FOR SHARE NOWAIT` (a withdrawal
-   that holds or closed the row: `the job ends `cancelled`, nothing stored), the opt-in `FOR SHARE` (gone:
+   that holds or closed the row: the job ends `cancelled`, nothing stored), the opt-in `FOR SHARE` (gone:
    nothing stored), the insert (`ON CONFLICT (owner_id, week_start) DO NOTHING`), then the mail.
 
 Lock order as the chat's: the job row, the consent row without waiting, the opt-in and the digest.
