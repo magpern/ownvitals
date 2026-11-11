@@ -9,7 +9,7 @@ import {
   scanQr,
   type ScannedRequest,
 } from '../api/qrlogin'
-import { accessOf } from '../auth/access'
+import { HOME_PATH, accessOf } from '../auth/access'
 import { useSession } from '../auth/SessionContext'
 import { Notice, useAction } from '../components/forms'
 import { NO_CODE, SecondFactorField, complete, type SecondFactor } from '../components/SecondFactorField'
@@ -134,7 +134,7 @@ function ApproveView({ view, setView }: { view: View; setView: (view: View) => v
         view.title,
         <>
           <p>{view.message}</p>
-          <Link to="/">{t('passkeys.approve.home')}</Link>
+          <Link to={HOME_PATH}>{t('passkeys.approve.home')}</Link>
         </>,
       )
     case 'approved':
@@ -144,7 +144,7 @@ function ApproveView({ view, setView }: { view: View; setView: (view: View) => v
         t('passkeys.approve.deniedTitle'),
         <>
           <p>{t('passkeys.approve.denied')}</p>
-          <Link to="/">{t('passkeys.approve.home')}</Link>
+          <Link to={HOME_PATH}>{t('passkeys.approve.home')}</Link>
         </>,
       )
     case 'scanned': {

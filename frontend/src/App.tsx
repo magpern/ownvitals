@@ -24,7 +24,7 @@ function NotFound() {
     <section className="card">
       <h1 className="card__title">{t('shell.notFound')}</h1>
       <p>
-        <Link to="/">{t('shell.backToStart')}</Link>
+        <Link to={HOME_PATH}>{t('shell.backToStart')}</Link>
       </p>
     </section>
   )

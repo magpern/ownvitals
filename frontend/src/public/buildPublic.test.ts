@@ -143,12 +143,13 @@ describe('the legal gate fails closed', () => {
   it('is set in no committed file (a workflow may pass the owner\'s repository variable)', () => {
     const tracked = spawnSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' })
     expect(tracked.status).toBe(0)
-    const files = tracked.stdout.split('\0').filter((path) => /^(Dockerfile|compose.*\.ya?ml|\.env.*|\.github\/.*|scripts\/.*|docker\/.*)$/.test(path))
+    const files = tracked.stdout.split('\0').filter((path) => /^(Dockerfile|compose.*\.ya?ml|\.env.*|\.github\/.*|scripts\/.*|docker\/.*|frontend\/package\.json|frontend\/scripts\/.*)$/.test(path))
     expect(files).toContain('Dockerfile')
     const setting = /OWNVITALS_PUBLIC_LEGAL_APPROVED\s*(?:=|:\s)\s*(?!\$)\S/
     for (const path of files) {
       const text = readFileSync(join(REPO, path), 'utf8')
       expect(setting.test(text), path).toBe(false)
+      expect(/^\s*(?:ENV|ARG)\s+OWNVITALS_PUBLIC_LEGAL_APPROVED[ \t]+\S/m.test(text), path).toBe(false) // the space form
     }
   })
 })

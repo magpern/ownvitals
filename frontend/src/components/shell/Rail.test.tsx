@@ -14,7 +14,7 @@ describe('Rail', () => {
   it('is the main navigation, with the brand, three groups and their items in order', () => {
     inRouter(<Rail active="overview" path="/" admin={false} />)
     const nav = screen.getByRole('navigation', { name: 'Main' })
-    expect(within(nav).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/')
+    expect(within(nav).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/overview')
     const groups = within(nav).getAllByRole('group')
     expect(groups.map((group) => group.getAttribute('aria-labelledby')).every(Boolean)).toBe(true)
     expect(within(nav).getByRole('group', { name: 'Analyse' })).toBeInTheDocument()

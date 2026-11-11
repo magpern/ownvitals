@@ -157,7 +157,7 @@ def _target(flow: Flow | None, outcome: Outcome) -> str:
     return_to = safe_return_to(flow.return_to if flow else None)  # checked again before use
     match outcome.next:
         case "signed_in":
-            return return_to or "/"
+            return return_to or "/overview"
         case "reauthed":
             return return_to or "/account?oauth=reauthed"
         case "linked":

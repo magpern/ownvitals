@@ -453,3 +453,7 @@ content-hashed files, so the server finds them in `dist/`).
 for everyone, signed in or not (ADR 0016 owner question 3, default: yes). The app's start page moved to
 `/overview` (`HOME_PATH`); a client-side or dev-server `/` redirects there and keeps its query. The public pages
 link to `/signin`, which sends a signed-in visitor on to `/overview`.
+
+The SPA's own `/` route redirects to `/overview` and keeps the query, but only the dev server and
+client-side navigation reach it: the production server answers `/` with the public home whatever
+the query, so links to the app use `HOME_PATH` (`/overview`).

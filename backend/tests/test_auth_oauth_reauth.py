@@ -39,7 +39,7 @@ async def google_only(env: Env, fake: FakeProviders) -> tuple[Browser, UUID]:
     """A full session of an account that signed up with Google (no password) and enrolled TOTP."""
     browser = Browser(env)
     response = await sign_in_with(browser, fake, "google", invite=await make_invite(env))
-    assert location(response) == "/"
+    assert location(response) == "/overview"
     user_id = UUID(str(await env.scalar("SELECT id FROM users")))
     await pass_second_factor(env, browser, user_id)
     return browser, user_id

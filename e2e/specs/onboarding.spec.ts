@@ -48,6 +48,6 @@ test('connects the fake Withings, waits for the import and reaches the overview'
   await expect(page.getByRole('heading', { name: 'Your history is imported' })).toBeVisible({ timeout: wait })
   await expect(page.getByText('Waiting for the first stream to start…')).toHaveCount(0)
   await page.getByRole('link', { name: 'Go to the overview' }).click()
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(/\/overview$/)
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
 })

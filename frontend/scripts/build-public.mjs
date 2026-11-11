@@ -13,7 +13,7 @@ const out = resolve(root, process.argv[2] ?? 'dist-public')
 const origin = process.env.OWNVITALS_PUBLIC_ORIGIN
 if (!origin) throw new Error('OWNVITALS_PUBLIC_ORIGIN is required (an https origin, e.g. https://ownvitals.eu)')
 
-const server = await createServer({ root, configFile: false, logLevel: 'error', appType: 'custom', server: { middlewareMode: true } })
+const server = await createServer({ root, configFile: false, logLevel: 'error', appType: 'custom', server: { middlewareMode: true, hmr: false } })
 let files
 let images
 try {

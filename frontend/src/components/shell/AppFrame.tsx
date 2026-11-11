@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { decodeStatus } from '../../api/overview'
 import { useResource } from '../../api/useResource'
-import { isAdmin } from '../../auth/access'
+import { HOME_PATH, isAdmin } from '../../auth/access'
 import { useSession } from '../../auth/SessionContext'
 import { useT } from '../../i18n'
 import { Link } from '../../router/Router'
@@ -61,7 +61,7 @@ export function AppFrame({ title, active, path, status, children }: AppFrameProp
           </div>
           <div className="ov-main">
             <header className="ov-topbar">
-              <Link className="ov-topbar__logo" to="/" aria-label="ownvitals">
+              <Link className="ov-topbar__logo" to={HOME_PATH} aria-label="ownvitals">
                 <Logo />
               </Link>
               <h1 className="ov-topbar__title">{title}</h1>
