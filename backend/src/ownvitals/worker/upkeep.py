@@ -1,11 +1,13 @@
 """The worker's owner-less upkeep steps (ADR 0005 section 3, ADR 0003 section 1, ADR 0014
-section 6, ADR 0013 section 4).
+sections 5 and 6, ADR 0013 section 4).
 
 ``quietly`` runs one maintenance step that returns a count: a failure is logged by its class
 and retried at the next interval, a count above zero is logged, and ``DatabaseRoleError`` (a
 privileged role or a drifted queue) is raised so that it stops the worker. ``purge`` is the
 hourly purge tick: the auth purge, then the AI audit log's retention
-(``ownvitals.ai.audit_retention``), then the export purge (``ownvitals.reports.export_purge``).
+(``ownvitals.ai.audit_retention``), then the AI conversation retention
+(``ownvitals.ai.conversation_retention``, ADR 0014 section 5), then the export purge
+(``ownvitals.reports.export_purge``).
 Logs carry counts and error classes only, never a row.
 """
 
@@ -15,6 +17,7 @@ from collections.abc import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.ai.audit_retention import purge_expired_audit
+from ownvitals.ai.conversation_retention import purge_expired_conversations
 from ownvitals.auth.purge import purge_expired
 from ownvitals.config import Settings
 from ownvitals.db import DatabaseRoleError
@@ -43,6 +46,8 @@ async def purge(factory: async_sessionmaker[AsyncSession], settings: Settings) -
     await _auth_purge(factory, settings)
     months = settings.ai_audit_retention_months
     await quietly("ai audit purge", lambda: purge_expired_audit(factory, months))
+    days = settings.ai_conversation_retention_days
+    await quietly("ai conversation purge", lambda: purge_expired_conversations(factory, days))
     await quietly("export purge", lambda: purge_expired_exports(factory))
 
 

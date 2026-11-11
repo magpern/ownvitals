@@ -19,9 +19,10 @@ check here. Maint is not granted the client secret or ``webhook_secrets``. When
 three outbox functions, and the app role may ``EXECUTE`` them; the app role holds nothing on
 ``owner_notices``. When ``docker/postgres/ai/50-ai.sql`` has run (#205, ADR 0014 section 7),
 the NOLOGIN role ``ownvitals_ai`` has exactly its attributes and the column grants that script
-creates, with ``DELETE`` on ``ai_audit`` for the retention purge (#331) as its only table
-privilege, owns the five AI functions, and the app role may ``EXECUTE`` them. The app role
-holds ``SELECT`` only on ``ai_spend`` and ``ai_reservations`` and nothing on ``ai_spend_global``.
+creates, with ``DELETE`` on ``ai_audit`` and ``ai_conversations`` for the two retention purges
+(#331, #395) as its only table privileges, owns the six AI functions, and the app role may
+``EXECUTE`` them. The app role holds ``SELECT`` only on ``ai_spend`` and ``ai_reservations``
+and nothing on ``ai_spend_global``.
 When ``docker/postgres/exports/60-exports.sql`` has run (#333, ADR 0013 section 4), the NOLOGIN
 role ``ownvitals_exports`` has exactly its attributes, the column grants that script creates (no
 account table, no jobs) and
@@ -177,11 +178,13 @@ AI_FUNCTIONS = {
     "ai_release": AI,
     "ai_settle_lost": AI,
     "ai_audit_purge": AI,
+    "ai_purge_expired": AI,
 }
-# Its one table-level privilege: DELETE on ai_audit, for the 12-month retention purge (ADR 0014
-# section 6; #331). Everything else is a column grant (ADR 0014 section 7).
-AI_RELATIONS = {"ai_audit:r": {"DELETE"}}
-# Its column grants: the budget functions' reads and writes, and the purge's id and age reads.
+# Its table-level privileges: DELETE on ai_audit, for the 12-month retention purge (ADR 0014
+# section 6; #331), and on ai_conversations, for the conversation retention purge (ADR 0014
+# section 5; #395). Everything else is a column grant (ADR 0014 section 7).
+AI_RELATIONS = {"ai_audit:r": {"DELETE"}, "ai_conversations:r": {"DELETE"}}
+# Its column grants: the budget functions' reads and writes, and the purges' id and age reads.
 AI_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("jobs", "id"): {(AI, "SELECT")},
     ("jobs", "owner_id"): {(AI, "SELECT")},
@@ -208,6 +211,8 @@ AI_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("ai_reservations", "ended_at"): {(AI, "UPDATE")},
     ("ai_audit", "id"): {(AI, "SELECT")},
     ("ai_audit", "created_at"): {(AI, "SELECT")},
+    ("ai_conversations", "id"): {(AI, "SELECT")},
+    ("ai_conversations", "updated_at"): {(AI, "SELECT")},
 }
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 AI_ATTRIBUTES = (False, False, False, False, False, True, False)

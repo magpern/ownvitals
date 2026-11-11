@@ -1,5 +1,6 @@
 """The AI definer family (ADR 0014 sections 6 and 7, ADR 0005 section 3; #205, #331):
-``ai_reserve``, ``ai_settle``, ``ai_release``, ``ai_settle_lost`` and ``ai_audit_purge``, their role
+``ai_reserve``, ``ai_settle``, ``ai_release``, ``ai_settle_lost``, ``ai_audit_purge`` and
+``ai_purge_expired`` (#395), their role
 ``ownvitals_ai``, and the startup check that pins them. Synthetic users only; no content.
 
 - each function is executable by the app role and by no other caller role
@@ -47,6 +48,7 @@ CALLS = {
     "ai_release": ("SELECT ai_release(:id)", {"id": uuid.uuid4()}),
     "ai_settle_lost": ("SELECT ai_settle_lost(1)", {}),
     "ai_audit_purge": ("SELECT ai_audit_purge(12, 1)", {}),
+    "ai_purge_expired": ("SELECT ai_purge_expired(90, 1)", {}),
 }
 OTHER_ROLES = (
     "ownvitals_owner",
@@ -188,6 +190,14 @@ DRIFT = [
         " AS $$ BEGIN DELETE FROM public.ai_audit; RETURN 0; END $$",
         "ai_audit_purge",
     ),
+    ("DROP FUNCTION public.ai_purge_expired(integer, integer)", "ai_purge_expired"),
+    # A conversation purge without the 30-day floor: same signature, settings and owner.
+    (
+        "CREATE OR REPLACE FUNCTION public.ai_purge_expired(p_days integer, p_limit integer)"
+        " RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp"
+        " AS $$ BEGIN DELETE FROM public.ai_conversations; RETURN 0; END $$",
+        "ai_purge_expired",
+    ),
     # An overload beside the shipped one.
     (
         "CREATE FUNCTION public.ai_release(p_id uuid, p_force boolean) RETURNS boolean"
@@ -231,6 +241,12 @@ ROLE_DRIFT = [
     f"REVOKE DELETE ON public.ai_audit FROM {AI}",
     "REVOKE SELECT (created_at) ON public.ai_audit FROM ownvitals_ai",
     "GRANT DELETE ON public.ai_audit TO ownvitals_app",
+    f"GRANT SELECT (owner_id) ON public.ai_conversations TO {AI}",
+    f"GRANT UPDATE (updated_at) ON public.ai_conversations TO {AI}",
+    f"GRANT SELECT ON public.ai_messages TO {AI}",
+    "GRANT DELETE ON public.ai_messages TO ownvitals_ai",
+    f"REVOKE DELETE ON public.ai_conversations FROM {AI}",
+    "REVOKE SELECT (updated_at) ON public.ai_conversations FROM ownvitals_ai",
     f"GRANT CREATE ON SCHEMA public TO {AI}",
     "GRANT SELECT ON public.ai_spend_global TO ownvitals_app",
     "GRANT UPDATE ON public.ai_spend TO ownvitals_app",

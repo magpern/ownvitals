@@ -403,7 +403,7 @@ def check_queue(conn: Connection) -> list[str]:
             set(f.acl or []) == expected_acl and len(f.acl or []) == len(expected_acl),
             f"{prefix}: ACL must be {expected_acl}",
         )
-    # 50-ai.sql (#205, #331, ADR 0014 s. 6 and 7): absent, or all five functions, each pinned.
+    # 50-ai.sql (#205, #331, #395, ADR 0014 s. 5-7): absent, or all six functions, each pinned.
     ai_installed = any(f.proname in AI_FUNCTION_NAMES for f in functions)
     for name in AI_FUNCTION_NAMES if ai_installed else ():
         found = [f for f in functions if f.proname == name]
