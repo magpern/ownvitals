@@ -11,10 +11,10 @@ Senast uppdaterad: [datum]. Sidan beskriver vad tjänsten gör i dag. Den påst�
 - Sessioner upphör efter 72 timmar utan aktivitet eller högst 30 dagar; du kan logga ut överallt.
 
 ## Din data
-- Withings åtkomst- och uppdateringstoken krypteras i vila (AES-256-GCM, med nyckelrotation) och skrivs aldrig till loggar.
+- Withings åtkomst- och uppdateringstoken krypteras i vila (AES-256-GCM, med nyckelrotation) och hålls utanför loggar (säkerställs av automatiska tester).
 - Varje rad hälsodata tillhör en användare och upprätthålls i databasen (radnivåsäkerhet), inte bara i applikationen.
-- Tjänsten pratar med Withings och, bara om AI är aktiverat, med modellleverantören, genom ett kontrollerat nätverkslager med fast värdlista. Token och hemligheter skickas aldrig till en modell.
-- Loggar innehåller aldrig mätvärden, token eller webhook-hemligheter.
+- Tjänsten pratar med Withings (workern; webbprocessen gör bara det enda utbytet av auktoriseringskod), med Google för inloggning om du använder det och, bara om AI är aktiverat, med modellleverantören, genom ett kontrollerat nätverkslager med fast värdlista. Token och hemligheter skickas aldrig till en modell.
+- Loggar är utformade för att inte innehålla mätvärden, token eller webhook-hemligheter (säkerställs av automatiska tester av loggmaskering). [Ägaren: bekräfta.]
 - Webhooks från Withings verifieras och fungerar bara som utlösare för att hämta data.
 
 ## Din kontroll

@@ -26,9 +26,9 @@ Hälsodata är en särskild kategori av personuppgifter enligt artikel 9 i GDPR.
 
 | Ändamål | Data | Rättslig grund |
 |---|---|---|
-| Hämta, lagra, analysera och visa din Withings-hälsodata | Avsnitt 3, Withings-data och härledd data | Ditt **uttryckliga samtycke**, GDPR art. 6.1 a och 9.2 a, som du ger när du kopplar Withings. Du kan återkalla det genom att koppla från (avsnitt 7). |
+| Hämta, lagra, analysera och visa din Withings-hälsodata | Avsnitt 3, Withings-data och härledd data | [Ägaren: M8-grindpunkt, PLAN-operations 9.3: uttryckligt samtycke enligt GDPR art. 6.1 a och 9.2 a och hur det ges och återkallas. Appen har inget sådant samtyckessteg ännu; texten här måste följa det som byggs.] |
 | Tillhandahålla ditt konto, logga in dig, hålla det säkert | Konto och säkerhetsloggar | Avtal (art. 6.1 b) och vårt berättigade intresse av säkerhet (art. 6.1 f) |
-| Skicka tjänstemejl (verifiering, säkerhetsaviseringar, export klar, fyndaviseringar) | E-postadress | Avtal och berättigat intresse [ägaren: bekräfta; fyndaviseringar kan kräva en inställning du styr] |
+| Skicka tjänstemejl (verifiering, säkerhetsaviseringar, export klar, fyndaviseringar) | E-postadress (mejl innehåller också länktext, ett passkey-namn eller inloggningens webbläsare och plats i säkerhetsaviseringar, aldrig mätvärden) | Avtal och berättigat intresse [ägaren: bekräfta; fyndaviseringar kan kräva en inställning du styr] |
 | AI-insikter | Sammanfattningar av din data (avsnitt 8) | Ditt **separata uttryckliga samtycke**, art. 6.1 a och 9.2 a, bara om du slår på det |
 
 [Ägaren: bekräfta att samtycke är rätt grund för alla ändamål med hälsodata och att bedömningen av privat/icke-privat behandling är gjord.]
@@ -58,7 +58,7 @@ Hälsodata är en särskild kategori av personuppgifter enligt artikel 9 i GDPR.
 Du har rätt till tillgång, rättelse, radering, begränsning, dataportabilitet, invändning och att när som helst återkalla samtycke, utan att tidigare behandling påverkas.
 
 - **Tillgång och portabilitet:** Inställningar, export. Du kan ladda ned din data som JSON och CSV (kräver ny tvåfaktorsbekräftelse).
-- **Återkalla samtycke / sluta hämta:** koppla från Withings i appen. Vi drar först tillbaka vår åtkomst hos Withings. Du kan samtidigt välja att radera den importerade datan.
+- **Sluta hämta:** koppla från Withings i appen. Vi drar först tillbaka vår åtkomst hos Withings. En vanlig frånkoppling behåller redan importerad data; för att ta bort den väljer du att radera importerad data vid frånkopplingen, eller raderar ditt konto. [Ägaren: beskriv återkallelse av samtycke när samtyckesteget finns.]
 - **Radering:** radera ditt konto i appen (kräver ny tvåfaktorsbekräftelse). Vi drar tillbaka Withings-åtkomsten och tar därefter bort din data. Misslyckas återkallelsen ber appen dig ta bort åtkomsten i ditt Withings-konto.
 - **Övrigt:** skriv till [kontaktadress för integritet]. Vi svarar inom en månad.
 - **Klagomål:** till Integritetsskyddsmyndigheten (IMY), imy.se, eller tillsynsmyndigheten där du bor. [Ägaren: bekräfta myndighet.]
@@ -69,11 +69,11 @@ AI är **avstängt** om inte driftansvarig har aktiverat det och du har gett ett
 
 ## 9. Säkerhet
 
-Se [säkerhetssidan](security.sv.md). Hälsodata krypteras under överföring; Withings-token krypteras i vila. [Ägaren: bekräfta uppgift om disk-/databaskryptering före publicering.]
+Se [säkerhetssidan](security.sv.md). Withings-token krypteras i vila. [Ägaren: bekräfta före publicering: att trafiken krypteras under överföring (TLS) i driftsättningen, samt eventuell disk- eller databaskryptering.]
 
 ## 10. Cookies
 
-Bara nödvändiga cookies används, efter att du loggat in eller börjat logga in; inga på publika sidor. Se [cookie-information](cookies.sv.md).
+Bara nödvändiga cookies används, när du öppnar appen, loggar in eller börjar logga in; inga på publika sidor. Se [cookie-information](cookies.sv.md).
 
 ## 11. Ändringar
 

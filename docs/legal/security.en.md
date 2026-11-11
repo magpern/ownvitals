@@ -11,10 +11,10 @@ Last updated: [date]. This page describes what the service does today. It makes 
 - Sessions end after 72 hours idle or 30 days at most; you can sign out everywhere.
 
 ## Your data
-- Withings access and refresh tokens are encrypted at rest (AES-256-GCM, with key rotation) and are never written to logs.
+- Withings access and refresh tokens are encrypted at rest (AES-256-GCM, with key rotation) and are kept out of logs (enforced by automated tests).
 - Every row of health data belongs to one user and is enforced in the database (row-level security), not only in the application.
-- The service talks to Withings and, only if AI is enabled, to the model provider, through one controlled network layer with a fixed list of hosts. Tokens and secrets are never sent to a model.
-- Logs never contain measurement values, tokens or webhook secrets.
+- The service talks to Withings (the worker; the web process only does the one authorisation-code exchange), to Google for sign-in if you use it, and, only if AI is enabled, to the model provider, through one controlled network layer with a fixed list of hosts. Tokens and secrets are never sent to a model.
+- Logs are designed not to contain measurement values, tokens or webhook secrets (enforced by automated log-redaction tests). [Owner: confirm.]
 - Webhooks from Withings are verified and only act as a trigger to fetch data.
 
 ## Your control

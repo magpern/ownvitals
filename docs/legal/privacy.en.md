@@ -26,9 +26,9 @@ Health data is special-category data under GDPR Article 9.
 
 | Purpose | Data | Legal basis |
 |---|---|---|
-| Fetch, store, analyse and show your Withings health data | Section 3, Withings data and derived data | Your **explicit consent**, GDPR Art. 6(1)(a) and 9(2)(a), given when you connect Withings. You can withdraw it by disconnecting (section 7). |
+| Fetch, store, analyse and show your Withings health data | Section 3, Withings data and derived data | [Owner: M8 gate item, PLAN-operations 9.3: explicit consent under GDPR Art. 6(1)(a) and 9(2)(a) and how it is given and withdrawn. The app has no such consent step yet; the wording here must follow whatever is built.] |
 | Provide your account, sign you in, keep it secure | Account and security records | Contract (Art. 6(1)(b)) and our legitimate interest in security (Art. 6(1)(f)) |
-| Send service mail (verification, security notices, export ready, finding notices) | Email address | Contract and legitimate interest [owner: confirm; finding notices may need a setting you control] |
+| Send service mail (verification, security notices, export ready, finding notices) | Email address (mail also carries link text, a passkey name or sign-in browser and place in security notices, never measurements) | Contract and legitimate interest [owner: confirm; finding notices may need a setting you control] |
 | AI insights | Summaries of your data (section 8) | Your **separate explicit consent**, Art. 6(1)(a) and 9(2)(a), only if you turn it on |
 
 [Owner: confirm that consent is the right basis for every health-data purpose and that the household/non-household position has been assessed.]
@@ -58,7 +58,7 @@ Health data is special-category data under GDPR Article 9.
 You have the right to access, rectification, erasure, restriction, data portability, objection and to withdraw consent at any time, without affecting earlier processing.
 
 - **Access and portability:** Settings, export. You can download your data as JSON and CSV (a fresh two-factor confirmation is required).
-- **Withdraw consent / stop fetching:** disconnect Withings in the app. We revoke our access at Withings first. You can choose to delete the imported data at the same time.
+- **Stop fetching:** disconnect Withings in the app. We revoke our access at Withings first. A plain disconnect keeps the data already imported; to remove it, choose to delete the imported data when disconnecting, or delete your account. [Owner: describe withdrawal of consent once the consent step exists.]
 - **Erasure:** delete your account in the app (fresh two-factor confirmation required). We revoke Withings access, then remove your data. If revoking fails, the app tells you to remove access in your Withings account.
 - **Anything else:** write to [privacy contact address]. We answer within one month.
 - **Complaints:** to the Swedish Authority for Privacy Protection (IMY), imy.se, or the supervisory authority where you live. [Owner: confirm authority.]
@@ -69,11 +69,11 @@ AI is **off** unless the operator has enabled it and you have given a separate, 
 
 ## 9. Security
 
-See the [security page](security.en.md). Health data is encrypted in transit; Withings tokens are encrypted at rest. [Owner: confirm disk/database encryption statement before publishing.]
+See the [security page](security.en.md). Withings tokens are encrypted at rest. [Owner: confirm before publishing: that traffic is encrypted in transit (TLS) in the deployment, and any disk or database encryption.]
 
 ## 10. Cookies
 
-Only strictly necessary cookies are used, after you sign in or start signing in; none on public pages. See the [cookie statement](cookies.en.md).
+Only strictly necessary cookies are used, when you open the app, sign in or start signing in; none on public pages. See the [cookie statement](cookies.en.md).
 
 ## 11. Changes
 
