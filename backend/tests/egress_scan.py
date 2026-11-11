@@ -32,6 +32,13 @@ name under ``ownvitals``) may not do outside the egress package:
 Type-only imports pass when their names appear only in annotations (``egress_typeonly``). The
 rest of deliberate indirection (``vars(sys)``, a computed ``getattr``, ``exec``) is review's (N9).
 
+**Bounded** (#395): a module over ``MAX_SOURCE_BYTES``, or one with an attribute chain, an
+imported name or a dotted string over ``MAX_CHAIN_PARTS`` parts, is refused as a whole before
+anything else is judged, and ``classify`` refuses any longer name it is still handed (an alias
+head with its chain, a ``getattr``): the chain rule judges every prefix of a chain at every node
+of it, so an unbounded chain made the scan cost grow with its cube (3,200 parts: about 40 s).
+Refusing fails closed; ``src/`` stays far below both limits (a test pins the margin).
+
 A worker module never imports ``ownvitals.mail`` (``egress_worker``: ``WORKER_PACKAGES``,
 ``WORKER_ENTRYPOINTS``, checked by the tests), and every web-only site calls
 ``refuse_in_worker`` itself (``test_egress_runtime.py``).
@@ -78,6 +85,10 @@ _EGRESS_DIR = Path(__file__).resolve().parent.parent / "src" / "ownvitals" / "eg
 # The package's submodules: ``ownvitals.egress.core.Allowlist`` is ``ownvitals.egress.Allowlist``.
 EGRESS_SUBMODULES = frozenset(p.stem for p in _EGRESS_DIR.glob("*.py") if p.stem != "__init__")
 CLOSURE = Closure(cuts=EDGE_CUTS)  # the run's closure: parses and capability are cached
+# The scan's bounds (#395). The longest chain src/ writes has 5 steps and its largest module is
+# under 20 KB; past these the module (or the name) is refused, never truncated.
+MAX_CHAIN_PARTS = 16
+MAX_SOURCE_BYTES = 256 * 1024
 
 # The lists and what applies them are built inside the package only (a call or a subclass).
 _EGRESS_CONSTRUCTORS = frozenset(
@@ -215,6 +226,8 @@ def visits(dotted: str, depth: int = 0) -> list[tuple[str, tuple[str, ...]]]:
     """``(module, the rest of the chain)`` for each module a reference reaches: the longest
     module prefix, then wherever a name of it leads when the module bound that name by an import
     (always for a bound module; for a bound name only in an ``ownvitals`` module)."""
+    if over_limit(dotted):
+        return []  # ``classify`` refuses it; nothing is resolved past the bound
     parts = dotted.split(".")
     if not CLOSURE.is_module(parts[0]):
         return []
@@ -231,6 +244,8 @@ def visits(dotted: str, depth: int = 0) -> list[tuple[str, tuple[str, ...]]]:
 
 def importable(name: str) -> bool:
     """A module, or a module its parent binds by an import (``os.path``)."""
+    if over_limit(name):
+        return False
     if CLOSURE.is_module(name):
         return True
     parent, _, last = name.rpartition(".")
@@ -238,8 +253,15 @@ def importable(name: str) -> bool:
     return target is not None and CLOSURE.is_module(target)
 
 
+def over_limit(dotted: str) -> bool:
+    """More than ``MAX_CHAIN_PARTS`` parts: counted without splitting, so it costs one pass."""
+    return dotted.count(".") >= MAX_CHAIN_PARTS
+
+
 def classify(dotted: str, scanning: str, verb: str, used: set[str] | None = None) -> list[str]:
     """What is wrong with ``scanning`` importing or referencing ``dotted``."""
+    if over_limit(dotted):
+        return [f"{verb} {dotted[:80]}...: over {MAX_CHAIN_PARTS} parts, the scan's limit"]
     for module, rest in visits(dotted):
         if under(module, (OWN,)) or not CLOSURE.capable(module):
             continue
@@ -387,7 +409,12 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
     collects the table entries and names it relied on."""
     if in_egress(module):
         return []
+    if len(source.encode("utf-8", "surrogatepass")) > MAX_SOURCE_BYTES:
+        return [(1, f"the module is over {MAX_SOURCE_BYTES} bytes, the scan's limit")]
     tree = ast.parse(source)
+    deep = _over_limits(tree)
+    if deep is not None:
+        return [(deep, f"a chain or dotted name over {MAX_CHAIN_PARTS} parts, the scan's limit")]
     every = _aliases(tree, module)
     skip = type_only(tree, source)
     # In an annotation a name means what the run-time imports bind; anywhere else a name bound
@@ -445,6 +472,34 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
         if name.split(".")[0] in ("__import__", "__builtins__") or importer(name, _landings):
             found.append((line, f"names {name} in an annotation: an importer"))
     return sorted(set(found))
+
+
+def _over_limits(tree: ast.AST) -> int | None:
+    """The line of the first attribute chain, imported name or dotted string over
+    ``MAX_CHAIN_PARTS`` parts, else None. One pass over the tree: a chain's depth is its inner
+    node's plus one (``ast.walk`` visits outer nodes first, so the depths are filled in from the
+    inside after the walk)."""
+    attributes: list[ast.Attribute] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            attributes.append(node)
+        elif isinstance(node, ast.Import | ast.ImportFrom):
+            imported = [a.name for a in node.names] + [getattr(node, "module", None) or ""]
+            if any(over_limit(name) for name in imported):
+                return node.lineno
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and _DOTTED.fullmatch(node.value)
+            and over_limit(node.value)
+        ):
+            return node.lineno
+    depth: dict[int, int] = {}
+    for node in reversed(attributes):
+        depth[id(node)] = depth.get(id(node.value), 1) + 1
+        if depth[id(node)] > MAX_CHAIN_PARTS:
+            return node.lineno
+    return None
 
 
 def _assigned(name: str, module: str) -> list[str]:

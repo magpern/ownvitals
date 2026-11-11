@@ -219,6 +219,14 @@ allowed name is judged step by step: each step needs a dotted name of its own in
 chain: `psycopg.connect(...).cursor()` is a method of the returned value. A submodule is a
 module of its own and is classified on its own (`alembic.op`, `asyncio.base_events`).
 
+The scan is bounded (#395; `tests/test_egress_scan_limits.py`): a module over
+`MAX_SOURCE_BYTES` (256 KiB), or one with an attribute chain, an imported name or a dotted string
+over `MAX_CHAIN_PARTS` (16) parts, is refused as a whole before anything else is judged, and
+`classify` refuses any longer name it is still handed (an alias head with its chain). Judging
+every prefix at every node made an unbounded chain cost grow with its cube (3,200 parts took
+about 40 s). Refusing fails closed; `src/` stays far inside both (its longest chain has 5 parts,
+its largest module is under 20 KB), and the test pins that margin.
+
 What else the guard refuses outside the package:
 
 - **chains**: a dotted name is resolved to its longest module prefix and followed through what
