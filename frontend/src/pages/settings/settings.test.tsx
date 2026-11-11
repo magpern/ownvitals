@@ -48,7 +48,7 @@ describe('Profile and display', () => {
     expect(screen.getByLabelText('Birth year')).toHaveValue('1982')
     expect(screen.getByLabelText('Sex for score bands')).toHaveValue('female')
     expect(screen.getByRole('button', { name: 'kg' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: '90 d' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '3 months' })).toHaveAttribute('aria-pressed', 'true')
     // The language row lives in the Display card.
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
   })
@@ -150,7 +150,7 @@ describe('Profile and display', () => {
     await waitFor(() => {
       expect(lastPut(api).datetime_format).toBe('iso')
     })
-    fireEvent.click(screen.getByRole('button', { name: '1 y' }))
+    fireEvent.click(screen.getByRole('button', { name: '1 year' }))
     await waitFor(() => {
       expect(lastPut(api).chart_range).toBe('1y')
     })

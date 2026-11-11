@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SIGNED_IN, fakeApi } from '../test/fakeApi'
 import { FINGERPRINT, syntheticDay, syntheticTrendNotReady, syntheticInsufficient, syntheticMetric, syntheticReading } from '../test/metricFixtures'
+import { fakeProfile } from '../test/profileFixtures'
 import { renderAt } from '../test/render'
 
 // uPlot needs a canvas, which jsdom has not: the chart is checked through the data it is given.
@@ -81,6 +82,40 @@ describe('the metric screen', () => {
     expect(api.to('GET', '/api/metrics/weight?range=1y')).toHaveLength(1)
     const nav = screen.getByRole('navigation', { name: /range/i })
     expect(within(nav).getByRole('link', { name: /1 ?y/i }).getAttribute('aria-current')).toBe('true')
+  })
+
+  it('offers the six ranges, each as a deep link', async () => {
+    fakeApi({ ...SESSION, 'GET /api/metrics/weight?range=7d': syntheticMetric({ range: '7d' }) })
+    renderAt('/m/weight?range=7d')
+    await screen.findByRole('heading', { level: 2, name: 'Weight' })
+    const links = within(screen.getByRole('navigation', { name: /range/i })).getAllByRole('link')
+    expect(links.map((l) => l.textContent)).toEqual(['7 days', '30 days', '3 months', '6 months', '1 year', 'All'])
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(
+      ['7d', '30d', '90d', '6mo', '1y', 'all'].map((r) => `/m/weight?range=${r}`),
+    )
+    expect(links[0]?.getAttribute('aria-current')).toBe('true')
+  })
+
+  it('opens on 7 days for a user whose saved range is the new default', async () => {
+    const api = fakeApi({
+      ...SESSION,
+      'GET /api/profile': fakeProfile({ chart_range: '7d' }),
+      'GET /api/metrics/weight?range=7d': syntheticMetric({ range: '7d' }),
+    })
+    renderAt('/m/weight')
+    await screen.findByRole('heading', { level: 2, name: 'Weight' })
+    expect(api.to('GET', '/api/metrics/weight?range=7d')).toHaveLength(1)
+  })
+
+  it('lets a saved older range win over the default', async () => {
+    const api = fakeApi({
+      ...SESSION,
+      'GET /api/profile': fakeProfile({ chart_range: '6mo' }),
+      'GET /api/metrics/weight?range=6mo': syntheticMetric({ range: '6mo' }),
+    })
+    renderAt('/m/weight')
+    await screen.findByRole('heading', { level: 2, name: 'Weight' })
+    expect(api.to('GET', '/api/metrics/weight?range=6mo')).toHaveLength(1)
   })
 })
 

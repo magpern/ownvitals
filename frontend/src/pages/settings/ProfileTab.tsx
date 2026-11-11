@@ -132,7 +132,7 @@ function DisplayCard({ state, profile }: { state: ProfileState; profile: Profile
     value,
     label: t(`settings.temperature.unit.${value}`),
   }))
-  const ranges: Option<ChartRange>[] = (['30d', '90d', '6mo', '1y'] as const).map((value) => ({
+  const ranges: Option<ChartRange>[] = (['7d', '30d', '90d', '6mo', '1y'] as const).map((value) => ({
     value,
     label: t(`settings.range.${value}`),
   }))

@@ -96,6 +96,17 @@ async def test_a_profile_is_stored_and_read_back(env: Env) -> None:
     assert (await browser.get(PROFILE)).json()["theme"] == "light"
 
 
+async def test_a_seven_day_range_is_stored_and_the_default_is_seven_days(env: Env) -> None:
+    browser, _ = await user(env, "a@example.com")
+    assert (await browser.get(PROFILE)).json()["chart_range"] == "7d"
+    response = await browser.request("PUT", PROFILE, body(chart_range="7d"))
+    assert response.status_code == 200, response.text
+    assert (await browser.get(PROFILE)).json()["chart_range"] == "7d"
+    # An older saved value still loads.
+    await browser.request("PUT", PROFILE, body(chart_range="90d"))
+    assert (await browser.get(PROFILE)).json()["chart_range"] == "90d"
+
+
 async def test_each_user_reads_and_writes_only_their_own_row(env: Env) -> None:
     first, first_id = await user(env, "a@example.com")
     second, second_id = await user(env, "b@example.com")

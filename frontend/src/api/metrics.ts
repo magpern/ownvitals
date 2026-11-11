@@ -5,9 +5,9 @@ import { num, objects, optNum, optObject } from './metricDecode'
 // of it, one reading. Everything is checked as it is decoded: a day without a value is `null`
 // (a gap), never 0; a number the API did not send is an error, not a zero.
 
-export const RANGES = ['30d', '90d', '6mo', '1y', 'all'] as const
+export const RANGES = ['7d', '30d', '90d', '6mo', '1y', 'all'] as const
 export type Range = (typeof RANGES)[number]
-export const DEFAULT_RANGE: Range = '90d'
+export const DEFAULT_RANGE: Range = '7d'
 
 export function isRange(value: string | null): value is Range {
   return value !== null && (RANGES as readonly string[]).includes(value)

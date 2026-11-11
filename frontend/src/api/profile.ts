@@ -12,7 +12,7 @@ export type DayAssignment = 'reading_tz' | 'fixed_tz'
 export type WeightUnit = 'kg' | 'lb' | 'st'
 export type TemperatureUnit = 'c' | 'f'
 export type DatetimeFormat = 'd_mon_y' | 'mon_d_y' | 'iso'
-export type ChartRange = '30d' | '90d' | '6mo' | '1y'
+export type ChartRange = '7d' | '30d' | '90d' | '6mo' | '1y'
 export type Area = 'body' | 'heart' | 'nerve' | 'activity'
 export type Tier = 'device' | 'trend' | 'experimental' | 'system'
 
@@ -77,7 +77,7 @@ export function decodeProfile(raw: unknown): Profile {
     weight_unit: oneOf(p, 'weight_unit', ['kg', 'lb', 'st']),
     temperature_unit: oneOf(p, 'temperature_unit', ['c', 'f']),
     datetime_format: oneOf(p, 'datetime_format', ['d_mon_y', 'mon_d_y', 'iso']),
-    chart_range: oneOf(p, 'chart_range', ['30d', '90d', '6mo', '1y']),
+    chart_range: oneOf(p, 'chart_range', ['7d', '30d', '90d', '6mo', '1y']),
     overview_order: manyOf(p, 'overview_order', AREAS),
     show_unsupported: flag(p, 'show_unsupported'),
     show_experimental: flag(p, 'show_experimental'),

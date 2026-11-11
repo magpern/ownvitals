@@ -36,11 +36,16 @@ function metric(key: string, state: string, value: number | null): MetricTile {
 }
 
 describe('parseRange', () => {
-  it('reads the four ranges and falls back to 90 days', () => {
-    expect(parseRange('30d')).toBe('30d')
-    expect(parseRange('all')).toBe('all')
-    expect(parseRange('6mo')).toBe('90d')
-    expect(parseRange(null)).toBe('90d')
+  it.each(['7d', '30d', '90d', '6mo', '1y', 'all'])('reads the range %s', (id) => {
+    expect(parseRange(id)).toBe(id)
+  })
+
+  it('falls back to the saved range, then to 7 days', () => {
+    expect(parseRange(null)).toBe('7d')
+    expect(parseRange('forever')).toBe('7d')
+    expect(parseRange(null, '90d')).toBe('90d')
+    expect(parseRange('30d', '1y')).toBe('30d')
+    expect(parseRange(null, 'bogus')).toBe('7d')
   })
 })
 
