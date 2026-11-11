@@ -2,9 +2,11 @@
 // the tiles by area, the freshness line under the top bar and the rail's status marks.
 export const overview = {
   'range.label': 'Range',
-  'range.30d': '30 d',
-  'range.90d': '90 d',
-  'range.1y': '1 y',
+  'range.7d': '7 days',
+  'range.30d': '30 days',
+  'range.90d': '3 months',
+  'range.6mo': '6 months',
+  'range.1y': '1 year',
   'range.all': 'All',
   'section.needsLook': 'Needs a look',
   'section.body': 'Body',

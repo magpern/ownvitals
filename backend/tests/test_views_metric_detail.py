@@ -42,7 +42,7 @@ async def declining(env: Env, email: str, *, skip: tuple[int, ...] = ()) -> tupl
 
 async def test_gaps_are_null_never_zero(env: Env) -> None:
     browser, _ = await declining(env, "a@example.com", skip=(5, 6, 7, 30))
-    body = await detail(browser)
+    body = await detail(browser, query="?range=90d")
     series = body["series"]
     assert len(series) == 90
     assert body["range"] == "90d"
@@ -154,7 +154,15 @@ async def test_a_constant_series_still_gets_a_band_of_the_minimum_width(env: Env
 
 
 @pytest.mark.parametrize(
-    ("query", "days"), [("", 90), ("?range=30d", 30), ("?range=1y", 365), ("?range=6mo", 182)]
+    ("query", "days"),
+    [
+        ("", 7),
+        ("?range=7d", 7),
+        ("?range=90d", 90),
+        ("?range=30d", 30),
+        ("?range=1y", 365),
+        ("?range=6mo", 182),
+    ],
 )
 async def test_the_ranges(env: Env, query: str, days: int) -> None:
     browser, _ = await declining(env, "e@example.com")

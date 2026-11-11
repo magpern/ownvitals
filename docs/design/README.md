@@ -80,7 +80,7 @@ Each screen is `mockups/src/<Name>.dc.html`, `mockups/html/<Name>.html` and
 | `Main` | Design language: principles, chart grammar, value styles, tiers, data states, type, colour, controls | D9, §4.2, §5, §8 |
 | `Rail` | The navigation rail component used by every app page (no screenshot; it's in every page's) | §8 |
 | `Dashboard` | Overview: freshness line; "Needs a look"; tiles with sparkline and typical range; not-supported, insufficient-data and incomplete-import tiles | §7.1 (7), §8 |
-| `Metric` | Weight over 6 months: band, smoothed line, 9-day gap, change point, unconfirmed readings; latest, typical range, Theil–Sen trend, data quality; the day's readings; method | §7.1 |
+| `Metric` | (Ranges changed by the owner on 2026-11-11: 7 days, 30 days, 3 months, 6 months, 1 year, All; default 7 days; the screenshot keeps the old control.) Weight over 6 months: band, smoothed line, 9-day gap, change point, unconfirmed readings; latest, typical range, Theil–Sen trend, data quality; the day's readings; method | §7.1 |
 | `Reading` | Day: everything recorded; reading drawer with raw value × 10^unit, attrib, device, source time zone; quality gates passed; provenance | §5, §7.1 (2–3) |
 | `ECG` | Recording list; Withings' result attributed; reported intervals; 25 mm/s × 10 mm/mV strip with calibration pulse; 30 s overview; experimental estimates boxed and dashed; doctor PDF. Shows the "signal quality passed" case only: the other overlay states ("not evaluated by ownvitals", hidden findings) and what the doctor PDF carries follow ADR 0006 (#46), and the Architect adds them here when it merges | §7.2 E1–E3, §7.3, ADR 0006 |
 | `Findings` | Live / History (the History tab is `Findings.history.html` and `.png`); tier badges; confidence and data quality; evidence chart; "why you're seeing this" and "what it isn't" | §7.1 (6–7), §7.2 |
@@ -97,7 +97,7 @@ No mock-up covers this screen; it is built only from components the mock-ups hav
 (recorded 2026-11-09 under rule 3; the owner may review it). Reference screens: `Dashboard`
 (tiles, range bars, data states) and `Findings` (finding cards).
 
-- **Layout.** The range links of the overview (30 d, 90 d, 1 y, All; `?range=`), then three
+- **Layout.** The range links of the overview (7 days, 30 days, 3 months, 6 months, 1 year, All; `?range=`; default 7 days, changed by the owner on 2026-11-11, the mock-up screenshots keep the old list), then three
   sections, each a heading with cards in the overview's tile grid (one column on a phone):
   1. *Body composition*: one overview tile each for weight, fat ratio, fat-free mass, fat mass,
      muscle mass, hydration, bone mass, extracellular water, intracellular water, visceral fat

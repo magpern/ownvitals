@@ -26,7 +26,7 @@ async def weight_tile(browser: Browser, query: str = "") -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    ("range_name", "days"), [("30d", 30), ("90d", 90), ("6mo", 182), ("1y", 365)]
+    ("range_name", "days"), [("7d", 7), ("30d", 30), ("90d", 90), ("6mo", 182), ("1y", 365)]
 )
 async def test_sparkline_spans_the_requested_range(env: Env, range_name: str, days: int) -> None:
     browser, owner = await user(env, "a@example.com")
@@ -38,7 +38,9 @@ async def test_sparkline_spans_the_requested_range(env: Env, range_name: str, da
     assert tile["sparkline"][-1]["day"] == detail["end"]
 
 
-async def test_all_starts_at_the_first_day_with_data_and_default_is_unchanged(env: Env) -> None:
+async def test_all_starts_at_the_first_day_with_data_and_a_bare_overview_keeps_30_days(
+    env: Env,
+) -> None:
     browser, owner = await user(env, "a@example.com")
     await ingest(env, owner, connected_with_streams(owner), dict.fromkeys(days_back(60), 80.0))
     tile = await weight_tile(browser, "?range=all")

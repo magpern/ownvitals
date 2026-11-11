@@ -10,9 +10,9 @@ import type { DataStateKind } from '../ui/DataState'
 
 export type Translate = (key: MessageKey, params?: Params) => string
 
-export const RANGES = ['30d', '90d', '1y', 'all'] as const
+export const RANGES = ['7d', '30d', '90d', '6mo', '1y', 'all'] as const
 export type RangeId = (typeof RANGES)[number]
-export const DEFAULT_RANGE: RangeId = '90d'
+export const DEFAULT_RANGE: RangeId = '7d'
 
 /** The `?range=` of the address, else the saved range if the screen offers it, else the default. */
 export function parseRange(value: string | null, saved: string | null = null): RangeId {

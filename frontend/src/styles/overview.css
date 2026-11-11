@@ -57,6 +57,8 @@
 
 .ov-ranges {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   align-self: flex-start;
   gap: var(--ov-space-1);
   padding: var(--ov-space-1);

@@ -18,7 +18,7 @@ Theme = Literal["system", "light", "dark"]
 WeightUnit = Literal["kg", "lb", "st"]
 TemperatureUnit = Literal["c", "f"]
 DatetimeFormat = Literal["d_mon_y", "mon_d_y", "iso"]
-ChartRange = Literal["30d", "90d", "6mo", "1y"]
+ChartRange = Literal["7d", "30d", "90d", "6mo", "1y"]
 Area = Literal["body", "heart", "nerve", "activity"]
 Tier = Literal["device", "trend", "experimental", "system"]
 
@@ -86,7 +86,7 @@ DEFAULTS = {
     "weight_unit": "kg",
     "temperature_unit": "c",
     "datetime_format": "d_mon_y",
-    "chart_range": "90d",
+    "chart_range": "7d",
     "overview_order": ["body", "heart", "nerve", "activity"],
     "show_unsupported": True,
     "show_experimental": False,

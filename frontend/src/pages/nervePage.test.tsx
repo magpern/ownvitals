@@ -46,7 +46,7 @@ describe('the nerve health page', () => {
   it('shows the three tiles as whole numbers, linked to the metric detail', async () => {
     open([nerveMetric('nerve_health_score'), nerveMetric('nerve_response_score'), nerveMetric('esc', { unit: 'µS' })])
     const link = await screen.findByRole('link', { name: 'Nerve health score' })
-    expect(link.getAttribute('href')).toBe('/m/nerve_health_score?range=90d')
+    expect(link.getAttribute('href')).toBe('/m/nerve_health_score?range=7d')
     const card = link.closest('.ov-card') as HTMLElement
     expect(within(card).getByText('72')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Nerve response score' })).toBeTruthy()
