@@ -38,6 +38,7 @@ question open says so in an **Open questions** section and names who answers it.
 | [0013](0013-reports-and-export.md) | Reports and export: JSON/CSV/FIT export, the doctor PDF, step-up and single-use download | Proposed |
 | [0014](0014-ai-insights.md) | AI insights: provider review, consent, minimal tools, worker-only client, cost cap, prompt-injection evals | Proposed |
 | [0015](0015-multilingual.md) | Multilingual support: English and Swedish, typed catalogue, locale preference, codes not sentences, mail per locale, health-wording review | Proposed |
+| [0016](0016-public-site.md) | Public site: prerendered static pages, SEO, no cookies or analytics, legal gate | Proposed |
 
 The health-data threat model that these ADRs feed is
 [docs/security/threat-model.md](../security/threat-model.md).

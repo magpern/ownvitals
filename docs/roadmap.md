@@ -26,6 +26,21 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 11 (2026-11-11, owner): milestone M9, a public site
+
+- **Changes:** a new milestone **M9 Public site** is added after M8: public, indexable pages
+  (`/`, `/features`, `/security`, `/privacy`, `/terms`, `/cookies`, `/contact`, in en and sv) with
+  SEO metadata, `sitemap.xml`, `robots.txt` and JSON-LD, so the app can be found by search engines.
+  The pages are prerendered static HTML served by the existing web process on the same origin, with
+  no JavaScript, no cookies, no analytics, no new outbound call and no state-changing endpoint.
+  Non-public responses carry `X-Robots-Tag: noindex`. Only synthetic mock-up screenshots are used.
+- **Legal gate:** the privacy, terms and cookies texts are drafted by agents and stay out of the
+  build until the owner passes a legal gate; agents never mark it passed. Opening registration
+  beyond the household still needs the owner.
+- **Evidence:** the owner's request of 2026-11-11 (issue #416). No technical blocker; PLAN §8 (MVP UI)
+  is extended, not contradicted.
+- **ADR:** ADR 0016 records the design, the defaults and the owner questions (#416).
+
 ### Amendment 10 (2026-11-10, Architect): the rate limiter's lane rule follows live demand
 
 - **Changes:** PLAN §4.4's lanes ("highest first: user \"sync now\" > webhook > poll > reconcile
