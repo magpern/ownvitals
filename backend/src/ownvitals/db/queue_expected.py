@@ -6,6 +6,8 @@ all. ``ownvitals.db.queue_check`` re-exports every public name here.
 
 from ownvitals.db.queue_expected_extra import (
     ADMIN_ACCOUNTS_FUNCTION_NAMES,
+    ADMIN_REVOKE_ENQUEUE,
+    ADMIN_REVOKE_ENQUEUE_ARGS,
     AI_FUNCTION_NAMES,
     EXPORTS_FUNCTION_NAMES,
     OUTBOX_FUNCTION_NAMES,
@@ -104,6 +106,7 @@ EXPECTED_ATTRIBUTES = [False, False, False, False, False, True, False]
 # What ownvitals_queue may hold: ACL entries ("a") and ownership ("o"), as pg_shdepend lists them.
 EXPECTED_DEPENDENCIES = frozenset(
     {f"pg_proc:public.{name}({args}):0:o" for name, args in QUEUE_FUNCTIONS.items()}
+    | {f"pg_proc:public.{ADMIN_REVOKE_ENQUEUE}({ADMIN_REVOKE_ENQUEUE_ARGS}):0:o"}  # #365
     | {
         "pg_class:public.jobs:0:a",
         "pg_class:public.job_events:0:a",
@@ -153,6 +156,7 @@ _NAMES = ", ".join(
     f"'{name}'"
     for name in (
         *QUEUE_FUNCTIONS,
+        ADMIN_REVOKE_ENQUEUE,
         *WITHINGS_FUNCTION_NAMES,
         *RATE_FUNCTION_NAMES,
         *OUTBOX_FUNCTION_NAMES,

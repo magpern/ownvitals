@@ -15,18 +15,21 @@ the ``ok`` row rolls back with it and one ``refused`` row is written.
 - ``POST /users/{user_id}/disable`` and ``.../enable``. Both refuse an admin (409
   ``target_is_admin``); disable revokes every session and keeps an earlier ``disabled_at``.
 - ``DELETE /users/{user_id}`` with ``{"email": ...}`` (``user.delete``): the account-delete
-  path. The audit row names the account in ``target_user_id``, which the foreign key's
-  ``ON DELETE SET NULL`` clears as the account goes in the same transaction, and keeps the id in
-  ``target_id``.
+  path, revoke first (#365, PLAN section 4.3): ``user.revoke`` runs the delete's checks and
+  queues the target's Withings revoke (``revoke_account``), ``user.revoke_wait`` waits for it
+  (``ownvitals.admin.user_revoke``), then the delete runs whatever the revoke's outcome and its
+  ``ok`` row records it (``revoke``: ``none``, ``revoked`` or ``failed``). Still 204. The audit
+  row names the account in ``target_user_id``, which the foreign key's ``ON DELETE SET NULL``
+  clears as the account goes in the same transaction, and keeps the id in ``target_id``.
 
 No route changes ``users.role`` or resets a second factor. Withings status is not here: reading
 it would mean issuing a ``UserContext`` for someone else, and only ``auth.deps`` may do that.
 """
 
 import unicodedata
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import Depends, Query, Request, Response
@@ -36,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ownvitals.admin.audit import Target
 from ownvitals.admin.db import AdminRefused, admin_session
 from ownvitals.admin.routes import AdminActor, admin_router, require_db
+from ownvitals.admin.user_revoke import wait_for_revoke
 from ownvitals.auth.admin_accounts import (
     AccountMissing,
     AccountSummary,
@@ -47,8 +51,9 @@ from ownvitals.auth.admin_accounts import (
     enable_account,
     find_account,
     list_accounts,
+    revoke_account,
 )
-from ownvitals.auth.deps import request_ip, require_admin_stepup
+from ownvitals.auth.deps import current_session, request_ip, require_admin_stepup
 from ownvitals.config import Settings
 from ownvitals.context import UserContext
 
@@ -139,9 +144,11 @@ async def _change[T](
     action: str,
     target: Target,
     change: Callable[[AsyncSession], Awaitable[T]],
+    params: Mapping[str, Any] | None = None,
 ) -> T:
     """``change`` in the admin transaction whose first statement is the ``ok`` row (#314)."""
-    async with admin_session(require_db(request), actor, action, write=True, target=target) as db:
+    db_ = require_db(request)
+    async with admin_session(db_, actor, action, write=True, target=target, params=params) as db:
         try:
             return await change(db)
         except AccountMissing:
@@ -233,13 +240,19 @@ async def delete_user(
     user_id: UUID,
     body: DeleteIn,
     ctx: Annotated[UserContext, Depends(require_admin_stepup)],
+    info: Annotated[Any, Depends(current_session)],
 ) -> Response:
     _same_admin(ctx, actor)
+
+    async def revoke(db: AsyncSession) -> UUID | None:
+        return await revoke_account(db, user_id, email=body.email, session_id=info.id)
 
     async def change(db: AsyncSession) -> None:
         await delete_account(db, user_id, email=body.email, ip=request_ip(request))
 
+    job_id = await _change(request, actor, "user.revoke", Target(user_id=user_id), revoke)
+    outcome = await wait_for_revoke(require_db(request), actor, user_id, job_id)
     # target_user_id is cleared by the foreign key as the account goes; target_id keeps the id.
     target = Target(user_id=user_id, kind="user", id=str(user_id))
-    await _change(request, actor, "user.delete", target, change)
+    await _change(request, actor, "user.delete", target, change, {"revoke": outcome})
     return Response(status_code=204)

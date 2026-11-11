@@ -1,6 +1,7 @@
 # ADR 0004: Provider connections, envelope encryption and the KEK ring
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88 (see "Amendments").
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88, and 2026-11-10 by
+#365 (see "Amendments").
 Its three open questions were decided by the Architect on 2026-10-31 (§7 the code exchange,
 recorded as [roadmap Amendment 1](../roadmap.md); §7 reconnect and disconnect; §3 revocation
 after a KEK compromise), and so was the source of the webhook secrets (§4), raised in review.
@@ -381,7 +382,12 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
     the row (a category, §8) and the revoke retried within a budget. `notify revoke` takes the
     user's access token, so a retry that would need a deleted token can't run: #27 records that
     case as not revoked and tells the user how to remove the app's access at Withings.
-  - Account deletion runs steps 1 and 2 before the purge, which then deletes every row.
+  - Account deletion runs steps 1 and 2 before the purge, which then deletes every row. So does
+    an admin's delete of an account (amended 2026-11-10, #365): its revoke runs in a
+    `withings_admin_revoke` job, authorised by the admin's stepped-up session instead of the
+    owner's (ADR 0002 §3), and when that job did not finish in time or did not revoke, the
+    delete goes ahead (the credentials go with the account) and the admin audit log records the
+    revoke as `failed`.
   - Once a revoke has succeeded, the wrapped tokens left in older backups are useless at
     Withings (unlike classbeat's MOWL tokens).
 
@@ -464,6 +470,12 @@ earlier, disconnected Withings accounts kept with their imported data (§7). Eve
 - Threat model T29 to T43 cite this ADR.
 
 ## Amendments
+
+### 2026-11-10 (#365): the admin delete revokes first
+
+§7, marked "amended 2026-11-10, #365": an admin's account delete runs the disconnect's steps 1
+and 2 before the purge, as the user's own delete does, through the job and definers of ADR
+0002 §3's amendment of the same date.
 
 ### 2026-10-31 (#49): follow-ups of the #41 review
 

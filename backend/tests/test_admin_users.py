@@ -20,6 +20,7 @@ from admintools import (  # noqa: F401 - fixtures
     reason,
 )
 from jobtools import admin_url
+from ownvitals.admin import user_revoke
 from ownvitals.admin import users as users_module
 from ownvitals.admin.routes import admin_area_routes, calls
 from ownvitals.auth.admin_accounts import AccountSummary, account_emails
@@ -201,6 +202,7 @@ async def test_delete_uses_the_account_delete_path_and_refuses_an_admin(aenv: Ad
         if row.action == "user.delete" and row.outcome == "ok"
     ]
     assert len(deleted) == 1
+    assert deleted[0].params == {"revoke": "none"}  # #365: no live connection, nothing queued
     assert deleted[0].target_user_id is None
     assert deleted[0].target_kind == "user"
     assert deleted[0].target_id == str(user_id)
@@ -283,12 +285,14 @@ async def _event_userids(aenv: AdminEnv) -> set[int]:
 
 
 async def test_delete_purges_the_targets_webhook_events_as_the_users_own_delete_does(
-    aenv: AdminEnv,
+    aenv: AdminEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """#362: webhook events have no ``owner_id`` and do not cascade with the account, so the
     admin delete purges them first (``webhook_events_purge_account``, in its system session),
     as ``auth.purge.delete_account`` does. A refused delete removes none, and another user's
-    events stay."""
+    events stay. No worker runs here, so the revoke of the live row (#365) is recorded as
+    failed after a short wait."""
+    monkeypatch.setattr(user_revoke, "ADMIN_REVOKE_WAIT_SECONDS", 0.2)
     admin = await caller(aenv)
     target = await _user(aenv, "sam@example.com", totp=True)
     kept = await _user(aenv, "kim@example.com")
@@ -310,6 +314,8 @@ async def test_delete_purges_the_targets_webhook_events_as_the_users_own_delete_
         assert removed.status_code == 204, removed.text
         assert await aenv.env.scalar("SELECT count(*) FROM users WHERE id = :u", u=target) == 0
         assert await _event_userids(aenv) == {_KEPT_USERID}
+        deleted = [row.params for row in await aenv.audit_rows() if row.action == "user.delete"]
+        assert deleted[-1] == {"revoke": "failed"}
         owners = await aenv.superuser(
             "SELECT owner_id FROM connections WHERE app_id = :a", a=app_id
         )

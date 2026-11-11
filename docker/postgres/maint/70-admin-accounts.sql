@@ -1,12 +1,14 @@
 -- The admin account family (ADR 0002 sections 3 to 5 and ADR 0005 section 3, both amended
--- 2026-11-10 by #314): admin_account_disable, admin_account_enable and admin_account_delete,
--- SECURITY DEFINER functions owned by the NOLOGIN role ownvitals_admin_accounts and executable by
--- ownvitals_maint only. They let an admin's account change commit in the same transaction as its
--- ok audit row (ownvitals.admin.db.admin_session inserts that row first).
+-- 2026-11-10 by #314 and #365): admin_account_disable, admin_account_enable,
+-- admin_account_delete and admin_account_revoke (#365), SECURITY DEFINER functions owned by
+-- the NOLOGIN role ownvitals_admin_accounts and executable by ownvitals_maint only. They let an
+-- admin's account change commit in the same transaction as its ok audit row
+-- (ownvitals.admin.db.admin_session inserts that row first).
 --
 -- Run as the superuser, after `alembic upgrade head` and after every other db-functions script
--- (30-maint.sql revokes every function privilege of ownvitals_maint and 40-withings.sql installs
--- webhook_events_purge_account; this script grants both again), in ONE transaction. Plain SQL: no
+-- (30-maint.sql revokes every function privilege of ownvitals_maint, 40-withings.sql installs
+-- webhook_events_purge_account and 20-queue.sql queue_enqueue_admin_revoke; this script grants
+-- all three again), in ONE transaction. Plain SQL: no
 -- psql meta-commands and no transaction control. Migrations never create these functions.
 --
 -- Idempotent: running it again repairs the role (attributes, memberships, settings), revokes and
@@ -15,8 +17,9 @@
 --
 -- Each function refuses (insufficient_privilege) unless the current transaction already holds the
 -- matching ok row of admin_audit: inserted by this transaction (xmin = pg_current_xact_id()::xid,
--- created_at = now()), outcome 'ok', the function's action, target_user_id = p_target, and an
--- actor that is an admin account that is not disabled. Inside a user session (app.user_id set) it
+-- created_at = now()), outcome 'ok', the function's action (user.disable, user.enable,
+-- user.delete, user.revoke), target_user_id = p_target, and an actor that is an admin account
+-- that is not disabled. Inside a user session (app.user_id set) it
 -- raises bad_context. It then takes the target's users row FOR NO KEY UPDATE (the lock order of
 -- ownvitals/auth/userlock.py), refuses an admin target, and returns an outcome: 'ok',
 -- 'not_found', 'target_is_admin' or 'email_mismatch'. Nothing else leaves it: no address, no
@@ -26,7 +29,7 @@
 -- admin_audit). The rows that go with a deleted account are removed by the foreign keys'
 -- referential actions, which Postgres runs as the referencing table's owner. Column grants only
 -- where a table holds a secret: never users.password_hash, never a session token. 20-queue.sql
--- admits the three by name; their bodies are pinned by digest (ownvitals/db/queue_digests.py)
+-- admits the four by name; their bodies are pinned by digest (ownvitals/db/queue_digests.py)
 -- and checked by web and the worker at startup.
 
 DO $$
@@ -47,6 +50,10 @@ BEGIN
   IF pg_catalog.to_regprocedure('public.webhook_events_purge_account(uuid)') IS NULL THEN
     RAISE EXCEPTION 'webhook_events_purge_account is missing; run '
       'docker/postgres/withings/40-withings.sql first';
+  END IF;
+  IF pg_catalog.to_regprocedure('public.queue_enqueue_admin_revoke(uuid,uuid,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'queue_enqueue_admin_revoke is missing; run '
+      'docker/postgres/queue/20-queue.sql first';
   END IF;
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_admin_accounts') THEN
     CREATE ROLE ownvitals_admin_accounts NOLOGIN;
@@ -78,7 +85,7 @@ BEGIN
   END LOOP;
 END $$;
 
--- ownvitals_admin_accounts owns the three functions and nothing else, and has no default
+-- ownvitals_admin_accounts owns the four functions and nothing else, and has no default
 -- privileges of its own. Anything else is not repaired automatically (dropping or reassigning it
 -- could lose data): the script stops and names it.
 DO $$
@@ -97,7 +104,7 @@ BEGIN
                         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
                        WHERE p.oid = r.objid AND n.nspname = 'public'
                          AND p.proname IN ('admin_account_disable', 'admin_account_enable',
-                                           'admin_account_delete')) THEN
+                                           'admin_account_delete', 'admin_account_revoke')) THEN
       RAISE EXCEPTION 'ownvitals_admin_accounts owns % (catalog %, object %); it may own only '
         'the admin account functions: drop or reassign it by hand',
         coalesce(r.what, '?'), r.catalog, r.objid;
@@ -210,6 +217,10 @@ GRANT SELECT (xmin, created_at, actor_id, action, target_user_id, outcome)
   ON TABLE public.admin_audit TO ownvitals_admin_accounts;
 -- The delete purges the target's webhook events (ADR 0002 section 3, #362).
 GRANT EXECUTE ON FUNCTION public.webhook_events_purge_account(uuid) TO ownvitals_admin_accounts;
+-- The revoke queues the target's withings_admin_revoke job (ADR 0002 section 3, #365): the only
+-- grantee of that queue function.
+GRANT EXECUTE ON FUNCTION public.queue_enqueue_admin_revoke(uuid, uuid, uuid)
+  TO ownvitals_admin_accounts;
 
 -- Any other function under these names (an overload) goes: each must exist once.
 DO $$
@@ -220,10 +231,11 @@ BEGIN
              FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'public'
               AND p.proname IN ('admin_account_disable', 'admin_account_enable',
-                                'admin_account_delete')
+                                'admin_account_delete', 'admin_account_revoke')
               AND p.oid::regprocedure::text NOT IN (
                 'admin_account_disable(uuid)', 'admin_account_enable(uuid)',
-                'admin_account_delete(uuid,text,text,text,text,text)') LOOP
+                'admin_account_delete(uuid,text,text,text,text,text)',
+                'admin_account_revoke(uuid,text,uuid)') LOOP
     EXECUTE format('DROP ROUTINE public.%s', r.signature);
   END LOOP;
   -- An earlier draft with other OUT columns cannot be replaced in place: it goes first.
@@ -355,10 +367,60 @@ BEGIN
 END
 $fn$;
 
+-- Revoke (#365): the delete's first step, in its own audited transaction (action user.revoke)
+-- that commits before the delete's, so the worker can claim the job. The delete's checks first
+-- (the target exists, is no admin and has this address), so a refused delete never revokes;
+-- then one withings_admin_revoke job for the target, naming the audit row's actor (never an id
+-- from the caller) and the admin's session, which the job's handler checks again. job_id is
+-- NULL when the target has no live connection. Nothing else changes here.
+CREATE OR REPLACE FUNCTION public.admin_account_revoke(
+  p_target uuid, p_email_normalized text, p_session uuid, OUT outcome text, OUT job_id uuid)
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+  v_actor uuid;
+  v_role text;
+  v_email text;
+BEGIN
+  IF coalesce(pg_catalog.current_setting('app.user_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'bad_context' USING ERRCODE = '42501';
+  END IF;
+  SELECT a.actor_id INTO v_actor
+    FROM public.admin_audit a JOIN public.users u ON u.id = a.actor_id
+   WHERE a.xmin = pg_catalog.pg_current_xact_id()::xid
+     AND a.created_at = pg_catalog.now() AND a.outcome = 'ok'
+     AND a.action = 'user.revoke' AND a.target_user_id = p_target
+     AND u.role = 'admin' AND u.disabled_at IS NULL
+   LIMIT 1;
+  IF p_target IS NULL OR p_session IS NULL OR v_actor IS NULL THEN
+    RAISE EXCEPTION 'no_audit_row' USING ERRCODE = '42501';
+  END IF;
+  SELECT u.role, u.email_normalized INTO v_role, v_email
+    FROM public.users u WHERE u.id = p_target FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    outcome := 'not_found';
+    RETURN;
+  END IF;
+  IF v_role = 'admin' THEN
+    outcome := 'target_is_admin';
+    RETURN;
+  END IF;
+  IF p_email_normalized IS NULL OR v_email <> p_email_normalized THEN
+    outcome := 'email_mismatch';
+    RETURN;
+  END IF;
+  job_id := public.queue_enqueue_admin_revoke(p_target, v_actor, p_session);
+  outcome := 'ok';
+END
+$fn$;
+
 ALTER FUNCTION public.admin_account_disable(uuid) OWNER TO ownvitals_admin_accounts;
 ALTER FUNCTION public.admin_account_enable(uuid) OWNER TO ownvitals_admin_accounts;
 ALTER FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
   OWNER TO ownvitals_admin_accounts;
+ALTER FUNCTION public.admin_account_revoke(uuid, text, uuid) OWNER TO ownvitals_admin_accounts;
 
 -- Every EXECUTE but the owner's goes (PUBLIC's default, and any grant to another role), then
 -- the admin role gets it again.
@@ -366,6 +428,7 @@ REVOKE ALL ON FUNCTION public.admin_account_disable(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_account_enable(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
   FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_account_revoke(uuid, text, uuid) FROM PUBLIC;
 DO $$
 DECLARE
   r record;
@@ -376,7 +439,7 @@ BEGIN
                   aclexplode(p.proacl) a
             WHERE n.nspname = 'public'
               AND p.proname IN ('admin_account_disable', 'admin_account_enable',
-                                'admin_account_delete')
+                                'admin_account_delete', 'admin_account_revoke')
               AND a.grantee <> 0 AND a.grantee <> p.proowner LOOP
     EXECUTE format('SET LOCAL ROLE %s', r.grantor);
     EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM %s CASCADE', r.signature, r.grantee);
@@ -389,8 +452,10 @@ GRANT EXECUTE ON FUNCTION public.admin_account_disable(uuid) TO ownvitals_maint;
 GRANT EXECUTE ON FUNCTION public.admin_account_enable(uuid) TO ownvitals_maint;
 GRANT EXECUTE ON FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
   TO ownvitals_maint;
+GRANT EXECUTE ON FUNCTION public.admin_account_revoke(uuid, text, uuid) TO ownvitals_maint;
 
 COMMENT ON FUNCTION public.admin_account_disable(uuid) IS 'ownvitals-admin-accounts v1';
 COMMENT ON FUNCTION public.admin_account_enable(uuid) IS 'ownvitals-admin-accounts v1';
 COMMENT ON FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
   IS 'ownvitals-admin-accounts v1';
+COMMENT ON FUNCTION public.admin_account_revoke(uuid, text, uuid) IS 'ownvitals-admin-accounts v1';

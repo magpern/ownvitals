@@ -1,7 +1,7 @@
 # ADR 0002: Tenant isolation: UserContext, forced RLS, roles and execution contexts
 
 Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88, and 2026-11-10 by
-#362 and #314 (see "Amendments").
+#362, #314 and #365 (see "Amendments").
 Its two open questions were decided by the Architect on 2026-10-31 (§2 partitions, whose keys
 [roadmap Amendment 2](../roadmap.md) sets; §3 `webhook_events` retention). Post-port review (#16,
 2026-11-03): no decision changed; guard 7 is enforced per route, without an enumeration (threat
@@ -299,6 +299,48 @@ CREATE POLICY owner_isolation ON <t>
     session, so a refused change leaves one `refused` row and nothing else;
   - pinned like the others by the queue check (digest, owner, `search_path`, version comment
     `ownvitals-admin-accounts v1`, ACL) and admitted by name in `20-queue.sql` (ADR 0005 §3).
+- **A third exception to "no owner id is taken from the caller"** (amended 2026-11-10, #365):
+  the **admin delete's Withings revoke** (PLAN §4.3: account deletion revokes the grant before
+  the purge). The admin web path may not issue the target's `UserContext` (§1, §4), web makes no
+  Withings call (roadmap Amendment 1), and the user's own `withings_disconnect` job is authorised
+  by the owner's stepped-up session, which an admin does not hold. Two functions, each narrow:
+  - `admin_account_revoke(p_target uuid, p_email_normalized text, p_session uuid, OUT outcome
+    text, OUT job_id uuid)`, a fourth member of the admin account family above (same file, owner,
+    `search_path`, version comment and ACL: `EXECUTE` to `ownvitals_maint` only). It refuses like
+    the other three: `bad_context` with `app.user_id` set, and `insufficient_privilege` unless the
+    current transaction already holds the matching `ok` audit row (action `user.revoke`, the
+    target, an admin actor that is not disabled). It takes the target's `users` row `FOR NO KEY
+    UPDATE`, answers `not_found`, `target_is_admin` or `email_mismatch` before anything is queued
+    (the delete's own checks, so a refused delete never revokes), and otherwise calls
+    `queue_enqueue_admin_revoke` with the target, **the audit row's actor** (never an id from
+    the caller) and `p_session`. It returns `ok` and the job id, or `ok` and no id when the
+    target has no live connection;
+  - `queue_enqueue_admin_revoke(p_owner uuid, p_admin uuid, p_session uuid) RETURNS uuid`, a
+    queue function (ADR 0005 §3; owned by `ownvitals_queue`, which needs no new privilege for
+    it). `EXECUTE` to `ownvitals_admin_accounts` only, granted by `70-admin-accounts.sql`; never
+    `ownvitals_app`, `ownvitals_maint` or `PUBLIC`, so its one caller is
+    `admin_account_revoke`. It returns no id (`NULL`) when `p_owner` has no connection that is
+    not `disconnected`; otherwise, under the namespace-1 owner lock (ADR 0005 §9), it inserts one
+    queued `withings_admin_revoke` job owned by `p_owner` (origin `operator`, lane 1,
+    `max_attempts` 1, input exactly `{"admin_id": p_admin, "session_id": p_session}`, no
+    singleton key) with its `queued` event, and returns its id;
+  - the job runs as any job does: the job issuer gives it the target's context from the claimed
+    row (ADR 0005 §4; a disabled or deleted owner fails `account_disabled` and is not revoked).
+    Its handler (`ownvitals.auth.admin_revoke_job`, guard 8) first re-checks, in a system
+    session, that `session_id` is a live, full session of `admin_id`, that the account is an
+    admin that is not disabled, and that its step-up (`stepup_at`) is within the admin write
+    window plus the job slack (`JOB_SLACK`); otherwise it fails `invalid_input` and revokes
+    nothing. It then runs the user's own revoke-first disconnect (ADR 0004 §7) on each live
+    Withings row in the owner's context, and fails `upstream_unavailable` (dead-lettered, one
+    attempt) when any revoke did not finish;
+  - the admin route reads only the job's `state` and `error_category`, through `ownvitals_maint`'s
+    existing column grant on `jobs` (§4), in an audited read transaction (`user.revoke_wait`),
+    for up to `ADMIN_REVOKE_WAIT_SECONDS`; then it runs `admin_account_delete` as before, whatever
+    the revoke's outcome, and records it on the `user.delete` row (`revoke`: `none`, `revoked`
+    or `failed`). A job still queued or running then cascades with the account;
+  - no new role, no new table or column grant to any role, nothing new for `ownvitals_app`;
+    pinned like the others (digest, owner, `search_path`, version comment, ACL) and admitted by
+    name in `20-queue.sql`.
 - **The webhook-secret function** of ADR 0004 §4 has its own narrow owner (amended 2026-10-31,
   #49; it was `ownvitals_owner`, whose rights a bug in it would have carried: DDL, and turning
   off forced RLS on every health table). Its owner `ownvitals_webhook_secrets` is a dedicated
@@ -329,7 +371,7 @@ CREATE POLICY owner_isolation ON <t>
 | Worker job | worker, `ownvitals_app` | fenced `user_session(ctx)` (ADR 0005 §4) | `ownvitals.jobs`, from the claimed row | #9, #15 |
 | Scheduler | worker, `ownvitals_app` → `EXECUTE` on enqueue functions | nothing directly; the functions enqueue owned jobs | none: the job gets one when claimed | #15 (harness), M1 |
 | Maintenance (reap, purge) | worker, definer functions or `system_session` on system tables | definer functions only | none | #9, #15 |
-| Admin | web, `ownvitals_maint` in an audited transaction | column-level allowlist; **no health table**; account disable, enable and delete through §3's admin account functions, in the transaction of their `ok` audit row (amended 2026-11-10, #314); the account delete purges the target's webhook events through `webhook_events_purge_account` (amended 2026-11-10, #362) | `ownvitals.auth` (admin session with TOTP) | #12, #15 |
+| Admin | web, `ownvitals_maint` in an audited transaction | column-level allowlist; **no health table**; account disable, enable and delete through §3's admin account functions, in the transaction of their `ok` audit row (amended 2026-11-10, #314); the account delete purges the target's webhook events through `webhook_events_purge_account` (amended 2026-11-10, #362), and first queues the target's Withings revoke through `admin_account_revoke` and reads only that job's state (amended 2026-11-10, #365) | `ownvitals.auth` (admin session with TOTP) | #12, #15 |
 | Operator CLI | `docker compose exec`/`run` on the host | per-owner `user_session`; `keys wipe`, the `withings_apps` configuration and its client-secret rewrap as the owner role, in one-off operator containers (ADR 0004 §3, §3 above; amended 2026-10-31, #49) | an auth function used only by the CLI | #13, #22 |
 
 - **No context has ambient authority.** Every owned read or write happens in a `user_session` for
@@ -374,7 +416,7 @@ CREATE POLICY owner_isolation ON <t>
 | `ownvitals_mail_outbox` (M6; amended 2026-11-03, #194) | no | the mail outbox's definer functions (ADR 0007 §3) | `BYPASSRLS`, member of no role; column privileges on the two outbox tables only (ADR 0007 §3) |
 | `ownvitals_ai` (M7; amended 2026-11-03, #205) | no | the AI cost cap's definer functions (ADR 0014 §7, ADR 0005 §3) | `BYPASSRLS`, member of no role; column privileges on `jobs` and the three AI tables only (ADR 0005 §3) |
 | `ownvitals_admin_accounts` (amended 2026-11-10, #314) | no | the admin account functions (§3) | the attributes of §3 (`NOBYPASSRLS`, member of no role) and exactly its privileges |
-| `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; of `withings_apps` the non-secret columns only, and no write (amended 2026-10-31, #49); `EXECUTE` on the three admin account functions only (amended 2026-11-10, #314); default read-only; every use audited |
+| `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; of `withings_apps` the non-secret columns only, and no write (amended 2026-10-31, #49); `EXECUTE` on the admin account functions only (three, amended 2026-11-10, #314; four, amended 2026-11-10, #365); default read-only; every use audited |
 
 - `ownvitals_app`'s grants are an **allowlist**: `CONNECT` on its database, `USAGE` on `public`,
   `SELECT, INSERT, UPDATE, DELETE` on tables and `USAGE, SELECT` on sequences through default
@@ -442,7 +484,7 @@ CREATE POLICY owner_isolation ON <t>
 | # | Checks | Issue |
 |---|---|---|
 | 1 | Every table in `public` is in `SYSTEM_TABLES` (no `owner_id`) or owned: `owner_id NOT NULL`, forced RLS, exactly the one permissive policy, `UNIQUE (owner_id, id)`, owner-inclusive unique indexes (the one exception of §2 allowed by name) and foreign keys, no exclusion constraint without `owner_id WITH =`, `ON DELETE` as §2, `id uuid` with `gen_random_uuid()`; no inherited table; no view in `public`; no foreign key from a system to an owned table. A partitioned table is refused until #21 extends the check to §2's partition rules 1 to 5: `PRIMARY KEY (owner_id, id, <partition key>)` instead of `UNIQUE (owner_id, id)`, no foreign key referencing it, and forced RLS, the policy and no app privilege on every partition (roadmap Amendment 2) | #5; partitions #21 |
-| 2 | `ownvitals_app`'s privileges equal the allowlist of §5 (catalog-wide, as an allowlist, so a new privilege kind fails); nothing granted to `PUBLIC` beyond Postgres' built-ins; `ownvitals_owner` has no `BYPASSRLS`. From #314: `ownvitals_admin_accounts` has exactly the attributes and privileges of §3 and owns the three admin account functions; `ownvitals_app` may execute none of them nor `webhook_events_purge_account` | #5; #314 |
+| 2 | `ownvitals_app`'s privileges equal the allowlist of §5 (catalog-wide, as an allowlist, so a new privilege kind fails); nothing granted to `PUBLIC` beyond Postgres' built-ins; `ownvitals_owner` has no `BYPASSRLS`. From #314: `ownvitals_admin_accounts` has exactly the attributes and privileges of §3 and owns the three admin account functions; `ownvitals_app` may execute none of them nor `webhook_events_purge_account`. From #365: it owns the fourth, `admin_account_revoke`, and is the only grantee of `queue_enqueue_admin_revoke` | #5; #314; #365 |
 | 3 | On test-only owned parent and child tables, two users: no cross-user read, update, delete, insert or child-to-foreign-parent reference; no rows without a context; the app role can't disable RLS; a global-looking unique value can't be probed | #5 |
 | 4 | A pooled connection carries no `app.user_id` after a `user_session`; a `WITH HOLD` cursor can't be fetched by the next user; `commit()` inside `user_session` raises | #5 |
 | 5 | The `UserContext` AST check (§1) | #5 |
@@ -450,7 +492,7 @@ CREATE POLICY owner_isolation ON <t>
 | 7 | Another user's id gives 404 on every owned endpoint (from #10 on, per route) | #10 onward |
 | 8 | Only `ownvitals.auth` touches the account tables (ADR 0003 §1) | #10 |
 | 9 | The queue role and functions (ADR 0005 §3) | #9 |
-| 11 | `ownvitals_maint` holds exactly its allowlist; no secret column and no health table readable. From #21 (amended 2026-10-31, #49): no runtime role (`ownvitals_app`, `ownvitals_maint`) holds a write privilege (`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`) on `withings_apps`, and maint reads only its non-secret columns (§3); checked with `has_any_column_privilege` and, for table-level grants, `has_table_privilege`, so a column-level grant can't slip past. From #314: the allowlist includes `EXECUTE` on the three admin account functions of §3, and no other function | #12; `withings_apps` #21; #314 |
+| 11 | `ownvitals_maint` holds exactly its allowlist; no secret column and no health table readable. From #21 (amended 2026-10-31, #49): no runtime role (`ownvitals_app`, `ownvitals_maint`) holds a write privilege (`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`) on `withings_apps`, and maint reads only its non-secret columns (§3); checked with `has_any_column_privilege` and, for table-level grants, `has_table_privilege`, so a column-level grant can't slip past. From #314: the allowlist includes `EXECUTE` on the three admin account functions of §3, and no other function (four from #365: `admin_account_revoke`; never `queue_enqueue_admin_revoke`) | #12; `withings_apps` #21; #314; #365 |
 | ctx | Every owned table has a test in every execution context of §4 (enumerates tables with `owner_id`) | #15 |
 
 classbeat's guard 10 (retention registry) is not ported in M0, and guard 1 does not check the
@@ -589,3 +631,33 @@ by the PR's fresh Opus review; made in place above and marked "amended 2026-11-1
   purge's ACL in the queue check and guard 2, and the lock-order and race tests run the admin
   path through `admin_session`. A database without the script has no admin account change: the
   three routes answer 500 and record `error`.
+
+### 2026-11-10 (#365): the admin delete revokes the Withings grant first
+
+Owner decision on #365 (option A, delegated and recorded as provisional on 2026-11-10; listed
+for the M8 human security review because it adds a cross-owner trust path), made in place above
+and marked "amended 2026-11-10, #365":
+
+- Context: PLAN §4.3 has account deletion revoke the Withings grant before the purge. The user's
+  own delete does (a `withings_disconnect` job, authorised by the owner's stepped-up session);
+  the admin delete only cascaded, leaving the grant live at Withings. The admin web path may not
+  issue the target's `UserContext` (§1, §4), web makes no Withings call (roadmap Amendment 1),
+  and the only cross-owner enqueue definer was the webhook and scheduler one.
+- §3: a third named exception to "no owner id is taken from the caller":
+  `admin_account_revoke` (admin account family, reachable only from an audited admin
+  transaction) and `queue_enqueue_admin_revoke` (queue family, reachable only from it), with
+  the conditions listed there. §4: the Admin row names them. §5: maint's `EXECUTE` covers the
+  fourth function. §7: guards 2, 9 and 11 pin them.
+- Alternatives (from the issue): **B**, disable the account and let the worker revoke, purge
+  and delete asynchronously, changes the 204 contract of the admin delete; **C**, keep the
+  cascade and report `revoke_failed` with removal instructions, departs from PLAN §4.3. Granting
+  `ownvitals_queue` the audit log and account columns, so one function could check the audit
+  row itself, would widen every queue function's reach; giving `ownvitals_admin_accounts`
+  `BYPASSRLS` and `INSERT` on `jobs` would make an account-table role a writer of owned rows.
+- Consequences: two more pinned functions and one job kind; the admin delete holds the request
+  for up to `ADMIN_REVOKE_WAIT_SECONDS` (as the user's delete holds for `REVOKE_WAIT_SECONDS`)
+  and writes three audit rows (`user.revoke`, `user.revoke_wait`, `user.delete`) when the target
+  has a live connection, one more (`user.revoke`) otherwise. A target the admin disabled first is
+  refused by the job issuer, so its grant is reported `failed`, not revoked. A delete refused
+  after its revoke ran (the address changed in between) leaves a revoked connection and the
+  account.

@@ -103,6 +103,8 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     "ownvitals.auth.owners": frozenset({"ACCOUNTS"}),
     # and the revoke a disconnect or an account deletion enqueues (#163)
     "ownvitals.auth.purge": frozenset({"purge_expired", "register_disconnect_kind"}),
+    # and the revoke an admin's account delete queues (#365)
+    "ownvitals.auth.admin_revoke_job": frozenset({"register_admin_revoke_kind"}),
     # the operator CLI
     "ownvitals.auth.operator": frozenset(
         {
@@ -152,6 +154,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "enable_account",
             "find_account",
             "list_accounts",
+            "revoke_account",  # #365: the delete's first step, the target's Withings revoke
         }
     ),
 }

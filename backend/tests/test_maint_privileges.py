@@ -52,13 +52,15 @@ EXPECTED: frozenset[tuple[str, str]] = frozenset(
         (f"withings_apps.{c}", "SELECT")
         for c in ("id", "client_id", "callback_base", "rotation_requested_at", "rotation_reason")
     }
-    # The admin account family (70-admin-accounts.sql, #314): each refuses without its ok row.
+    # The admin account family (70-admin-accounts.sql, #314, #365): each refuses without its ok
+    # row.
     | {
         (f"function {signature}", "EXECUTE")
         for signature in (
             "admin_account_disable(uuid)",
             "admin_account_enable(uuid)",
             "admin_account_delete(uuid,text,text,text,text,text)",
+            "admin_account_revoke(uuid,text,uuid)",  # #365; never queue_enqueue_admin_revoke
         )
     }
 )

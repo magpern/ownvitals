@@ -20,6 +20,10 @@ from ownvitals.db.queue_check import (
     ADMIN_ACCOUNTS_FUNCTION_NAMES,
     ADMIN_ACCOUNTS_PINS,
     ADMIN_ACCOUNTS_VERSION,
+    ADMIN_REVOKE_ENQUEUE,
+    ADMIN_REVOKE_ENQUEUE_ACL,
+    ADMIN_REVOKE_ENQUEUE_ADMIN_ACL,
+    ADMIN_REVOKE_ENQUEUE_ARGS,
     AI_FUNCTION_NAMES,
     AI_PINS,
     AI_VERSION,
@@ -208,6 +212,7 @@ def check_queue(conn: Connection) -> list[str]:
     # of views. Named as the startup check and the script name them.
     admitted = [
         *QUEUE_FUNCTIONS,
+        ADMIN_REVOKE_ENQUEUE,
         *WITHINGS_FUNCTION_NAMES,
         *RATE_FUNCTION_NAMES,
         *OUTBOX_FUNCTION_NAMES,
@@ -272,7 +277,7 @@ def check_queue(conn: Connection) -> list[str]:
         {"names": admitted},
     ).all()
     need(
-        sorted(str(c) for c, _ in owned) == ["pg_proc"] * len(QUEUE_FUNCTIONS)
+        sorted(str(c) for c, _ in owned) == ["pg_proc"] * (len(QUEUE_FUNCTIONS) + 1)
         and {o for _, o in owned} == {f.oid for f in functions if f.proowner == role.oid},
         f"{QUEUE} must own exactly the queue functions",
     )
@@ -301,6 +306,33 @@ def check_queue(conn: Connection) -> list[str]:
             f"{prefix}: ACL must be {expected_acl}, is {actual_acl}",
         )
     admin_installed = any(f.proname in ADMIN_ACCOUNTS_FUNCTION_NAMES for f in functions)
+    # #365: the admin delete's revoke enqueue, a queue function only the admin family's role runs
+    # (and nobody but its owner before that family is installed).
+    found = [f for f in functions if f.proname == ADMIN_REVOKE_ENQUEUE]
+    prefix = f"public.{ADMIN_REVOKE_ENQUEUE}"
+    if len(found) != 1:
+        problems.append(f"{ADMIN_REVOKE_ENQUEUE}: must exist exactly once, found {len(found)}")
+    else:
+        f = found[0]
+        need(
+            f.nspname == "public" and f.args == ADMIN_REVOKE_ENQUEUE_ARGS,
+            f"{prefix}: wrong schema or arguments",
+        )
+        need(f.prosecdef, f"{prefix}: must be SECURITY DEFINER")
+        need(f.prokind == "f" and f.lanname == "plpgsql", f"{prefix}: must be a plpgsql function")
+        need(f.proowner == role.oid, f"{prefix}: must be owned by {QUEUE}")
+        need(list(f.proconfig or []) == SEARCH_PATH, f"{prefix}: search_path must be fixed")
+        need(f.comment == QUEUE_VERSION, f"{prefix}: comment must be {QUEUE_VERSION!r}")
+        need(
+            f.md5 == QUEUE_DIGESTS[ADMIN_REVOKE_ENQUEUE],
+            f"{prefix}: definition md5 differs from the shipped one",
+        )
+        acl = ADMIN_REVOKE_ENQUEUE_ADMIN_ACL if admin_installed else ADMIN_REVOKE_ENQUEUE_ACL
+        expected_acl = set(acl.split(","))
+        need(
+            set(f.acl or []) == expected_acl and len(f.acl or []) == len(expected_acl),
+            f"{prefix}: ACL must be {expected_acl}",
+        )
     for name in WITHINGS_FUNCTION_NAMES:
         found = [f for f in functions if f.proname == name]
         if not found:

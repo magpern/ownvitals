@@ -21,9 +21,10 @@ and ``ai_audit_purge`` (``docker/postgres/ai/50-ai.sql``, ADR 0014 sections 6 an
 owned by ``ownvitals_ai``: absent until that script has run, then all five, each pinned, and
 the export purge ``exports_purge_expired`` (``docker/postgres/exports/60-exports.sql``, ADR 0013
 section 4; #333), owned by ``ownvitals_exports`` and pinned the same way once installed, and the
-admin account family (``docker/postgres/maint/70-admin-accounts.sql``, ADR 0002 section 3; #314),
-owned by ``ownvitals_admin_accounts``: absent, or all three, each pinned, with
-``webhook_events_purge_account`` then executable by that role alone;
+admin account family (``docker/postgres/maint/70-admin-accounts.sql``, ADR 0002 section 3; #314,
+#365), owned by ``ownvitals_admin_accounts``: absent, or all four, each pinned, with
+``webhook_events_purge_account`` and the queue's ``queue_enqueue_admin_revoke`` then executable
+by that role alone;
 no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
 CHECK, index or partition expression of any table or domain calls one of ``SQL_TEXT_BUILTINS``.
 So nothing can shadow a built-in a function body calls, and nothing a function fires (a trigger,
@@ -74,6 +75,10 @@ from ownvitals.db.queue_expected_extra import (  # noqa: F401 (re-exported)
     ADMIN_ACCOUNTS_PINS,
     ADMIN_ACCOUNTS_ROLE,
     ADMIN_ACCOUNTS_VERSION,
+    ADMIN_REVOKE_ENQUEUE,
+    ADMIN_REVOKE_ENQUEUE_ACL,
+    ADMIN_REVOKE_ENQUEUE_ADMIN_ACL,
+    ADMIN_REVOKE_ENQUEUE_ARGS,
     AI_FUNCTION_NAMES,
     AI_PINS,
     AI_ROLE,
@@ -131,6 +136,14 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
     for item in functions:
         parts = item.split("|")
         by_name.setdefault(parts[0], []).append(parts)
+    # The admin account family is all or nothing, like the AI family (#314).
+    admin_installed = any(by_name.get(name) for name in ADMIN_ACCOUNTS_FUNCTION_NAMES)
+    # The admin revoke's enqueue (#365): a queue function the admin family's role alone executes.
+    acl = ADMIN_REVOKE_ENQUEUE_ADMIN_ACL if admin_installed else ADMIN_REVOKE_ENQUEUE_ACL
+    pin = [ADMIN_REVOKE_ENQUEUE, ADMIN_REVOKE_ENQUEUE_ARGS, "true", QUEUE_ROLE, SEARCH_PATH]
+    pin += [QUEUE_VERSION, QUEUE_DIGESTS.get(ADMIN_REVOKE_ENQUEUE, ""), acl]
+    if by_name.get(ADMIN_REVOKE_ENQUEUE, []) != [pin]:
+        found.append(f"public.{ADMIN_REVOKE_ENQUEUE} differs from the shipped definition")
     for name, args in QUEUE_FUNCTIONS.items():
         rows = by_name.get(name, [])
         if len(rows) != 1:
@@ -156,8 +169,6 @@ def queue_problems(row: Sequence[Any] | None) -> list[str]:
                 f"public.{name} differs from the shipped definition (owner, SECURITY DEFINER, "
                 "search_path, version, md5 or ACL)"
             )
-    # The admin account family is all or nothing, like the AI family (#314).
-    admin_installed = any(by_name.get(name) for name in ADMIN_ACCOUNTS_FUNCTION_NAMES)
     for name in WITHINGS_FUNCTION_NAMES:
         rows = by_name.get(name, [])
         if not rows:

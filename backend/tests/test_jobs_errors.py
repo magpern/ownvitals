@@ -146,6 +146,7 @@ def test_the_api_ships_no_kind_and_the_worker_ships_the_withings_kinds() -> None
         "export_build",  # the user's JSON/CSV export (#211)
         "notify_findings",  # the finding notifications and the E4/E6 hold (#195)
         "token_refresh_recover",
+        "withings_admin_revoke",  # the revoke of an admin's account delete (#365)
         "withings_backfill",
         "withings_connect",
         "withings_disconnect",  # the revoke of a disconnect or an account deletion (#163)

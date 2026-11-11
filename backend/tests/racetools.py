@@ -118,7 +118,10 @@ class AdminPath:
         """``DELETE /users/{id}``'s transaction; ``inside`` runs before it commits."""
         actor = await self.actor()
         target = Target(user_id=user_id, kind="user", id=str(user_id))
-        async with admin_session(self.db, actor, "user.delete", write=True, target=target) as db:
+        params = {"revoke": "none"}  # the delete's step after its revoke (#365): no connection
+        async with admin_session(
+            self.db, actor, "user.delete", write=True, target=target, params=params
+        ) as db:
             await admin_accounts.delete_account(db, user_id, email=email, ip=None)
             if inside is not None:
                 await inside()

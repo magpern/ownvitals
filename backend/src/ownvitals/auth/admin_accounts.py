@@ -18,6 +18,9 @@ reads ``password_hash``, a session token, an IP or a user agent.
   ``account_deleted`` event, then the ``users`` row. None touches an admin (the role stays with
   the operator CLI), so the admin area cannot undo an operator's disable of an admin either
   (#277). A refusal raises before anything changed.
+- ``revoke_account``: the delete's first step (#365, PLAN section 4.3), in its own admin
+  transaction (``user.revoke``): the delete's checks, then the target's ``withings_admin_revoke``
+  job, which names the audit row's admin and ``session_id`` (``admin_account_revoke``).
 """
 
 from collections.abc import Collection
@@ -46,6 +49,9 @@ _DISABLE = text(
 _ENABLE = text("SELECT public.admin_account_enable(:target)")
 _DELETE = text(
     "SELECT public.admin_account_delete(:target, :email_normalized, :ip, :browser, :os, :place)"
+)
+_REVOKE = text(
+    "SELECT outcome, job_id FROM public.admin_account_revoke(:target, :email_normalized, :session)"
 )
 RoleName = Literal["user", "admin"]
 SecondFactor = Literal["on", "setup_pending"]
@@ -262,3 +268,21 @@ async def delete_account(db: AsyncSession, user_id: UUID, *, email: str, ip: str
         "place": event["place"],
     }
     _refuse((await db.execute(_DELETE, params)).scalar_one())
+
+
+async def revoke_account(
+    db: AsyncSession, user_id: UUID, *, email: str, session_id: UUID
+) -> UUID | None:
+    """Queue the target's Withings revoke in the admin transaction ``db`` (its ``ok`` audit row
+    for ``user.revoke`` and ``user_id`` first), as the delete's first step (#365).
+
+    The delete's own checks come first, so ``AccountMissing``, ``TargetIsAdmin`` and
+    ``EmailMismatch`` are raised before anything is queued. Returns the job's id, or ``None``
+    when the target has no live connection. The job names the audit row's admin (never an id
+    from here) and ``session_id``, the admin's stepped-up session, which its handler checks
+    again (``ownvitals.auth.admin_revoke_job``)."""
+    params = {"target": user_id, "email_normalized": normalize_email(email), "session": session_id}
+    row = (await db.execute(_REVOKE, params)).one()
+    _refuse(row.outcome)
+    job_id: UUID | None = row.job_id
+    return job_id

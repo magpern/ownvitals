@@ -20,6 +20,7 @@ say ownvitals. The "Ported unchanged" table of ownvitals' ADR 0003 §1 maps them
 | `backend/src/ownvitals/auth/owners.py` | `ACCOUNTS`: the jobs issuer's `owner_active` check, for the worker |
 | `backend/src/ownvitals/auth/purge.py` | `purge_expired`, which the worker runs every `purge_interval_seconds` |
 | `backend/src/ownvitals/auth/disconnect_job.py` | the `withings_disconnect` job kind and its step-up check; `purge` re-exports its names |
+| `backend/src/ownvitals/auth/admin_revoke_job.py` | the `withings_admin_revoke` job kind (#365): the admin delete's revoke, after re-checking the admin's live, stepped-up session (`admin_stepped_up`) |
 | `backend/src/ownvitals/auth/operator.py` | what the operator CLI calls (below) |
 | `backend/src/ownvitals/auth/events.py`, `event_origin.py` | `record_event`, the one writer of `auth_events`, and the request's coarse origin it stores ("Security activity" below) |
 | `backend/src/ownvitals/auth/activity_routes.py`, `activity_model.py` | `GET /api/auth/activity` and its pure allowlist of kinds and fields (#251) |

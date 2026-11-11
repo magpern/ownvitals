@@ -83,7 +83,8 @@ BEGIN
                        WHERE p.oid = r.objid AND n.nspname = 'public'
                          AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
                                            'queue_enqueue', 'queue_cancel_for_secret',
-                                           'queue_replay', 'queue_schedule')) THEN
+                                           'queue_replay', 'queue_schedule',
+                                           'queue_enqueue_admin_revoke')) THEN
       RAISE EXCEPTION 'ownvitals_queue owns % (catalog %, object %); it may own only the queue '
         'functions: drop or reassign it by hand', coalesce(r.what, '?'), r.catalog, r.objid;
     END IF;
@@ -179,7 +180,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.jobs TO ownvitals_queue;
 GRANT SELECT, INSERT ON TABLE public.job_events TO ownvitals_queue;
 GRANT SELECT (id, owner_id, status) ON TABLE public.connections TO ownvitals_queue;
 
--- Any other function under one of the three names (an overload) goes: each must exist once.
+-- Any other function under one of the queue names (an overload) goes: each must exist once.
 DO $$
 DECLARE
   r record;
@@ -189,12 +190,13 @@ BEGIN
             WHERE n.nspname = 'public'
               AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
                                 'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay',
-                                'queue_schedule')
+                                'queue_schedule', 'queue_enqueue_admin_revoke')
               AND p.oid::regprocedure::text NOT IN (
                 'queue_claim(text,integer,text[])', 'queue_reap(integer)', 'queue_stats()',
                 'queue_enqueue(uuid,text,text,jsonb,text,integer,uuid)',
                 'queue_cancel_for_secret(text,uuid)', 'queue_replay(uuid)',
-                'queue_schedule(text,integer)') LOOP
+                'queue_schedule(text,integer)',
+                'queue_enqueue_admin_revoke(uuid,uuid,uuid)') LOOP
     EXECUTE format('DROP ROUTINE public.%s', r.signature);
   END LOOP;
 END $$;
@@ -209,8 +211,8 @@ END $$;
 -- mail_outbox_claim, mail_outbox_mark and owner_notice_queue (50-outbox.sql, #194), and
 -- ai_reserve, ai_settle, ai_release, ai_settle_lost (ai/50-ai.sql, #205) and ai_audit_purge
 -- (#331), and exports_purge_expired (exports/60-exports.sql, #333), and admin_account_disable,
--- admin_account_enable and admin_account_delete (maint/70-admin-accounts.sql, #314), are
--- admitted here by name, and no other function is.
+-- admin_account_enable and admin_account_delete (maint/70-admin-accounts.sql, #314) and
+-- admin_account_revoke (#365), are admitted here by name, and no other function is.
 -- Their bodies are pinned by digest with the queue functions (ownvitals/db/queue_digests.py;
 -- the outbox's in ownvitals/db/outbox_digests.py).
 DO $$
@@ -223,6 +225,7 @@ BEGIN
       FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE NOT (n.nspname = 'public' AND p.proname IN ('queue_claim', 'queue_reap', 'queue_stats',
             'queue_enqueue', 'queue_cancel_for_secret', 'queue_replay', 'queue_schedule',
+            'queue_enqueue_admin_revoke',
             'ensure_month_partitions', 'webhook_secrets_apply', 'webhook_event_insert',
             'webhook_events_purge_owner', 'webhook_events_purge_account',
             'metrics_withings_aggregates', 'metrics_webhook_ages',
@@ -230,7 +233,8 @@ BEGIN
             'mail_outbox_claim', 'mail_outbox_mark', 'owner_notice_queue',
             'ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost', 'ai_audit_purge',
             'exports_purge_expired',
-            'admin_account_disable', 'admin_account_enable', 'admin_account_delete'))
+            'admin_account_disable', 'admin_account_enable', 'admin_account_delete',
+            'admin_account_revoke'))
        AND (p.oid >= 16384 OR n.nspname = 'public'
             OR (n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                 AND n.nspname !~ '^pg_(toast_)?temp_[0-9]+$'))
@@ -685,6 +689,43 @@ BEGIN
   RETURN v_done;
 END $$;
 
+-- The admin delete's Withings revoke (PLAN section 4.3, ADR 0002 section 3, amended 2026-11-10,
+-- #365): one queued withings_admin_revoke job for an owner with a live connection, NULL for
+-- one without. Its only caller is admin_account_revoke (70-admin-accounts.sql), the only role
+-- that may execute it, which has already checked the audited admin transaction, the target and
+-- the address, and passes the audit row's actor as p_admin. The job carries no credential: the
+-- admin and the stepped-up session, which its handler checks again before it revokes. One
+-- attempt (a revoke that did not finish cannot be retried once the delete purged the row), lane
+-- 1 (user work), origin operator (no idempotency key), under queue_enqueue's owner lock.
+CREATE OR REPLACE FUNCTION public.queue_enqueue_admin_revoke(
+    p_owner uuid, p_admin uuid, p_session uuid)
+  RETURNS uuid
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  IF p_owner IS NULL OR p_admin IS NULL OR p_session IS NULL OR p_admin = p_owner THEN
+    RAISE EXCEPTION 'invalid enqueue' USING ERRCODE = '22023';
+  END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(1, pg_catalog.hashtext(p_owner::text));
+  IF NOT EXISTS (SELECT FROM public.connections c
+                  WHERE c.owner_id = p_owner AND c.status <> 'disconnected') THEN
+    RETURN NULL;
+  END IF;
+  v_id := pg_catalog.gen_random_uuid();
+  INSERT INTO public.jobs (
+      id, owner_id, kind, origin, lane, state, input, max_attempts, next_seq, available_at)
+  VALUES (
+      v_id, p_owner, 'withings_admin_revoke', 'operator', 1, 'queued',
+      pg_catalog.jsonb_build_object('admin_id', p_admin, 'session_id', p_session), 1, 1, now());
+  INSERT INTO public.job_events (owner_id, job_id, seq, kind, payload, lease_version)
+  VALUES (p_owner, v_id, 1, 'queued', '{}'::jsonb, 0);
+  PERFORM pg_catalog.pg_notify('job_events', v_id::text);
+  PERFORM pg_catalog.pg_notify('jobs_queued', '');
+  RETURN v_id;
+END $$;
+
 -- Owner, ACL and version of each function. Every grantee but the owner is revoked first, so the
 -- ACL ends exactly {ownvitals_queue=X/ownvitals_queue, ownvitals_app=X/ownvitals_queue}, plus
 -- the ingest role on queue_enqueue once 40-withings.sql has run (below).
@@ -725,3 +766,27 @@ BEGIN
       TO ownvitals_webhook_events;
   END IF;
 END $$;
+
+-- queue_enqueue_admin_revoke (#365): the queue's owner and version, but not its ACL. Every
+-- grantee but the owner and ownvitals_admin_accounts goes: 70-admin-accounts.sql grants that
+-- role EXECUTE, and this script run again on its own keeps that grant, so the admin delete never
+-- loses its revoke. The queue check and guard 2 require exactly that ACL once the admin account
+-- family exists, and the owner's alone before.
+ALTER FUNCTION public.queue_enqueue_admin_revoke(uuid, uuid, uuid) OWNER TO ownvitals_queue;
+REVOKE ALL ON FUNCTION public.queue_enqueue_admin_revoke(uuid, uuid, uuid) FROM PUBLIC;
+DO $$
+DECLARE
+  g record;
+BEGIN
+  FOR g IN SELECT DISTINCT a.grantee::regrole::text AS grantee, a.grantor::regrole::text AS grantor
+             FROM pg_catalog.pg_proc p, aclexplode(p.proacl) a
+            WHERE p.oid = 'public.queue_enqueue_admin_revoke(uuid,uuid,uuid)'::regprocedure
+              AND a.grantee <> 0 AND a.grantee <> p.proowner
+              AND a.grantee::regrole::text <> 'ownvitals_admin_accounts' LOOP
+    EXECUTE format('SET LOCAL ROLE %s', g.grantor);
+    EXECUTE format('REVOKE ALL ON FUNCTION public.queue_enqueue_admin_revoke(uuid, uuid, uuid) '
+                   'FROM %s CASCADE', g.grantee);
+    EXECUTE 'RESET ROLE';
+  END LOOP;
+END $$;
+COMMENT ON FUNCTION public.queue_enqueue_admin_revoke(uuid, uuid, uuid) IS 'ownvitals-queue v2';
