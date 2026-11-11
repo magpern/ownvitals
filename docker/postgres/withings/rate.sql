@@ -74,7 +74,8 @@ BEGIN
   INSERT INTO public.withings_rate_demand (
       app_id, account_id, lane, seen_at, window_grants, window_started)
   VALUES (p_app_id, p_account_id, p_lane, v_now, 0, v_now)
-  ON CONFLICT (app_id, account_id, lane) DO UPDATE SET seen_at = EXCLUDED.seen_at;
+  ON CONFLICT (app_id, account_id, lane) DO UPDATE
+    SET seen_at = GREATEST(public.withings_rate_demand.seen_at, EXCLUDED.seen_at);
 
   DELETE FROM public.withings_rate_demand d
    WHERE d.app_id = p_app_id AND d.seen_at < v_now - interval '2 minutes';
@@ -165,7 +166,7 @@ BEGIN
      SET remaining = v_remaining - 1
    WHERE b.app_id = p_app_id;
   UPDATE public.withings_rate_demand d
-     SET granted_at = v_now,
+     SET granted_at = GREATEST(d.granted_at, v_now),
          window_grants = CASE
            WHEN d.window_started <= v_now - interval '60 seconds' THEN 1
            ELSE d.window_grants + 1 END,

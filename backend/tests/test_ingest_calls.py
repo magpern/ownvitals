@@ -7,12 +7,14 @@ The unit tests script the limiter's answers; the database tests use the real lim
 import asyncio
 import functools
 import json
+import re
 import time
 import uuid
 from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -34,6 +36,7 @@ from ownvitals.withings.errors import Transient
 from withingsschema import new_app
 
 ACCOUNT = Account(uuid.uuid4(), 7, ("user.metrics",), "UTC", "synthetic-token")
+REPO = Path(__file__).resolve().parents[2]
 GRANTED = rate.Claim(granted=True, lease_id=None, retry_at=None, reason="granted")
 CALLS = 3  # Withings calls per backfill job in the fan-out test
 
@@ -134,6 +137,20 @@ async def test_each_wait_is_floored_and_capped(monkeypatch: pytest.MonkeyPatch) 
     assert clock.slept[0] == pytest.approx(0.2)
     assert clock.slept[1] == pytest.approx(5.0)
     assert clock.slept[2] == pytest.approx(5.0)
+
+
+def test_the_longest_wait_stays_inside_the_window_a_waiting_lane_stays_live() -> None:
+    """``rate.sql`` keeps a waiting lane live for 10 s after its last ask; no wait of ``_take``,
+    jitter included, may reach that, or the lane drops out between its asks."""
+    sql = (REPO / "docker" / "postgres" / "withings" / "rate.sql").read_text(encoding="utf-8")
+    windows = set(re.findall(r"seen_at >= v_now - interval '(\d+) seconds'", sql))
+    assert windows == {"10"}
+    longest = max(
+        calls._step(datetime.now(UTC) + timedelta(hours=1), asked, calls._JITTER_MAX)
+        for asked in range(9)
+    )
+    assert longest == calls._STEP_CAP
+    assert longest * 2 <= int(windows.pop())
 
 
 async def test_waits_back_off_and_are_jittered(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -403,3 +420,27 @@ async def test_a_backfill_fan_out_on_one_account_spends_no_attempt_on_the_limite
     spent = before - _remaining(database_url, app_id)
     refill = elapsed * 100 / 60
     assert CALLS * len(jobs) - refill - 0.5 <= spent <= CALLS * len(jobs) + 0.5
+
+
+async def test_a_wait_is_never_below_the_limiters_retry_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _script(monkeypatch, [_refused("busy", 3.0), GRANTED])
+    clock = _Clock()
+    await calls._take(cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock, jitter=_NONE)
+    assert clock.slept[0] == pytest.approx(3.0, abs=0.2)
+
+
+async def test_the_default_jitter_only_stretches_a_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    _script(monkeypatch, [_refused("busy"), GRANTED])
+    bounds: list[tuple[float, float]] = []
+
+    def uniform(low: float, high: float) -> float:
+        bounds.append((low, high))
+        return high
+
+    monkeypatch.setattr(calls.random, "uniform", uniform)
+    clock = _Clock()
+    await calls._take(cast(JobRun, _Job()), ACCOUNT, rate.LANE_BACKFILL, sleep=clock)
+    assert bounds == [(1.0, 1.25)]
+    assert clock.slept[0] > 0.2

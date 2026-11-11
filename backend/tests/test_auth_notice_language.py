@@ -3,7 +3,8 @@
 Every security notice uses the recipient's stored ``users.locale`` when it is sent, otherwise the
 request's language (``Accept-Language`` here), otherwise ``en``: email changed, identity linked
 (link, Google sign-up and the hand-off confirmation), passkey added and suspended, QR login
-approved, TOTP enrolled and failed second factors (at sign-in and at a QR approval). The lookup
+approved, TOTP enrolled and failed second factors (at sign-in, at a TOTP enrolment and at a QR
+approval). The lookup
 is ``auth/recipients.py`` (guard 8); the texts stay in the fixed per-locale tables.
 
 Synthetic accounts only; mail goes to the in-process SMTP fake, Google is ``oidcfake``.
@@ -127,6 +128,19 @@ async def _four_failures(env: Env) -> None:
         "INSERT INTO auth_events (user_id, kind) SELECT id, 'mfa_failed' FROM users, "
         "generate_series(1, 4)"
     )
+
+
+@pytest.mark.parametrize(("stored", "header", "expected"), CASES)
+async def test_the_mfa_failures_notice_at_a_totp_enrolment(
+    menv: Env, smtp: SmtpFake, stored: str | None, header: str | None, expected: str
+) -> None:
+    browser = await signed_in(menv, second_factor=False)
+    started = (await browser.post("/api/auth/mfa/totp/start")).json()
+    await _four_failures(menv)
+    await _set(menv, stored, header)
+    body = {"pending": started["pending"], "code": "000000"}
+    assert (await browser.post("/api/auth/mfa/totp/confirm", body)).status_code == 400
+    await _expect(smtp, EMAIL, "mfa_failures", expected)
 
 
 @pytest.mark.parametrize(("stored", "header", "expected"), CASES)

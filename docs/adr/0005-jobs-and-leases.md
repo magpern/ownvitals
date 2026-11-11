@@ -453,8 +453,10 @@ past the per-call wait bound of `ingest/calls.py` (60 s), so a backfill failed a
   10 s **and** has not been granted since (`granted_at IS NULL OR seen_at > granted_at`), plus
   the caller's own row (its clock is read before it waits on the bucket row, so a parallel
   stream of the same row may have been granted after it). 10 s is twice the longest re-ask of
-  `_take` (5 s, stretched by up to 25 % of jitter), so a waiting lane never drops out between
-  its asks. The highest live lane wins; the same lane stays round-robin by `granted_at`.
+  `_take` (at most 5 s: the jitter is applied before the cap), so a waiting lane never drops
+  out between its asks. A claim never moves `seen_at` or `granted_at` backwards (`GREATEST`; it
+  reads its clock before waiting on the bucket row), so a delayed sibling cannot make a served
+  row look live. The highest live lane wins; the same lane stays round-robin by `granted_at`.
 - **The backfill share** uses the same liveness for the other account: one account's backfill is
   held at a quarter of the budget only while another account's backfill is live and under its
   share. The set of candidates is therefore never empty (the caller is in it, and a capped
