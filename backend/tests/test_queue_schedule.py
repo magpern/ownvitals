@@ -210,6 +210,30 @@ def test_an_import_holds_only_its_own_connection(admin: Connection, app: Engine)
     assert [row.kind for row in jobs_for(admin, other)] == ["withings_poll"]
 
 
+def test_another_owners_import_naming_the_same_connection_does_not_hold_it(
+    admin: Connection, app: Engine
+) -> None:
+    """The hold is per owner: a job of another owner that names this connection id holds nothing."""
+    _, live = connection_row(admin)
+    stranger = uuid.uuid4()
+    ensure_user(admin, stranger)
+    import_job(admin, stranger, live, "withings_backfill", "queued")
+    assert schedule(app, "withings_poll") == 1
+    assert [row.kind for row in jobs_for(admin, live) if row.owner_id != stranger] == [
+        "withings_poll"
+    ]
+
+
+def test_an_import_naming_another_connection_does_not_hold_this_one(
+    admin: Connection, app: Engine
+) -> None:
+    """The hold is per connection: the owner's import of some other connection holds nothing."""
+    owner, live = connection_row(admin)
+    import_job(admin, owner, uuid.uuid4(), "withings_backfill", "queued")
+    assert schedule(app, "withings_poll") == 1
+    assert [row.kind for row in jobs_for(admin, live)] == ["withings_poll"]
+
+
 def test_another_owners_job_does_not_make_a_connection_look_scheduled(
     admin: Connection, app: Engine
 ) -> None:
