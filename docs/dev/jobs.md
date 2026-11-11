@@ -154,7 +154,10 @@ is not waited out inside the attempt, because it lasts minutes.
 Only live demand competes in the limiter (ADR 0005 §8, amended #370): a lane and account that
 asked within 10 s and has not been granted since, or the caller itself. A served lane holds
 nothing, so a higher lane between its calls never stalls a lower one; `_STEP_CAP` (5 s; the
-jitter is applied before the cap, so no wait is longer) must stay under those 10 s, or a waiting lane drops out between its asks.
+jitter is applied before the cap, so no wait is longer) must stay under those 10 s, or a waiting
+lane drops out between its asks. A claim reads its clock before it waits on the bucket row, so it
+never moves `seen_at` or `granted_at` backwards: a delayed sibling cannot make a served row look
+live again.
 
 ## The worker
 

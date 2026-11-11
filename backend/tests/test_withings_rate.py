@@ -339,6 +339,42 @@ def test_a_claim_never_moves_the_last_ask_backwards(
     assert kept == later
 
 
+def test_a_delayed_sibling_granted_last_leaves_the_row_served(
+    schema: None, database_url: str, app_database_url: str
+) -> None:
+    """Sibling B (later clock) is granted first, then the delayed A: the row must not read as
+    live demand, so another account's lower lane is granted."""
+    app_id = _seed(database_url, budget=8)
+    account, other = uuid.uuid4(), uuid.uuid4()
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        first = claim(conn, app_id, account, LANE_SYNC_NOW)
+        assert first.lease_id is not None
+        release(conn, first.lease_id)
+    with engine_for(database_url) as engine, engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE withings_rate_demand SET seen_at = clock_timestamp() + interval "
+                "'2 seconds', granted_at = clock_timestamp() + interval '2 seconds' "
+                "WHERE account_id = :account"
+            ),
+            {"account": account},
+        )
+    with engine_for(app_database_url) as engine, engine.begin() as conn:
+        late = claim(conn, app_id, account, LANE_SYNC_NOW)
+        assert late.lease_id is not None
+        release(conn, late.lease_id)
+        got = claim(conn, app_id, other, LANE_BACKFILL)
+        assert got.granted
+        assert got.lease_id is not None
+        release(conn, got.lease_id)
+    with engine_for(database_url) as engine, engine.begin() as conn:
+        live = conn.execute(
+            text("SELECT seen_at > granted_at FROM withings_rate_demand WHERE account_id = :a"),
+            {"a": account},
+        ).scalar_one()
+    assert live is False
+
+
 def test_the_caller_is_always_asking(
     schema: None, database_url: str, app_database_url: str
 ) -> None:

@@ -166,7 +166,7 @@ BEGIN
      SET remaining = v_remaining - 1
    WHERE b.app_id = p_app_id;
   UPDATE public.withings_rate_demand d
-     SET granted_at = v_now,
+     SET granted_at = GREATEST(d.granted_at, v_now),
          window_grants = CASE
            WHEN d.window_started <= v_now - interval '60 seconds' THEN 1
            ELSE d.window_grants + 1 END,
