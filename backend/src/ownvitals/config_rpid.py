@@ -4,7 +4,8 @@
 An address is never a relying-party id. Besides what ``ipaddress`` parses, a browser's URL parser
 (WHATWG "ends in a number") reads a host whose last label is a decimal or ``0x`` number as IPv4:
 ``0x7f.0x1`` is ``127.0.0.1``. Such a host counts as an address here too. ``localhost`` (and its
-subdomains) is for local development only and is refused in ``prod``.
+subdomains) and the other loopback names are for local development only and are refused in
+``prod``, whatever their case and with or without trailing dots (``LOCALHOST``, ``localhost.``).
 """
 
 import re
@@ -30,8 +31,23 @@ def _is_address(host: str) -> bool:
     return _is_ip(host) or ends_in_a_number(host)
 
 
+# Names that resolve to the loopback interface besides ``localhost`` and ``*.localhost`` (RFC 6761
+# section 6.3): the usual ``/etc/hosts`` aliases.
+_LOOPBACK_NAMES = frozenset(
+    {
+        "localhost.localdomain",
+        "ip6-localhost",
+        "ip6-loopback",
+        "localhost6",
+        "localhost6.localdomain6",
+    }
+)
+
+
 def _is_localhost(rp_id: str) -> bool:
-    return rp_id == "localhost" or rp_id.endswith(".localhost")
+    """A loopback name, compared case-blind and with trailing dots stripped, as a resolver does."""
+    name = rp_id.lower().rstrip(".")
+    return name == "localhost" or name.endswith(".localhost") or name in _LOOPBACK_NAMES
 
 
 def check_rp_id(public_base_url: str, rp_id: str | None, environment: str = "dev") -> None:
