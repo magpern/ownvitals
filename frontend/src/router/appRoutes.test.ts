@@ -10,7 +10,7 @@ const IDS = (): RouteId[] => APP_ROUTES.map((route) => route.id)
 describe('the routes of the app', () => {
   it('are the information architecture of the design, one entry each', () => {
     expect(APP_ROUTES.map((route) => route.pattern)).toEqual([
-      '/',
+      '/overview',
       '/body',
       '/heart',
       '/nerve',
@@ -77,7 +77,7 @@ describe('the routes of the app', () => {
 
 describe('matchAppRoute', () => {
   it.each([
-    ['/', 'overview'],
+    ['/overview', 'overview'],
     ['/body', 'body'],
     ['/heart', 'heart'],
     ['/nerve', 'nerve'],

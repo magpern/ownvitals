@@ -52,7 +52,7 @@ describe('sign-in with a password', () => {
       email: 'ann@example.test',
       password: 'correct horse battery',
     })
-    expect(here()).toBe('/')
+    expect(here()).toBe('/overview')
   })
 
   it('goes on to the page the user came from', async () => {

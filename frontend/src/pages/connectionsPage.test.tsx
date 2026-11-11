@@ -200,7 +200,7 @@ describe('Onboarding', () => {
     )
     expect(await screen.findByRole('heading', { name: 'Importing your history' })).toBeInTheDocument()
     expect(screen.getByText(/40/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Go to the overview' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Go to the overview' })).toHaveAttribute('href', '/overview')
   })
 
   it('says the history is imported once nothing is importing', async () => {

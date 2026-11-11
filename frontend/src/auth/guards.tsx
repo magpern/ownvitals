@@ -9,7 +9,7 @@ import { useSession } from './SessionContext'
 // belong with a replace, so the back button does not return to a page they may not see. The
 // server enforces the same rules on every request; these only keep the screens honest.
 
-function Redirect({ to }: { to: string }) {
+export function Redirect({ to }: { to: string }) {
   const { navigate } = useRouter()
   useEffect(() => {
     navigate(to, { replace: true })

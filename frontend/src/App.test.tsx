@@ -17,7 +17,7 @@ describe('the page frame', () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
     window.history.replaceState(null, '', '/')
     render(<App />)
-    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/')
+    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/overview')
   })
 
   it('offers sign in and sign up to a signed-out visitor', async () => {
@@ -34,6 +34,13 @@ describe('the page frame', () => {
     renderAt('/')
     const menu = await openAccountMenu()
     expect(within(menu).getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument()
+  })
+
+  it('sends the app\'s own / to the overview, keeping the query (the public home owns / on the server)', async () => {
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN })
+    renderAt('/?range=90d')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument()
+    expect(here()).toBe('/overview?range=90d')
   })
 
   it('shows the overview for a signed-in user: the page header and what needs a look', async () => {
@@ -92,7 +99,7 @@ describe('signing out', () => {
     renderAt('/')
     fireEvent.click(within(await openAccountMenu()).getByRole('menuitem', { name: 'Sign out' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/went wrong on the server/)
-    expect(here()).toBe('/')
+    expect(here()).toBe('/overview')
     // Still signed in: the account menu opens again, with Sign out in it.
     expect(within(await openAccountMenu()).getByRole('menuitem', { name: 'Sign out' })).toBeEnabled()
   })

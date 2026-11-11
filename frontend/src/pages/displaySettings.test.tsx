@@ -54,7 +54,7 @@ describe('the saved units and date format', () => {
 
   it('shows the overview tile in pounds too', async () => {
     fakeApi({ ...SESSION, ...OVERVIEW, 'GET /api/profile': fakeProfile({ weight_unit: 'lb' }) })
-    renderAt('/')
+    renderAt('/overview')
     expect(await screen.findByText('lb')).toBeInTheDocument()
   })
 })
@@ -82,7 +82,7 @@ describe('the saved range', () => {
 
   it('starts the overview on the saved range when the address has none', async () => {
     const api = fakeApi({ ...SESSION, ...OVERVIEW, 'GET /api/profile': fakeProfile({ chart_range: '1y' }) })
-    renderAt('/')
+    renderAt('/overview')
     await waitFor(() => expect(api.calls.map((c) => c.path)).toContain('/api/metrics?range=1y'))
   })
 })

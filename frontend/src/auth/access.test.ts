@@ -37,12 +37,12 @@ describe('pathFor and withReturnTo', () => {
     expect(pathFor('anonymous')).toBe('/signin')
     expect(pathFor('enrol')).toBe('/two-factor/setup')
     expect(pathFor('challenge')).toBe('/two-factor')
-    expect(pathFor('ready')).toBe('/')
+    expect(pathFor('ready')).toBe('/overview')
   })
 
   it('adds an encoded return_to, and none for the home page or nothing', () => {
     expect(withReturnTo('/signin', '/a?b=1#c')).toBe('/signin?return_to=%2Fa%3Fb%3D1%23c')
-    expect(withReturnTo('/signin', '/')).toBe('/signin')
+    expect(withReturnTo('/signin', '/overview')).toBe('/signin')
     expect(withReturnTo('/signin', null)).toBe('/signin')
   })
 })
