@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, configure } from '@testing-library/react'
-import { afterEach } from 'vitest'
+import { afterEach, beforeEach } from 'vitest'
+import { COOKIE_NOTICE_KEY, COOKIE_NOTICE_VERSION } from '../components/notice/cookieNoticeStore'
 import { networkGuard } from './networkGuard'
 
 // The first render of the whole app in a test file is slow on a loaded machine (cold JIT, CI
@@ -12,6 +13,13 @@ configure({ asyncUtilTimeout: 5000 })
 // XMLHttpRequest, WebSocket, EventSource and navigator.sendBeacon refuse, and the test fails after
 // it ends even if the code under test caught the refusal.
 networkGuard.install()
+
+// The first-visit cookie notice is a dialog; every test starts as a visitor who has seen it, and
+// its own test file clears the key.
+beforeEach(() => {
+  // Some files run in the node environment, with no window.
+  if (typeof window !== 'undefined') window.localStorage.setItem(COOKIE_NOTICE_KEY, COOKIE_NOTICE_VERSION)
+})
 
 // Vitest globals are off, so Testing Library cannot register its own cleanup.
 afterEach(() => {

@@ -17,4 +17,4 @@ När du öppnar appen (även inloggningssidan), loggar in eller börjar logga in
 | `__Host-ownvitals_pending` | Bär ett pågående registreringssteg (HttpOnly) | 24 timmar |
 | `__Host-ownvitals_pre` | Bär steget innan en session finns (HttpOnly) | 5 minuter |
 
-Appen lagrar också ditt val av ljust/mörkt tema i webbläsarens lokala lagring (nyckel `ownvitals.theme`) och ditt språkval (nyckel `ov-locale`); det är inställningar som ligger på din enhet och aldrig skickas till oss. Du kan radera cookies och webbplatsdata i webbläsaren; du loggas då ut. [Ägaren: bekräfta att appen inte lagrar något annat i webbläsaren före publicering.]
+Appen lagrar också ditt val av ljust/mörkt tema i webbläsarens lokala lagring (nyckel `ownvitals.theme`), ditt språkval (nyckel `ov-locale`) och att du har sett cookie-informationen (nyckel `ownvitals.cookie-notice`, värdet är ett versionsnummer); det är inställningar som ligger på din enhet och aldrig skickas till oss. Du kan radera cookies och webbplatsdata i webbläsaren; du loggas då ut. [Ägaren: bekräfta att appen inte lagrar något annat i webbläsaren före publicering.]

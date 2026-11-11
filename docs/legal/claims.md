@@ -28,7 +28,7 @@ owner must confirm it. Nothing here is approved.
 | 19 | Health data is special-category data; explicit consent Art. 9(2)(a); privacy notice, DPIA, processor agreements, transfer check, 72 h breach procedure are M8 gate items (privacy 4-5, security) | PLAN-operations §9.3; PLAN D7; ADR 0016 item 6 |
 | 20 | No analytics, ads, tracking, third-party content; public pages set no cookies, no JavaScript (cookies, privacy 5) | ADR 0016 §1, §5 (Decision, "no Set-Cookie", "No analytics"); `public_site.py` |
 | 21 | Cookie names, attributes (`__Host-`, Secure, no Domain, HttpOnly/SameSite) and lifetimes (cookies) | `backend/src/ownvitals/auth/cookies.py:11-27,33-85` (session 30 d via `session_absolute_days`; device 365 d; csrf 30 d, JS-readable, SameSite Strict; oauth 10 min; pending 24 h; pre 5 min) |
-| 22 | Theme choice in localStorage `ownvitals.theme` and language choice `ov-locale` (cookies) | `frontend/src/theme/theme.ts:5,17,27-38`; `frontend/src/i18n/resolve.ts:8,37,45` |
+| 22 | Theme choice in localStorage `ownvitals.theme`, language choice `ov-locale` and the seen-notice marker `ownvitals.cookie-notice`; the first-visit notice is information only, as nothing non-essential is stored (cookies) | `frontend/src/theme/theme.ts:5,17,27-38`; `frontend/src/i18n/resolve.ts:8,37,45`; `frontend/src/components/notice/cookieNoticeStore.ts` |
 | 23 | Row-level security enforces per-user ownership (security) | AGENTS.md "Security rules" (owner_id, forced RLS); ADR 0002 |
 | 24 | Logs are designed not to contain measurement values, tokens, webhook secrets (security) | AGENTS.md "Health data" (log-redaction tests) |
 | 25 | Webhooks verified and only a trigger to fetch (security) | AGENTS.md "Security rules"; PLAN §4.4; ADR 0004 |

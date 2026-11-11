@@ -2,6 +2,7 @@ import { Redirect, RequireReady, RequireSignedOut } from './auth/guards'
 import { HOME_PATH, accessOf, isAdmin } from './auth/access'
 import { SessionProvider, useSession } from './auth/SessionContext'
 import { PlainFrame } from './components/PlainFrame'
+import { CookieNotice } from './components/notice/CookieNotice'
 import { StepUpProvider } from './components/StepUp'
 import { AppFrame } from './components/shell/AppFrame'
 import { AppPage } from './pages/appPages'
@@ -132,6 +133,7 @@ export function App() {
       <SessionProvider>
         <StepUpProvider>
           <Routes />
+          <CookieNotice />
         </StepUpProvider>
       </SessionProvider>
     </RouterProvider>

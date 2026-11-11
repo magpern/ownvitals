@@ -62,4 +62,9 @@ export const shell = {
   'route.data.later': 'Export och radering kommer i M6.',
   'route.admin.title': 'Administration',
   'route.admin.later': 'Administrationssidorna kommer senare.',
+  'cookies.title': 'Cookies och lokal lagring',
+  'cookies.text':
+    'ownvitals använder bara det som behövs för att hålla dig inloggad och komma ihåg ditt tema och språk. Det finns ingen spårning och ingen reklam, så det finns inget att godkänna.',
+  'cookies.link': 'Läs cookiepolicyn',
+  'cookies.ok': 'Uppfattat',
 } satisfies Record<keyof typeof en, string>

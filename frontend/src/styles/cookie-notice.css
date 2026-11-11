@@ -1,0 +1,27 @@
+/* The first-visit cookie notice (components/notice/CookieNotice.tsx): fixed, so it moves nothing;
+   no animation, so reduced motion needs no special case. */
+
+.cookie-notice {
+  position: fixed;
+  right: var(--ov-space-4);
+  bottom: calc(var(--ov-space-4) + env(safe-area-inset-bottom));
+  left: var(--ov-space-4);
+  z-index: 50;
+  max-width: 32rem;
+  margin-inline: auto;
+  padding: var(--ov-space-4);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-md);
+  background: var(--ov-surface);
+  color: inherit;
+}
+
+.cookie-notice__title {
+  margin: 0 0 var(--ov-space-2);
+  font-size: var(--ov-text-md);
+}
+
+.cookie-notice__text {
+  margin: 0 0 var(--ov-space-3);
+  font-size: var(--ov-text-sm);
+}

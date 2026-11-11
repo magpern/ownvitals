@@ -116,3 +116,14 @@ describe('mail-link pages', () => {
     expect(screen.getByRole('button', { name: 'Change password' })).toBeInTheDocument()
   })
 })
+
+describe('the cookie notice in the app', () => {
+  it('shows on a first visit, anywhere in the app, and is gone once seen', async () => {
+    fakeApi({})
+    window.localStorage.removeItem('ownvitals.cookie-notice')
+    renderAt('/signin')
+    const dialog = await screen.findByRole('dialog', { name: 'Cookies and local storage' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Got it' }))
+    expect(screen.queryByRole('dialog', { name: 'Cookies and local storage' })).toBeNull()
+  })
+})

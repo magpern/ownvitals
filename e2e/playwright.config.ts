@@ -28,6 +28,12 @@ export default defineConfig({
     locale: 'en-GB',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // Every context starts as a visitor who has seen the cookie notice (it sits over the page
+    // and would intercept clicks); cookie-notice.spec.ts starts from an empty state instead.
+    storageState: {
+      cookies: [],
+      origins: [{ origin: base, localStorage: [{ name: 'ownvitals.cookie-notice', value: '1' }] }],
+    },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 })
