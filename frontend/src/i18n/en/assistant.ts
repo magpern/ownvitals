@@ -26,10 +26,11 @@ export const assistant = {
   // Issue 209: the weekly digest, under the conversations.
   'digest.title': 'Weekly summary',
   'digest.toggle': 'Write a weekly summary',
-  'digest.help': "Once a week the assistant summarises the last week of your data. It is covered by your AI consent and counts toward this month's AI budget.",
+  'digest.help': "Once a week the assistant summarises the last week of your data. It is covered by your AI consent and counts toward this month's AI budget. You get an email when a summary is ready.",
   'digest.empty': 'No weekly summary yet.',
   'digest.week': 'Week of {date}',
   'digest.skipped': "This week's summary was skipped: this month's AI budget for your account was used up.",
+  'digest.skippedUntil': "This week's summary was skipped: this month's AI budget for your account was used up. It resets on {date}.",
   'digest.unavailable': "This week's summary couldn't be written.",
   'digest.loadFailed': "The weekly summaries couldn't be loaded.",
 }

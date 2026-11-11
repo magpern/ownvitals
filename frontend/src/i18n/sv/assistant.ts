@@ -25,10 +25,11 @@ export const assistant = {
   'delete.done': 'Samtalet är raderat.',
   'digest.title': 'Veckosammanfattning',
   'digest.toggle': 'Skriv en veckosammanfattning',
-  'digest.help': 'En gång i veckan sammanfattar assistenten den senaste veckans data. Den omfattas av ditt AI-samtycke och räknas mot månadens AI-budget.',
+  'digest.help': 'En gång i veckan sammanfattar assistenten den senaste veckans data. Den omfattas av ditt AI-samtycke och räknas mot månadens AI-budget. Du får ett e-postmeddelande när en sammanfattning är klar.',
   'digest.empty': 'Ingen veckosammanfattning än.',
   'digest.week': 'Veckan från {date}',
   'digest.skipped': 'Veckans sammanfattning hoppades över: månadens AI-budget för ditt konto var förbrukad.',
+  'digest.skippedUntil': 'Veckans sammanfattning hoppades över: månadens AI-budget för ditt konto var förbrukad. Den återställs {date}.',
   'digest.unavailable': 'Veckans sammanfattning kunde inte skrivas.',
   'digest.loadFailed': 'Veckosammanfattningarna kunde inte läsas in.',
 } satisfies Record<keyof typeof en, string>

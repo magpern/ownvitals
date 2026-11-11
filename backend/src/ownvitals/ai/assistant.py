@@ -15,9 +15,9 @@ One run, for the job's user only (``job.ctx``; every statement also names the ow
 3. **Store** the answer in the job's final fenced transaction (``Complete(store)``), which a
    cancel requested meanwhile replaces by ``cancelled``. The store first reads the live consent
    ``FOR SHARE NOWAIT`` (``consent.require_consent``): a withdrawal that holds the row, or has
-   committed, means nothing is stored (``ai_not_enabled``); otherwise the withdrawal waits for
-   this commit and then deletes the answer. Then the conversation row (``FOR UPDATE``; gone:
-   ``invalid_input``), the answer and the conversation's ``updated_at``.
+   committed, means nothing is stored (the job ends ``cancelled``); otherwise the withdrawal
+   waits for this commit and then deletes the answer. Then the conversation row
+   (``FOR UPDATE``; gone: ``invalid_input``), the answer and the conversation's ``updated_at``.
 
 The model's text is stored as it is (plain text, rendered as text by the browser); an answer the
 ``ai_messages`` check would refuse is not cut short but refused (``ai_unavailable``).
@@ -43,6 +43,7 @@ from ownvitals.ai.gates import ModelFailed, ModelRefused
 from ownvitals.ai.turn import run_turn
 from ownvitals.config import Settings
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
+from ownvitals.jobs.errors import RunStopped
 from ownvitals.jobs.fence import FencedSession
 from ownvitals.jobs.run import JobRun
 
@@ -84,7 +85,9 @@ def _store(
     async def store(fs: FencedSession) -> None:
         try:
             await consent.require_consent(fs.db, owner, nowait=True)
-        except consent.AiNotEnabled:
+        except consent.AiNotEnabled as refused:
+            if refused.reason == "no_consent":  # withdrawn, or a withdrawal holds the row
+                raise RunStopped("cancelled") from None
             raise JobFailure("ai_not_enabled") from None
         params = {"o": owner, "c": conversation_id}
         if (await fs.db.execute(_LOCK, params)).first() is None:

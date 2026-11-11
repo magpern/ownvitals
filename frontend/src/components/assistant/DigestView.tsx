@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getDigest, setDigestEnabled, type Digest, type DigestState } from '../../api/digest'
+import { getBudget } from '../../api/assistant'
 import { errorMessage } from '../../api/messages'
 import { useT } from '../../i18n'
 import { useFormat } from '../../i18n/useFormat'
@@ -15,7 +16,7 @@ import { MessageText } from './MessageText'
 // failed week shows one quiet sentence. No nudge, no count of unread digests: the mail ("your
 // weekly summary is waiting") links to this page and says nothing else.
 
-function DigestItem({ digest }: { digest: Digest }) {
+function DigestItem({ digest, resetsOn }: { digest: Digest; resetsOn: string | null }) {
   const t = useT()
   const f = useFormat()
   return (
@@ -27,7 +28,13 @@ function DigestItem({ digest }: { digest: Digest }) {
           <p className="ov-muted">{t('assistant.label')}</p>
         </>
       ) : (
-        <p className="ov-muted">{t(digest.status === 'skipped_budget' ? 'assistant.digest.skipped' : 'assistant.digest.unavailable')}</p>
+        <p className="ov-muted">
+          {digest.status !== 'skipped_budget'
+            ? t('assistant.digest.unavailable')
+            : resetsOn !== null
+              ? t('assistant.digest.skippedUntil', { date: f.day(resetsOn) })
+              : t('assistant.digest.skipped')}
+        </p>
       )}
     </article>
   )
@@ -38,6 +45,9 @@ export function DigestView() {
   const [state, setState] = useState<DigestState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // The reset date of the month's budget, only while it is used up: it is the date a skipped
+  // week's reason ends. Best effort: without it the skipped sentence has no date.
+  const [resetsOn, setResetsOn] = useState<string | null>(null)
 
   const load = useCallback(() => {
     getDigest().then(
@@ -53,6 +63,14 @@ export function DigestView() {
 
   useEffect(() => {
     load()
+    getBudget().then(
+      (budget) => {
+        setResetsOn(budget.paused ? budget.resetsOn : null)
+      },
+      () => {
+        setResetsOn(null)
+      },
+    )
   }, [load])
 
   const flip = async (enabled: boolean) => {
@@ -86,7 +104,7 @@ export function DigestView() {
           {state.digests.length === 0 ? (
             <p className="ov-muted">{t('assistant.digest.empty')}</p>
           ) : (
-            state.digests.map((digest) => <DigestItem key={digest.weekStart} digest={digest} />)
+            state.digests.map((digest) => <DigestItem key={digest.weekStart} digest={digest} resetsOn={resetsOn} />)
           )}
         </>
       ) : null}

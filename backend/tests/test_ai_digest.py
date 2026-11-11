@@ -41,8 +41,10 @@ from fakemodel import Seen, status, tools
 from fakemodel import text as answer
 from ownvitals.ai import digest
 from ownvitals.ai.digest_model import DIGEST_KIND
+from ownvitals.connections.purge import purge_imported
 from ownvitals.db import user_session
-from ownvitals.jobs import JobFailure, JobRun
+from ownvitals.jobs import JobRun
+from ownvitals.jobs.errors import JobFailure, RunStopped
 from ownvitals.jobs.fence import Lease
 
 SYNTHETIC = True
@@ -266,14 +268,10 @@ async def test_the_store_does_not_wait_on_a_withdrawal_that_holds_the_consent_ro
         await withdrawing.execute(
             text("UPDATE ai_consents SET withdrawn_at = now() WHERE owner_id = :o"), {"o": who.id}
         )
-        refused: JobFailure | None = None
-        try:
+        with pytest.raises(RunStopped) as refused:  # a withdrawal is a cancel, not a failure
             async with asyncio.timeout(STORE_SECONDS), job.fenced() as fs:
                 await store(fs)
-        except JobFailure as failure:
-            refused = failure
-        assert refused is not None
-        assert refused.category == "ai_not_enabled"
+        assert refused.value.reason == "cancelled"
         await withdrawing.execute(
             text("SELECT id FROM jobs WHERE id = :j FOR UPDATE"), {"j": job.lease.job_id}
         )
@@ -286,10 +284,43 @@ async def test_the_store_refuses_after_a_committed_withdrawal(chat: ChatEnv) -> 
     job = _running(chat, await queue_digest(chat, who), who.id)
     sql("UPDATE ai_consents SET withdrawn_at = now() WHERE owner_id = :o", o=who.id)
     store = digest._store(who.id, WEEK, "ready", DIGEST_TEXT)  # pyright: ignore[reportPrivateUsage]
-    with pytest.raises(JobFailure) as refused:
+    with pytest.raises(RunStopped) as refused:
         async with job.fenced() as fs:
             await store(fs)
-    assert refused.value.category == "ai_not_enabled"
+    assert refused.value.reason == "cancelled"
+    assert digests(who.id) == []
+
+
+async def test_the_store_fails_the_job_on_an_outdated_consent(chat: ChatEnv) -> None:
+    """Only a withdrawal is a cancel; a consent for an older text still fails the job."""
+    who = await digest_user(chat, "synthetic-digest-r@example.com")
+    job = _running(chat, await queue_digest(chat, who), who.id)
+    sql(
+        "UPDATE ai_consents SET consent_version = consent_version + 1 WHERE owner_id = :o", o=who.id
+    )
+    store = digest._store(who.id, WEEK, "ready", DIGEST_TEXT)  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(JobFailure, match="ai_not_enabled"):
+        async with job.fenced() as fs:
+            await store(fs)
+    assert digests(who.id) == []
+
+
+async def test_delete_imported_data_waits_for_a_storing_digest_and_then_deletes_it(
+    chat: ChatEnv,
+) -> None:
+    """ "Delete imported data" takes the AI job rows before the digests (#355): a digest being
+    stored commits first and is then deleted, instead of surviving a purge that ran past its
+    table before the insert committed."""
+    who = await digest_user(chat, "synthetic-digest-q@example.com")
+    job = _running(chat, await queue_digest(chat, who), who.id)
+    store = digest._store(who.id, WEEK, "ready", DIGEST_TEXT)  # pyright: ignore[reportPrivateUsage]
+    purge: asyncio.Task[None] | None = None
+    async with job.fenced() as fs:
+        await store(fs)
+        purge = asyncio.create_task(purge_imported(chat.env.factory, make_context(who.id)))
+        await asyncio.sleep(1)  # the purge waits for the job row the store holds
+        assert not purge.done()
+    await asyncio.wait_for(purge, STORE_SECONDS)
     assert digests(who.id) == []
 
 

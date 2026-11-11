@@ -112,6 +112,22 @@ async def test_without_the_opt_in_nothing_is_queued_and_anothers_opt_in_does_not
     assert digest_jobs(bob.id) == []
 
 
+async def test_no_second_digest_is_queued_while_one_runs(chat: ChatEnv) -> None:
+    """The singleton collapses queued jobs only; a running one must not be followed by a second
+    that could bill the same week twice (#355)."""
+    who = await digest_user(chat, "synthetic-queue-r@example.com")
+    await run_notify_pass(chat, who)
+    (job,) = digest_jobs(who.id)
+    sql(
+        "UPDATE jobs SET state = 'running', attempt = 1, lease_version = 1, "
+        "leased_by = 'synthetic-worker', lease_expires_at = now() + interval '10 minutes', "
+        "heartbeat_at = now(), started_at = now() WHERE id = :j",
+        j=job.id,
+    )
+    await run_notify_pass(chat, who)
+    assert [j.state for j in digest_jobs(who.id)] == ["running"]
+
+
 async def test_a_week_already_stored_queues_nothing(chat: ChatEnv) -> None:
     alice = await digest_user(chat, "synthetic-queue-i@example.com")
     bob = await digest_user(chat, "synthetic-queue-j@example.com")

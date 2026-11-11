@@ -345,7 +345,7 @@ async def test_digest_consent(chat: ChatEnv) -> None:
             result, _, stored = await runs.run(a, [answer("Synthetic, must not be kept.")])
         finally:
             chat.fake.before = None
-        assert result == "failed"
+        assert result == "cancelled"
         assert stored == []
 
     async def withdrawn_between_tool_steps() -> None:
@@ -365,7 +365,7 @@ async def test_digest_consent(chat: ChatEnv) -> None:
             )
         finally:
             chat.fake.before = None
-        assert result == "failed"
+        assert result == "cancelled"
         assert stored == []
 
     async def consenting_again_starts_with_the_digest_off() -> None:

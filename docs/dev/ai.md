@@ -362,6 +362,13 @@ conversation), `ai_budget_exhausted` (the user's month is used up), `busy` (the 
 limit), then the chat limit `rate_limited` (`AI_CHAT_ACCOUNT`, 20 accepted messages per hour per
 user, ADR 0014 section 8; a refusal takes no slot).
 
+**Creating a conversation** has its own limit, `rate_limited` (`AI_CONVERSATION_ACCOUNT`, 30
+accepted creations per hour per user; `ratelimit.py`, reserved through `reserve_ai_conversation`
+after the consent check, so a refused creation takes no slot). ADR 0014 section 8 sets only the
+message limit; the owner delegated this value to the Architect (#352), who kept 30 per hour: it
+is above any real use (one conversation per topic) and low enough that a script cannot fill the
+history table. Changing it is a one-line edit of the `Limit`.
+
 ### One turn
 
 1. Read the conversation's newest 40 messages in a fenced transaction; the job's message must be
@@ -379,7 +386,7 @@ user, ADR 0014 section 8; a refusal takes no slot).
 A fenced transaction holds its job row from its first statement, so every consent read inside one
 (the client's reservation and re-check, the store) uses `consent.require_consent(...,
 nowait=True)`: a consent row a withdrawal holds answers "not enabled" at once and the transaction
-rolls back, instead of closing a lock cycle. A conversation delete takes the job rows before the
+rolls back, instead of closing a lock cycle. A store that meets a withdrawal this way (the row is held, or already closed) raises `RunStopped("cancelled")`, and the runner rolls the store back and ends the job `cancelled`, not `failed` with `ai_not_enabled` (#352); a flag off or an outdated consent still fails the job. A conversation delete takes the job rows before the
 conversation, as the store does.
 
 ### Tests
@@ -461,7 +468,7 @@ still write that week or the three before it (`week_ok`); a later or future week
    missing consent or flag (`ai_not_enabled`), an owner lock (`ai_unavailable`) or the egress
    block (`outbound_blocked`) fail the job and store nothing; a cancel stops it.
 4. The store, in the job's final fenced transaction: the consent `FOR SHARE NOWAIT` (a withdrawal
-   that holds or closed the row: `ai_not_enabled`, nothing stored), the opt-in `FOR SHARE` (gone:
+   that holds or closed the row: the job ends `cancelled`, nothing stored), the opt-in `FOR SHARE` (gone:
    nothing stored), the insert (`ON CONFLICT (owner_id, week_start) DO NOTHING`), then the mail.
 
 Lock order as the chat's: the job row, the consent row without waiting, the opt-in and the digest.
@@ -493,7 +500,7 @@ on top of `tests/aichat.py`):
 |---|---|
 | `test_ai_digest_model.py` | the week, the late weeks, the fixed request (the nerve metrics, quiet copy, the body scan), every ending, the bound, the input |
 | `test_ai_digest.py` | a digest written, stored and announced without its text; a stored week or an opt-out makes no call; an invalid week; no consent, the stored flag off, an owner lock, over the cap (skipped): no call; a failed turn stored `unavailable` once; withdrawal mid-call (cancelled, the digests and opt-in deleted) and of a queued job; the store's `NOWAIT` against a withdrawal holding the row, after a committed one, after an opt-out; one user's job never reads or writes another's digest (worker RLS) |
-| `test_ai_digest_queue.py` | the notification pass queues one job with the week only (singleton, one attempt) and none once stored; each owner lock, the stored flag, no, outdated or withdrawn consent, no opt-in (another's does not count), a stored week: nothing queued; the defaults never queue; the worker wraps the pass |
+| `test_ai_digest_queue.py` | no second digest while one runs; the notification pass queues one job with the week only (singleton, one attempt) and none once stored; each owner lock, the stored flag, no, outdated or withdrawn consent, no opt-in (another's does not count), a stored week: nothing queued; the defaults never queue; the worker wraps the pass |
 | `test_ai_digest_routes.py` | the view is the user's own (RLS); opt-in needs AI enabled and a current consent, opt-out always; the closed body; a session needed; withdrawal, "delete imported data" and account deletion; the mail holds no health content in any language |
 | `ai_evals/test_digest_evals.py` | the digest's eval categories, each at 100 %: **privacy** (no cross-user data or identifier over every tool, the tier filter, the fixed request without history, another user's digest untouched), **prompt injection** (planted device text, unknown tools, out-of-range arguments, active content stored as text, the tool flood, an answer cannot mail its text), **consent** (none, outdated, the stored flag off, withdrawn during the call and between tool steps, consenting again starts with the digest off) |
 | `frontend/src/components/assistant/DigestView.test.tsx` | off by default and the request body, a ready digest as text with the label, skipped and failed weeks, the toggle disabled while AI is not available, a refused opt-in, nothing read without consent |
@@ -511,8 +518,15 @@ wrapped.
   `/assistant`, with no unread badge and no new rail item; the wording is ours. The Architect
   and the owner may change both (AGENTS.md "UI design").
 - **The mail goes whatever `notify_email` says**, like `export_ready`: opting in to the digest
-  is the request; the mail says only that a summary is waiting. Choosing to respect the
-  notification switch instead is a one-line change.
+  is the request; the mail says only that a summary is waiting. The toggle's help text says so
+  (#355 finding 5; the owner may still prefer to honour `notify_email`, a one-line change).
+- **A second digest job is not queued while one runs** (`digest._queueable`): the singleton only
+  collapses queued jobs, so a run in progress is checked as well, and a week is not billed twice.
+- **"Delete imported data" cancels the user's AI jobs first** (`consent.cancel_ai_jobs`, job rows
+  before the history), so a digest or reply being stored commits and is then deleted, and a queued
+  one never runs.
+- **A skipped week shows the reset date** only while the month's budget is still used up (the
+  budget read of the page); an older skipped week keeps the sentence without a date.
 - **The digest is written in English** (the instruction says so): the worker does not read the
   account language. A Swedish digest needs the locale passed into the request and a second
   instruction, and a new `PROMPT_VERSION` if the system prompt changes.
@@ -527,3 +541,16 @@ wrapped.
 - **Opting out keeps the stored digests**; withdrawal deletes them.
 - The digest's model judgement (grounding, health claims, insufficient data) waits for the
   owner's `python -m ownvitals.ai.eval`, as the chat's does.
+
+## Not built yet
+
+Each waits for its own scheduled issue (none is filed until it is scheduled):
+
+- `ai_purge_expired()`: the 90-day conversation retention of ADR 0014 section 5 (a worker
+  maintenance task through a narrow definer function). Withdrawal and account deletion remove
+  conversations meanwhile. `ai_digests` itself is built ([above](#the-weekly-digest)).
+- `ecg_summary`, `sleep_summary` and `activity_summary` (ADR 0014 section 4): they need read views
+  the API does not have yet.
+- The real-model evals (`python -m ownvitals.ai.eval`, ADR 0014 section 9) and the `eval` audit
+  kind's writer: the categories that need the model's judgement.
+- A mock-up for the digest card and a rail item for the assistant (owner design decisions).
