@@ -4,7 +4,8 @@ it) and in the worker context (a job of A, claimed and run by the worker's runne
 builds the context from the claimed row alone).
 
 Two synthetic accounts with distinct values: every reading of A is near 70 kg / 60 bpm, every
-reading of B near 120 kg / 95 bpm, so a value of B in A's output shows.
+reading of B near 120 kg / 95 bpm (their ECG, sleep and activity rows too, #401), so a value of
+B in A's output shows.
 """
 
 import asyncio
@@ -65,6 +66,20 @@ def _assert_only_own(
             assert all(low <= v <= high for v in values), (args, values)
         if name == "metric_summary" and result["median"] is not None:
             assert low <= result["median"] <= high, (args, result["median"])
+        # #401: Withings' ECG heart rates, the nights' heart rates and the steps (100 per bpm)
+        # carry the account's pulse.
+        if name == "ecg_summary":
+            rates = [i["heart_rate_bpm"] for i in result["items"]]
+            assert rates, args
+            assert all(r is None or low <= r <= high for r in rates), (args, rates)
+        if name == "sleep_summary":
+            rates = [n["heart_rate_bpm"] for n in result["nights"]]
+            assert rates, args
+            assert all(low <= r <= high for r in rates), (args, rates)
+        if name == "activity_summary":
+            steps = [d["steps"] / 100 for d in result["days"]]
+            assert steps, args
+            assert all(low <= s <= high for s in steps), (args, steps)
 
 
 A_RANGE = (59.0, 71.0)  # A's pulses 60..63 and weights 70..70.2

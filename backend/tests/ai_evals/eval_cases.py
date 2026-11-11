@@ -102,6 +102,13 @@ BAD_ARGUMENTS: Final[tuple[tuple[str, dict[str, Any]], ...]] = (
     ("findings", {"status": "active", "period": 30, "include_experimental": True}),
     ("scores", {"kind": "everyone"}),
     ("list_metrics", {"owner": "admin"}),
+    # #401: the ECG, sleep and activity tools.
+    ("ecg_summary", {"period": 9999}),
+    ("ecg_summary", {"period": 30, "include_estimates": True}),
+    ("ecg_summary", {"period": 30, "samples": True}),
+    ("sleep_summary", {"period": 365}),
+    ("sleep_summary", {"period": 30, "resolution": "intraday"}),
+    ("activity_summary", {"period": 30, "user_id": "someone-else"}),
 )
 
 # Answers with active content: stored as the text they are (the browser renders text only;

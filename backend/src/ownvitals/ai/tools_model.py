@@ -10,7 +10,9 @@ states from closed vocabularies. ``tests/test_ai_tools_schema.py`` walks every o
 fails on any field outside the allowlist, and ``check_fields`` refuses one at run time too.
 
 ``TOOLSET_VERSION`` is bumped whenever a tool, its arguments or its output schema change (the
-owner's evaluation reference names it, ADR 0014 section 1, lock 3).
+owner's evaluation reference names it, ADR 0014 section 1, lock 3). Version 2 (#401) adds
+``ecg_summary``, ``sleep_summary`` and ``activity_summary``, whose models are
+``ai.tools_vitals_model``'s.
 """
 
 from collections.abc import Mapping
@@ -20,9 +22,19 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from ownvitals.ai.tools_vitals_model import (
+    VITALS_OUTPUT_FIELDS,
+    ActivitySummaryArgs,
+    ActivitySummaryOut,
+    EcgSummaryArgs,
+    EcgSummaryExperimentalOut,
+    EcgSummaryOut,
+    SleepSummaryArgs,
+    SleepSummaryOut,
+)
 from ownvitals.analysis.quality import METRICS
 
-TOOLSET_VERSION: Final = "1"
+TOOLSET_VERSION: Final = "2"
 RESULT_MAX_BYTES: Final = 64 * 1024  # serialized, per result; over it the tool answers an error
 MAX_TOOL_CALLS_PER_TURN: Final = 8
 FINDINGS_MAX: Final = 100
@@ -156,14 +168,22 @@ class ToolError(_Closed):
 
 
 # name -> (arguments, output)
-TOOLS: Final[Mapping[str, tuple[type[_Closed], type[_Closed]]]] = MappingProxyType(
+TOOLS: Final[Mapping[str, tuple[type[BaseModel], type[BaseModel]]]] = MappingProxyType(
     {
         "list_metrics": (ListMetricsArgs, ListMetricsOut),
         "metric_summary": (MetricSummaryArgs, MetricSummaryOut),
         "daily_values": (DailyValuesArgs, DailyValuesOut),
         "findings": (FindingsArgs, FindingsOut),
         "scores": (ScoresArgs, ScoresOut),
+        "ecg_summary": (EcgSummaryArgs, EcgSummaryOut),
+        "sleep_summary": (SleepSummaryArgs, SleepSummaryOut),
+        "activity_summary": (ActivitySummaryArgs, ActivitySummaryOut),
     }
+)
+# A tool may return a subclass of its output in its place, only one listed here: the ECG summary
+# with ownvitals' estimates, past the tier filter (ADR 0014 section 4).
+OUTPUT_VARIANTS: Final[Mapping[str, tuple[type[BaseModel], ...]]] = MappingProxyType(
+    {"ecg_summary": (EcgSummaryExperimentalOut,)}
 )
 
 # The allowlist: every model a tool may return (nested ones included) and its fields, exactly.
@@ -212,6 +232,7 @@ OUTPUT_FIELDS: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
         "ScoreItem": frozenset({"kind", "day", "status", "value", "stale"}),
         "ScoresOut": frozenset({"scores"}),
         "ToolError": frozenset({"error"}),
+        **VITALS_OUTPUT_FIELDS,
     }
 )
 
