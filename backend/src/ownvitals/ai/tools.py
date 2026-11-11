@@ -10,14 +10,16 @@
    (``tools_model``); otherwise ``unknown_tool`` or ``invalid_arguments``.
 3. **Reads**: only through the read API's reader (``views.reads``, the same assembly as
    ``/api/metrics`` and ``/api/scores``) and the one findings read function
-   (``views.findings_read``, the ``ai_context`` consumer: hidden findings absent), each in its
+   (``views.findings_read``, the ``ai_context`` consumer: hidden findings absent), and for
+   ``ecg_summary`` the ECG list read (``views.ecg_read``, Withings' own fields), each in its
    own ``user_session`` of the caller's ``UserContext`` under forced RLS, in web and in the
    worker alike. No tool takes a user argument, and none writes.
 4. **The tier filter, here and not in the prompt**: experimental findings and the experimental
    scores (the HIS) reach a tool only when the owner-only switch is on (``flags.effective``; the
    household gate until M8) **and** ``ai_include_experimental`` is true (default false, ADR 0014
    open question 4). Otherwise the reads run with the switch off, so they are never loaded:
-   absent, not redacted. ECG estimates are never returned by any tool.
+   absent, not redacted. ownvitals' ECG estimates (ADR 0006 section 9) follow the same filter,
+   in ``ecg_summary`` only (``ai.tools_vitals``, #401).
 5. **The result**: the output model is checked against the allowlist (``check_fields``) and
    serialized; over 64 KiB it is ``result_too_large``, never truncated data.
 
@@ -34,10 +36,11 @@ from typing import Any, Final
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ownvitals.ai import consent
+from ownvitals.ai import consent, tools_vitals
 from ownvitals.ai.tools_model import (
     DAILY_MAX_POINTS,
     FINDINGS_MAX,
+    OUTPUT_VARIANTS,
     RESULT_MAX_BYTES,
     TOOLS,
     DailyValuesArgs,
@@ -232,6 +235,9 @@ _HANDLERS: Final[Mapping[str, Handler]] = MappingProxyType(
         "daily_values": _daily_values,
         "findings": _findings,
         "scores": _scores,
+        "ecg_summary": tools_vitals.ecg_summary,
+        "sleep_summary": tools_vitals.sleep_summary,
+        "activity_summary": tools_vitals.activity_summary,
     }
 )
 
@@ -266,7 +272,7 @@ async def run_tool(
     except ValidationError:
         return _error("invalid_arguments")
     result = await handler(factory, ctx, scoped(settings), args, now)
-    if not isinstance(result, spec[1]):
+    if type(result) is not spec[1] and type(result) not in OUTPUT_VARIANTS.get(name, ()):
         raise TypeError("a tool returned another model than its own")
     check_fields(result)
     data = result.model_dump(mode="json")

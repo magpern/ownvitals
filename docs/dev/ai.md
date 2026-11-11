@@ -164,30 +164,50 @@ output.
 | `daily_values` | `metric`, `period` 7/14/30/60/90 | `[day, value]`, at most 90, two decimals |
 | `findings` | `status` active/history, `period` | rule id, tier, severity, confidence, origin, status, window dates, metric keys; at most 100 |
 | `scores` | `kind` readiness/his/body_path | kind, day, status, value, stale |
+| `ecg_summary` | `period` 30/90/180/365 | the number of recordings, counts of Withings' classification (`afib`: negative, positive, inconclusive, not_reported, undocumented), and per recording (newest first, at most 90, `truncated`) its day, that classification, Withings' heart rate and the four intervals (ms); ownvitals' estimates (`estimates`: day, HR, RMSSD, SDNN) only past the tier filter |
+| `sleep_summary` | `period` 7/14/30/60/90 | per night (the wake-up's local day), at most 90: total, deep, light and REM sleep (s), wake-ups, efficiency, sleep score, average heart rate |
+| `activity_summary` | `period` 7/14/30/60/90 | per day, at most 90: steps, distance and elevation (m), soft, moderate and intense activity (s), active kcal |
 
-- **Reads** only through `views.reads` (the read API's reader and assembly) and
-  `views.findings_read` (consumer `ai_context`: hidden findings absent), each a `user_session` of
-  the caller under forced RLS. No tool writes, takes a user argument or returns an id, email,
+- **Reads** only through `views.reads` (the read API's reader and assembly; for sleep and
+  activity `Reader.stream_days`, #401), `views.findings_read` (consumer `ai_context`: hidden
+  findings absent; `read_ecg_estimates`) and `views.ecg_read.list_recordings` (Withings' own ECG
+  fields; the list read never loads the signal), each a `user_session` of the caller under forced
+  RLS. The ECG, sleep and activity handlers are `ai.tools_vitals`, their models
+  `ai.tools_vitals_model`. No tool writes, takes a user argument or returns an id, email,
   Withings or device identifier, subject, evidence, free text or time of day.
 - **Tier filter**: experimental findings and the HIS only when the owner-only switch is on **and**
   `OWNVITALS_AI_INCLUDE_EXPERIMENTAL` is true (default false); otherwise the reads run with the
-  switch off, so they are never loaded. No tool returns an ECG estimate.
+  switch off, so they are never loaded. ownvitals' ECG estimates (ADR 0006 §9) follow the same
+  filter: `ecg_summary` returns `EcgSummaryExperimentalOut` (the one entry of `OUTPUT_VARIANTS`)
+  only when an up-to-date estimate passes it, otherwise `EcgSummaryOut`, which has no
+  `estimates` field at all (absent, not empty).
+- **Sleep and activity** read the normalised stream rows (`sleep_*`, `activity_*`,
+  `source_type IS NULL`) with the scores pass's rules: `unconfirmed`, `implausible` and
+  `duplicate` rows left out, the local day (the profile's fixed zone, else the row's), the later
+  row of a day winning. The fields are a closed subset; the units (seconds, metres, kcal) are
+  Withings' public documentation's, a documented assumption until the probe shows them. The
+  period ends today (UTC).
+- `TOOLSET_VERSION` is `2` since #401: an `ai_eval_ref` that names tool set 1 no longer opens
+  lock 3, so the owner's eval run must be repeated.
 - A result over 64 KiB is `{"error": "result_too_large"}`; an unknown tool `unknown_tool`; bad
   arguments `invalid_arguments`.
 
 | Test file | Covers |
 |---|---|
 | `test_ai_consent.py` | the text and its fingerprint; give needs the flag, a step-up, the exact text and the ticked box; outdated consent; the flag and consent checks; withdrawal deletes history, cancels queued and running AI jobs only, keeps the ledger and the other user's rows, needs no step-up and works with the flag off; the reply/withdrawal race on the consent row |
-| `test_ai_tools_schema.py` | the pinned output schema (any extra field fails), `check_fields`, closed arguments, refusals, and no planted identifier or text in any output over every tool and argument |
-| `test_ai_tools_tiers.py` | experimental items for each combination of the switch and the setting, a stored "off", hidden findings, `not_enabled` without the flag, without consent and with an outdated consent |
+| `test_ai_tools_schema.py` | the pinned output schema (any extra field fails; the ECG variant too), `check_fields`, closed arguments, refusals, no planted identifier, zone, signal id or text in any output over every tool and argument, the ECG/sleep/activity values and days (a duplicate row left out), the 64 KiB cap as an error, and an eval reference of tool set 1 refused |
+| `test_ai_tools_tiers.py` | experimental items and ECG estimates for each combination of the switch and the setting, a stored "off", hidden findings, a stale estimate, `not_enabled` without the flag, without consent and with an outdated consent |
 | `test_ai_tools_isolation.py` | two users, in the request context and in a worker job run by the runner: no row of the other user |
 | `frontend/src/pages/settings/AiSection.test.tsx` | the read-only state, plain-text consent text, the unticked box, the request body, outdated (consent again or withdraw), withdrawal, and withdrawal of a given or outdated consent while the flag is off |
 
 ### Known gaps (consent and tools)
 
-- `ecg_summary`, `sleep_summary` and `activity_summary` (ADR 0014 §4) are not built: the read API
-  has no sleep or activity daily values yet, and an ECG summary needs a counts read in
-  `views.ecg_read`. They come with the read views they need.
+- `sleep_summary` and `activity_summary` return the normalised per-day values; the app shows no
+  sleep or activity values yet (its tiles show the stream state only), so "the aggregates the
+  user sees in the app" (ADR 0014 §4) are these until a sleep or activity screen exists (#401,
+  delegated and provisional).
+- `ecg_summary` pages through `views.ecg_read.list_recordings` (200 a page) until the period's
+  start; no counts query was added.
 - `scores` returns no components (they are free-form JSON); the device attribution of device
   findings is not returned.
 - ADR 0003 §4's step-up table does not list "Give AI consent" yet (ADR 0014 Consequences).

@@ -1,11 +1,12 @@
 """The tier filter of the tool layer (ADR 0014 section 4, PLAN section 7.4; #206): experimental
-findings and the HIS reach a tool only with the owner-only switch **and**
-``ai_include_experimental``; hidden findings never; and without the flag or consent every tool
-answers ``not_enabled``.
+findings, the HIS and ownvitals' ECG estimates (#401) reach a tool only with the owner-only switch
+**and** ``ai_include_experimental``; hidden findings and stale estimates never; and without the
+flag or consent every tool answers ``not_enabled``.
 
 Synthetic accounts only.
 """
 
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -82,6 +83,53 @@ async def test_experimental_items_need_the_switch_and_the_setting(
     assert await _score_kinds(switch_env, planted, "body_path") == ["body_path:weight"]
 
 
+async def _ecg(env: Env, planted: Planted) -> dict[str, Any]:
+    return await run_tool(
+        env.factory, planted.ctx, env.settings, "ecg_summary", {"period": 365}, now=NOW
+    )
+
+
+@pytest.mark.parametrize(
+    ("switch_env", "experimental"),
+    [((False, False), False), ((False, True), False), ((True, False), False), ((True, True), True)],
+    indirect=["switch_env"],
+)
+async def test_ecg_estimates_need_the_switch_and_the_setting(
+    switch_env: Env, experimental: bool
+) -> None:
+    planted = await plant_account(
+        switch_env, "synthetic-ecg-tier@example.com", weight=70, pulse=60, grpid=1
+    )
+    result = await _ecg(switch_env, planted)
+    assert result["recordings"] == 5  # Withings' own values: for every account
+    if experimental:
+        # Only the recording with a current, passing estimate; the failed gate has no value.
+        assert result["estimates"] == [
+            {
+                "day": result["items"][0]["day"],
+                "heart_rate_bpm": 61.5,
+                "rmssd_ms": 31.0,
+                "sdnn_ms": 42.0,
+            }
+        ]
+    else:
+        assert "estimates" not in result  # absent, not redacted
+        assert "61.5" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("switch_env", [(True, True)], indirect=True)
+async def test_a_stale_ecg_estimate_never_reaches_a_tool(switch_env: Env) -> None:
+    planted = await plant_account(
+        switch_env, "synthetic-ecg-stale@example.com", weight=70, pulse=60, grpid=1
+    )
+    run(
+        "UPDATE ecg_recordings SET estimated = jsonb_set(estimated, '{algo_version}', "
+        "'\"synthetic-old\"') WHERE owner_id = :o AND estimated IS NOT NULL",
+        o=planted.ctx.user_id,
+    )
+    assert "estimates" not in await _ecg(switch_env, planted)
+
+
 @pytest.mark.parametrize("switch_env", [(True, True), (False, False)], indirect=True)
 async def test_a_hidden_finding_never_reaches_a_tool(switch_env: Env) -> None:
     planted = await plant_account(
@@ -104,6 +152,7 @@ async def test_a_stored_off_switch_keeps_experimental_items_out(
         )
         assert await _rules(env, planted) == ["C1"]
         assert await _score_kinds(env, planted, "his") == []
+        assert "estimates" not in await _ecg(env, planted)
 
 
 async def _all_not_enabled(env: Env, planted: Planted) -> None:

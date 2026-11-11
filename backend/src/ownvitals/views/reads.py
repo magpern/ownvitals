@@ -1,5 +1,6 @@
 """The database reads of the read API (PLAN section 8): ``/api/status``, ``/api/metrics``,
-``/api/days`` and ``/api/readings``, ``/api/nerve/summary``.
+``/api/days`` and ``/api/readings``, ``/api/nerve/summary``, and the AI tools' per-day sleep and
+activity values (``views.stream_days_read``, #401).
 
 ``reading()`` opens one ``user_session`` (forced RLS) and hands out a ``Reader``; every statement
 also filters ``owner_id`` itself (ADR 0002). This is the one module of ``ownvitals.views`` besides
@@ -35,6 +36,7 @@ from ownvitals.views.read_records import (
 from ownvitals.views.scores_read import latest_scores
 from ownvitals.views.segmental_read import latest_segmental
 from ownvitals.views.states import ConnectionFacts, StreamFacts
+from ownvitals.views.stream_days_read import DayValues, stream_days
 from ownvitals.withings.streams import stream_named, windows
 
 REVISION_STREAM = "measures"  # the counter every metric_daily row is stamped with
@@ -254,6 +256,9 @@ class Reader:
 
     async def latest_scores(self, *, settings: Settings) -> list[tuple[Any, bool]]:
         return await latest_scores(self._db, self._owner, settings)
+
+    async def stream_days(self, keys: tuple[str, ...], first: date, last: date) -> DayValues:
+        return await stream_days(self._db, self._owner, keys, first, last)
 
 
 @asynccontextmanager
