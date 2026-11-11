@@ -10,7 +10,7 @@ spec uses is made up per run. M0's "done when" (PLAN §11) is the login-and-TOTP
 | `e2e/fake-oidc/` | the stand-in for Google's token and JWKS hosts (Node, no dependencies) |
 | `e2e/fake-withings/` | the stand-in for Withings (`server.py`, Python standard library, runs `backend/tests/withingscore.py`) |
 | `e2e/scripts/` | `stack-up.sh`, `stack-prepare.sh`, `stack-checks.sh`, `stack-down.sh` |
-| `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps), `ratelimit.ts` (empties the rate-limit buckets), `scheduler.ts` (holds the worker's scheduler off a new connection) |
+| `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps), `ratelimit.ts` (empties the rate-limit buckets) |
 | `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login`, `onboarding`, `export` |
 
 ## Run it
@@ -141,14 +141,9 @@ trust bundle (the worker needs it for the Withings calls of M1).
   the worker's own traffic for earlier specs' connections, so no assertion takes a request
   number or a count as the spec's alone (the 601 is armed on every `getgoals`, #403).
 
-**The scheduler and the import (#403).** The worker's scheduler ticks every 5 minutes from the
-worker's start and polls and reconciles every connection that has had neither within 6 h / 24 h:
-a connection made a minute ago is polled on the next tick, which then overlaps its first import
-(a second backfill per unfinished stream, and a reconcile on a higher lane) and stretches it from
-about 2 minutes to about 5. A spec that waits for an import to end calls `holdScheduler`
-(`helpers/scheduler.ts`) right after the connect: it records a cancelled poll and reconcile for
-the connection, under `queue_schedule`'s own advisory lock, so later ticks leave it alone; it
-returns `false` when a tick got there first, and the spec then waits for the longer import.
+**The scheduler and the import.** Since #410 the worker's `queue_schedule` skips a connection
+while its `withings_connect` or `withings_backfill` job is queued or running, so a scheduler tick
+cannot stretch a first import (#403) and specs wait the no-tick value (240 s) with no hold.
 
 `helpers/totp.ts` implements RFC 6238 itself (checked against the RFC's test vector). The server
 refuses a code of a step already used, so `Authenticator.next()` hands out a later step each time:
