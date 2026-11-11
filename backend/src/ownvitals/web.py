@@ -37,6 +37,12 @@ from ownvitals.flags.routes import router as flags_router
 from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
 from ownvitals.notify import sender as outbox_sender
+from ownvitals.public_site import (
+    PUBLIC_CACHE_CONTROL,
+    RobotsHeaders,
+    find_public_file,
+    mark_public_served,
+)
 from ownvitals.reports.doctor_routes import router as doctor_router
 from ownvitals.reports.export_routes import router as exports_router
 from ownvitals.views.days_routes import router as days_router
@@ -123,14 +129,24 @@ async def ready(request: Request, response: Response) -> ReadyResponse:
     return ReadyResponse(status="ready")
 
 
-def _add_single_page_app(app: FastAPI, static_dir: Path) -> None:
-    """Serve ``static_dir``; any other GET outside ``/api`` gets ``index.html``."""
-    root = static_dir.resolve()
+def _add_single_page_app(app: FastAPI, static_dir: Path, public_dir: Path | None) -> None:
+    """Serve ``static_dir``; any other GET outside ``/api`` gets ``index.html``.
 
-    @app.get("/{path:path}", include_in_schema=False)
-    async def single_page_app(path: str) -> FileResponse:
+    Before the app's own files, an exact path of the public set is answered from the prerendered
+    ``public_dir`` when the file exists (ADR 0016); otherwise it falls through like any path.
+    """
+    root = static_dir.resolve()
+    public_root = public_dir.resolve() if public_dir is not None else None
+
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    async def single_page_app(path: str, request: Request) -> FileResponse:
         if path == "api" or path.startswith("api/"):
             raise HTTPException(status_code=404, detail={"reason": "not_found"})
+        if public_root is not None:
+            public_file = find_public_file(public_root, path)
+            if public_file is not None:
+                mark_public_served(request.scope)
+                return FileResponse(public_file, headers={"Cache-Control": PUBLIC_CACHE_CONTROL})
         try:
             candidate = (root / path).resolve()
             if candidate.is_relative_to(root) and candidate.is_file():
@@ -234,12 +250,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     if settings.static_dir is not None:
         if settings.static_dir.is_dir():
-            _add_single_page_app(app, settings.static_dir)
+            _add_single_page_app(app, settings.static_dir, settings.public_dir)
         else:
             logger.warning("static_dir does not exist; not serving static files")
     # Outside the auth middleware (added earlier, so inner): Withings sends no Origin or CSRF
     # token. The secret in the path is the check. SecurityHeaders stays the outermost layer.
     app.add_middleware(WebhookMiddleware)
+    app.add_middleware(RobotsHeaders)  # noindex on all but a served public file (ADR 0016)
     # Added last, so it is the outermost middleware: the CSP and Referrer-Policy go on every
     # response, the answers of the feature routers' middleware included.
     app.add_middleware(SecurityHeaders)

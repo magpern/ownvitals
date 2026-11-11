@@ -98,6 +98,7 @@ All settings of the platform milestone exist already, so the issues that use the
 | `migrations_database_url` | `...//ownvitals_owner@127.0.0.1:5432/ownvitals` | owner role, Alembic only |
 | `maint_database_url` | unset | admin role; needs `database_maint_password` too |
 | `static_dir` | unset | built SPA; unset: API only |
+| `public_dir` | unset | prerendered public site (ADR 0016), served only with `static_dir`; unset: none |
 | `public_base_url` | `http://127.0.0.1:8000` | the one public origin, normalised |
 | `admin_emails` | empty | comma-separated; these addresses get `admin` when they sign up |
 | `trusted_proxies` | `127.0.0.0/8,::1` | comma-separated IPs or CIDR ranges whose `X-Forwarded-For` counts: SWAG's address in production (#10, [auth.md](auth.md)) |
