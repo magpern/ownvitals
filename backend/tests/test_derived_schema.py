@@ -237,7 +237,7 @@ def _score(conn: Connection, owner: uuid.UUID, **overrides: Any) -> None:
         "day": "2026-10-28",
         "value": 62,
         "status": "computed",
-        "version": "his/1",
+        "version": "his/2",
         **overrides,
     }
     # ``components`` (raw JSON) replaces the status object, so a test can omit the status.

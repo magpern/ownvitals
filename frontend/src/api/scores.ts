@@ -11,7 +11,7 @@ export type HisArea = (typeof HIS_AREAS)[number]
 export interface HisScore {
   /** `computed`, `insufficient_data`, `not_available`, `not_supported` or `not_set`. */
   status: string
-  /** The algorithm version, `his/1`. */
+  /** The algorithm version, `his/2`. */
   algoVersion: string
   /** Set only when computed. */
   value: number | null

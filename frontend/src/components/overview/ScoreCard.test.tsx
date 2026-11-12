@@ -9,7 +9,7 @@ import { ScoreCard, reasonKey, sourceTag } from './ScoreCard'
 function score(reasons: HisScore['areaReasons']): HisScore {
   return {
     status: 'computed',
-    algoVersion: 'his/1',
+    algoVersion: 'his/2',
     value: 71,
     reason: null,
     areas: { body: null, heart: 70, activity: null, sleep: null },
@@ -23,11 +23,11 @@ beforeEach(async () => {
 
 describe('sourceTag', () => {
   it('names a listed algorithm version from the table', () => {
-    expect(sourceTag('his/1')).toBe('ownvitals 1.0')
+    expect(sourceTag('his/2')).toBe('ownvitals 2.0')
   })
 
   it('falls back to the raw version string', () => {
-    expect(sourceTag('his/2')).toBe('ownvitals his/2')
+    expect(sourceTag('his/9')).toBe('ownvitals his/9')
   })
 })
 

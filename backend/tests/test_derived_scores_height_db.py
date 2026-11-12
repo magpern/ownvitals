@@ -36,8 +36,8 @@ def env(jenv: JobsEnv) -> Env:
     return Env(jenv)
 
 
-def height(grpid: int, day: int, millimetres: int) -> Any:
-    return group(grpid, FIRST + day * SECONDS_PER_DAY, (4, millimetres, -3, None))
+def height(grpid: int, day: int, millimetres: int, **extra: Any) -> Any:
+    return group(grpid, FIRST + day * SECONDS_PER_DAY, (4, millimetres, -3, None), **extra)
 
 
 async def his(env: Env, ctx: UserContext) -> tuple[dict[str, Any], bytes]:
@@ -96,3 +96,52 @@ async def test_another_owners_height_is_never_read(env: Env) -> None:
     assert comp["criteria"]["bmi"]["reason"] == "no_height"
     assert uuid.UUID(str(other.user_id)) != ctx.user_id
     assert YEAR  # the owner's own year of weights was gathered
+
+
+async def test_a_newer_unconfirmed_or_implausible_height_is_ignored(env: Env) -> None:
+    """The confirmed and quality filter of the height read: dropping it makes this fail."""
+    ctx, connection = await a_year(env)
+    profile(env, ctx)
+    await env.ingest(ctx, connection, height(9001, 10, 1700))
+    await env.ingest(ctx, connection, height(9002, 20, 1900, attrib=1))  # unconfirmed (attrib 1)
+    await env.ingest(ctx, connection, height(9003, 30, 17500))  # 17.5 m: implausible
+    await env.ingest(ctx, connection, height(9004, 40, 170))  # 0.17 m: implausible
+    comp, _ = await his(env, ctx)
+    assert comp["criteria"]["bmi"]["value"] == pytest.approx(80 / 1.7**2, abs=0.1)
+
+
+async def test_only_an_implausible_height_gives_no_height_never_a_bmi(env: Env) -> None:
+    ctx, connection = await a_year(env)
+    profile(env, ctx)
+    await env.ingest(ctx, connection, height(9001, 10, 17500))
+    comp, _ = await his(env, ctx)
+    bmi = comp["criteria"]["bmi"]
+    assert (bmi["status"], bmi["reason"]) == ("not_available", "no_height")
+
+
+async def test_a_height_behind_the_revision_makes_the_scoring_wait(env: Env) -> None:
+    ctx, connection = await a_year(env)
+    profile(env, ctx)
+    await env.ingest(ctx, connection, height(9001, 10, 1700))
+    await env.derive(ctx)
+    env.jenv.sql(
+        "UPDATE observations SET input_revision = input_revision - 1 "
+        "WHERE owner_id = :o AND metric_key = 'height'",
+        o=ctx.user_id,
+    )
+    outcome = await env.score(ctx, experimental=True)
+    assert outcome.status == "behind"
+    async with user_session(env.factory, ctx) as db:
+        assert (await db.execute(text(HIS), {"o": ctx.user_id})).first() is None
+
+
+async def test_the_height_alone_changes_the_fingerprint(env: Env) -> None:
+    """Same weights, same revisions in effect: only the height differs."""
+    ctx, connection = await a_year(env)
+    profile(env, ctx)
+    _, without = await his(env, ctx)
+    await env.ingest(ctx, connection, height(9001, 10, 1700))
+    _, with_height = await his(env, ctx)
+    await env.ingest(ctx, connection, height(9002, 11, 1800))
+    _, other_height = await his(env, ctx)
+    assert len({without, with_height, other_height}) == 3

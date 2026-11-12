@@ -272,7 +272,7 @@ def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
         "'2026-11-02', 0, :h)",
         "INSERT INTO scores (owner_id, kind, day, components, algo_version, input_revision, "
         "input_fingerprint) VALUES (:o, 'his', '2026-11-02', '{\"status\": \"not_set\"}', "
-        "'his/1', 0, :h)",
+        "'his/2', 0, :h)",
         "INSERT INTO user_profiles (owner_id) VALUES (:o)",
         # #195: an open notification hold of a synthetic finding id.
         "INSERT INTO notify_holds (owner_id, finding_id, rule_id, started_at, revision_at, "

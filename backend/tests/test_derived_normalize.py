@@ -75,7 +75,8 @@ def test_the_quality_table_and_the_key_table_agree() -> None:
         found = metric_key(spec.meastype)
         assert found.key == spec.key
         assert found.analysed
-    assert not metric_key(4).analysed
+    assert metric_key(4).analysed  # height has a quality row (#492)
+    assert not metric_key(12).analysed
     assert not metric_key(175, 3).analysed
 
 

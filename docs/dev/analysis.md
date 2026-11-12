@@ -184,7 +184,7 @@ than the window, and the same requirement is met by a longer one.
 
 ## Provenance: `ALGO_VERSION`
 
-Each module has an `ALGO_VERSION` (`quality/1`, `daily/1`, `dataquality/2`, `policy/2`) and
+Each module has an `ALGO_VERSION` (`quality/2`, `daily/1`, `dataquality/2`, `policy/2`) and
 every result carries it (PLAN §5: derived rows store `algo_version`). **Bump the module's number
 whenever its behaviour changes** (a threshold, a window, a rule, the canonical order), in the same
 change as the tests; derived rows computed with the old number then show as stale.

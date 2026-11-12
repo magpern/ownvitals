@@ -19,7 +19,7 @@ describe('decodeHisScore', () => {
       scores: [
         {
           kind: 'his',
-          algo_version: 'his/1',
+          algo_version: 'his/2',
           status: 'computed',
           value: 71,
           components: {
@@ -30,7 +30,7 @@ describe('decodeHisScore', () => {
       ],
     })
     expect(his).toEqual({
-      algoVersion: 'his/1',
+      algoVersion: 'his/2',
       status: 'computed',
       value: 71,
       reason: null,
@@ -44,7 +44,7 @@ describe('decodeHisScore', () => {
       scores: [
         {
           kind: 'his',
-          algo_version: 'his/1',
+          algo_version: 'his/2',
           status: 'not_set',
           value: null,
           components: { reason: 'no_band_table' },

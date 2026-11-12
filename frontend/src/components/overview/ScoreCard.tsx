@@ -8,7 +8,7 @@ import { TierGlyph } from '../ui/TierMark'
 import { ScoreReadout } from './ScoreReadout'
 
 // The health score card of the overview (docs/design/mockups/src/Dashboard.dc.html): the title with
-// the "ownvitals 1.0" source tag, the value, and the areas on one line, "n/a" where an area has no
+// the "ownvitals 2.0" source tag, the value, and the areas on one line, "n/a" where an area has no
 // score. The score is experimental tier (ADR 0012 §1; README tier marks: dashed diamond, dashed
 // borders), so the card is dashed and the tag carries the experimental glyph. With no score, or `not_set`, there is no card.
 
@@ -20,7 +20,7 @@ const AREA_LABEL: Record<(typeof HIS_AREAS)[number], MessageKey> = {
 }
 
 /** How an algorithm version is shown in the source tag; an unlisted one is shown as sent. */
-const VERSION_LABEL: Record<string, string> = { 'his/1': '1.0' }
+const VERSION_LABEL: Record<string, string> = { 'his/2': '2.0' }
 
 export function sourceTag(algoVersion: string): string {
   return `ownvitals ${VERSION_LABEL[algoVersion] ?? algoVersion}`

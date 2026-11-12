@@ -16,7 +16,7 @@ from ownvitals.analysis.scores import ScoreResult, Status, result, round_half_up
 from ownvitals.analysis.scores.his_reasons import vertical_reasons
 from ownvitals.analysis.scores.his_table import VERTICALS, BandRow, BandTable, Side
 
-ALGO_VERSION: Final = "his/1"
+ALGO_VERSION: Final = "his/2"
 KIND: Final = "his"
 MIN_VERTICALS: Final = 2
 

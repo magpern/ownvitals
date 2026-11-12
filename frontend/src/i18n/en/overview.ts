@@ -66,7 +66,7 @@ export const overview = {
   'score.reason.fallback': 'not computed yet',
   'score.reason.insufficient_data': 'not enough data yet',
   'score.reason.no_height': 'no height recorded yet',
-  'score.reason.no_band_row': 'outside the age range the score table covers',
+  'score.reason.no_band_row': 'no band for your age or sex',
   'score.reason.not_supported': 'not supported by this account',
   'score.reason.not_shared': 'not shared with ownvitals',
   'score.reason.not_available': 'no data from Withings yet',
