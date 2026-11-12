@@ -1,16 +1,18 @@
 import { useDisplay } from '../display/DisplayContext'
 import { metricsPath } from '../api/metrics'
 import { decodeFindings, decodeMetrics } from '../api/overview'
+import { decodeHisScore } from '../api/scores'
 import { useResource } from '../api/useResource'
 import { AreaSection } from '../components/overview/AreaSection'
+import { ScoreCard } from '../components/overview/ScoreCard'
 import { NeedsLook } from '../components/overview/NeedsLook'
 import { BODY_KEYS, HEART_KEYS, NERVE_KEY, bloodPressure, parseRange } from '../components/overview/overviewModel'
 import { RangeSelector } from '../components/overview/RangeSelector'
 import { StreamTile } from '../components/overview/StreamTile'
 import { Tile } from '../components/overview/Tile'
 import { useStatus } from '../components/shell/statusContext'
-import { Card, Stack } from '../components/ui/Card'
-import { DataState, ResourceView } from '../components/ui/DataState'
+import { Stack } from '../components/ui/Card'
+import { ResourceView } from '../components/ui/DataState'
 import { useT } from '../i18n'
 import { Link, useQuery } from '../router/Router'
 
@@ -26,6 +28,7 @@ export function OverviewPage() {
   // With no range in the address the saved one is used, so the read waits for the profile.
   const metrics = useResource(asked !== null || settled ? metricsPath(range) : null, decodeMetrics)
   const findings = useResource('/api/findings?tab=live&limit=20', decodeFindings)
+  const score = useResource('/api/scores', decodeHisScore)
   const status = useStatus()
   return (
     <Stack gap="lg">
@@ -61,9 +64,7 @@ export function OverviewPage() {
                     </>
                   )}
                 </ResourceView>
-                <Card level={3} title={t('overview.metric.healthScore')}>
-                  <DataState kind="not-available">{t('overview.score.detail')}</DataState>
-                </Card>
+                {score.status === 'ready' ? <ScoreCard score={score.data ?? null} /> : null}
               </AreaSection>
             </>
           )
