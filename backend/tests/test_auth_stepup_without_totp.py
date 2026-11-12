@@ -200,7 +200,7 @@ async def test_a_failed_passkey_reauth_sets_nothing(env: Env) -> None:
 # --- who never steps up by the first factor ----------------------------------------------------
 
 
-async def test_the_rule_reads_the_account_under_the_lock(env: Env) -> None:
+async def test_the_rule_reads_the_accounts_totp_role_and_listed_address(env: Env) -> None:
     plain = await env.user("plain@example.com")
     with_totp = await env.user("totp@example.com")
     await env.enrol(with_totp)

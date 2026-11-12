@@ -30,8 +30,9 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 - **Changes:** PLAN §6 "**TOTP 2FA mandatory** for every account", PLAN §11 M0 "mandatory TOTP"
   (with the §3 reuse table's "Mandatory TOTP") and ADR 0003 §2 are replaced by:
-  - **users:** TOTP is optional. A sign-in by password, Google or passkey gives a full session to
-    an account without a confirmed TOTP. Sign-up offers enrolment with "Skip for now", and the
+  - **users:** TOTP is optional. A sign-in by password or Google gives a full session to an
+    account without a confirmed TOTP (a passkey sign-in to such an account stays refused, ADR
+    0011 §3; there a passkey serves only as step-up). Sign-up offers enrolment with "Skip for now", and the
     Security page recommends it while it is off;
   - **admins:** TOTP stays mandatory. An account whose stored role is `admin`, or whose address
     is in `OWNVITALS_ADMIN_EMAILS`, gets no full session (so no `UserContext` and no admin area)
