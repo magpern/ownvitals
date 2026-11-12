@@ -26,6 +26,24 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 12 (2026-11-12, Architect): web's outbound list gains Turnstile's verification host, only while it is on
+
+- **Changes:** Amendment 1's list of web's outbound connections (the Google sign-in hosts, the
+  configured SMTP server and the one Withings code exchange) gains one conditional entry: while
+  the operator sets `turnstile_enabled` (default off), web makes one request per sign-up, password
+  sign-in and password-reset request, `POST https://challenges.cloudflare.com/turnstile/v0/siteverify`
+  with exactly `secret` and `response`, through the narrow web-only entry
+  `egress.verify_turnstile_token` (refused in the worker, no redirect, 5 s total). With it off, no
+  verifier exists and web's runtime egress hook does not resolve the host. The CSP gains
+  `https://challenges.cloudflare.com` in `script-src` and `frame-src` only while it is on. The
+  worker's list is unchanged.
+- **Evidence:** Amendment 7 item P1 (owner, 2026-11-08) requires Turnstile on these three forms
+  before M8, and says P1 brings this amendment. Turnstile's token is checked only by a
+  server-side call to Cloudflare (its documented server-side validation), so the check cannot be
+  made without the host. It must run inside the request, so it runs in web.
+- **ADR:** [ADR 0018](adr/0018-turnstile.md). #460 implements and tests it
+  (`tests/test_egress_runtime.py`, `tests/test_egress_hook.py`, `tests/test_turnstile_*.py`).
+
 ### Amendment 11 (2026-11-11, owner): milestone M9, a public site
 
 - **Changes:** a new milestone **M9 Public site** is added after M8: public, indexable pages
