@@ -457,7 +457,8 @@ ADR 0012. Pure code: `analysis.scores` (`body_path`, `readiness`, `his`, `his_ta
 (pure glue), `scores_store.py` (verify and write), `scores_tables.py` (the optional HIS band
 table), `scores_job.py` (the `derive_scores` kind, worker registry only). The read API is
 `views/scores_routes.py` over `views.reads.latest_scores` (the allowlisted session module).
-Setting: `config_scores.ScoreSettings` (`OWNVITALS_HIS_BAND_TABLE`, unset by default).
+Setting: `config_scores.ScoreSettings` (`OWNVITALS_HIS_BAND_TABLE`; defaults to the shipped `his_tables/withings_card_v1.json`, empty
+unsets it).
 
 **Chain.** `derive_daily` -> `derive_evaluate` -> `derive_scores`: `derive_evaluate` queues the
 scores job after a pass that ended `written` or `current`, so the nightly reconciliation also
@@ -466,8 +467,10 @@ recomputes the day's scores.
 **Rows.** One per `(owner_id, kind, day)`: `body_path:<key>`, `readiness`, and `his` only while the
 owner-only switch (`flags.effective.experimental_findings`) is effective; with it off the pass
 deletes the stored `his` rows. `value` is set only when `components.status` is `computed`; every
-other status (`not_set`, `not_available`, ...) leaves it null and names its reason. HIS ships no
-band table, so it is always `not_set` until the owner registers one (ADR 0012 owner questions).
+other status (`not_set`, `not_available`, ...) leaves it null and names its reason. HIS uses the
+shipped Withings card table (ADR 0012 owner question 1, 2026-11-12): only the cells findings §3
+documents, so a user outside a documented age or sex bracket gets that criterion `not_available`
+(`no_band_row`). Still experimental (owner-only flag).
 `input_revision` is `scores_revision.revision_digest` of the three stream counters read (63 bits of a
 SHA-256 over the ordered counters; the old sum was ambiguous, `(2,0,0)` and `(1,1,0)` summed equal).
 No migration: a row stored under the old sum reads as stale and the next pass rewrites it.

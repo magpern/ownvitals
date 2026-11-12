@@ -309,12 +309,20 @@ of PLAN §7.1's "sleep or watch data": every watch component we use comes from t
    a published reference, or the owner's own), for which age and sex brackets, and whether using
    the decompiled card is acceptable under PLAN-operations §9.4 and its licence. Default
    meanwhile: **no table**; `his_band_table` unset, HIS `not_set`. Safe-off: unset.
+   **Decided by the owner, 2026-11-12: "Use withings values for now."** The shipped table is
+   `analysis/scores/his_tables/withings_card_v1.json`, registered in `his_table.REGISTERED`, and
+   is the default of `his_band_table`; it encodes only the cells findings §3 documents (every
+   other bracket is left out, so that component is not computed). Provisional: re-checked at the
+   M8 review, including whether the card's values are acceptable under PLAN-operations §9.4 and
+   its licence (the owner accepted that risk for now). Setting `OWNVITALS_HIS_BAND_TABLE` empty
+   restores `not_set`.
 2. **The HIS tier.** Experimental (owner-only flag, household accounts) or visible to every
    household account as the mock-up shows? The latter needs a roadmap amendment because the bands
    are not the user's own history (PLAN §7.2). Default meanwhile: **experimental**. Safe-off:
    experimental.
+   **Owner, 2026-11-12: stays experimental.**
 3. **The HIS anchors** (perfect 100, good 75, average 50, bad 0, linear) and the "at least two
-   verticals" rule, if the owner's table comes with its own scoring. Default meanwhile: as §2.
+   verticals" rule, if the owner's table comes with its own scoring. Default meanwhile: as §2. **Owner, 2026-11-12: the defaults stand.**
 4. **Body Path goal date.** Not built (§6). Default: none.
 
 **Decided by the Architect (2026-11-03, this ADR).** The statuses and provenance (§1); the
