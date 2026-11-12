@@ -253,6 +253,8 @@ SUBMODULES = frozenset(
         "tokens",
         "totp",
         "totp_keys",
+        "turnstile",
+        "turnstile_policy",
     }
 )
 FORBIDDEN_NAMES = frozenset(TABLE_NAMES) | {"metadata"} | SUBMODULES

@@ -59,6 +59,7 @@ AUTH: Final = frozenset(
         "too_many_streams",
         "totp_changed",
         "totp_not_enabled",
+        "turnstile_failed",
         "two_factor_required",
         "wrong_browser",
         "wrong_password",

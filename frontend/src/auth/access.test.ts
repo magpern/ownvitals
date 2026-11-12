@@ -8,6 +8,7 @@ function state(overrides: Partial<SessionState> = {}, mfa = true): SessionState 
     user: { id: 'u1', email: 'ann@example.test', role: 'user', locale: null },
     session: { id: 's1', expiresAt: '2030-01-01T00:00:00Z', recentAuth: true, mfa, stepup: mfa },
     totpEnabled: true,
+    turnstile: null,
     ...overrides,
   }
 }
@@ -15,7 +16,7 @@ function state(overrides: Partial<SessionState> = {}, mfa = true): SessionState 
 describe('accessOf', () => {
   it('is anonymous before the session is known and for a signed-out visitor', () => {
     expect(accessOf(null)).toBe('anonymous')
-    expect(accessOf({ authenticated: false, user: null, session: null, totpEnabled: false })).toBe('anonymous')
+    expect(accessOf({ authenticated: false, user: null, session: null, totpEnabled: false, turnstile: null })).toBe('anonymous')
   })
 
   it('asks for enrolment while the account has no authenticator app, whatever the session says', () => {
@@ -59,7 +60,7 @@ describe('isAdmin', () => {
 
   it('is false before the session is known, for a signed-out visitor and for a session with no user', () => {
     expect(isAdmin(null)).toBe(false)
-    expect(isAdmin({ authenticated: false, user: null, session: null, totpEnabled: false })).toBe(false)
+    expect(isAdmin({ authenticated: false, user: null, session: null, totpEnabled: false, turnstile: null })).toBe(false)
     expect(isAdmin(state({ user: null }))).toBe(false)
   })
 

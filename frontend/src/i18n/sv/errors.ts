@@ -15,6 +15,7 @@ export const errors = {
   'reason.invalid_code': 'Koden stämmer inte. Kontrollera appen och försök igen.',
   'reason.totp_changed': 'Din tvåfaktorsinställning ändrades under tiden. Börja om.',
   'reason.totp_not_enabled': 'Tvåfaktorsautentisering är inte inställd.',
+  'reason.turnstile_failed': 'Kontrollen av att du inte är en robot gick inte igenom. Försök igen.',
   'reason.not_authenticated': 'Du är utloggad. Logga in och försök igen.',
   'reason.no_pending_signup':
     'Ingen inloggning väntar på en adress. Starta inloggningen med Google igen.',
