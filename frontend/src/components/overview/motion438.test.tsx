@@ -4,8 +4,14 @@ import type { MetricTile } from '../../api/overview'
 import { Sparkline } from '../charts/Sparkline'
 import { useNewReading } from '../motion'
 import { fakeMatchMedia } from '../motion/motionFakes'
+import { DEFAULT_DISPLAY } from '../../lib/display'
 import { DeltaChip } from './DeltaChip'
 import { deltaOf, median } from './deltaModel'
+
+const display: { temperatureUnit: 'c' | 'f' } = vi.hoisted(() => ({ temperatureUnit: 'c' }))
+vi.mock('../../display/DisplayContext', () => ({
+  useDisplay: () => ({ settings: { ...DEFAULT_DISPLAY, temperatureUnit: display.temperatureUnit }, chartRange: null, settled: true, apply: () => undefined }),
+}))
 
 // Synthetic values only (labelled: synthetic: true).
 const base: MetricTile = {
@@ -16,6 +22,7 @@ const base: MetricTile = {
 }
 
 afterEach(() => {
+  display.temperatureUnit = 'c'
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -28,7 +35,7 @@ describe('deltaModel', () => {
   })
 
   it('compares the latest value with the median of the days with a value', () => {
-    expect(deltaOf(base)).toMatchObject({ amount: 2, direction: 'up', days: 5 })
+    expect(deltaOf(base)).toMatchObject({ amount: 2, direction: 'up', days: 4 })
   })
 
   it('gives no delta without a latest value or with under 3 days', () => {
@@ -40,9 +47,21 @@ describe('deltaModel', () => {
 describe('DeltaChip', () => {
   it('shows a signed change and what it is compared with, with a hidden arrow', () => {
     const { container } = render(<DeltaChip tile={base} digits={1} attention={false} />)
-    expect(screen.getByText(/\+2\.0 vs your 5-day median/)).toBeInTheDocument()
+    expect(screen.getByText(/\+2\.0 vs your 4-day median/)).toBeInTheDocument()
     expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull()
     expect(container.firstChild).not.toHaveClass('ov-delta--attn')
+  })
+
+  it('converts a temperature change to Fahrenheit by scale only, with no 32 offset', () => {
+    display.temperatureUnit = 'f'
+    const temp: MetricTile = {
+      ...base, key: 'body_temperature', unit: '°C',
+      latest: { day: '2026-01-10', value: 37, n: 1 },
+      sparkline: [36, 36, 36, 36].map((value, i) => ({ day: `2026-01-0${String(i + 1)}`, value })),
+    }
+    // +1.0 °C is +1.8 °F (not 33.8).
+    render(<DeltaChip tile={temp} digits={1} attention={false} />)
+    expect(screen.getByText(/\+1\.8 vs your 4-day median/)).toBeInTheDocument()
   })
 
   it('uses the attention colour class outside the range and renders nothing without data', () => {

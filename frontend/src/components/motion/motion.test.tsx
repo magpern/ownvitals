@@ -165,10 +165,13 @@ describe('Reveal', () => {
     document.body.appendChild(container)
     const origError = console.error
     console.error = () => {}
-    act(() => {
-      hydrateRoot(container, <Reveal>card</Reveal>)
-    })
-    console.error = origError
+    try {
+      act(() => {
+        hydrateRoot(container, <Reveal>card</Reveal>)
+      })
+    } finally {
+      console.error = origError
+    }
     const el = container.querySelector('.ov-reveal') as HTMLElement
     expect(el).toHaveClass('ov-reveal--pre')
     expect(el).not.toHaveClass('ov-reveal--in')
