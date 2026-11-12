@@ -1,7 +1,7 @@
 import type { HisScore } from '../../api/scores'
 import { HIS_AREAS } from '../../api/scores'
 import type { MessageKey } from '../../i18n/en'
-import { useT } from '../../i18n'
+import { isMessageKey, useT } from '../../i18n'
 import { Card } from '../ui/Card'
 import { DataState } from '../ui/DataState'
 import { TierGlyph } from '../ui/TierMark'
@@ -26,6 +26,12 @@ export function sourceTag(algoVersion: string): string {
   return `ownvitals ${VERSION_LABEL[algoVersion] ?? algoVersion}`
 }
 
+/** The wording of an area's reason code; a code the catalogue lacks reads generically. */
+export function reasonKey(code: string): MessageKey {
+  const key = `overview.score.reason.${code}`
+  return isMessageKey(key) ? key : 'overview.score.reason.fallback'
+}
+
 export function ScoreCard({ score }: { score: HisScore | null }) {
   const t = useT()
   if (score === null || score.status === 'not_set') return null
@@ -41,6 +47,13 @@ export function ScoreCard({ score }: { score: HisScore | null }) {
       ? t('overview.score.areaNa', { area: t(AREA_LABEL[area]) })
       : t('overview.score.areaValue', { area: t(AREA_LABEL[area]), value: String(value) })
   }).join(' · ')
+  // Why an area has no score: a second line, one reason per such area (codes, worded here).
+  const why = HIS_AREAS.filter((area) => score.areas[area] === null).map((area) =>
+    t('overview.score.areaReason', {
+      area: t(AREA_LABEL[area]),
+      reason: t(reasonKey(score.areaReasons[area] ?? 'fallback')),
+    }),
+  )
   return (
     <Card level={3} experimental title={t('overview.metric.healthScore')} aside={source}>
       {score.status === 'computed' && score.value !== null ? (
@@ -49,6 +62,7 @@ export function ScoreCard({ score }: { score: HisScore | null }) {
             <ScoreReadout value={score.value} /> <span className="ov-small ov-muted">{t('overview.score.outOf')}</span>
           </p>
           <p className="ov-small ov-muted">{areas}</p>
+          {why.length > 0 && <p className="ov-small ov-muted">{why.join(' · ')}</p>}
         </>
       ) : (
         <DataState kind="not-available">{t('overview.score.detail')}</DataState>

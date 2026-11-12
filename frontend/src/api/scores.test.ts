@@ -22,7 +22,10 @@ describe('decodeHisScore', () => {
           algo_version: 'his/1',
           status: 'computed',
           value: 71,
-          components: { verticals: { body: 78, sleep: null } },
+          components: {
+            verticals: { body: 78, sleep: null },
+            vertical_reasons: { body: null, sleep: 'insufficient_data', heart: '', activity: 7 },
+          },
         },
       ],
     })
@@ -32,6 +35,7 @@ describe('decodeHisScore', () => {
       value: 71,
       reason: null,
       areas: { body: 78, heart: null, activity: null, sleep: null },
+      areaReasons: { body: null, heart: null, activity: null, sleep: 'insufficient_data' },
     })
   })
 

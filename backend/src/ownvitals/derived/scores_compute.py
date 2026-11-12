@@ -45,6 +45,9 @@ class ScoreInputs:
     table_digest: str
     experimental: bool
     day_tz: str | None = None
+    # The newest confirmed height observation (Withings meastype 4): (ts ISO, metres). Read under
+    # RLS by ``scores_gather``; never guessed, so None means ``no_height``.
+    height: tuple[str, float] | None = None
     extra: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -87,7 +90,9 @@ def _his_inputs(inputs: ScoreInputs) -> dict[str, CriterionInput]:
     ]
     unwired = CriterionInput(Status.NOT_AVAILABLE, reason="input_not_wired")
     return {
-        "bmi": his_inputs.bmi([], None, day),  # no height in the profile yet: no_height
+        "bmi": his_inputs.bmi(
+            daily("weight"), None if inputs.height is None else inputs.height[1], day
+        ),
         "fat_ratio": his_inputs.median_criterion(
             daily("fat_ratio"), day, days=30, minimum=4, unit="%"
         ),
@@ -136,6 +141,7 @@ def fingerprint(inputs: ScoreInputs, revisions: tuple[int, ...]) -> bytes:
         "day": inputs.day.isoformat(),
         "tz": inputs.day_tz,
         "profile": [inputs.birth_year, inputs.sex],
+        "height": None if inputs.height is None else [inputs.height[0], repr(inputs.height[1])],
         "experimental": inputs.experimental,
         "table": [inputs.table_digest, inputs.table_error],
         "daily": {

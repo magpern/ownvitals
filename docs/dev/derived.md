@@ -480,8 +480,12 @@ the `data_revisions` rows `FOR SHARE`, gathers the inputs again and writes only 
 revisions and the fingerprint are the ones read (else `stale`). An upsert that changes nothing
 reports `current`.
 
-**Not wired (reported per row, never guessed).** BMI needs a height (the profile has none:
-`no_height`); `afib_ecg_count` and `high_bp_ratio` inputs are `input_not_wired`. Sleep and
+**Not wired (reported per row, never guessed).** BMI reads the newest confirmed height
+observation (meastype 4, metres) through the owner's session; none: `no_height`. The height
+(timestamp and value) is part of the fingerprint. `components.vertical_reasons` carries one code
+per area without a score (`no_height`, `insufficient_data`, `no_band_row`, `not_supported`,
+`not_available`, `birth_year_unset`, `sex_unset`; `analysis/scores/his_reasons.py`), which the
+card words in en and sv. `afib_ecg_count` and `high_bp_ratio` inputs are `input_not_wired`. Sleep and
 activity field names and units are assumptions until the owner's probe confirms them.
 
 **Tests.** `tests/analysis/scores/` (pure), `tests/test_derived_scores_hardening_db.py` (#302: concurrent writers, fingerprint cases, zone
