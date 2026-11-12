@@ -1,4 +1,6 @@
 Content-Language: en
+List-Unsubscribe: <https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkAAAAAAAAAAAAAAAAAaaTTAI6W8brV7iNN7t-m5ZjVWLo>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
 Subject: ownvitals: something is waiting for you
 
 Something new is waiting for you in ownvitals.
@@ -8,3 +10,6 @@ Open it here: https://ownvitals.example.test/overview
 This email says no more than that on purpose: what is waiting is shown only after you sign in.
 
 - ownvitals
+
+Don't want emails like this one? Switch them off: https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkAAAAAAAAAAAAAAAAAaaTTAI6W8brV7iNN7t-m5ZjVWLo
+You can switch them on again in ownvitals under Settings, Notifications.

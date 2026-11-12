@@ -92,6 +92,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "reserve_oauth_start",
             "reserve_ai_chat",
             "reserve_ai_conversation",
+            "reserve_unsubscribe",  # the one-click unsubscribe's per-IP limit (#459)
             "session_probe",
         }
     ),

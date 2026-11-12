@@ -30,9 +30,16 @@ export const AI_CONSENT_NONE = {
   consent_text: { version: 1, locale: 'en', text: 'Synthetic consent text.', sha256: '0'.repeat(64) },
 }
 
+// The email preferences of an account that switched nothing off: synthetic.
+export const EMAIL_PREFS_ON = {
+  kinds: ['findings_waiting', 'connection_attention', 'ai_digest_ready'].map((kind) => ({ kind, enabled: true })),
+}
+
 export const PROFILE_ROUTES = {
   'GET /api/profile': fakeProfile(),
   'GET /api/ai/consent?locale=en': AI_CONSENT_NONE,
   // The export card (issue 211): no export yet.
   'GET /api/exports': { exports: [] },
+  // The email preference per kind (issue 459): every kind on.
+  'GET /api/notify/email': EMAIL_PREFS_ON,
 }

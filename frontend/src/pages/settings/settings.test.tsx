@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SIGNED_IN, fakeApi, reason } from '../../test/fakeApi'
-import { fakeProfile } from '../../test/profileFixtures'
+import { EMAIL_PREFS_ON, fakeProfile } from '../../test/profileFixtures'
 import { renderAt } from '../../test/render'
 import { getThemePreference, setThemePreference } from '../../theme/theme'
 
@@ -213,6 +213,41 @@ describe('Notifications', () => {
     await waitFor(() => {
       expect(lastPut(api).notify_tiers).toEqual(['device', 'system'])
     })
+  })
+
+  it('shows each email kind and switches one off (issue 459)', async () => {
+    let prefs = EMAIL_PREFS_ON.kinds
+    const api = profileApi(fakeProfile(), {
+      'GET /api/notify/email': () => ({ kinds: prefs }),
+      'PUT /api/notify/email': (body: unknown) => {
+        const { kind, enabled } = body as { kind: string; enabled: boolean }
+        prefs = prefs.map((row) => (row.kind === kind ? { kind, enabled } : row))
+        return { kinds: prefs }
+      },
+    })
+    renderAt('/settings/notifications')
+    const weekly = await screen.findByRole('button', { name: 'Weekly summary' })
+    expect(weekly).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen.getByText(/Sign-in, security and account emails, and an export you asked for, always arrive/),
+    ).toBeInTheDocument()
+    fireEvent.click(weekly)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Weekly summary' })).toHaveAttribute('aria-pressed', 'false')
+    })
+    expect(api.to('PUT', '/api/notify/email').at(-1)?.body).toEqual({ kind: 'ai_digest_ready', enabled: false })
+    expect(screen.getByRole('button', { name: 'Something is waiting' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('says so when a switch is refused', async () => {
+    profileApi(fakeProfile(), { 'PUT /api/notify/email': reason(429, 'rate_limited') })
+    renderAt('/settings/notifications')
+    fireEvent.click(await screen.findByRole('button', { name: 'A connection needs attention' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'A connection needs attention' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 
   it('offers the experimental chip only to an account that may use it', async () => {

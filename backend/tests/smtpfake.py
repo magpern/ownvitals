@@ -116,7 +116,12 @@ class SmtpFake:
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
         listener.bind(("127.0.0.1", 0))
         self._server = await asyncio.start_server(
-            self._serve, sock=listener, ssl=context, limit=1024
+            # The stream limit bounds one line and one message body; a mail with the unsubscribe
+            # footer and its two headers (#459), base64-encoded, is over 1 KiB.
+            self._serve,
+            sock=listener,
+            ssl=context,
+            limit=16 * 1024,
         )
         self.port = self._server.sockets[0].getsockname()[1]
         return self

@@ -70,6 +70,12 @@ export const settings = {
   'notify.weekly.help': 'The same plain email: it only says something is waiting.',
   'notify.tiers.label': 'Which findings notify',
   'notify.tiers.help': 'Imported history never notifies.',
+  'notify.kinds.label': 'Which emails you get',
+  'notify.kinds.help':
+    'Switch off a kind here or with the link in the email itself. Sign-in, security and account emails, and an export you asked for, always arrive.',
+  'notify.kind.findings_waiting': 'Something is waiting',
+  'notify.kind.connection_attention': 'A connection needs attention',
+  'notify.kind.ai_digest_ready': 'Weekly summary',
   'tier.device': 'Device',
   'tier.trend': 'Trend',
   'tier.system': 'System',

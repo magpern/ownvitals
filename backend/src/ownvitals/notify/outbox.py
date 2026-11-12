@@ -16,7 +16,13 @@ subject, free text, a value or finding text. The database checks every kind and 
   the function (``OWNER_NOTICE_ROUTES`` mirrors it). At most one pending row per kind.
 - **The sender** claims and marks rows only through ``mail_outbox_claim`` and
   ``mail_outbox_mark`` (``claim``, ``mark``), in a session with no user: it holds no
-  ``UserContext`` and gets none.
+  ``UserContext`` and gets none. For a claimed row of a suppressible kind it reads the owner's
+  email preference only through ``mail_outbox_email_pref`` (``email_pref``), which takes the
+  row's id, never an owner id (ADR 0019).
+- **The unsubscribe endpoint** switches one preference off only through ``email_unsubscribe``
+  (``unsubscribe``), after it verified the signed token (``ownvitals.notify.unsubscribe``): the
+  one write of the family that takes an owner id, and it can only switch a suppressible kind
+  off at the generation the token names (ADR 0019).
 
 The worker loads this module (``connections.providers.withings`` queues the owner notice of PLAN
 section 4.3), so it imports nothing web-only: no ``ownvitals.mail`` (``tests/egress_worker.py``).
@@ -75,6 +81,17 @@ _QUEUE_USER = text(
 _QUEUE_OWNER = text("SELECT public.owner_notice_queue(:kind)")
 _CLAIM = text("SELECT id, kind, route, owner_id FROM public.mail_outbox_claim(:limit, :lease)")
 _MARK = text("SELECT public.mail_outbox_mark(:id, :outcome)")
+_EMAIL_PREF = text("SELECT enabled, generation FROM public.mail_outbox_email_pref(:id)")
+_UNSUBSCRIBE = text("SELECT public.email_unsubscribe(:owner, :kind, :generation)")
+
+
+@dataclass(frozen=True, slots=True)
+class EmailPref:
+    """A claimed row's email preference: whether its kind's email is on, and the generation an
+    unsubscribe link must name."""
+
+    enabled: bool
+    generation: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,3 +143,20 @@ async def mark(factory: Factory, mail_id: UUID, outcome: Outcome) -> bool:
         raise ValueError("not an outbox outcome")
     async with system_session(factory) as db:
         return bool((await db.execute(_MARK, {"id": mail_id, "outcome": outcome})).scalar_one())
+
+
+async def email_pref(factory: Factory, mail_id: UUID) -> EmailPref | None:
+    """The email preference behind a claimed row of a suppressible kind, in a transaction of its
+    own with no user; ``None`` when the row is not claimed or its kind has no preference."""
+    async with system_session(factory) as db:
+        row = (await db.execute(_EMAIL_PREF, {"id": mail_id})).first()
+    return None if row is None else EmailPref(enabled=bool(row.enabled), generation=row.generation)
+
+
+async def unsubscribe(factory: Factory, owner_id: UUID, kind: str, generation: int) -> bool:
+    """Switch ``owner_id``'s email of ``kind`` off, only if the preference is still on at
+    ``generation``; True when it changed. The caller has verified a signed token for exactly
+    these three values (``ownvitals.notify.unsubscribe.verify``)."""
+    async with system_session(factory) as db:
+        params = {"owner": owner_id, "kind": kind, "generation": generation}
+        return bool((await db.execute(_UNSUBSCRIBE, params)).scalar_one())
