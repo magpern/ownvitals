@@ -29,6 +29,7 @@ from ownvitals.auth.oauth_routes import router as oauth_router
 from ownvitals.auth.passkey_reauth_routes import router as passkey_reauth_router
 from ownvitals.auth.passkey_routes import router as passkey_router
 from ownvitals.auth.passkey_signin_routes import router as passkey_signin_router
+from ownvitals.auth.password_change_routes import router as password_change_router
 from ownvitals.auth.passwords import PasswordHashBusy, PasswordHasher
 from ownvitals.auth.qrlogin_phone_routes import router as qr_phone_router
 from ownvitals.auth.qrlogin_routes import router as qr_router
@@ -54,7 +55,7 @@ def install(app: FastAPI) -> None:
     app.include_router(router)
     app.include_router(activity_router)  # GET /api/auth/activity (#251)
     app.include_router(locale_router)  # PUT /api/account/locale (#249)
-    for flow in (signup_router, signin_router, reset_router, email_router):
+    for flow in (signup_router, signin_router, reset_router, password_change_router, email_router):
         app.include_router(flow)
     app.include_router(mfa_router)
     app.include_router(mfa_verify_router)
