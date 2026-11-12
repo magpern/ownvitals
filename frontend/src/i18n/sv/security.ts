@@ -3,7 +3,7 @@ import type { security as en } from '../en/security'
 // Swedish for the security area (glossary: docs/dev/i18n.md). `satisfies` makes a missing or extra key a type error.
 export const security = {
   band: 'Åtgärder markerade med ett lås kräver en ny kod från din autentiseringsapp. En kod gäller för skyddade åtgärder i 10 minuter.',
-  laterLabel: 'Hur du loggar in, den andra faktorn och senaste aktivitet',
+  laterLabel: 'Hur du loggar in och den andra faktorn',
   later: 'Byte av lösenord, Google, e-post, autentiseringsapp och återställningskoder kommer i M6.',
   'sessions.title': 'Där du är inloggad',
   'sessions.signOutEverywhere': 'Logga ut överallt…',

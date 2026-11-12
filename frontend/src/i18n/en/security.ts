@@ -1,7 +1,7 @@
 // The Sign-in and security screen and the shared "Confirm it's you" dialog.
 export const security = {
   band: 'Actions marked with a lock ask for a fresh code from your authenticator app. One code covers 10 minutes of protected actions.',
-  laterLabel: 'How you sign in, the second factor and recent activity',
+  laterLabel: 'How you sign in and the second factor',
   later: 'Changing the password, Google, email, the authenticator and recovery codes comes in M6.',
   'sessions.title': "Where you're signed in",
   'sessions.signOutEverywhere': 'Sign out everywhere…',
