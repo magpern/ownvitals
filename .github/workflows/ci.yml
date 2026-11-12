@@ -83,6 +83,11 @@ jobs:
             docs/PLAN.md docs/PLAN-operations.md docs/withings-findings.md \
             || { echo "::error::the frozen specification changed; amend it in docs/roadmap.md instead"; exit 1; }
 
+      # The owner's local real-account work (docs/dev/local-real-account.md) stays on that machine:
+      # no .env, secrets/, local-real/, probe output or database dump is ever tracked (#450).
+      - name: No local real-account files tracked
+        run: scripts/local-real-guard.sh tracked
+
       # The cache holds the tarball; ci-install-release.sh checks its SHA-256 again after a restore
       # and fails the job on a mismatch. Bump the `v1` in the key to evict a bad entry.
       - name: Cache gitleaks download

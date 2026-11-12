@@ -30,6 +30,21 @@ blob-report/
 *.apk
 *.xapk
 probe-output*
+# The owner's local real-account session (docs/dev/local-real-account.md); the same rules are
+# enforced by scripts/local-real-guard.sh (pre-commit, pre-push, and the backend guard test)
+local-real/
+*.dump
+*.pgdump
+*.pg_dump
+*.backup
+*.bak
+*.sql.gz
+*.sql.bz2
+*.sql.xz
+*.sql.zst
+*.sql.zip
+*.sql.7z
+*dump*.sql
 
 # Editors and OS
 .idea/

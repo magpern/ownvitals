@@ -225,6 +225,8 @@ Backend only (IMPLEMENTED, synthetic); the desktop panel, the phone screen and `
 
 ## Decisions since the last reconcile
 
+2026-11-12 (owner, in chat, relayed by the Architect; #450): a local agent running on the owner's own computer may work with the owner's real Withings data in a local test environment. Limited to that machine and that account; not for cloud or remote sessions, CI, other agents or anyone else's data. Real values never reach git, PRs, issues, comments, CI, committed logs or committed fixtures. Recorded in AGENTS.md "Health data" (the one exception) and run by [dev/local-real-account.md](dev/local-real-account.md), which maps each assumption below to a check; no specification file changes. It changes no status level: the owner still settles each assumption and sets INTEGRATION_VERIFIED.
+
 2026-11-09 (owner): the `ownvitals probe` output is confirmed and the Withings integration is verified, said in the session prompt. Agents do not write INTEGRATION_VERIFIED; the owner records it. The unverified-assumptions table below stays until the owner settles each row, so the code keeps its current readings.
 
 2026-11-08 (owner, roadmap Amendment 7): groundwork before the M6 screens: G (`config.py` split, multilingual en/sv, ADR 0015) and H (auth fixes from classbeat after the pinned port: Google re-auth `auth_time`, reset race windows and row locks, sign-out events and security activity, passkey follow-ups). P1–P3 (Turnstile, session anomaly signal and abuse view, privacy, terms and cookie notice) are required before M8. Not adopted: language in the URL, plan quotas, the image-only install.
