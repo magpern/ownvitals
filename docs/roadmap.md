@@ -48,7 +48,7 @@ Routine choices the specification leaves open are not amendments: they go into A
   same time**. A lane that was served and stopped asking holds nothing; a lane that is still
   waiting (asked within 10 s and not granted since) wins over every lower lane. The per-user
   backfill cap applies only while another user's backfill is waiting. Implemented in
-  `withings_rate_claim` (`ownvitals-rate v2`, #370); details in ADR 0005, amendment
+  `withings_rate_claim` (`ownvitals-rate v2`, #370; now `v3`, #470); details in ADR 0005, amendment
   2026-11-10 (#370).
 - **Evidence:** the synthetic M1 flow through the real limiter (#294, PR #369) took 81 s instead
   of 12 s, with two ~30 s stretches in which every claim got `wait` and none was granted: the
