@@ -33,6 +33,7 @@ from ownvitals.auth.sessions import (
     start_session,
 )
 from ownvitals.auth.tables import users
+from ownvitals.auth.turnstile import require_turnstile
 from ownvitals.auth.userlock import lock_user_row
 from ownvitals.context import UserContext
 from ownvitals.db import system_session
@@ -77,7 +78,7 @@ async def _check_password(
     return False, typed
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(require_turnstile("signin"))])
 async def sign_in(body: LoginIn, request: Request, response: Response) -> SignedIn:
     settings, keys = request.app.state.settings, request.app.state.keys
     hasher: PasswordHasher = request.app.state.password_hasher

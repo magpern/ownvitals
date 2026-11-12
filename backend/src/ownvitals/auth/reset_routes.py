@@ -9,7 +9,7 @@ step: the reset is the proof, so that needs neither recent auth nor step-up. Cha
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -42,6 +42,7 @@ from ownvitals.auth.tokens import (
     issue_token,
     peek_token,
 )
+from ownvitals.auth.turnstile import require_turnstile
 from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
 from ownvitals.db import system_session
@@ -127,7 +128,11 @@ def make_reset_link_sender(
     return send
 
 
-@router.post("/password/reset/request", status_code=202)
+@router.post(
+    "/password/reset/request",
+    status_code=202,
+    dependencies=[Depends(require_turnstile("reset"))],
+)
 async def request_reset(
     body: ResetRequestIn, request: Request, background: BackgroundTasks
 ) -> Accepted:

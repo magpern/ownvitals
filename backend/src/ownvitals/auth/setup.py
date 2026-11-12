@@ -38,6 +38,7 @@ from ownvitals.auth.reset_routes import router as reset_router
 from ownvitals.auth.routes import router
 from ownvitals.auth.signin_routes import router as signin_router
 from ownvitals.auth.signup_routes import router as signup_router
+from ownvitals.auth.turnstile import build_verifier
 from ownvitals.config import Settings
 from ownvitals.log import describe_database_error
 from ownvitals.mail import Mailer
@@ -120,6 +121,7 @@ def attach_state(
     app.state.password_hasher = PasswordHasher(settings.password_hash_workers)
     app.state.mailer = Mailer(settings)
     app.state.oauth = OAuthRuntime(enabled_providers(settings))
+    app.state.turnstile = build_verifier(settings)  # None while Turnstile is off (ADR 0018)
     # httpx logs each request URL at INFO; the OAuth ones are not worth a log line.
     for noisy in ("httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
