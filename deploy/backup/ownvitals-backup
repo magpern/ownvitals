@@ -1,0 +1,305 @@
+#!/bin/bash -p
+# ownvitals-backup: the nightly encrypted database backup and the separate key-ring backup
+# (PLAN-operations §9.2 "Backups / DR", threat model T33 and T61, ADR 0017).
+#
+#   ownvitals-backup db        pg_dump of the compose Postgres, encrypted to the db recipients
+#   ownvitals-backup keys      the key-ring files, encrypted to the keys recipients, elsewhere
+#   ownvitals-backup --check   fails when the newest db backup is missing or older than 26 h,
+#                              or when no key backup holds the current key files
+#
+# Both backups are encrypted on the host to age public keys (recipients). The host never holds
+# an identity (a private key), so it can write a backup but never read one. The key ring goes
+# to its own directory, never next to a dump: the configuration is refused when the two
+# targets, or either of them and the secrets directory, are the same or nested. Every run prints
+# one line, "ok    <what>: ..." or "FAIL  <what>: ...", and never a secret, a key, a dump or a
+# tool's own output (which could quote a row). docs/dev/backup.md is the reference.
+# bash -p: no functions, BASH_ENV or SHELLOPTS from the environment.
+set -euo pipefail
+export LC_ALL=C
+umask 077
+
+# --- Installation. The tests rewrite exactly these three lines in a copy of this file.
+readonly CONF_FILE=/etc/ownvitals-backup/backup.conf
+readonly LOCK_FILE=/run/lock/ownvitals-backup.lock
+readonly SAFE_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# ---
+
+readonly DATABASE=ownvitals
+# --check: the newest db backup may be at most 26 h old (RPO 24 h plus two hours of slack for a
+# slow night; PLAN §11 M2 "monitoring").
+readonly MAX_AGE_SECONDS=$((26 * 3600))
+readonly PATH_RE='^/[A-Za-z0-9._/-]*$'
+readonly PROJECT_RE='^[a-z0-9][a-z0-9_-]{0,62}$'
+readonly RETAIN_RE='^[1-9][0-9]{0,2}$'
+# An age X25519 recipient: "age1" and 58 bech32 characters. Nothing else is a recipient here
+# (an identity, AGE-SECRET-KEY-1..., is refused without being echoed).
+readonly RECIPIENT_RE='^age1[02-9ac-hj-np-z]{58}$'
+readonly SET_RE='^ownvitals-db-[0-9]{8}T[0-9]{6}Z$'
+readonly KEYS_RE='^ownvitals-keys-[0-9]{8}T[0-9]{6}Z\.tar\.age$'
+# The key ring's files (docs/dev/crypto.md, "Keys: three kinds"): current and retired.
+readonly KEY_FILE_RE='^(connection_kek|webhook_seed|webhook_pepper)(_[a-z0-9-]{1,40})?$'
+
+APP_DIR=/opt/ownvitals PROJECT=ownvitals SECRETS_DIR=/opt/ownvitals/secrets DB_RETAIN=30
+DB_TARGET='' DB_RECIPIENTS='' KEYS_TARGET='' KEYS_RECIPIENTS='' LOCK_FD=''
+
+ok() { printf 'ok    %s\n' "$1"; }
+fail() { printf 'FAIL  %s\n' "$1" >&2; exit 1; }
+usage() {
+  printf 'FAIL  usage: ownvitals-backup db | keys | --check\n' >&2
+  exit 64
+}
+bad_conf() { printf 'FAIL  config: %s (%s)\n' "$1" "$CONF_FILE" >&2; exit 64; }
+
+# Nothing from the caller's environment reaches docker, age or tar but HOME (docker's config).
+clean_environment() {
+  local name home=${HOME:-/root}
+  while IFS= read -r name; do
+    unset -v "$name" 2> /dev/null || true
+  done < <(compgen -e)
+  export PATH=$SAFE_PATH LC_ALL=C HOME=$home
+}
+
+check_path() { # <key> <value>: absolute, no "." or ".." component, no doubled slash
+  [[ $2 =~ $PATH_RE && $2 != *//* && /$2/ != */./* && /$2/ != */../* ]] \
+    || bad_conf "$1 is not an absolute path of letters, digits and ._-/"
+}
+
+# KEY=value lines, "#" comments and blank lines; the file is parsed, never sourced.
+read_conf() {
+  local line key value
+  [[ -f $CONF_FILE && -r $CONF_FILE ]] || bad_conf "missing or unreadable"
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -z $line || $line == '#'* ]] && continue
+    [[ $line =~ ^([A-Z_]+)=(.*)$ ]] || bad_conf "a line is not KEY=value"
+    key=${BASH_REMATCH[1]} value=${BASH_REMATCH[2]}
+    case $key in
+      APP_DIR | SECRETS_DIR | DB_TARGET | DB_RECIPIENTS | KEYS_TARGET | KEYS_RECIPIENTS)
+        check_path "$key" "$value" && printf -v "$key" '%s' "$value" ;;
+      PROJECT) [[ $value =~ $PROJECT_RE ]] || bad_conf "PROJECT is not a compose project name"
+        PROJECT=$value ;;
+      DB_RETAIN) [[ $value =~ $RETAIN_RE ]] || bad_conf "DB_RETAIN is not 1 to 999"
+        DB_RETAIN=$value ;;
+      *) bad_conf "unknown key $key" ;;
+    esac
+  done < "$CONF_FILE"
+  local k
+  for k in DB_TARGET DB_RECIPIENTS KEYS_TARGET KEYS_RECIPIENTS; do
+    [[ -n ${!k} ]] || bad_conf "$k is not set"
+  done
+}
+
+# The two targets and the secrets directory resolve (symlinks followed) to three directories,
+# none of them inside another: a key backup never lands beside a dump, and neither beside the
+# live keys.
+check_separation() {
+  local db keys secrets a b
+  db=$(realpath -e -- "$DB_TARGET" 2> /dev/null) && [[ -d $db ]] \
+    || fail "config: DB_TARGET is not a directory (is the backup machine mounted?)"
+  keys=$(realpath -e -- "$KEYS_TARGET" 2> /dev/null) && [[ -d $keys ]] \
+    || fail "config: KEYS_TARGET is not a directory (is the key backup machine mounted?)"
+  secrets=$(realpath -e -- "$SECRETS_DIR" 2> /dev/null) && [[ -d $secrets ]] \
+    || fail "config: SECRETS_DIR is not a directory"
+  for a in "$db" "$keys" "$secrets"; do
+    for b in "$db" "$keys" "$secrets"; do
+      [[ $a == "$b" ]] && continue
+      [[ $a/ == "$b"/* ]] && bad_conf "DB_TARGET, KEYS_TARGET and SECRETS_DIR must be separate directories, none inside another"
+    done
+  done
+  [[ $db != "$keys" && $db != "$secrets" && $keys != "$secrets" ]] \
+    || bad_conf "DB_TARGET, KEYS_TARGET and SECRETS_DIR must be separate directories, none inside another"
+  DB_TARGET=$db KEYS_TARGET=$keys SECRETS_DIR=$secrets
+}
+
+# A recipients file: one age recipient per line ("#" comments, blank lines). Printed: nothing of
+# its content. Sets RECIPIENTS to the list.
+RECIPIENTS=()
+read_recipients() { # <key> <file>
+  local line
+  RECIPIENTS=()
+  [[ -f $2 && -r $2 ]] || bad_conf "$1 is missing or unreadable"
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -z $line || $line == '#'* ]] && continue
+    [[ $line =~ $RECIPIENT_RE ]] || bad_conf "$1 holds a line that is not an age1 recipient"
+    RECIPIENTS+=("$line")
+  done < "$2"
+  ((${#RECIPIENTS[@]} > 0)) || bad_conf "$1 holds no recipient"
+}
+
+# The database and the key ring are encrypted to disjoint recipients, so one identity never
+# opens both (ADR 0017, key custody).
+check_recipients() {
+  local -a db keys
+  local r s
+  read_recipients DB_RECIPIENTS "$DB_RECIPIENTS"
+  db=("${RECIPIENTS[@]}")
+  read_recipients KEYS_RECIPIENTS "$KEYS_RECIPIENTS"
+  keys=("${RECIPIENTS[@]}")
+  for r in "${db[@]}"; do
+    for s in "${keys[@]}"; do
+      [[ $r != "$s" ]] || bad_conf "DB_RECIPIENTS and KEYS_RECIPIENTS share a recipient"
+    done
+  done
+}
+
+take_lock() {
+  local status=0
+  exec {LOCK_FD}>> "$LOCK_FILE" || fail "lock: cannot open $LOCK_FILE"
+  flock --nonblock --conflict-exit-code 75 "$LOCK_FD" || status=$?
+  case $status in
+    0) ;;
+    75) printf 'FAIL  lock: another backup is running; nothing was done\n' >&2; exit 75 ;;
+    *) fail "lock: flock failed (exit $status)" ;;
+  esac
+}
+
+stamp() { date -u +%Y%m%dT%H%M%SZ; }
+
+compose() {
+  docker compose --project-directory "$APP_DIR" -f "$APP_DIR/compose.yaml" -p "$PROJECT" "$@"
+}
+
+# One stream from the db container, through age, into <file>. Neither tool's output is shown:
+# an error of pg_dump can quote data.
+encrypt_stream() { # <file> <recipients file> <command...>
+  local out=$1 recipients=$2
+  shift 2
+  "$@" < /dev/null 2> /dev/null | age --encrypt --recipients-file "$recipients" --output "$out" \
+    2> /dev/null
+}
+
+remove_partials() { # <dir> <regex>
+  local entry name
+  for entry in "$1"/.partial-*; do
+    [[ -e $entry ]] || continue
+    name=${entry##*/}
+    [[ $name =~ $2 ]] && rm -rf -- "$entry"
+  done
+  return 0
+}
+
+backup_db() {
+  local name partial set kept=0 removed=0 bytes
+  local -a sets=()
+  remove_partials "$DB_TARGET" '^\.partial-ownvitals-db-[0-9]{8}T[0-9]{6}Z$'
+  name=ownvitals-db-$(stamp)
+  partial=$DB_TARGET/.partial-$name set=$DB_TARGET/$name
+  [[ ! -e $set ]] || fail "db: $name exists already"
+  mkdir -- "$partial" || fail "db: cannot write to DB_TARGET"
+  # Roles first, without their passwords: pg_dump holds one database, and the roles (several
+  # are made by migrations) must exist before a restore (docs/dev/backup.md, "Restore").
+  encrypt_stream "$partial/roles.sql.age" "$DB_RECIPIENTS" \
+    compose exec -T -u postgres db pg_dumpall --roles-only --no-role-passwords \
+    || { rm -rf -- "$partial"; fail "db: the roles dump failed (is the db service running?)"; }
+  encrypt_stream "$partial/db.dump.age" "$DB_RECIPIENTS" \
+    compose exec -T -u postgres db pg_dump --format=custom --dbname="$DATABASE" \
+    || { rm -rf -- "$partial"; fail "db: pg_dump failed (is the db service running?)"; }
+  sync -- "$partial/roles.sql.age" "$partial/db.dump.age" 2> /dev/null || true
+  mv -T -- "$partial" "$set" || { rm -rf -- "$partial"; fail "db: cannot rename the new backup"; }
+  sync -f -- "$set" 2> /dev/null || true
+  bytes=$(($(stat -c %s -- "$set/roles.sql.age") + $(stat -c %s -- "$set/db.dump.age")))
+  # Retention: the newest DB_RETAIN sets (their names sort by time).
+  mapfile -t sets < <(list_sets)
+  kept=${#sets[@]}
+  while ((kept > DB_RETAIN)); do
+    rm -rf -- "${DB_TARGET:?}/${sets[removed]}"
+    removed=$((removed + 1)) kept=$((kept - 1))
+  done
+  ok "db: $name ($bytes bytes encrypted; $kept kept, $removed removed)"
+}
+
+list_sets() { # the complete backup sets in DB_TARGET, oldest first
+  local entry name
+  for entry in "$DB_TARGET"/ownvitals-db-*; do
+    name=${entry##*/}
+    [[ $name =~ $SET_RE && -d $entry && ! -L $entry ]] || continue
+    printf '%s\n' "$name"
+  done | sort
+}
+
+key_files() { # the key ring's files in SECRETS_DIR, by name
+  local entry name
+  for entry in "$SECRETS_DIR"/*; do
+    name=${entry##*/}
+    [[ $name =~ $KEY_FILE_RE && -f $entry && ! -L $entry ]] || continue
+    printf '%s\n' "$name"
+  done | sort
+}
+
+backup_keys() {
+  local name partial final
+  local -a files=()
+  mapfile -t files < <(key_files)
+  [[ " ${files[*]} " == *" connection_kek "* ]] || fail "keys: SECRETS_DIR has no connection_kek"
+  remove_partials "$KEYS_TARGET" '^\.partial-ownvitals-keys-[0-9]{8}T[0-9]{6}Z\.tar\.age$'
+  name=ownvitals-keys-$(stamp).tar.age
+  partial=$KEYS_TARGET/.partial-$name final=$KEYS_TARGET/$name
+  [[ ! -e $final ]] || fail "keys: $name exists already"
+  encrypt_stream "$partial" "$KEYS_RECIPIENTS" \
+    tar --create --file=- --directory="$SECRETS_DIR" --sort=name --owner=0 --group=0 \
+    --numeric-owner -- "${files[@]}" \
+    || { rm -f -- "$partial"; fail "keys: tar or age failed"; }
+  sync -- "$partial" 2> /dev/null || true
+  mv -T -- "$partial" "$final" || { rm -f -- "$partial"; fail "keys: cannot rename the backup"; }
+  ok "keys: $name (${#files[@]} key files; kept separately from the db backups)"
+}
+
+check() {
+  local -a sets=() keys=() files=()
+  local newest now age entry file status=0 newest_keys
+  now=$(date +%s)
+  mapfile -t sets < <(list_sets)
+  if ((${#sets[@]} == 0)); then
+    printf 'FAIL  check: no db backup in DB_TARGET\n' >&2
+    status=1
+  else
+    newest=${sets[-1]}
+    entry=$DB_TARGET/$newest
+    if [[ ! -s $entry/db.dump.age || ! -s $entry/roles.sql.age ]]; then
+      printf 'FAIL  check: the newest db backup %s is incomplete\n' "$newest" >&2
+      status=1
+    else
+      age=$((now - $(stat -c %Y -- "$entry/db.dump.age")))
+      if ((age > MAX_AGE_SECONDS)); then
+        printf 'FAIL  check: the newest db backup %s is %d h old (more than 26 h)\n' \
+          "$newest" "$((age / 3600))" >&2
+        status=1
+      else
+        ok "check: the newest db backup $newest is $((age / 3600)) h old"
+      fi
+    fi
+  fi
+  for entry in "$KEYS_TARGET"/ownvitals-keys-*; do
+    [[ ${entry##*/} =~ $KEYS_RE && -f $entry && ! -L $entry && -s $entry ]] && keys+=("${entry##*/}")
+  done
+  if ((${#keys[@]} == 0)); then
+    printf 'FAIL  check: no key backup in KEYS_TARGET\n' >&2
+    return 1
+  fi
+  mapfile -t keys < <(printf '%s\n' "${keys[@]}" | sort)
+  newest_keys=$KEYS_TARGET/${keys[-1]}
+  mapfile -t files < <(key_files)
+  for file in "${files[@]}"; do
+    if [[ $SECRETS_DIR/$file -nt $newest_keys ]]; then
+      printf 'FAIL  check: a key file changed after the newest key backup (run: ownvitals-backup keys)\n' >&2
+      return 1
+    fi
+  done
+  ok "check: the newest key backup ${keys[-1]} holds the current key files"
+  return "$status"
+}
+
+main() {
+  (($# == 1)) || usage
+  case $1 in db | keys | --check) ;; *) usage ;; esac
+  clean_environment
+  read_conf
+  check_separation
+  check_recipients
+  case $1 in
+    db) take_lock && backup_db ;;
+    keys) take_lock && backup_keys ;;
+    --check) check || exit 1 ;;
+  esac
+}
+
+main "$@"
