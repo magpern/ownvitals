@@ -87,6 +87,10 @@ an issue that needs a locked file waits for the holder's merge, then updates its
 | `docs/status.md`, `docs/status/completed.md` | Architect |
 | everything else | — (released) |
 
+Lock use on 2026-11-12: #451 (issue #450) held `.github/workflows/ci.yml` (the "No local
+real-account files tracked" step) and `AGENTS.md` ("Health data"), released at its merge; #452
+holds `AGENTS.md` for one re-wrapped line and does not change `ci.yml`.
+
 Alembic migrations: a PR takes the next free revision number when it opens; if another
 migration merges first, it renumbers and re-chains on its update, which needs a fresh scoped
 review.
