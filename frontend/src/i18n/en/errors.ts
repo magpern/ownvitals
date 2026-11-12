@@ -13,6 +13,7 @@ export const errors = {
   'reason.invalid_code': 'That code is not right. Check the app and try again.',
   'reason.totp_changed': 'Your two-factor setup changed meanwhile. Start again.',
   'reason.totp_not_enabled': 'Two-factor authentication is not set up.',
+  'reason.turnstile_failed': 'The check that you are not a robot did not pass. Try again.',
   'reason.not_authenticated': 'You are signed out. Sign in and try again.',
   'reason.no_pending_signup': 'No sign-in is waiting for an address. Start the Google sign-in again.',
   'reason.provider_disabled': 'That sign-in method is not available.',

@@ -8,7 +8,8 @@ lookup (process creation, below) and returns; otherwise it decides:
 
 - **Resolution** (the audit events ``socket.getaddrinfo`` and ``socket.gethostbyname``, which
   ``gethostbyname_ex`` raises too): only a host in the process's resolvable set: its kind's
-  egress hosts (web: Google sign-in and the Withings code exchange; any kind: the worker list
+  egress hosts (web: Google sign-in, the Withings code exchange and, only with
+  ``turnstile_enabled``, Turnstile's verification host; any kind: the worker list
   once ``install_worker_allowlist`` installed it), the configured database hosts, and the SMTP
   host in web and the CLI. No context is required: asyncio resolves in an executor thread,
   where context variables do not reach.
@@ -64,6 +65,7 @@ from sqlalchemy.engine import make_url
 
 from ownvitals.egress.core import (
     GOOGLE_SIGNIN_HOSTS,
+    TURNSTILE_HOST,
     WITHINGS_API_HOST,
     _printable_host,  # the package's own; the guard refuses private names outside it
     installed_worker_hosts,
@@ -183,6 +185,8 @@ def _policy_for(kind: Kind, settings: Settings) -> _Policy:
     hosts, paths = _database_endpoints(settings)
     if kind == "web":
         hosts |= WEB_HOSTS
+        if settings.turnstile_enabled is True:  # roadmap Amendment 12: only when it is on
+            hosts.add(TURNSTILE_HOST)
     if kind in ("web", "cli") and settings.smtp_host:
         hosts.add(_normalise(settings.smtp_host) or "")
     return _Policy(kind, frozenset(hosts - {""}), frozenset(paths))

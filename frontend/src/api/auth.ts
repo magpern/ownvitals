@@ -30,6 +30,27 @@ export interface SessionState {
   session: SessionDetails | null
   /** The account has an authenticator app set up. Always false when signed out. */
   totpEnabled: boolean
+  /** Cloudflare Turnstile's widget, only while the operator has it on (ADR 0018); else null. */
+  turnstile: TurnstileConfig | null
+}
+
+export interface TurnstileConfig {
+  siteKey: string
+  /** The widget's script, as the server names it (the CSP admits only its origin). */
+  scriptUrl: string
+}
+
+/** The header the three anonymous forms carry their Turnstile token in (ADR 0018). */
+const TURNSTILE_HEADER = 'X-Turnstile-Token'
+
+function turnstileHeaders(token: string | null | undefined): Record<string, string> | undefined {
+  return token ? { [TURNSTILE_HEADER]: token } : undefined
+}
+
+function turnstileOf(body: Record<string, unknown>): TurnstileConfig | null {
+  if (body.turnstile === null || body.turnstile === undefined) return null
+  const config = object(body.turnstile, 'turnstile')
+  return { siteKey: text(config, 'site_key'), scriptUrl: text(config, 'script_url') }
 }
 
 export interface MfaStatus {
@@ -48,7 +69,8 @@ export async function getMfaStatus(signal?: AbortSignal): Promise<MfaStatus> {
 export async function getSession(signal?: AbortSignal): Promise<SessionState> {
   const body = await fetchSessionJson(signal)
   const authenticated = flag(body, 'authenticated')
-  if (!authenticated) return { authenticated, user: null, session: null, totpEnabled: false }
+  const turnstile = turnstileOf(body)
+  if (!authenticated) return { authenticated, user: null, session: null, totpEnabled: false, turnstile }
   const user = object(body.user, 'user')
   const session = object(body.session, 'session')
   return {
@@ -69,6 +91,7 @@ export async function getSession(signal?: AbortSignal): Promise<SessionState> {
     // In the session answer itself (#11), so a session without its second factor, which the
     // server refuses everything else, is routed without another call.
     totpEnabled: flag(session, 'totp_enabled'),
+    turnstile,
   }
 }
 
@@ -83,21 +106,26 @@ export async function signUp(input: {
   email: string
   password: string
   inviteCode: string
+  turnstileToken?: string | null
 }): Promise<void> {
-  await post('/api/auth/signup', {
-    email: input.email,
-    password: input.password,
-    invite_code: input.inviteCode === '' ? null : input.inviteCode,
-    locale: getLocale(), // the language in effect becomes the account's (ADR 0015 section 2)
-  })
+  await post(
+    '/api/auth/signup',
+    {
+      email: input.email,
+      password: input.password,
+      invite_code: input.inviteCode === '' ? null : input.inviteCode,
+      locale: getLocale(), // the language in effect becomes the account's (ADR 0015 section 2)
+    },
+    turnstileHeaders(input.turnstileToken),
+  )
 }
 
 export async function confirmSignUp(token: string, password: string | null): Promise<void> {
   await post('/api/auth/signup/confirm', { token, password })
 }
 
-export async function login(email: string, password: string): Promise<void> {
-  await post('/api/auth/login', { email, password })
+export async function login(email: string, password: string, turnstileToken?: string | null): Promise<void> {
+  await post('/api/auth/login', { email, password }, turnstileHeaders(turnstileToken))
 }
 
 export async function logout(): Promise<void> {
@@ -106,8 +134,8 @@ export async function logout(): Promise<void> {
 
 // --- password reset ----------------------------------------------------------------------
 
-export async function requestPasswordReset(email: string): Promise<void> {
-  await post('/api/auth/password/reset/request', { email })
+export async function requestPasswordReset(email: string, turnstileToken?: string | null): Promise<void> {
+  await post('/api/auth/password/reset/request', { email }, turnstileHeaders(turnstileToken))
 }
 
 export interface LinkedMethod {

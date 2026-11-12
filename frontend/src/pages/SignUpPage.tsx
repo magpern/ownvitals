@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { signUp } from '../api/auth'
 import { Card, Field, Notice, useAction } from '../components/forms'
+import { useTurnstile } from '../components/Turnstile'
 import { useT } from '../i18n'
 import { Link } from '../router/Router'
 
@@ -11,11 +12,16 @@ export function SignUpPage() {
   const [invite, setInvite] = useState('')
   const [sent, setSent] = useState(false)
   const action = useAction()
+  const turnstile = useTurnstile('signup')
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
     void action.run(async () => {
-      await signUp({ email, password, inviteCode: invite.trim() })
+      try {
+        await signUp({ email, password, inviteCode: invite.trim(), turnstileToken: turnstile.token })
+      } finally {
+        turnstile.reset() // a token is single-use
+      }
       setSent(true)
     })
   }
@@ -65,7 +71,8 @@ export function SignUpPage() {
           }}
           required
         />
-        <button className="button" type="submit" disabled={action.busy}>
+        {turnstile.widget}
+        <button className="button" type="submit" disabled={action.busy || (turnstile.required && !turnstile.token)}>
           {t('auth.signUp.submit')}
         </button>
       </form>

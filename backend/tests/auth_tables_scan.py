@@ -215,6 +215,7 @@ SUBMODULES = frozenset(
         "passkey_routes",
         "passkey_signin_routes",
         "passkeys",
+        "password_change_routes",
         "oauth_client",
         "oauth_errors",
         "oauth_handoff",
@@ -252,6 +253,8 @@ SUBMODULES = frozenset(
         "tokens",
         "totp",
         "totp_keys",
+        "turnstile",
+        "turnstile_policy",
     }
 )
 FORBIDDEN_NAMES = frozenset(TABLE_NAMES) | {"metadata"} | SUBMODULES

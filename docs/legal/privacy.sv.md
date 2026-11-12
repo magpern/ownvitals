@@ -41,6 +41,7 @@ Hälsodata är en särskild kategori av personuppgifter enligt artikel 9 i GDPR.
 - **E-postutskick:** [leverantör, plats, biträdesavtal]. Mejl innehåller inga hälsomätvärden.
 - **Säkerhetskopior:** [plats och leverantör; krypterade].
 - **Anthropic** (modellleverantör) **bara om du aktiverar AI-insikter** och samtycker (avsnitt 8).
+- **Cloudflare** (robotkontrollen Turnstile) **bara om den som driver tjänsten slår på den** (avstängd som standard): i formulären för inloggning, registrering och återställning av lösenord får Cloudflare din IP-adress och signaler från webbläsaren för att skilja en människa från ett skript, och vi skickar dit kontrollens engångstoken (aldrig din e-post, ditt lösenord eller hälsodata). [Ägaren: biträdesvillkor och kontroll av tredjelandsöverföring innan den slås på.]
 - Ingen analys-, reklam- eller spårningstjänst. Vi säljer inte data.
 
 [Ägaren: komplettera och bifoga biträdesavtal; kontrollera tredjelandsöverföringar för varje biträde.]
@@ -73,7 +74,7 @@ Se [säkerhetssidan](security.sv.md). Withings-token krypteras i vila. [Ägaren:
 
 ## 10. Cookies
 
-Bara nödvändiga cookies används, när du öppnar appen, loggar in eller börjar logga in; inga på publika sidor. Se [cookie-information](cookies.sv.md).
+Bara nödvändiga cookies används, när du öppnar appen, loggar in eller börjar logga in; inga på publika sidor. Om den som driver tjänsten slår på robotkontrollen Turnstile kan Cloudflare sätta en egen cookie i inloggningsformulären. Se [cookie-information](cookies.sv.md).
 
 ## 11. Ändringar
 

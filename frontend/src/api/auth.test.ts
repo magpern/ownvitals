@@ -6,7 +6,7 @@ import { confirmTotp, getPendingSignup, getSession, setAccountLocale, startOAuth
 describe('getSession', () => {
   it('reads a signed-out answer without asking about two-factor', async () => {
     const api = fakeApi({})
-    expect(await getSession()).toEqual({ authenticated: false, user: null, session: null, totpEnabled: false })
+    expect(await getSession()).toEqual({ authenticated: false, user: null, session: null, totpEnabled: false, turnstile: null })
     expect(api.to('GET', '/api/auth/mfa')).toHaveLength(0)
   })
 
@@ -17,9 +17,20 @@ describe('getSession', () => {
       user: { id: 'u1', email: 'ann@example.test', role: 'user', locale: null },
       session: { id: 's1', expiresAt: '2030-01-01T00:00:00Z', recentAuth: true, mfa: false, stepup: false },
       totpEnabled: true,
+      turnstile: null,
     })
     // #11: `totp_enabled` is in the session answer; no second call that the gate would refuse.
     expect(api.to('GET', '/api/auth/mfa')).toHaveLength(0)
+  })
+
+  it('reads the Turnstile widget config only while the server has it on (ADR 0018)', async () => {
+    const config = { site_key: 'synthetic-site-key', script_url: '/synthetic/turnstile.js' }
+    fakeApi({ 'GET /api/auth/session': { authenticated: false, csrf_token: 'a', turnstile: config } })
+    expect((await getSession()).turnstile).toEqual({ siteKey: 'synthetic-site-key', scriptUrl: '/synthetic/turnstile.js' })
+    fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, turnstile: config } })
+    expect((await getSession()).turnstile?.siteKey).toBe('synthetic-site-key')
+    fakeApi({ 'GET /api/auth/session': { authenticated: false, csrf_token: 'a', turnstile: { site_key: 5 } } })
+    await expect(getSession()).rejects.toBeInstanceOf(DecodeError)
   })
 
   it('knows an account without TOTP', async () => {

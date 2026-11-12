@@ -274,6 +274,14 @@ def test_each_kind_resolves_its_own_hosts() -> None:
     google = {"oauth2.googleapis.com", "www.googleapis.com"}
     assert web.hosts == {*google, "wbsapi.withings.net", *database, "mail.example.org"}
     assert {*google, "wbsapi.withings.net"} == WEB_HOSTS
+    # Turnstile's host only while it is on (roadmap Amendment 12, ADR 0018).
+    assert "challenges.cloudflare.com" not in web.hosts
+    on = _settings(
+        turnstile_enabled=True, turnstile_site_key="synthetic-site-key", turnstile_secret_key="s"
+    )
+    assert _policy_for("web", on).hosts == web.hosts | {"challenges.cloudflare.com"}
+    assert _policy_for("worker", on).hosts == worker.hosts
+    assert _policy_for("cli", on).hosts == cli_.hosts
     assert worker.hosts == frozenset(database)  # plus the installed worker list, at run time
     assert cli_.hosts == frozenset(database | {"mail.example.org"})
     assert web.unix_paths == worker.unix_paths == frozenset({"/run/pg/.s.PGSQL.5432"})

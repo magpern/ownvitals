@@ -74,3 +74,10 @@
 .ov-approve__actions .ov-btn {
   flex: 1 1 8rem;
 }
+
+/* Cloudflare Turnstile's widget above a form's submit button, only while it is on (ADR 0018) */
+
+.ov-turnstile {
+  margin: 0 0 var(--ov-space-3);
+  min-height: 65px;
+}

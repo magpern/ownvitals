@@ -110,6 +110,7 @@ _NO_ALLOWLIST_ARGUMENT = frozenset(
         "google_async_client",
         "google_oauth_client",
         "exchange_withings_code",
+        "verify_turnstile_token",
     )
 )
 INSTALL_WORKER = f"{EGRESS}.install_worker_allowlist"

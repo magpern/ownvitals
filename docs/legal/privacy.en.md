@@ -41,6 +41,7 @@ Health data is special-category data under GDPR Article 9.
 - **Email delivery:** [email provider, location, processor agreement]. Mail contains no health measurements.
 - **Backups:** [backup location and provider; encrypted].
 - **Anthropic** (model provider) **only if you enable AI insights** and consent (section 8).
+- **Cloudflare** (Turnstile bot check) **only if the operator turns it on** (off by default): on the sign-in, sign-up and password-reset forms, Cloudflare receives your IP address and browser signals to tell a person from a script, and we send it the one-time token of the check (never your email, password or health data). [Owner: processor terms and transfer check before turning it on.]
 - No analytics, advertising or tracking services. We do not sell data.
 
 [Owner: complete and attach processor agreements; check international transfers for each processor.]
@@ -73,7 +74,7 @@ See the [security page](security.en.md). Withings tokens are encrypted at rest. 
 
 ## 10. Cookies
 
-Only strictly necessary cookies are used, when you open the app, sign in or start signing in; none on public pages. See the [cookie statement](cookies.en.md).
+Only strictly necessary cookies are used, when you open the app, sign in or start signing in; none on public pages. If the operator turns on the Turnstile bot check, Cloudflare may set its own cookie on the sign-in forms. See the [cookie statement](cookies.en.md).
 
 ## 11. Changes
 
