@@ -89,5 +89,6 @@ export const site = {
   'features.languages.text': 'Choose the language and the theme, or let the device decide.',
   'footer.disclaimer':
     'ownvitals is not a medical device and gives no medical advice, diagnosis or treatment. It is an independent project, not affiliated with or endorsed by Withings.',
+  'footer.legal': 'Legal',
   'footer.nocookies': 'These pages set no cookies and load nothing from other sites.',
 } satisfies Record<string, string>

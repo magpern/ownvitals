@@ -28,6 +28,8 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 0,
     },
     server: {
+      // The public build and its tests read the legal drafts (src/public/legalPages.ts) from ../docs/legal.
+      fs: { allow: ['.', '../docs/legal'] },
       proxy: {
         '/api': { target: apiProxyTarget(env.API_PROXY_TARGET) },
       },

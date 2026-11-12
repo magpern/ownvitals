@@ -90,5 +90,6 @@ export const site = {
   'features.languages.text': 'Välj språk och tema, eller låt enheten avgöra.',
   'footer.disclaimer':
     'ownvitals är ingen medicinteknisk produkt och ger inga medicinska råd, diagnoser eller behandling. Det är ett oberoende projekt, inte knutet till eller godkänt av Withings.',
+  'footer.legal': 'Juridik',
   'footer.nocookies': 'De här sidorna sätter inga cookies och laddar inget från andra webbplatser.',
 } satisfies Record<keyof typeof en, string>

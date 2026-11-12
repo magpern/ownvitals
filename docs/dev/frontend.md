@@ -486,8 +486,17 @@ content-hashed files, so the server finds them in `dist/`).
 - `OWNVITALS_PUBLIC_ORIGIN` (required; the Dockerfile argument defaults to `https://ownvitals.eu`, staging
   passes its own) is validated: https, bare origin.
 - `OWNVITALS_PUBLIC_LEGAL_APPROVED` is the owner's legal gate: only the exact value `true` builds the legal
-  pages (`LEGAL_PAGES` in `site.ts`, empty until the legal-draft issue). A frontend test fails if a committed
-  Dockerfile, compose file, `.env*`, workflow or script sets it.
+  pages (`LEGAL_PAGES` in `site.ts`). A frontend test fails if a committed Dockerfile, compose file, `.env*`,
+  workflow or script sets it.
+- **Legal pages (#447).** With the flag exactly `true` the build adds `/privacy`, `/terms`, `/security` and
+  `/cookies` and their `/sv/...` pages, rendered from `docs/legal/<page>.<lang>.md` by the small reader in
+  `src/public/markdown.ts` (headings, lists, tables, bold, italic, code, links; every character is text, and
+  the tree is rendered by React, so no raw HTML gets through). A link to another draft becomes a link to that
+  page; any other link target is shown as text, so a page holds no external URL. The draft banner of each
+  text (draft, not legal advice, placeholders for the owner) is rendered as written. The pages join the
+  sitemap and the footer only in that build; otherwise none of them exists, the server's `noindex`
+  rule keeps answering those paths with the SPA shell, and the Dockerfile copies `docs/legal` only so the
+  build can read it. Changing a draft changes the page; nothing here marks the legal gate passed.
 - The server's `PUBLIC_FILES` (`backend/src/ownvitals/public_site.py`) must equal the non-page files the build
   emits; `src/public/buildPublic.test.ts` compares them.
 

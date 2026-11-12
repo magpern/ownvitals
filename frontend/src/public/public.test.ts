@@ -168,3 +168,36 @@ describe('the head helpers', () => {
     expect(JSON.parse(safeJson({ a: '</script>' }))).toEqual({ a: '</script>' })
   })
 })
+
+describe('the legal pages (rendered only for a build that passed the gate)', () => {
+  const LEGAL = ['privacy', 'terms', 'security', 'cookies'] as const
+  const renderLegal = (page: (typeof LEGAL)[number], locale: (typeof LOCALES)[number]) =>
+    renderPublicPage({ page, locale, origin: ORIGIN, stylesheet: STYLESHEET, legal: true })
+
+  it('has the paths the cookie notice links to', () => {
+    expect(publicPath('cookies', 'en')).toBe('/cookies')
+    expect(publicPath('cookies', 'sv')).toBe('/sv/cookies')
+    expect(publicPath('privacy', 'sv')).toBe('/sv/privacy')
+  })
+
+  it.each(LEGAL.flatMap((page) => LOCALES.map((locale) => [page, locale] as const)))('%s in %s: lang, canonical, hreflang, draft banner, nothing external', (page, locale) => {
+    const html = renderLegal(page, locale)
+    expect(html).toContain(`<html lang="${locale}">`)
+    expect(html).toContain(`<link rel="canonical" href="${ORIGIN}${publicPath(page, locale)}"/>`)
+    expect(attr(html, /<link rel="alternate" hrefLang="([^"]+)"/g)).toEqual(['en', 'sv', 'x-default'])
+    expect(html).toContain('class="pub-draft"')
+    expect(html).toMatch(locale === 'en' ? /DRAFT/ : /UTKAST/)
+    expect([...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0])).toEqual(['<script type="application/ld+json">'])
+    expect(html).not.toMatch(/\sstyle=|<style|\son[a-z]+=|<iframe|<form/i)
+    for (const url of html.matchAll(/(?:href|src|content)="(https?:\/\/[^"]+)"/g)) expect(url[1]?.startsWith(ORIGIN), url[1]).toBe(true)
+    expect(attr(html, /<main[\s\S]*?<\/main>/g).length).toBe(1)
+    for (const href of attr(html.slice(html.indexOf('<main')), /href="([^"]+)"/g)) expect(href, href).toMatch(/^\/(sv\/)?(privacy|terms|security|cookies)$|^#/)
+  })
+
+  it('links the drafts to each other and shows the legal footer only when the gate is open', () => {
+    const open = renderLegal('terms', 'en')
+    expect(open).toContain('href="/privacy"')
+    expect(open).toContain('aria-label="Legal"')
+    expect(render('home', 'en')).not.toContain('/privacy')
+  })
+})

@@ -200,3 +200,41 @@
     font-size: var(--ov-text-value-lg);
   }
 }
+
+/* The legal drafts (ADR 0016 section 6): readable measure, the draft banner set apart, tables that scroll. */
+.pub-legal {
+  max-width: 44rem;
+  line-height: 1.6;
+}
+
+.pub-draft {
+  margin: 0 0 var(--ov-space-5);
+  padding: var(--ov-space-3) var(--ov-space-4);
+  border: 1px solid var(--ov-line);
+  border-left: 4px solid var(--ov-brand);
+  border-radius: var(--ov-radius-sm);
+  background: var(--ov-surface);
+}
+
+.pub-draft p {
+  margin: 0;
+}
+
+.pub-table {
+  overflow-x: auto;
+  margin: 0 0 var(--ov-space-5);
+}
+
+.pub-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--ov-text-sm);
+}
+
+.pub-table th,
+.pub-table td {
+  padding: var(--ov-space-2) var(--ov-space-3);
+  border-bottom: 1px solid var(--ov-line-soft);
+  text-align: left;
+  vertical-align: top;
+}
