@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 secrets/
+secret/
+.envrc
 .claude/settings.local.json
 .claude/worktrees/
 
@@ -45,6 +47,23 @@ local-real/
 *.sql.zip
 *.sql.7z
 *dump*.sql
+# Plain .sql is source only under docker/postgres/<area>/; elsewhere it is taken for a dump
+*.sql
+!/docker/postgres/*/*.sql
+/docker/postgres/*/*dump*.sql
+# Archives (the app's data export is a .zip), CSV (but synthetic_ fixtures) and HAR exports
+*.tar
+*.tgz
+*.tbz2
+*.txz
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+*.zip
+*.har
+*.csv
+!synthetic_*.csv
 
 # Editors and OS
 .idea/

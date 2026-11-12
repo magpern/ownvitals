@@ -74,7 +74,9 @@ def _codes(section: Mapping[str, Any], key: str) -> tuple[dict[int, int], bool]:
         n = _int(count)
         if not n:
             continue
-        if isinstance(code, str) and code.isdigit() and len(code) <= 6:
+        # ASCII only: str.isdigit() also takes superscripts and other scripts' digits, which
+        # int() may refuse (and its error quotes the key).
+        if isinstance(code, str) and code.isascii() and code.isdigit() and len(code) <= 6:
             found[int(code)] = n
         elif code != "absent":
             other = True

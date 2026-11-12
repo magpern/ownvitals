@@ -185,9 +185,10 @@ listed in `docs/status.md` with what would verify it.
   `synthetic_` file prefix). The local stack only uses the demo account and the fakes, except
   for the one exception below.
 - Agents never connect a real Withings account, never read the owner's data and never ask the
-  owner to paste real values, except for the one exception below. The probe (`ownvitals probe`, §10.4) prints shapes only (meastypes
-  and counts, array lengths, sampling rate, attrib and position values, capability states): no
-  values, no timestamps. The owner runs it on the home server.
+  owner to paste real values, except for the one exception below. The probe (`ownvitals probe`,
+  §10.4) prints shapes only (meastypes and counts, array lengths, sampling rate, attrib and
+  position values, capability states): no values, no timestamps. The owner runs it on the home
+  server.
 - Logs never contain measurement values, ECG samples, tokens, webhook secrets or full webhook
   paths (log-redaction tests enforce it).
 - Every rule and finding has a tier (D9) and cites its source; the experimental tier is behind

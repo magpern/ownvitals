@@ -24,8 +24,9 @@ settles each assumption and sets INTEGRATION_VERIFIED. Agents never write it.
   **generated synthetic fixture** (below). Read every line before you paste it; when in doubt,
   leave it out and say which line kind it was.
 - The real-account worktree **never commits and never pushes**: `scripts/local-real-guard.sh`
-  refuses both while `local-real/REAL-ACCOUNT` exists. Code and fixtures are committed from a
-  normal issue worktree.
+  refuses both while `local-real/REAL-ACCOUNT` exists (also when the script itself is missing),
+  and `seal` breaks the worktree's push URL so `git push --no-verify` fails too. Code and
+  fixtures are committed from a normal issue worktree.
 - No database dump, `COPY ... TO`, export (the app's data export included), screenshot or copy
   of the real data anywhere, including `local-real/`. Query results that hold values stay in the
   session's terminal; files in `local-real/` hold shape-only output only.
@@ -49,12 +50,26 @@ cd ../ownvitals-wt/local-real
 scripts/worktree.sh init 9001          # .env and secrets/ (random values), both git-ignored
 scripts/local-real-guard.sh install    # pre-commit and pre-push hooks (shared by every worktree)
 mkdir -p local-real && touch local-real/REAL-ACCOUNT   # marks this worktree: no commit, no push
+scripts/local-real-guard.sh seal       # this worktree's push URL goes nowhere (see below)
 ```
 
 `.env`, `.env.*` (so `.env.local`), `secrets/`, `local-real/`, probe output and database dumps
 are git-ignored, and the guard refuses them when staged (pre-commit), from this worktree at all
 (pre-commit and pre-push), and anywhere in the tree (CI step "No local real-account files
-tracked"). With `core.hooksPath` set, `install` writes there.
+tracked"). With `core.hooksPath` set, `install` writes there. The guard also refuses `.envrc`,
+`secret/`, plain `.sql` outside `docker/postgres/<area>/`, archives (`.tar`, `.tgz`, `.zip`, the
+app's export included), `.har` and `.csv` other than `synthetic_*.csv`.
+
+Hooks are skipped by `git commit --no-verify` and `git push --no-verify`. `seal` covers the push
+side: it turns on `extensions.worktreeConfig` and sets `remote.<name>.pushurl` to
+`local-real-no-push://this-worktree-never-pushes` for every remote **in this worktree's own
+config only** (`git config --worktree`), so any push from here fails before it connects, while
+the other worktrees push as before. It refuses without the marker and when the shared config sets
+`core.worktree`. Check it with `git push --dry-run --no-verify origin HEAD:refs/heads/x` (it must
+fail with "local-real-no-push"); seal again after adding a remote. It does not stop a push to a
+URL typed on the command line, and nothing stops a `--no-verify` commit: the worktree is detached
+and sealed, so such a commit cannot leave it (and CI refuses the paths in any PR). Removing
+the worktree (section 7) removes its config with it.
 
 The base `compose.yaml` mounts `connection_kek` for web only. Write the overlay that also gives
 it to `migrate` (to store the app's client secret) and to the worker (to open the grant), inside
