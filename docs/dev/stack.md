@@ -7,6 +7,8 @@ queue's `SECURITY DEFINER` functions as the superuser, from the application imag
 API as the app role, non-root user `ownvitals`, uid 10001) and **worker**. A later issue adds the
 mail service. The stack only ever
 holds synthetic data (the demo account and fakes): never connect a real Withings account to it.
+The one exception is the owner's own local stack on the owner's own computer
+([local-real-account.md](local-real-account.md), AGENTS.md "Health data").
 
 Ports bind `127.0.0.1` only and come from `.env`. Passwords and keys are files under `secrets/`
 mounted as Docker secrets (`/run/secrets/<name>`), never environment variables. `.env` and

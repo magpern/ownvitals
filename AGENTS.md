@@ -182,15 +182,37 @@ listed in `docs/status.md` with what would verify it.
 
 - **No real health data** in development environments, agent contexts, fixtures, test data,
   logs, PRs, issues or comments. Fixtures are synthetic and say so (`synthetic: true` or a
-  `synthetic_` file prefix). The local stack only uses the demo account and the fakes.
+  `synthetic_` file prefix). The local stack only uses the demo account and the fakes, except
+  for the one exception below.
 - Agents never connect a real Withings account, never read the owner's data and never ask the
-  owner to paste real values. The probe (`ownvitals probe`, §10.4) prints shapes only (meastypes
+  owner to paste real values, except for the one exception below. The probe (`ownvitals probe`, §10.4) prints shapes only (meastypes
   and counts, array lengths, sampling rate, attrib and position values, capability states): no
   values, no timestamps. The owner runs it on the home server.
 - Logs never contain measurement values, ECG samples, tokens, webhook secrets or full webhook
   paths (log-redaction tests enforce it).
 - Every rule and finding has a tier (D9) and cites its source; the experimental tier is behind
   the owner-only flag.
+
+### The one exception: the owner's own machine (owner decision, 2026-11-12)
+
+A local agent session that runs **on the owner's own computer**, started by the owner, may work
+with **the owner's own Withings account and data** in a local test stack on that machine, as
+[docs/dev/local-real-account.md](docs/dev/local-real-account.md) describes. Nothing else changes:
+
+- It does **not** apply to cloud or remote sessions (claude.ai, Claude Code on the web, any
+  container), CI, subagents or any other agent, another computer, the home server, or any other
+  person's account or data, the household's other members included.
+- Real values (measurements, ECG samples, timestamps, dates, time zones, ids, tokens, secrets,
+  callback URLs, webhook paths) never reach git, a commit, a branch, a PR, an issue, a comment,
+  CI, a committed log, a committed fixture or a model prompt outside that local session. What
+  leaves the machine is shape-only (as the probe prints) or a sanitised synthetic fixture whose
+  values are generated, marked `synthetic: true`.
+- The real-account stack lives in its own worktree and compose project; its secrets are only in
+  git-ignored files (`.env.local`, `secrets/`), its output only in the git-ignored `local-real/`
+  directory, and that worktree never pushes (`scripts/local-real-guard.sh` refuses).
+- No database dump, export, screenshot or copy of the real data is made outside that stack, and
+  the stack is deleted (`docker compose down -v`) when the session's work is done.
+- Agents still never set INTEGRATION_VERIFIED: the owner reads the shape-only results and decides.
 
 ## Safety envelope
 
@@ -201,7 +223,9 @@ match PLAN-operations §10.5.
 
 **Only with the owner's authorization for that specific action:** deploying to the home server
 (the forced-command deploy key, §9.2); SWAG, Cloudflare and DNS changes; registering or changing
-Withings developer apps and Google OAuth apps; anything touching a real Withings account; paid
+Withings developer apps and Google OAuth apps; anything touching a real Withings account (the
+owner's local session of "Health data" works under the owner's standing authorization of
+2026-11-12, within its limits, and still asks before any new Withings app or tunnel); paid
 services; emails to real people; contacting Withings; opening registration beyond the household.
 
 ## Releasing
