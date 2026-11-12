@@ -68,6 +68,12 @@ def test_a_token_is_valid_until_its_expiry_and_not_after() -> None:
     assert unsubscribe.verify(KEY, token, NOW + timedelta(days=365)) is None
 
 
+def test_the_kind_order_of_the_token_is_append_only() -> None:
+    """A kind's position is its index in every token sent; a new kind goes at the end."""
+    assert SUPPRESSIBLE_KINDS[:3] == ("findings_waiting", "connection_attention", "ai_digest_ready")
+    assert _raw(_token(kind="connection_attention"))[17] == 1
+
+
 def test_the_key_is_derived_for_this_purpose_only() -> None:
     assert unsubscribe.LABEL == "unsubscribe-v1"
     assert derive_key(SECRET, "unsubscribe-v1") == KEY

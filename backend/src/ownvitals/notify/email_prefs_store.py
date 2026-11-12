@@ -20,10 +20,12 @@ from ownvitals.notify.email_policy import SUPPRESSIBLE_KINDS
 Factory = async_sessionmaker[AsyncSession]
 
 _READ = text("SELECT kind, enabled FROM email_prefs WHERE owner_id = :o")
-# A change of the choice bumps the generation; saving the same choice again changes nothing.
+# A change of the choice bumps the generation; saving the same choice again changes nothing. With
+# no row the kind is on at generation 0, so saving "on" then writes that same state (generation
+# 0) and saving "off" is the first change (generation 1).
 _SET = text(
     "INSERT INTO email_prefs AS e (owner_id, kind, enabled, generation) "
-    "VALUES (:o, :kind, :enabled, 1) "
+    "VALUES (:o, :kind, :enabled, CASE WHEN CAST(:enabled AS boolean) THEN 0 ELSE 1 END) "
     "ON CONFLICT (owner_id, kind) DO UPDATE "
     "SET enabled = EXCLUDED.enabled, generation = e.generation + 1, updated_at = now() "
     "WHERE e.enabled IS DISTINCT FROM EXCLUDED.enabled"

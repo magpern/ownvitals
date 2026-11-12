@@ -160,6 +160,34 @@ async def test_post_is_rate_limited(env: Env) -> None:
     assert await _prefs(env) == set()  # refused before the token is even read
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/unsubscribe/",
+        "/api/unsubscribe-x",
+        "/api/unsubscribe/x",
+        "/api/unsubscribex",
+        "/api/unsubscribe%2F",
+        "/API/unsubscribe",
+        "/api/Unsubscribe",
+        "/api//unsubscribe",
+    ],
+)
+async def test_only_the_exact_path_is_the_endpoint(env: Env, path: str) -> None:
+    """A prefix, a trailing slash, another case or an encoded slash is not served by the
+    middleware: GET is the app's 404 code, and POST meets the auth middleware's Origin check."""
+    alice = await env.user("synthetic-unsub-p@example.test")
+    token = _token(env, alice)
+    env.client.cookies.clear()
+    got = await env.client.get(f"{path}?t={token}")
+    assert got.status_code == 404
+    assert "text/html" not in got.headers.get("content-type", "")
+    posted = await env.client.post(f"{path}?t={token}")
+    assert posted.status_code == 403
+    assert posted.json()["detail"]["reason"] == "origin_missing"
+    assert await _prefs(env) == set()
+
+
 async def test_other_methods_are_refused(env: Env) -> None:
     for method in ("PUT", "DELETE", "PATCH"):
         response = await env.client.request(method, f"{PATH}?t=x")

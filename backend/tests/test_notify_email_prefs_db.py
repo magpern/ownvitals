@@ -285,6 +285,17 @@ async def test_the_store_shows_every_kind_on_by_default_and_changes_only_the_cal
         await email_prefs_store.set_enabled(factory, a, "export_ready", False)
 
 
+async def test_the_store_saving_on_without_a_row_changes_no_generation(
+    su: Connection, factory: Factory
+) -> None:
+    """No row is "on at generation 0": saving "on" keeps a link of generation 0 working."""
+    alice, _ = _account(su)
+    await email_prefs_store.set_enabled(factory, make_context(alice), "findings_waiting", True)
+    assert _prefs(su) == {(alice, "findings_waiting", True, 0)}
+    assert await outbox.unsubscribe(factory, alice, "findings_waiting", 0) is True
+    assert _prefs(su) == {(alice, "findings_waiting", False, 1)}
+
+
 # --- the sender --------------------------------------------------------------------------------
 
 

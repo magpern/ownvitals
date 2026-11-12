@@ -22,6 +22,10 @@ The database's check on ``email_prefs.kind`` admits exactly ``SUPPRESSIBLE_KINDS
 
 from typing import Final, Literal, get_args
 
+# APPEND-ONLY: the position of a kind in this list is its index in every unsubscribe token sent
+# (``ownvitals.notify.unsubscribe``). Reordering or removing one would make a link already in an
+# inbox name another kind; a new kind goes at the end (``tests/test_notify_unsubscribe_token.py``
+# pins the order).
 SuppressibleKind = Literal["findings_waiting", "connection_attention", "ai_digest_ready"]
 
 SUPPRESSIBLE_KINDS: Final[tuple[str, ...]] = get_args(SuppressibleKind)
