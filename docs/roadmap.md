@@ -26,6 +26,37 @@ Routine choices the specification leaves open are not amendments: they go into A
 
 ## Amendments
 
+### Amendment 13 (2026-11-12, owner): the authenticator app is optional for users, required for admins
+
+- **Changes:** PLAN §6 "**TOTP 2FA mandatory** for every account", PLAN §11 M0 "mandatory TOTP"
+  (with the §3 reuse table's "Mandatory TOTP") and ADR 0003 §2 are replaced by:
+  - **users:** TOTP is optional. A sign-in by password, Google or passkey gives a full session to
+    an account without a confirmed TOTP. Sign-up offers enrolment with "Skip for now", and the
+    Security page recommends it while it is off;
+  - **admins:** TOTP stays mandatory. An account whose stored role is `admin`, or whose address
+    is in `OWNVITALS_ADMIN_EMAILS`, gets no full session (so no `UserContext` and no admin area)
+    until it has enrolled and passed a TOTP in the session; the admin area keeps its 12-hour TOTP
+    rule and its 5-minute step-up;
+  - **an account with TOTP is unchanged:** every sign-in completes it, and its step-up is a TOTP
+    or recovery code within 10 minutes;
+  - **step-up without TOTP** (PLAN §6's list: connect, disconnect, delete, export, credential
+    changes, log out everywhere): a fresh first factor, the password, a Google
+    re-authentication under Amendment 7's H1 rule (#247, fail closed) or a passkey, sets the
+    step-up as well as the recent authentication; the window stays 10 minutes;
+  - **turning TOTP off** needs step-up with the TOTP, removes it and the recovery codes, signs
+    out the other sessions, mails the security notice and writes `totp_removed`.
+- **The M2 real-data gate** (PLAN-operations §9.2, "until mandatory 2FA (M0) … are in place")
+  reads, by the owner's restatement: "until **2FA is available, and required for admins**
+  (M0), backups …". The other conditions of the gate are unchanged.
+- **Evidence:** the owner's decision of 2026-11-12: "authenticator app should be optional, not
+  mandatory". The defaults above (admins mandatory, step-up by the first factor, the passkey's
+  place) are the Architect's provisional defaults in #475, for the M8 security review; each is
+  reversible behind `second_factor_policy`.
+- **ADR:** [ADR 0003](adr/0003-accounts-and-sessions.md), amendment of 2026-11-12 (#475), which
+  also revisits ADR 0011 §3 (a passkey re-authentication is the step-up of an account without
+  TOTP). #475 implements and tests it (`tests/test_auth_second_factor_gate.py`, which replaces
+  `test_auth_mandatory_totp.py`, and `tests/test_auth_stepup_without_totp.py`).
+
 ### Amendment 12 (2026-11-12, Architect): web's outbound list gains Turnstile's verification host, only while it is on
 
 - **Changes:** Amendment 1's list of web's outbound connections (the Google sign-in hosts, the
