@@ -224,3 +224,14 @@ export async function signInWithPasskey(): Promise<PasskeySignedIn> {
   if (!isObject(body)) throw new DecodeError('signed in')
   return { email: text(body, 'email') }
 }
+
+/**
+ * Re-authentication with one of the account's passkeys (ADR 0011 section 3): options bound to
+ * this session, the browser's ceremony, then the signature. It sets the recent authentication;
+ * for an account without an authenticator app it is the step-up too (issue 475).
+ */
+export async function reauthWithPasskey(): Promise<void> {
+  const options = requestOptions(await post('/api/auth/passkeys/reauth/options'))
+  const credential = await ceremony(() => navigator.credentials.get({ publicKey: options }))
+  await post('/api/auth/passkeys/reauth', { credential: assertionJson(credential) })
+}

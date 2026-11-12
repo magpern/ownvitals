@@ -9,6 +9,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.keys import token_hash
+from ownvitals.auth.second_factor_policy import totp_required
 from ownvitals.auth.session_model import Resolution, SessionInfo, idle_limit
 from ownvitals.auth.tables import mfa_totp, sessions, users
 from ownvitals.config import Settings
@@ -38,6 +39,7 @@ async def resolve_session(
                     sessions.c.origin,
                     sessions.c.mfa_by_approval,
                     users.c.email,
+                    users.c.email_normalized,
                     users.c.role,
                     users.c.disabled_at,
                     func.now().label("now"),
@@ -68,6 +70,7 @@ async def resolve_session(
             stepup_at=row.stepup_at,
             now=row.now,
             totp_enabled=row.totp_enabled,
+            totp_required=totp_required(row.role, row.email_normalized, settings.admin_email_set),
             stepup_window=timedelta(minutes=settings.stepup_window_minutes),
             origin=row.origin,
             mfa_by_approval=row.mfa_by_approval,

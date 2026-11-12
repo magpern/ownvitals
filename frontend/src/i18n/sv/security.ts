@@ -3,6 +3,8 @@ import type { security as en } from '../en/security'
 // Swedish for the security area (glossary: docs/dev/i18n.md). `satisfies` makes a missing or extra key a type error.
 export const security = {
   band: 'Åtgärder markerade med ett lås kräver en ny kod från din autentiseringsapp. En kod gäller för skyddade åtgärder i 10 minuter.',
+  bandNoTotp:
+    'Åtgärder med ett lås ber dig bekräfta med ditt lösenord, Google eller en passkey. En bekräftelse gäller skyddade åtgärder i 10 minuter.',
   laterLabel: 'Hur du loggar in och den andra faktorn',
   later: 'Byte av lösenord, Google, e-post, autentiseringsapp och återställningskoder kommer i M6.',
   'sessions.title': 'Där du är inloggad',
@@ -32,6 +34,23 @@ export const security = {
   'stepUp.code':
     '{purpose} kräver en ny kod från din autentiseringsapp. Den gäller också för andra skyddade åtgärder de kommande 10 minuterna.',
   'stepUp.google': 'Använd Google i stället',
+  'stepUp.passwordOnly':
+    '{purpose} kräver ditt lösenord. Det gäller också andra skyddade åtgärder de närmaste 10 minuterna.',
+  'stepUp.passkey': 'Använd en passkey i stället',
+  'factor.title': 'Andra faktor',
+  'factor.on': 'På',
+  'factor.onRequired': 'På · krävs',
+  'factor.off': 'Av',
+  'factor.app': 'Autentiseringsapp',
+  'factor.appOn': 'Varje inloggning ber om en kod från den.',
+  'factor.appOff':
+    'Rekommenderas. Med en autentiseringsapp kan den som får reda på ditt lösenord ändå inte logga in.',
+  'factor.setUp': 'Ställ in',
+  'factor.turnOff': 'Stäng av…',
+  'factor.offPurpose': 'Att stänga av autentiseringsappen',
+  'factor.codes': 'Återställningskoder',
+  'factor.codesLeft.one': '{count} kvar. Var och en fungerar en gång om du tappar bort telefonen.',
+  'factor.codesLeft.other': '{count} kvar. Var och en fungerar en gång om du tappar bort telefonen.',
   'activity.title': 'Senaste säkerhetsaktivitet',
   'activity.window': 'Senaste 30 dagarna',
   'activity.empty': 'Inget att visa från de senaste 30 dagarna.',

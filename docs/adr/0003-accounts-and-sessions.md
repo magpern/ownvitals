@@ -1,7 +1,7 @@
 # ADR 0003: Accounts, sessions, mandatory TOTP and step-up
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 and #72 and 2026-11-08 by #247 (see
-"Amendments"). Its
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49 and #72, 2026-11-08 by #247 and
+2026-11-12 by #475 (TOTP optional for users, roadmap Amendment 13; see "Amendments"). Its
 two open questions were decided by the Architect on 2026-10-31 (§3 session lifetimes, §4
 step-up readings). Post-port review (#16, 2026-11-03): no decision changed; `fake-oidc` runs from
 the e2e overlay `compose.e2e.yaml` rather than a compose profile, still only with
@@ -261,6 +261,92 @@ accepted risk.
 - Threat model T1 to T18 cite this ADR.
 
 ## Amendments
+
+### 2026-11-12 (#475): the authenticator app is optional for users, required for admins
+
+Roadmap Amendment 13 (owner, 2026-11-12: "authenticator app should be optional, not
+mandatory"). It replaces §2's first rule ("Every account has a confirmed TOTP, and every sign-in
+completes it"), §4's "Reading PLAN §6 under mandatory TOTP" and, for accounts without TOTP, §4's
+"Definition" and ADR 0011 §3's "a passkey never sets `stepup_at`". Everything else in §1 to §9
+stands; for an account **with** a confirmed TOTP nothing changes.
+
+**Who must have a TOTP.** `second_factor_policy.totp_required`: the stored role is `admin`, or
+the normalized address is in `OWNVITALS_ADMIN_EMAILS` (the next sign-in would grant the role).
+Everyone else may go without. The rule is a pure module; `session_resolve` reads the role and the
+address with the session and passes the setting in.
+
+**When a session is full** (`SessionInfo.full`, the one place the rule lives in Python, and
+`session_full_sql.owes_no_second_factor`, the same rule in SQL for the purge, the live-session
+list and the disconnect job's re-check):
+
+| Account | Full when | Otherwise owes |
+|---|---|---|
+| a confirmed TOTP (any role) | `mfa_at` is set in this session (unchanged) | `verify` |
+| no TOTP, required (admin) | never: it must enrol first | `enrol` |
+| no TOTP, not required (user) | always, after the first factor | — |
+
+A session that owes something still reaches only §2's allowlist and lives ten minutes; the route
+enumeration (`test_auth_second_factor_gate.py`, which replaces `test_auth_mandatory_totp.py`) runs
+for the `verify` and the `enrol` kinds, and checks that the gate refuses no route to a user
+without TOTP. When a user enrols, every other session of the account, which passed no code, owes
+`verify` at once and ends after its ten minutes: the account then behaves exactly as one that
+always had TOTP. An `mfa_at` whose TOTP is gone never makes an admin full, and the admin role
+(`SessionInfo.role`) also needs a confirmed TOTP. The SessionInfo default is `totp_required=True`,
+so a caller that does not say fails closed.
+
+**Step-up without TOTP.** For an account with no confirmed TOTP that is not required to have one
+(`second_factor_policy.first_factor_steps_up`), a fresh first factor sets `stepup_at` as well as
+`reauth_at`, rotates the session once and writes a `step_up` row with `detail.method`
+(`password`, `google`, `passkey`), besides the existing `reauth` or `passkey_reauth` row:
+- the password re-authentication (`POST /api/auth/reauth`);
+- a Google re-authentication, under the 2026-11-08 (#247) rule unchanged: only an account
+  without a password, a callback within 5 minutes of the start, a verified email, no future
+  `auth_time`; every refusal sets nothing (fail closed);
+- a passkey re-authentication (ADR 0011 §1's `reauth` ceremony), so ADR 0011 §3 now reads "a
+  passkey never sets `stepup_at` **for an account with TOTP**".
+
+`stepup_first_factor.steps_up` reads the account under the user-row lock that each of the three
+paths already holds before its rotation, so a TOTP confirmed or a role granted meanwhile is seen,
+and the first factor is then a recent authentication only. The window is still
+`stepup_window_minutes` (10). `require_stepup`, `require_sensitive` and `require_admin_stepup` are
+unchanged: they read `stepup_at`. An admin never steps up by the first factor (it has a TOTP or is
+not full), so the admin writes keep a TOTP within 5 minutes.
+
+**Turning TOTP off** (`DELETE /api/auth/mfa/totp`, `require_stepup`): for an account with TOTP the
+step-up is a TOTP or recovery code. It removes the TOTP and the recovery codes, revokes every
+other session, writes `totp_removed`, mails the new `totp_removed` notice (en and sv) and rotates
+this session with `mfa_at` cleared: a user's stays full, an admin's goes back to enrolment.
+
+**Unchanged on purpose (provisional, for the M8 review):**
+- a passkey **sign-in** to an account without a confirmed TOTP is still refused (ADR 0011 §3), so
+  a user without TOTP signs in with the password or Google; the passkey serves as step-up. Allowing
+  it is a reversible later change;
+- a QR approve-login needs a TOTP or recovery code entered with the approval (ADR 0011 §8), so an
+  account without TOTP cannot approve one (`SessionInfo.may_approve_qr` now says so);
+- `admin mfa-reset` and `keys wipe` behave as before; the reset's first enrolment is reachable
+  only through the mailed reset link for an admin; a user then simply has no TOTP.
+
+**Risk.** PLAN §6's "a password alone must never reach health data" no longer holds for a user who
+declines TOTP: a stolen password (or a live Google session) reaches that user's own data, and the
+step-up adds a fresh first factor, not a second one. In particular the walk-up case of the
+2026-11-08 amendment (someone at an unlocked device with the victim's ownvitals and Google
+sessions) now passes step-up for a Google-only account without TOTP, since Google's answer without
+a fresh `auth_time` is the step-up there. That is the owner's decision; it is limited to accounts
+whose owner chose no TOTP, never an admin (cross-user power) and never an account with TOTP. The
+Security page recommends TOTP while it is off, and the threat model's entries for these cases go
+to the owner at the M8 review.
+
+**Frontend.** The session answer gains `totp_required`; the SPA routes from `mfa` (full) first.
+A user without TOTP is offered enrolment once per browser session after signing in, with "Skip for
+now"; an admin is not. The "Confirm it's you" dialog asks an account without TOTP for the
+password, Google or a passkey alone. The Security tab gains the "Second factor" card.
+
+**Tests.** `test_auth_second_factor_gate.py` (the rule, pure and end to end, every route for each
+kind of account, the purge), `test_auth_stepup_without_totp.py` (password, Google, passkey, each
+with its refusal; accounts with TOTP and admins never step up by the first factor; the disconnect
+job's re-check), the changed tests named in the PR, the frontend's `access`, `guards`,
+`twoFactorPages` and `securityOptionalTotp` tests, and the e2e `auth-password`, `auth-google` and
+`step-up` specs' no-TOTP paths.
 
 ### 2026-11-11 (#394): the §4 table rows for M7
 

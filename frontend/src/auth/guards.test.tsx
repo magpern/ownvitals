@@ -1,12 +1,13 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { post } from '../api/client'
 import { RouterProvider, useRouter } from '../router/Router'
-import { SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, fakeApi, reason } from '../test/fakeApi'
+import { SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, SIGNED_IN_OPTIONAL_TOTP, fakeApi, reason } from '../test/fakeApi'
 import { renderAt } from '../test/render'
 import { RequireReady, RequireSignedOut } from './guards'
 import { SessionProvider } from './SessionContext'
+import { markTotpOffered } from './totpOffer'
 
 const here = () => window.location.pathname + window.location.search
 
@@ -78,13 +79,26 @@ describe('a session without TOTP', () => {
     expect(screen.queryByText('Needs a look')).toBeNull()
   })
 
-  it('goes to enrolment from a guarded page, even when the session says it passed the code', async () => {
-    fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, session: { ...SIGNED_IN.session, totp_enabled: false } } })
+  it('goes to enrolment from a guarded page when the account must have an authenticator app', async () => {
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN_NO_TOTP })
     guarded('/metrics', 'ready')
     await waitFor(() => {
       expect(here()).toBe('/two-factor/setup?return_to=%2Fmetrics')
     })
     expect(screen.queryByText('inside the guard')).toBeNull()
+  })
+
+  it('offers a user without an authenticator app the enrolment once, then lets them in (issue 475)', async () => {
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN_OPTIONAL_TOTP })
+    guarded('/metrics', 'ready')
+    await waitFor(() => {
+      expect(here()).toBe('/two-factor/setup?return_to=%2Fmetrics')
+    })
+    cleanup()
+    markTotpOffered('u1')
+    guarded('/metrics', 'ready')
+    expect(await screen.findByText('inside the guard')).toBeInTheDocument()
+    expect(here()).toBe('/metrics')
   })
 
   it('is kept off sign-in and sent to enrolment, with the return_to kept', async () => {

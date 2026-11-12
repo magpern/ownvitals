@@ -3,7 +3,9 @@
 How ownvitals signs people in: [ADR 0003](../adr/0003-accounts-and-sessions.md). #10 ports
 classbeat's `auth/**` at `d806051`, with ownvitals' names, Google as the only provider and the
 changes of ADR 0003 §5 to §8. #11 adds mandatory TOTP, the second-factor gate, session
-protection and step-up (ADR 0003 §2 to §4; "Second factor and step-up" below).
+protection and step-up (ADR 0003 §2 to §4; "Second factor and step-up" below). #475 makes TOTP
+optional for users and keeps it mandatory for admins (roadmap Amendment 13, ADR 0003 amendment of
+2026-11-12).
 
 Section numbers in docstrings ("ADR 0003 section 5") are **classbeat's** ADR 0003, unless they
 say ownvitals. The "Ported unchanged" table of ownvitals' ADR 0003 §1 maps them.
@@ -99,19 +101,24 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 
 ## Second factor and step-up (#11)
 
-- **Full sessions.** A sign-in (password, Google, the first after a sign-up) gives a session
-  without its second factor. It becomes **full** when a TOTP or recovery code is verified in it
-  (`POST /api/auth/mfa/verify`) or its first enrolment is confirmed; both rotate it. Only a full
-  session yields a `UserContext` (`deps.current_context`); `require_user` answers 403
-  `two_factor_required` to any other session.
+- **Full sessions** (`SessionInfo.full`; the same rule in SQL is `session_full_sql`). An account
+  **with** a confirmed TOTP: a sign-in gives a session without its second factor, which becomes
+  full when a TOTP or recovery code is verified in it (`POST /api/auth/mfa/verify`) or an
+  enrolment is confirmed; both rotate it. An account **without** one is full after the first
+  factor, unless it must have one (`second_factor_policy.totp_required`: stored role `admin`, or
+  the address in `admin_emails`), which then owes `enrol`. Only a full session yields a
+  `UserContext` (`deps.current_context`); `require_user` answers 403 `two_factor_required` to any
+  other session.
 - **The gate** (`auth/gate.py`, run by the middleware after the CSRF check) answers 403
   `two_factor_required` to a session that is not full on every path under `/api` and `/oauth`,
   and every write elsewhere, except `GET /api/auth/session`, `POST /api/auth/logout`,
   `GET /api/health`, `GET /api/ready`, and either the enrolment (`mfa/totp/start`, `confirm`;
-  no TOTP yet) or `mfa/verify` (a confirmed TOTP). `test_auth_mandatory_totp.py` sends a request
-  to every route the app registers, so a new route can't skip it.
-- **The session answer** carries `totp_enabled` and `second_factor` (`enrol`, `verify` or
-  `null`); `mfa` means the session is full. The SPA routes from it alone.
+  an admin without TOTP) or `mfa/verify` (a confirmed TOTP). `test_auth_second_factor_gate.py`
+  sends a request to every route the app registers for both kinds, and checks that the gate
+  refuses nothing to a user without TOTP, so a new route can't skip it.
+- **The session answer** carries `totp_enabled`, `totp_required` and `second_factor` (`enrol`,
+  `verify` or `null`); `mfa` means the session is full. The SPA routes from it alone, and offers a
+  user without TOTP the enrolment once per browser session, with "Skip for now".
 - **Ten minutes.** A session that is not full ends ten minutes after its latest proof (the
   sign-in, or the step-up of a TOTP removal); `resolve_session` deletes it and the purge removes
   what is left.
@@ -121,7 +128,10 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   browser's old session. A QR approve-login (ADR 0011 section 5) is no exception: its session is
   full because a code was entered on the approving phone **for that sign-in**, not carried over
   from an earlier session of the desktop browser, and that code never counts for the admin role.
-- **Step-up.** `require_stepup` (a TOTP or recovery code within `stepup_window_minutes`), and
+- **Step-up.** `require_stepup` (a step-up within `stepup_window_minutes`: a TOTP or recovery
+  code; for an account without TOTP that is not required to have one, a fresh password, Google
+  re-authentication or passkey, which then sets `stepup_at` too and writes `step_up` with
+  `detail.method`, `stepup_first_factor.py`), and
   `require_sensitive` (recent authentication within 10 minutes, then the step-up) for the
   actions that need both; `require_admin_stepup` is `require_admin` with a 5-minute step-up for
   admin writes. Refusals are 403 `step_up_required` and `reauth_required`. The table:
@@ -140,13 +150,16 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   `totp_removed`, `logout_everywhere` (with the number of sessions), `sign_out` and
   `session_signed_out` (#251, "Security activity" below). Code attempts share the MFA
   rate-limit buckets.
-- **Removing the TOTP** (step-up) revokes every other session and rotates this one without its
-  second factor, so it goes straight to enrolment.
+- **Removing the TOTP** (step-up with it) deletes it and the recovery codes, revokes every other
+  session, writes `totp_removed`, mails the `totp_removed` notice and rotates this session without
+  its second factor: a user's stays full, an admin's goes straight to enrolment.
 - **Frontend.** `components/StepUp.tsx`: `useProtected()(purpose, action)` runs an action and,
   on `step_up_required` or `reauth_required`, opens the shared "Confirm it's you" dialog (the
-  password first when re-authentication is wanted, "Use Google instead" when Google is linked,
-  then the code), then tries again. `pages/SecurityPage.tsx` is the Security tab's "Where you're
-  signed in" with "Sign out everywhere…".
+  password first when re-authentication is wanted, "Use a passkey instead" when the account has
+  one, "Use Google instead" when Google is linked, then the code; without TOTP the first factor
+  alone), then tries again. `pages/SecurityPage.tsx` is the Security tab's "Second factor" card
+  (`components/security/SecondFactorCard.tsx`) and "Where you're signed in" with "Sign out
+  everywhere…".
 
 ## Language (#249)
 

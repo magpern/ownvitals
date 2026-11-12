@@ -360,6 +360,9 @@ async def test_totp_material_never_reaches_the_logs(
         async def mfa_failures(self, user_id: Any, email: str, locale: str = "en") -> None:
             raise RuntimeError(f"smtp failure for {email}")
 
+        async def totp_removed(self, user_id: Any, email: str, locale: str = "en") -> None:
+            raise RuntimeError(f"smtp failure for {email}")
+
     register_security_notifier(Leaky())
     try:
         actor = await make_actor(await env.user("planted.address@example.com"))

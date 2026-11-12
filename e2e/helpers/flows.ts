@@ -46,7 +46,7 @@ export async function typeCode(scope: Page | ReturnType<Page['getByRole']>, code
   await scope.getByLabel('Digit 1').fill(code)
 }
 
-/** The mandatory first enrolment: reads the key from the page, confirms, keeps the codes. */
+/** The first enrolment: reads the key from the page, confirms, keeps the codes. */
 export async function enrolAuthenticator(page: Page): Promise<Authenticator> {
   await expect(page.getByRole('heading', { name: 'Set up your authenticator app' })).toBeVisible()
   const key = page.locator('.ov-auth__qr .ov-mono')
@@ -62,6 +62,16 @@ export async function enrolAuthenticator(page: Page): Promise<Authenticator> {
   await page.getByRole('button', { name: 'Continue to Connect Withings' }).click()
   await expect(page).toHaveURL(/\/connections$/)
   return authenticator
+}
+
+/**
+ * The authenticator app is optional for users (issue 475): the offer after a sign-in, declined
+ * with "Skip for now". Lands on the page the sign-in was going to.
+ */
+export async function skipAuthenticator(page: Page): Promise<void> {
+  await expect(page.getByRole('heading', { name: 'Set up your authenticator app' })).toBeVisible()
+  await page.getByRole('button', { name: 'Skip for now' }).click()
+  await expect(page.getByRole('heading', { name: 'Set up your authenticator app' })).toBeHidden()
 }
 
 /** The code prompt after a sign-in. */

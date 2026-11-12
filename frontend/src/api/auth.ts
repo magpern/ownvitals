@@ -30,6 +30,11 @@ export interface SessionState {
   session: SessionDetails | null
   /** The account has an authenticator app set up. Always false when signed out. */
   totpEnabled: boolean
+  /**
+   * The account must have one (an administrator, issue 475): no "Skip for now" and no "Turn off".
+   * Always false when signed out.
+   */
+  totpRequired: boolean
   /** Cloudflare Turnstile's widget, only while the operator has it on (ADR 0018); else null. */
   turnstile: TurnstileConfig | null
 }
@@ -70,7 +75,9 @@ export async function getSession(signal?: AbortSignal): Promise<SessionState> {
   const body = await fetchSessionJson(signal)
   const authenticated = flag(body, 'authenticated')
   const turnstile = turnstileOf(body)
-  if (!authenticated) return { authenticated, user: null, session: null, totpEnabled: false, turnstile }
+  if (!authenticated) {
+    return { authenticated, user: null, session: null, totpEnabled: false, totpRequired: false, turnstile }
+  }
   const user = object(body.user, 'user')
   const session = object(body.session, 'session')
   return {
@@ -91,6 +98,7 @@ export async function getSession(signal?: AbortSignal): Promise<SessionState> {
     // In the session answer itself (#11), so a session without its second factor, which the
     // server refuses everything else, is routed without another call.
     totpEnabled: flag(session, 'totp_enabled'),
+    totpRequired: flag(session, 'totp_required'),
     turnstile,
   }
 }
@@ -266,7 +274,18 @@ export async function stepUp(code: string): Promise<void> {
   await post('/api/auth/mfa/stepup', { code })
 }
 
-/** Re-authentication with the password, for the actions that also need it. */
+/**
+ * Turns the authenticator app off (issue 475): it and the recovery codes go, the other sessions are
+ * signed out and the user is mailed. Needs a step-up with a code from it (`useProtected()`).
+ */
+export async function removeTotp(): Promise<void> {
+  await del('/api/auth/mfa/totp')
+}
+
+/**
+ * Re-authentication with the password, for the actions that also need it. For an account
+ * without an authenticator app it is the step-up too (issue 475).
+ */
 export async function reauthenticate(password: string): Promise<void> {
   await post('/api/auth/reauth', { password })
 }

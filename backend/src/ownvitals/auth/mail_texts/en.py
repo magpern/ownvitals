@@ -78,6 +78,15 @@ TEXTS: Final = MappingProxyType(
             "An authenticator app was enrolled (or replaced) on your ownvitals account.\n"
             "If this wasn't you, reset your password and contact the operator.\n"
         ),
+        "totp_removed.subject": (
+            "Two-factor authentication was turned off on your ownvitals account"
+        ),
+        "totp_removed.body": (
+            "The authenticator app was removed from your ownvitals account, together with its "
+            "recovery codes. Signing in now needs only your password, Google or a passkey.\n"
+            "If this wasn't you, reset your password, set up the authenticator again and contact "
+            "the operator.\n"
+        ),
         "mfa_failures.subject": "Failed two-factor attempts on your ownvitals account",
         "mfa_failures.body": (
             "There were five failed two-factor attempts on your ownvitals account within an "

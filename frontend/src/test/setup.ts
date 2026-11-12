@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, beforeEach } from 'vitest'
+import { resetTotpOffer } from '../auth/totpOffer'
 import { COOKIE_NOTICE_KEY, COOKIE_NOTICE_VERSION } from '../components/notice/cookieNoticeStore'
 import { networkGuard } from './networkGuard'
 
@@ -19,6 +20,8 @@ networkGuard.install()
 beforeEach(() => {
   // Some files run in the node environment, with no window.
   if (typeof window !== 'undefined') window.localStorage.setItem(COOKIE_NOTICE_KEY, COOKIE_NOTICE_VERSION)
+  // The once-per-tab offer of the authenticator app (issue 475) starts unmade in every test.
+  if (typeof window !== 'undefined') resetTotpOffer()
 })
 
 // Vitest globals are off, so Testing Library cannot register its own cleanup.

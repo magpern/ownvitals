@@ -51,6 +51,9 @@ class SessionInfo:
     stepup_at: datetime | None
     now: datetime
     totp_enabled: bool = False  # the account has a confirmed TOTP
+    # The account must have one (an admin, or listed in ``OWNVITALS_ADMIN_EMAILS``;
+    # ``second_factor_policy.totp_required``). Fails closed: unknown means required.
+    totp_required: bool = True
     stepup_window: timedelta = STEPUP_WINDOW
     # ADR 0011 section 5: ``qr_approval`` for a session a phone approved (carried over every
     # rotation), and whether ``mfa_at`` is still the code entered on that phone. Section 3's
@@ -60,12 +63,18 @@ class SessionInfo:
 
     @property
     def full(self) -> bool:
-        """The session passed its second factor (ownvitals ADR 0003 section 2): the account has
-        a confirmed TOTP and a TOTP or recovery code was verified in this session (or its first
-        enrolment was confirmed in it), or on its behalf for the one QR approval that created
-        it (ADR 0011 section 5, amending ADR 0003 section 2). Only a full session yields a
-        ``UserContext``."""
-        return self.totp_enabled and self.mfa_at is not None
+        """The session owes no second factor (ownvitals ADR 0003 section 2, amended 2026-11-12,
+        #475). Only a full session yields a ``UserContext``.
+
+        - An account with a confirmed TOTP: a TOTP or recovery code was verified in this session
+          (or its first enrolment was confirmed in it), or on its behalf for the one QR approval
+          that created it (ADR 0011 section 5). Unchanged by #475.
+        - An account without one: full after the first factor, unless the account is required
+          to have a TOTP (``totp_required``: admins), which then must enrol first.
+        """
+        if self.totp_enabled:
+            return self.mfa_at is not None
+        return not self.totp_required
 
     @property
     def second_factor(self) -> Literal["enrol", "verify"] | None:
@@ -91,11 +100,12 @@ class SessionInfo:
 
     @property
     def role(self) -> Literal["user", "admin"]:
-        """``admin`` only for an admin whose session passed TOTP in the last 12 hours, in this
-        session itself: a code entered on the approving phone for a QR login does not count
-        (ADR 0011 section 5, ADR 0003 section 7 read literally)."""
+        """``admin`` only for an admin with a confirmed TOTP whose session passed it in the last
+        12 hours, in this session itself: a code entered on the approving phone for a QR login
+        does not count (ADR 0011 section 5, ADR 0003 section 7 read literally)."""
         if (
             self.stored_role == "admin"
+            and self.totp_enabled
             and not self.mfa_by_approval
             and _within(self.mfa_at, self.now, ADMIN_MFA_WINDOW)
         ):
@@ -104,10 +114,11 @@ class SessionInfo:
 
     @property
     def may_approve_qr(self) -> bool:
-        """A full session that was not itself born from a QR approval (no chaining from a
+        """A full session of an account with a confirmed TOTP (the approval needs a code from
+        it, ADR 0011 section 8) that was not itself born from a QR approval (no chaining from a
         hijacked desktop, ADR 0011 section 5) nor from a cross-device passkey sign-in (a
         possibly shared computer, section 3's 2026-11-08 amendment)."""
-        return self.full and self.origin == "signin"
+        return self.full and self.totp_enabled and self.origin == "signin"
 
     @property
     def admin_pending_mfa(self) -> bool:
@@ -126,7 +137,9 @@ class SessionInfo:
 
     @property
     def recent_stepup(self) -> bool:
-        """A TOTP or recovery code within the step-up window (``stepup_window_minutes``)."""
+        """A step-up within the step-up window (``stepup_window_minutes``): a TOTP or recovery
+        code, or for an account without TOTP that is not required to have one a fresh first
+        factor (``second_factor_policy.first_factor_steps_up``)."""
         return _within(self.stepup_at, self.now, self.stepup_window)
 
     def stepup_within(self, window: timedelta) -> bool:

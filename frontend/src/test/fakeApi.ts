@@ -38,6 +38,7 @@ export const SIGNED_IN = {
     mfa: true,
     stepup: true,
     totp_enabled: true,
+    totp_required: false,
     second_factor: null,
     admin_pending_mfa: false,
   },
@@ -49,10 +50,24 @@ export const SIGNED_IN_NO_CODE = {
   session: { ...SIGNED_IN.session, mfa: false, stepup: false, second_factor: 'verify' },
 }
 
-/** Signed in to an account without an authenticator app yet: only enrolment is open. */
+/** Signed in to an administrator's account without an authenticator app yet: only enrolment is open. */
 export const SIGNED_IN_NO_TOTP = {
   ...SIGNED_IN,
-  session: { ...SIGNED_IN.session, mfa: false, stepup: false, totp_enabled: false, second_factor: 'enrol' },
+  // The server reports the role as `user` until the TOTP is passed (ADR 0003 section 7).
+  session: {
+    ...SIGNED_IN.session,
+    mfa: false,
+    stepup: false,
+    totp_enabled: false,
+    totp_required: true,
+    second_factor: 'enrol',
+  },
+}
+
+/** Signed in to a user's account without an authenticator app (issue 475): full after the password. */
+export const SIGNED_IN_OPTIONAL_TOTP = {
+  ...SIGNED_IN,
+  session: { ...SIGNED_IN.session, stepup: false, totp_enabled: false, second_factor: null },
 }
 
 export const MFA_ON = { totp_enabled: true, recovery_codes_left: 8 }

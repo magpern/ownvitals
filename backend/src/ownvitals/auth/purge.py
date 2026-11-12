@@ -37,6 +37,7 @@ from ownvitals.auth.disconnect_job import (  # noqa: F401 - re-exported
 )
 from ownvitals.auth.qrlogin import expire_overdue, last_deadline
 from ownvitals.auth.session_cross_device import idle_cutoff
+from ownvitals.auth.session_full_sql import owes_no_second_factor
 from ownvitals.auth.tables import (
     auth_events,
     auth_tokens,
@@ -101,7 +102,7 @@ async def purge_expired(
     """Delete what is expired or used; returns the number of rows removed per table.
 
     - ``sessions``: past their absolute expiry, idle longer than the idle limit, or without a
-      second factor ten minutes after their latest proof (a ``reauth_at`` or ``stepup_at``
+      second factor they owe ten minutes after their latest proof (a ``reauth_at`` or ``stepup_at``
       after now is not a proof); their ``ip`` is cleared after 30 days;
     - ``pending_signups``, ``auth_tokens`` (also used ones), ``oauth_flows``: expired;
     - ``pre_sessions`` and ``webauthn_challenges``: expired (ADR 0011 section 4);
@@ -119,10 +120,10 @@ async def purge_expired(
             or_(
                 sessions.c.expires_at <= now,
                 sessions.c.last_seen_at <= idle_cutoff(settings),  # per origin (#252)
-                # never passed its second factor, ten minutes after its latest proof.
-                # A timestamp after now does not count.
+                # owes its second factor, ten minutes after its latest proof (#475: a user
+                # without TOTP owes none). A timestamp after now does not count.
                 and_(
-                    sessions.c.mfa_at.is_(None),
+                    ~owes_no_second_factor(settings.admin_email_set),
                     func.coalesce(_proof_at_or_before(now), sessions.c.created_at)
                     <= now - PENDING_WINDOW,
                 ),

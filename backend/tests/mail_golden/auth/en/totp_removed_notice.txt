@@ -1,0 +1,5 @@
+Content-Language: en
+Subject: Two-factor authentication was turned off on your ownvitals account
+
+The authenticator app was removed from your ownvitals account, together with its recovery codes. Signing in now needs only your password, Google or a passkey.
+If this wasn't you, reset your password, set up the authenticator again and contact the operator.

@@ -18,6 +18,7 @@ const ADMIN = {
     mfa: true,
     stepup: true,
     totp_enabled: true,
+    totp_required: true,
     second_factor: null,
     admin_pending_mfa: false,
   },

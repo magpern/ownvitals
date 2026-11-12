@@ -23,6 +23,7 @@ from ownvitals.auth import totp
 from ownvitals.auth.notices import (
     notify_mfa_failures,
     notify_totp_enrolled,
+    notify_totp_removed,
     register_security_notifier,
 )
 
@@ -59,10 +60,14 @@ async def test_verify_opens_the_admin_gate_and_sets_stepup(
 async def test_verify_without_a_totp_is_refused_and_anonymous_is_401(
     env: Env, make_actor: Any
 ) -> None:
-    """#11: an account without a TOTP must enrol; the gate refuses it the code check."""
-    actor = await make_actor(await env.user())
+    """#11: an admin without a TOTP must enrol; the gate refuses it the code check. #475: a
+    user without one has no code to check (409 ``totp_not_enabled``)."""
+    actor = await make_actor(await env.user("admin@example.com", role="admin"))
     refused = await actor.post(VERIFY, {"code": "123456"})
     assert (refused.status_code, reason(refused)) == (403, "two_factor_required")
+    user = await make_actor(await env.user())
+    answer = await user.post(VERIFY, {"code": "123456"})
+    assert (answer.status_code, reason(answer)) == (409, "totp_not_enabled")
     assert (await env.client.get("/api/auth/mfa")).status_code == 401
 
 
@@ -275,6 +280,7 @@ async def test_a_missing_or_failing_notifier_never_raises(
     register_security_notifier(None)
     await notify_totp_enrolled(uuid4(), "a@example.com")
     await notify_mfa_failures(uuid4(), "a@example.com")
+    await notify_totp_removed(uuid4(), "a@example.com")
 
     class Broken:
         async def totp_enrolled(self, user_id: Any, email: str, locale: str = "en") -> None:
@@ -283,9 +289,13 @@ async def test_a_missing_or_failing_notifier_never_raises(
         async def mfa_failures(self, user_id: Any, email: str, locale: str = "en") -> None:
             raise RuntimeError("smtp down")
 
+        async def totp_removed(self, user_id: Any, email: str, locale: str = "en") -> None:
+            raise RuntimeError("smtp down")
+
     register_security_notifier(Broken())
     try:
         await notify_totp_enrolled(uuid4(), "a@example.com")
         await notify_mfa_failures(uuid4(), "a@example.com")
+        await notify_totp_removed(uuid4(), "a@example.com")
     finally:
         register_security_notifier(None)

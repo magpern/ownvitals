@@ -15,7 +15,7 @@ from authtools import (  # noqa: F401 - fixtures
     clean_auth_fixture,
     running_env,
 )
-from flows import Browser, reason, signed_in
+from flows import Browser, reason, signed_in, signed_in_owing_code
 from ownvitals.derived.scores_revision import revision_digest
 from test_views_findings import run, store_flag
 
@@ -80,7 +80,7 @@ def kinds(response: object) -> list[str]:
 async def test_anonymous_and_half_signed_in_requests_are_refused(env: Env) -> None:
     response = await Browser(env).get("/api/scores")
     assert (response.status_code, reason(response)) == (401, "not_authenticated")
-    half = await signed_in(env, "half@example.com", second_factor=False)
+    half = await signed_in_owing_code(env, "half@example.com")  # #475: owes its TOTP code
     assert (await half.get("/api/scores")).status_code == 403
 
 

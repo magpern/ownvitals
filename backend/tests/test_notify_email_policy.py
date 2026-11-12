@@ -44,6 +44,7 @@ ACCOUNT_MAILS: dict[str, Callable[[], MailMessage]] = {
     "email_change_taken": lambda: mails.email_change_taken(SETTINGS, TO),
     "email_changed_notice": lambda: mails.email_changed_notice(TO),
     "totp_enrolled_notice": lambda: mails.totp_enrolled_notice(TO),
+    "totp_removed_notice": lambda: mails.totp_removed_notice(TO),  # #475
     "mfa_failures_notice": lambda: mails.mfa_failures_notice(TO),
     "provider_signup_confirmation": lambda: mails.provider_signup_confirmation(
         SETTINGS, TO, "google", "synthetic-token"

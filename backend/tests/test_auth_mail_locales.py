@@ -58,6 +58,7 @@ MAILS: dict[str, Callable[[str], MailMessage]] = {
     "email_change_taken": lambda loc: mails.email_change_taken(SETTINGS, TO, locale=loc),
     "email_changed_notice": lambda loc: mails.email_changed_notice(TO, locale=loc),
     "totp_enrolled_notice": lambda loc: mails.totp_enrolled_notice(TO, locale=loc),
+    "totp_removed_notice": lambda loc: mails.totp_removed_notice(TO, locale=loc),
     "mfa_failures_notice": lambda loc: mails.mfa_failures_notice(TO, locale=loc),
     "provider_signup_confirmation": lambda loc: mails.provider_signup_confirmation(
         SETTINGS, TO, "google", TOKEN, locale=loc

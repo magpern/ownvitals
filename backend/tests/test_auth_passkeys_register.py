@@ -14,7 +14,7 @@ from authtools import (  # noqa: F401 - fixtures
     menv_fixture,
     smtp_fixture,
 )
-from flows import Browser, only_user_id, pass_second_factor, reason, signed_in
+from flows import Browser, only_user_id, pass_second_factor, reason, signed_in, signed_in_owing_code
 from passkeytools import (
     AT,
     BASE,
@@ -181,7 +181,7 @@ async def test_a_credential_id_already_registered_is_refused(env: Env) -> None:
 
 
 async def test_registration_needs_a_full_session(env: Env) -> None:
-    browser = await signed_in(env, second_factor=False)
+    browser = await signed_in_owing_code(env)  # #475: a TOTP account that owes its code
     answer = await browser.post(f"{BASE}/register/options")
     assert (answer.status_code, reason(answer)) == (403, "two_factor_required")
     anonymous = await Browser(env).post(f"{BASE}/register/options")
