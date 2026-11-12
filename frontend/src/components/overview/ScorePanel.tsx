@@ -9,7 +9,7 @@ import { Mono, Num } from '../ui/Value'
 import { reasonKey, sourceTag } from './ScoreCard'
 import { SCORE_LINK_ID, bandWord, hasBands, levelBounds, num, perfectRange, shortHash } from './scorePanelModel'
 
-// The Health score's "How it's computed" panel (#493, docs/design/README.md "Health score panel").
+// The Health score's "How it's computed" panel (issue 493, docs/design/README.md "Health score panel").
 // It is the Reading panel's pattern (components/metric/ReadingPanel.tsx): a drawer with a header, a
 // "calculated by ownvitals" card with a table, and the provenance of the stored row. Opened by the
 // address (`?score=his`); Escape and the close button close it and the focus goes back to the link.

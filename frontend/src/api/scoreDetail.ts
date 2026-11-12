@@ -1,7 +1,7 @@
 import { isObject, type JsonObject } from './decode'
 
 // What the Health score's "How it's computed" panel reads from a `his` entry of GET /api/scores
-// (#493): the per-criterion outcomes in `components.criteria`, the band table's id, version and SHA,
+// (issue 493): the per-criterion outcomes in `components.criteria`, the band table's id, version and SHA,
 // and the provenance of the stored row. Everything may be missing (a row stored before the server
 // sent the bands), so each field falls back to `null` and the panel shows what it has.
 

@@ -1,6 +1,6 @@
 import type { HisBand, HisCriterion } from '../../api/scoreDetail'
 
-// The rules of the Health score panel (#493): which band word a value falls in and how a
+// The rules of the Health score panel (issue 493): which band word a value falls in and how a
 // criterion's boundaries read. Pure. The points themselves come from the server; the word is
 // derived from the same boundaries (backend/src/ownvitals/analysis/scores/his.py): inside the
 // perfect range is Perfect, up to the "good" boundary Good, up to "average" Average, beyond Bad.

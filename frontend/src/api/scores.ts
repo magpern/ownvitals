@@ -23,7 +23,7 @@ export interface HisScore {
   /** Why an area has no score, a code from the server (G4: never a sentence); `null` when it has
    * a score or the server sent none. The card words the code, an unknown one generically. */
   areaReasons: Record<HisArea, string | null>
-  /** What the "How it's computed" panel shows (#493). */
+  /** What the "How it's computed" panel shows (issue 493). */
   detail: HisDetail
 }
 
