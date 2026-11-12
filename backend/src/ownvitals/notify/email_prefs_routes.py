@@ -1,4 +1,4 @@
-"""``/api/notify/email``: the signed-in user's email preference per mail kind (ADR 0018; #459).
+"""``/api/notify/email``: the signed-in user's email preference per mail kind (ADR 0019; #459).
 
 - ``GET``: ``kinds``, each suppressible kind (``ownvitals.notify.email_policy``) with
   ``enabled``. Account and security mail and ``export_ready`` are not listed: they cannot be

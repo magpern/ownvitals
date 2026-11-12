@@ -1,7 +1,7 @@
 import { request } from './client'
 import { DecodeError, flag, list, object, text } from './decode'
 
-// The email preference per mail kind (issue 459, ADR 0018): which of the "something is waiting"
+// The email preference per mail kind (issue 459, ADR 0019): which of the "something is waiting"
 // emails the user gets. Account and security emails and a requested export are not listed: they
 // always arrive. Every such email also carries a one-click link that switches its kind off.
 

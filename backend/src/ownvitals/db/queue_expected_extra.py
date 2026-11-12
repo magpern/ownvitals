@@ -34,7 +34,7 @@ RATE_PINS: dict[str, tuple[str, str, str, str]] = {
 }
 # The mail outbox's family (docker/postgres/notify/50-outbox.sql, ADR 0007 section 3; #194),
 # owned by its own NOLOGIN role. Absent until db-functions has run that script; once present,
-# pinned the same way. With the email preference's read and the one-click unsubscribe (ADR 0018;
+# pinned the same way. With the email preference's read and the one-click unsubscribe (ADR 0019;
 # #459), five functions, each pinned the same way once present.
 OUTBOX_ROLE = "ownvitals_mail_outbox"
 OUTBOX_FUNCTION_NAMES = (

@@ -59,7 +59,7 @@ DOCTOR_PDF_ACCOUNT = Limit("doctor-pdf", "account", 10, 24 * 3600)  # ADR 0013 s
 AI_CHAT_ACCOUNT = Limit("ai-chat", "account", 20, 3600)
 # Creating a conversation (#352): 30 per hour per user; every accepted one counts.
 AI_CONVERSATION_ACCOUNT = Limit("ai-conversation", "account", 30, 3600)
-# The one-click unsubscribe (ADR 0018; #459): every POST counts, valid token or not.
+# The one-click unsubscribe (ADR 0019; #459): every POST counts, valid token or not.
 UNSUBSCRIBE_IP = Limit("unsubscribe", "ip", 20, 15 * 60)
 
 OnSuccess = Literal["decrement", "delete"]

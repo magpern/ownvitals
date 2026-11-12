@@ -1,4 +1,4 @@
-"""Security and account mail ignores the email preference (ADR 0018; #459). No database.
+"""Security and account mail ignores the email preference (ADR 0019; #459). No database.
 
 One test per kind: every account and security mail of ``ownvitals.auth.mails`` (and the
 operator's reconnect mail) is built without an unsubscribe link and goes out without the RFC

@@ -18,11 +18,11 @@ subject, free text, a value or finding text. The database checks every kind and 
   ``mail_outbox_mark`` (``claim``, ``mark``), in a session with no user: it holds no
   ``UserContext`` and gets none. For a claimed row of a suppressible kind it reads the owner's
   email preference only through ``mail_outbox_email_pref`` (``email_pref``), which takes the
-  row's id, never an owner id (ADR 0018).
+  row's id, never an owner id (ADR 0019).
 - **The unsubscribe endpoint** switches one preference off only through ``email_unsubscribe``
   (``unsubscribe``), after it verified the signed token (``ownvitals.notify.unsubscribe``): the
   one write of the family that takes an owner id, and it can only switch a suppressible kind
-  off at the generation the token names (ADR 0018).
+  off at the generation the token names (ADR 0019).
 
 The worker loads this module (``connections.providers.withings`` queues the owner notice of PLAN
 section 4.3), so it imports nothing web-only: no ``ownvitals.mail`` (``tests/egress_worker.py``).

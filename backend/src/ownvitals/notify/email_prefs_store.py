@@ -1,8 +1,8 @@
-"""The signed-in user's own email preferences (``email_prefs``; ADR 0018, #459).
+"""The signed-in user's own email preferences (``email_prefs``; ADR 0019, #459).
 
 Read and written in the caller's own session (``user_session``, forced RLS): a row of another
 owner is neither seen nor written. No row is "on". Every change of a kind's choice counts in its
-``generation``, so an unsubscribe link sent before the change stops working (ADR 0018). Only the
+``generation``, so an unsubscribe link sent before the change stops working (ADR 0019). Only the
 suppressible kinds (``ownvitals.notify.email_policy``) have a preference; the database's check
 refuses any other.
 """

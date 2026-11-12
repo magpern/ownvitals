@@ -39,7 +39,7 @@ TABLE: Final = MappingProxyType(
     }
 )
 
-# The unsubscribe footer of a suppressible kind's mail (ADR 0018; #459).
+# The unsubscribe footer of a suppressible kind's mail (ADR 0019; #459).
 UNSUBSCRIBE: Final = (
     "\nVill du inte få sådana här mejl? Stäng av dem: "
     + UNSUBSCRIBE_LINK

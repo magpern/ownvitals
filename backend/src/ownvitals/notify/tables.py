@@ -1,6 +1,6 @@
 """``notify_holds``: ADR 0006 section 11's notification hold, one row per held E4/E6 finding
 (migration ``0020_notify_holds``, #195); ``email_prefs``: the email preference per suppressible
-mail kind (migration ``0029_email_prefs``, ADR 0018, #459).
+mail kind (migration ``0029_email_prefs``, ADR 0019, #459).
 
 Owned: ``owner_id`` cascading from ``users``, forced RLS and the ``owner_isolation`` policy.
 ``finding_id`` is not a foreign key, so a hold outlives a withdrawn (deleted) finding and records
@@ -71,7 +71,7 @@ notify_holds = Table(
 )
 
 # Owned: at most one row per owner and suppressible kind; no row is "on, generation 0". The
-# generation counts every change of ``enabled`` (ADR 0018: an unsubscribe link binds it).
+# generation counts every change of ``enabled`` (ADR 0019: an unsubscribe link binds it).
 email_prefs = Table(
     "email_prefs",
     metadata,

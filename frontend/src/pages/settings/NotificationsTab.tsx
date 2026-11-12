@@ -19,7 +19,7 @@ import type { ProfileState } from './useProfile'
 // "Notifications" (/settings/notifications). In-app notices are always on. An email only says that
 // something is waiting, with a link, and never what or how much (ADR 0007, T59); the screen says
 // so. Imported history never notifies. Each kind of "something is waiting" email can be switched
-// off on its own (issue 459, ADR 0018), here or with the one-click link in the email itself;
+// off on its own (issue 459, ADR 0019), here or with the one-click link in the email itself;
 // account and security emails always arrive.
 
 function EmailKinds() {

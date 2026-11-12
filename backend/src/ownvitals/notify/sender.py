@@ -14,7 +14,7 @@ A background task of the web process (``start``, from ``ownvitals.web``'s lifesp
    ``mail_outbox_mark``: ``sent``; ``retry`` when a delivery failed (at most 5 attempts, then
    failed); ``failed`` when there is no one to send to or the row has no template.
 
-**Email preferences** (ADR 0018; #459). For a row of a suppressible kind
+**Email preferences** (ADR 0019; #459). For a row of a suppressible kind
 (``ownvitals.notify.email_policy``) it first reads the owner's preference through
 ``mail_outbox_email_pref`` (the row's id, never an owner id): switched off, nothing is sent and
 the row is marked ``failed`` (counted as ``suppressed``); on, the mail carries a signed

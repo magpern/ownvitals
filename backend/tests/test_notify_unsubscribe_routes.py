@@ -1,4 +1,4 @@
-"""The one-click unsubscribe endpoint and the settings' email preference API (ADR 0018; #459),
+"""The one-click unsubscribe endpoint and the settings' email preference API (ADR 0019; #459),
 through the real app (its lifespan, the app role, the auth middleware). Synthetic accounts only.
 
 - ``GET /api/unsubscribe`` never changes state, whatever the token (``test_get_*``);

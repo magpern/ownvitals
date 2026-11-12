@@ -1,4 +1,4 @@
-# ADR 0018: Email preferences per kind and the signed one-click unsubscribe
+# ADR 0019: Email preferences per kind and the signed one-click unsubscribe
 
 Status: Proposed (#459; roadmap Amendment 7, "M6 additions", classbeat #655).
 
@@ -100,6 +100,13 @@ on an account or health table. Guard 2 (`role_guard`) and the queue check pin bo
   shows or allows nothing new; the worst case is a missed "something is waiting" mail, never a
   disclosure, never an account or security mail.
 - A link works for 60 days and only until the kind's choice changes.
+- A switched-off row is marked `failed` through the existing `mail_outbox_mark` (the sender
+  counts it as `suppressed` in its report and log). `failed` is therefore overloaded: it means
+  "not delivered", either a delivery that gave up or a mail the user switched off. A later issue
+  may add its own outcome code, which changes the mark function and its digest.
+- Provisional, accepted by the Architect on 2026-11-12 (#459): the 60-day link lifetime,
+  `connection_attention` being suppressible (it has no producer yet), and `failed` for a
+  switched-off row.
 - `email_prefs` is exported (kind, enabled, updated_at; not the generation), kept by "delete
   imported data" (a setting) and removed with the account by cascade.
 - RFC 8058 also expects the mail to be DKIM-signed over these headers; that is the SMTP relay's

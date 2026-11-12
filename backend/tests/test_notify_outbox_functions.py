@@ -1,5 +1,5 @@
 """The outbox's definer family (ADR 0007 section 3, #194): ``mail_outbox_claim``,
-``mail_outbox_mark`` and ``owner_notice_queue``, with ADR 0018's ``mail_outbox_email_pref`` and
+``mail_outbox_mark`` and ``owner_notice_queue``, with ADR 0019's ``mail_outbox_email_pref`` and
 ``email_unsubscribe`` (#459; their behaviour is ``test_notify_email_prefs_db.py``'s), their role,
 and the startup check that pins them. Synthetic users (``example.test``) only; no health data.
 
@@ -175,7 +175,7 @@ def test_the_signatures_take_no_route_and_only_the_unsubscribe_an_owner(
         "mail_outbox_mark": ("p_id uuid, p_outcome text", "boolean"),
         "owner_notice_queue": ("p_kind text", "boolean"),
         "mail_outbox_email_pref": ("p_id uuid", "TABLE(enabled boolean, generation bigint)"),
-        # ADR 0018: the one owner id of the family, from a verified token; it can only switch
+        # ADR 0019: the one owner id of the family, from a verified token; it can only switch
         # one suppressible kind off.
         "email_unsubscribe": ("p_owner uuid, p_kind text, p_generation bigint", "boolean"),
     }

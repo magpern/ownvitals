@@ -84,7 +84,7 @@ class MailError(Exception):
 class MailMessage:
     """``locale`` is the mail's language, a manifest code (ADR 0015 section 7): it becomes the
     ``Content-Language`` header and nothing else, and any other value is refused here.
-    ``unsubscribe_url`` (the outbox sender's, ADR 0018) becomes the RFC 8058 headers."""
+    ``unsubscribe_url`` (the outbox sender's, ADR 0019) becomes the RFC 8058 headers."""
 
     to: str
     subject: str
@@ -239,7 +239,7 @@ class Mailer:
         built["Subject"] = message.subject
         built.set_content(message.body)  # this clears any Content-* header, so it comes first
         built["Content-Language"] = message.locale  # a manifest code (``MailMessage``)
-        if message.unsubscribe_url is not None:  # RFC 8058 one-click (ADR 0018)
+        if message.unsubscribe_url is not None:  # RFC 8058 one-click (ADR 0019)
             # Fold at RFC 5322's 998, not 78, or a long URL goes out as RFC 2047 encoded words.
             built.policy = built.policy.clone(max_line_length=998)
             built["List-Unsubscribe"] = f"<{message.unsubscribe_url}>"

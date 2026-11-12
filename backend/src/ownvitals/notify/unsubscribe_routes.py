@@ -1,4 +1,4 @@
-"""``/api/unsubscribe``: the signed one-click unsubscribe (RFC 8058; ADR 0018; #459). Web only.
+"""``/api/unsubscribe``: the signed one-click unsubscribe (RFC 8058; ADR 0019; #459). Web only.
 
 Unauthenticated by design: a mail client posts to the ``List-Unsubscribe`` URL with no cookie,
 no ``Origin`` and no CSRF token, so the endpoint is served by ``UnsubscribeMiddleware``, outside
@@ -60,7 +60,7 @@ def _html(body: str, status: int = 200, extra: dict[str, str] | None = None) -> 
 
 async def _post(request: Request, locale: str) -> Response:
     state = request.app.state
-    retry_after = await reserve_unsubscribe(request)  # every POST counts (ADR 0018)
+    retry_after = await reserve_unsubscribe(request)  # every POST counts (ADR 0019)
     if retry_after is not None:
         retry = {"Retry-After": str(retry_after)}
         return _html(unsubscribe_page.limited(locale), 429, retry)

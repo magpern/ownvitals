@@ -72,7 +72,7 @@ uv run python tests/outbox_digests.py --write   # --check fails when they are st
 `tests/test_notify_outbox_functions.py` runs the check in the backend suite. A change to a column
 the functions read bumps the version comment in the script and `OUTBOX_VERSION` together.
 
-## Email preferences and the one-click unsubscribe (#459, ADR 0018)
+## Email preferences and the one-click unsubscribe (#459, ADR 0019)
 
 | Piece | Where |
 |---|---|
