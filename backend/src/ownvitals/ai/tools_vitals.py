@@ -21,6 +21,8 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.ai.local_day import local_today
+from ownvitals.ai.local_day_read import today_of
 from ownvitals.ai.tools_vitals_model import (
     ACTIVITY_KEYS,
     ECG_MAX_ITEMS,
@@ -135,10 +137,7 @@ def _estimate(day: date, view: EstimateView) -> EcgEstimateItem | None:
 async def ecg_summary(
     factory: Factory, ctx: UserContext, settings: Settings, args: EcgSummaryArgs, now: datetime
 ) -> EcgSummaryOut:
-    # The period ends on ``now``'s (UTC) date while recording days are local: a recording from
-    # the last hours of a local day ahead of UTC can fall one day past ``last`` and be left out.
-    # Kept as is: every tool shares this anchor and a user zone needs a lookup (issue #415).
-    last = now.date()
+    last = await today_of(factory, ctx, now)  # the user's local day (#443), as recordings' days
     first = last - timedelta(days=args.period - 1)
     found = await _recordings_in(factory, ctx, first, last)
     counts: Counter[EcgClassification] = Counter(classification(r.afib) for _, r in found)
@@ -165,9 +164,9 @@ async def _per_day(
     factory: Factory, ctx: UserContext, keys: dict[str, str], period: int, now: datetime
 ) -> list[dict[str, Any]]:
     """One row per day with data in the period, oldest first: ``{"day": d, field: value}``."""
-    last = now.date()
-    first = last - timedelta(days=period - 1)
     async with reading(factory, ctx) as r:
+        last = local_today(now, await r.home_zone(now))
+        first = last - timedelta(days=period - 1)
         found = await r.stream_days(tuple(sorted(keys.values())), first, last)
     days = sorted({d for values in found.values() for d in values})[-STREAM_MAX_POINTS:]
     return [

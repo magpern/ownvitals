@@ -25,6 +25,7 @@ from ownvitals.config import Settings
 from ownvitals.connections.repository import list_connections
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
+from ownvitals.derived.daily_db import read_day_tz
 from ownvitals.views.catalog import STATUS_STREAMS
 from ownvitals.views.read_records import (
     DailyRecord,
@@ -52,6 +53,12 @@ _ACTIVE_IMPORTS = text(
 )
 _LAST_READING = text(
     "SELECT max(measured_at) FROM measure_groups WHERE owner_id = :o AND deleted_at IS NULL"
+)
+ZONE_LOOKBACK = timedelta(days=90)
+_NEWEST_ZONE = text(
+    "SELECT source_tz FROM observations WHERE owner_id = :o AND ts <= :now AND ts > :floor "
+    "AND NOT (quality_flags && ARRAY['unconfirmed','implausible','duplicate']) "
+    "ORDER BY ts DESC LIMIT 1"
 )
 _REVISION = text("SELECT revision FROM data_revisions WHERE owner_id = :o AND stream = :s")
 _DAILY = text(
@@ -256,6 +263,20 @@ class Reader:
 
     async def latest_scores(self, *, settings: Settings) -> list[tuple[Any, bool]]:
         return await latest_scores(self._db, self._owner, settings)
+
+    async def home_zone(self, now: datetime) -> str | None:
+        """The zone of the user's day: the profile's fixed zone, else the zone of the newest
+        confirmed reading in the last ``ZONE_LOOKBACK`` up to ``now`` (a bounded scan: the table
+        has only a BRIN index on ``ts``), else ``None``."""
+        fixed = await read_day_tz(self._db, self._owner)
+        if fixed is not None:
+            return fixed
+        newest = (
+            await self._db.execute(
+                _NEWEST_ZONE, {"o": self._owner, "now": now, "floor": now - ZONE_LOOKBACK}
+            )
+        ).scalar_one_or_none()
+        return None if newest is None else str(newest)
 
     async def stream_days(self, keys: tuple[str, ...], first: date, last: date) -> DayValues:
         return await stream_days(self._db, self._owner, keys, first, last)
