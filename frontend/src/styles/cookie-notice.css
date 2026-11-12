@@ -25,3 +25,12 @@
   margin: 0 0 var(--ov-space-3);
   font-size: var(--ov-text-sm);
 }
+
+/* On the phone the app frame has fixed bottom tabs (shell-tabs.css: 4rem high plus the 1 px top
+   border and the safe area), drawn under the notice at z-index 10. Lift the notice above them;
+   public pages have no tabs, so they keep the plain offset. */
+@media (max-width: 760px) {
+  body:has(.ov-phone-tabs) .cookie-notice {
+    bottom: calc(4rem + 1px + var(--ov-space-4) + env(safe-area-inset-bottom));
+  }
+}

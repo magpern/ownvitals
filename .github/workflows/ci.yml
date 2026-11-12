@@ -427,6 +427,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Gzip budget for the built JS and CSS (scripts/bundle-budget.mjs).
+      - run: npm run check:bundle
 
   # The compose stack with fakes only (Google's back channel, mail), the image scan, then the
   # Playwright specs against it (docs/dev/e2e.md). Runs when the stack changed (filter `stack`);
