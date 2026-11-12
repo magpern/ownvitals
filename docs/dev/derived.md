@@ -119,7 +119,7 @@ streams, #229), `derived/normalize_db.py` (the sources; read, verify, write) and
 would make the purity literal.
 
 **Keys.** `metric_key(meastype, position)`: the keys of `analysis.quality.METRICS` for the types
-the analysis judges (`height` among them, 0.5 to 2.6 m, an engineering bound); the three temperatures, `vo2_max`, the two AFib enums and
+the analysis judges; `height`, the three temperatures, `vo2_max`, the two AFib enums and
 `basal_metabolic_rate` besides; `segmental_fat_free_mass`, `segmental_fat_mass` and
 `segmental_muscle_mass` for 173 to 175 with `:<position>` (`left_arm`, `right_arm`, `right_foot`,
 `left_foot`, `left_body`, `right_body`, `left_leg`, `right_leg`, `torso`; other positions
@@ -481,11 +481,12 @@ revisions and the fingerprint are the ones read (else `stale`). An upsert that c
 reports `current`.
 
 **Not wired (reported per row, never guessed).** BMI reads the newest confirmed height
-observation (meastype 4, metres) through the owner's session; none: `no_height`. Quality `quality/2`
-flags a height outside 0.5 to 2.6 m `implausible`, so the read skips it. **Assumption:** the newest
+observation (meastype 4, metres) through the owner's session; none: `no_height`. The bound 0.5–2.6 m
+(inclusive, an engineering bound) is applied in `his_inputs.pick_height` to the newest 50 confirmed
+heights; with none in bound the reason is `implausible_height`. **Assumption:** the newest
 height ever is used for every day, so a later height changes the BMI of earlier days. The height
-(timestamp and value) is part of the fingerprint. `components.vertical_reasons` carries one code
-per area without a score (`no_height`, `insufficient_data`, `no_band_row`, `not_supported`,
+(timestamp and value) and whether a height was rejected are part of the fingerprint. `components.vertical_reasons` carries one code
+per area without a score (`no_height`, `implausible_height`, `insufficient_data`, `no_band_row`, `not_supported`,
 `not_available`, `birth_year_unset`, `sex_unset`; `analysis/scores/his_reasons.py`), which the
 card words in en and sv. `afib_ecg_count` and `high_bp_ratio` inputs are `input_not_wired`. Sleep and
 activity field names and units are assumptions until the owner's probe confirms them.

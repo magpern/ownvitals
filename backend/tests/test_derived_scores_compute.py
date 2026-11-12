@@ -123,3 +123,8 @@ def test_the_height_is_part_of_the_fingerprint() -> None:
     assert base == fingerprint(same, (1, 0, 0))
     assert len({base, fingerprint(taller, (1, 0, 0)), fingerprint(newer, (1, 0, 0))}) == 3
     assert fingerprint(none, (1, 0, 0)) != base
+
+
+def test_a_rejected_height_is_part_of_the_fingerprint() -> None:
+    """No height either way, same revisions: only ``height_rejected`` differs."""
+    assert fingerprint(inputs(), (1, 0, 0)) != fingerprint(inputs(height_rejected=True), (1, 0, 0))
