@@ -23,10 +23,19 @@ export function eventLabel(item: Pick<ActivityEvent, 'kind' | 'method'>): string
   return isMessageKey(key) ? translate(key) : translate('security.activity.kind.unknown')
 }
 
-/** "Firefox on Windows", "Firefox", "Windows" or "Unknown device". */
+/** The API's code for a family it does not recognise (`auth/useragent.py`): no name to show. */
+const UNKNOWN_FAMILY = 'other'
+
+function family(name: string | null): string | null {
+  return name === UNKNOWN_FAMILY ? null : name
+}
+
+/** "Firefox on Windows", "Firefox", "Windows" or "Unknown device" (also for the "other" family). */
 export function eventDevice(item: Pick<ActivityEvent, 'browser' | 'os'>): string {
-  if (item.browser !== null && item.os !== null) return translate('security.device.on', { browser: item.browser, system: item.os })
-  return item.browser ?? item.os ?? translate('security.device.unknown')
+  const browser = family(item.browser)
+  const os = family(item.os)
+  if (browser !== null && os !== null) return translate('security.device.on', { browser, system: os })
+  return browser ?? os ?? translate('security.device.unknown')
 }
 
 function eventPlace(place: string): string {

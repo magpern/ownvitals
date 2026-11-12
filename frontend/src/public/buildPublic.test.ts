@@ -181,4 +181,15 @@ describe('the legal gate fails closed', () => {
       expect(/^\s*(?:ENV|ARG)\s+OWNVITALS_PUBLIC_LEGAL_APPROVED[ \t]+\S/m.test(text), path).toBe(false) // the space form
     }
   })
+
+  it('is never defaulted or assigned in the build code (a `?? \'true\'` would open the gate)', () => {
+    const tracked = spawnSync('git', ['ls-files', '-z', 'frontend/scripts', 'frontend/src/public'], { cwd: REPO, encoding: 'utf8' })
+    expect(tracked.status).toBe(0)
+    const code = tracked.stdout.split('\0').filter((path) => /\.(mjs|js|ts|tsx|cjs)$/.test(path) && !/\.test\./.test(path))
+    expect(code).toContain('frontend/scripts/build-public.mjs')
+    for (const path of code) {
+      const text = readFileSync(join(REPO, path), 'utf8')
+      expect(/OWNVITALS_PUBLIC_LEGAL_APPROVED\s*(?:\?\?|\|\||&&|=(?!=))/.test(text), path).toBe(false)
+    }
+  })
 })
