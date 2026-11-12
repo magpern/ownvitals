@@ -22,7 +22,8 @@ from admintools import (  # noqa: F401 - fixtures
 from jobtools import admin_url
 from ownvitals.admin import user_revoke
 from ownvitals.admin import users as users_module
-from ownvitals.admin.routes import admin_area_routes, calls
+from ownvitals.admin.route_guard import admin_area_routes
+from ownvitals.admin.routes import calls
 from ownvitals.auth.admin_accounts import AccountSummary, account_emails
 from ownvitals.auth.deps import require_admin_stepup
 from ownvitals.config import Settings

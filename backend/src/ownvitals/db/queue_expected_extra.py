@@ -125,15 +125,17 @@ EXPORTS_PINS: dict[str, tuple[str, str, str, str]] = {
     ),
 }
 # The admin account family (docker/postgres/maint/70-admin-accounts.sql, ADR 0002 section 3;
-# #314; admin_account_revoke #365), owned by its own NOLOGIN role and executable by
-# ownvitals_maint only. Absent until db-functions has run that script; once one is present, all
-# four must be, each pinned (its digest in queue_digests.py with the others).
+# #314; admin_account_revoke #365; the abuse view's read admin_session_anomalies #461), owned by
+# its own NOLOGIN role and executable by ownvitals_maint only. Absent until db-functions has run
+# that script; once one is present, all five must be, each pinned (its digest in
+# queue_digests.py with the others).
 ADMIN_ACCOUNTS_ROLE = "ownvitals_admin_accounts"
 ADMIN_ACCOUNTS_FUNCTION_NAMES = (
     "admin_account_disable",
     "admin_account_enable",
     "admin_account_delete",
     "admin_account_revoke",
+    "admin_session_anomalies",
 )
 ADMIN_ACCOUNTS_VERSION = "ownvitals-admin-accounts v1"
 # Sorted as the query sorts the entries: "ownvitals_admin_accounts" comes before "ownvitals_maint".
@@ -163,6 +165,12 @@ ADMIN_ACCOUNTS_PINS: dict[str, tuple[str, str, str, str]] = {
     ),
     "admin_account_revoke": (
         "p_target uuid, p_email_normalized text, p_session uuid, OUT outcome text, OUT job_id uuid",
+        ADMIN_ACCOUNTS_ROLE,
+        SEARCH_PATH,
+        _ADMIN_ACCOUNTS_ACL,
+    ),
+    "admin_session_anomalies": (
+        "p_limit integer, p_before_at timestamp with time zone, p_before_id uuid",
         ADMIN_ACCOUNTS_ROLE,
         SEARCH_PATH,
         _ADMIN_ACCOUNTS_ACL,

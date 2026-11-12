@@ -139,11 +139,20 @@ class SettingSetParams(Params):
     text_length: Annotated[int, Field(ge=0, le=100_000)] | None = None
 
 
+class AnomalyListParams(Params):
+    """The abuse view's page (#461): its size, and whether it is the first one. Never the
+    cursor's time or id."""
+
+    limit: Annotated[int, Field(ge=1, le=100)]
+    page: Literal["first", "next"]
+
+
 # Action code -> its params model. ``admin.request`` is the gate's own (``mfa_required``,
 # ``stepup_required`` and ``rate_limited`` of an admin) and that of a request refused for its
 # input after the gate.
 ACTIONS: Final[dict[str, type[Params]]] = {
     "admin.request": RequestParams,
+    "anomaly.list": AnomalyListParams,
     "audit.list": AuditListParams,
     "job.list": JobsParams,
     "job.replay": JobReplayParams,

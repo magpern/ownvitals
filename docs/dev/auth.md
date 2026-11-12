@@ -24,6 +24,7 @@ say ownvitals. The "Ported unchanged" table of ownvitals' ADR 0003 §1 maps them
 | `backend/src/ownvitals/auth/operator.py` | what the operator CLI calls (below) |
 | `backend/src/ownvitals/auth/events.py`, `event_origin.py` | `record_event`, the one writer of `auth_events`, and the request's coarse origin it stores ("Security activity" below) |
 | `backend/src/ownvitals/auth/activity_routes.py`, `activity_model.py` | `GET /api/auth/activity` and its pure allowlist of kinds and fields (#251) |
+| `backend/src/ownvitals/auth/session_anomaly_policy.py`, `session_anomaly.py` | the session anomaly signal (#461, ADR 0020): the pure policy and its hook in `deps.resolve_request` |
 | `backend/src/ownvitals/flags/` | the sign-up mode only (`invite` or `closed`); #12 adds the stored flags |
 
 ## Guard 8 and the public entry points
@@ -288,6 +289,20 @@ screen; the frontend words every code through the catalogue).
   Rows are purged after 30 days.
 - **Tests:** `test_auth_activity.py`, `test_auth_activity_model.py`,
   `test_auth_signout_races.py`, `test_log_redaction_auth_events.py`.
+
+## Session anomaly signal (#461)
+
+[ADR 0020](../adr/0020-session-anomaly.md). Every request whose cookie resolves to a valid
+session is scored against that session's history (`session_anomaly_policy`, pure): a new network
+**and** another browser or OS family (`new_ip_and_agent`), more than 300 requests in one 60 s
+window (`request_rate`), or another country than its first one (`country_change`, only with
+`geo_source = cloudflare`). The first signal in a session sets `sessions.anomaly_at` and writes
+one `session_anomaly` event (`detail.signals`), which the user's activity list shows, and one
+WARNING line on `ownvitals.auth.anomaly` (codes and ids only). **Nothing is signed out.** The
+per-session state (`seen_window_at`, `seen_count`, `seen_country`, `anomaly_at`; migration
+`0030_session_anomaly`) goes with the session row. A test session issued to another address
+than the test client's (`127.0.0.1`) that sends a real browser's agent string records an event,
+as a replay would. Tests: `test_session_anomaly_policy.py`, `test_session_anomaly.py`.
 
 ## Passkeys
 

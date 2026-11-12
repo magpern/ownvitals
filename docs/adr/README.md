@@ -42,6 +42,7 @@ question open says so in an **Open questions** section and names who answers it.
 | [0017](0017-backups.md) | Backups: age to public keys, separate key-ring backup, retention, `--check`, the restore drill | Proposed |
 | [0018](0018-turnstile.md) | Cloudflare Turnstile on sign-up, sign-in and reset: off by default, fail closed, web-only egress | Proposed |
 | [0019](0019-email-preferences-and-unsubscribe.md) | Email preferences per kind and the signed one-click unsubscribe (RFC 8058); two functions join the outbox family | Proposed |
+| [0020](0020-session-anomaly.md) | Session anomaly signal (no automatic sign-out), security log, admin abuse view | Proposed |
 
 The health-data threat model that these ADRs feed is
 [docs/security/threat-model.md](../security/threat-model.md).

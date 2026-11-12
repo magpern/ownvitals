@@ -3,7 +3,8 @@
 - **Only the kinds a person can act on** (``SHOWN``, an allowlist): sign-ins with their method,
   refused sign-ins and re-authentications, sign-outs (this session, another session, everywhere),
   two-factor, passkey, password, email and Google changes, and the export's and doctor PDF's
-  events (ADR 0013 section 5: requested, ready, failed, downloaded, expired). A new kind stays
+  events (ADR 0013 section 5: requested, ready, failed, downloaded, expired), and an unusual use
+  of a session (``session_anomaly``, #461). A new kind stays
   hidden until it is named here and worded in the catalogue; operator rows
   (``connections_wiped``, the CLI's role changes) and the QR and step-up bookkeeping stay out.
 - **Only codes and allowlisted fields:** the kind (a code), the time, the method (``METHODS``),
@@ -66,6 +67,8 @@ SHOWN: Final[dict[str, str]] = {
     "export_expired": "export_expired",
     "doctor_pdf_requested": "doctor_pdf_requested",
     "doctor_pdf_downloaded": "doctor_pdf_downloaded",
+    # The session anomaly signal (#461, ADR 0020): the origin is the request that looked odd.
+    "session_anomaly": "session_anomaly",
 }
 STORED_KINDS: Final = tuple(sorted(SHOWN))
 SHOWN_KINDS: Final = frozenset(SHOWN.values())

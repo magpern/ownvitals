@@ -6,8 +6,10 @@ import { Card, ComingLater } from '../components/ui/Card'
 import { DataState, StatePill } from '../components/ui/DataState'
 import { Icon } from '../components/ui/Icon'
 import { signedInAt } from './SecurityPage'
+import { SessionAnomalies } from './admin/SessionAnomalies'
 
-// Admin (docs/design/mockups/html/Admin.html). Issue 127 builds the Accounts table. Overview counts,
+// Admin (docs/design/mockups/html/Admin.html). Issue 127 builds the Accounts table; issue 461 adds
+// the session anomalies (pages/admin/SessionAnomalies.tsx, no mock-up: it reuses the table). Overview counts,
 // jobs, the Withings app, flags, the audit log, invites and "Sign out all" stay "Coming later":
 // those writes are not the account helpers, and connection status cannot be read here.
 
@@ -34,6 +36,7 @@ export function AdminPage() {
         <span>Authenticator valid 12 h · changes need a code from the last 5 min</span>
       </p>
       <Accounts />
+      <SessionAnomalies />
       <Card>
         <ComingLater label="Admin">The admin pages come later.</ComingLater>
       </Card>
