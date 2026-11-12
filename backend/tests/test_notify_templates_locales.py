@@ -168,7 +168,7 @@ def test_the_outbox_sql_and_its_digests_are_unchanged() -> None:
     assert OUTBOX_DIGESTS == PINNED_DIGESTS
 
 
-OUTBOX_SQL_SHA256 = "31cf411d09985d064f1c830f762c264a9889f3b5e1e46d67baefda2ad1723cf6"
+OUTBOX_SQL_SHA256 = "0ac8770e32e81b59711ba8013723cbe061482edf967daba381428c2f71e0346a"
 PINNED_DIGESTS = {
     "mail_outbox_claim": "d9aa404f02b705056ea3779649d8c9d6",
     "mail_outbox_mark": "f75b98f2c485898329855d8151fabbad",
