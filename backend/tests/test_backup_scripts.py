@@ -321,3 +321,83 @@ def test_check_fails_when_a_key_file_changed_after_the_key_backup(host: BackupHo
     assert result.returncode == 1
     assert "changed after the newest key backup" in result.stderr
     assert_prints_no_secret(host, result.stdout, result.stderr)
+
+
+# --- #469: hardening from the #467 review ---------------------------------------------------
+
+
+@pytest.mark.parametrize("key", ["DB_TARGET", "KEYS_TARGET", "SECRETS_DIR"])
+def test_the_root_directory_is_never_a_target_or_the_secrets_directory(
+    host: BackupHost, key: str
+) -> None:
+    """``/`` holds every other directory; ``--check`` only reads, so nothing is written there."""
+    host.set_conf(key, "/")
+    result = host.run("--check")
+    assert result.returncode == 64, result.stdout + result.stderr
+    assert "must not be /" in result.stderr
+
+
+def test_check_fails_when_the_secrets_directory_holds_no_key_ring(host: BackupHost) -> None:
+    assert host.run("db").returncode == 0
+    assert host.run("keys").returncode == 0
+    for path in host.secrets.iterdir():
+        path.unlink()
+    result = host.run("--check")
+    assert result.returncode == 1
+    assert "SECRETS_DIR has no connection_kek" in result.stderr
+
+
+def test_check_sees_a_key_installed_with_its_old_modification_time(host: BackupHost) -> None:
+    """``cp -p`` keeps the source's mtime; the change time still moves."""
+    assert host.run("db").returncode == 0
+    assert host.run("keys").returncode == 0
+    replaced = host.secrets / "connection_kek"
+    replaced.write_text(secrets.token_hex(32) + "\n")
+    old = time.time() - 30 * 24 * 3600
+    os.utime(replaced, (old, old))
+    result = host.run("--check")
+    assert result.returncode == 1
+    assert "changed after the newest key backup" in result.stderr
+
+
+def test_retention_never_removes_the_set_just_made_after_a_clock_step(
+    host: BackupHost,
+) -> None:
+    """Sets named in the future (a clock that stepped back since) sort after the new one."""
+    host.set_conf("DB_RETAIN", "2")
+    future = [f"ownvitals-db-2099010{d}T020000Z" for d in (1, 2)]
+    for name in future:
+        make_old_set(host, name)
+    result = host.run("db")
+    assert result.returncode == 0, result.stderr
+    assert "2 kept, 1 removed" in result.stdout
+    names = [p.name for p in host.sets()]
+    assert len(names) == 2
+    assert names[-1] == future[1]  # the newest by name stays too
+    made = result.stdout.split("db: ", 1)[1].split(" ", 1)[0]
+    assert made in names
+
+
+def drill_set(host: BackupHost) -> Path:
+    return make_old_set(host, OLD_SETS[0])
+
+
+def test_the_drill_refuses_an_identity_kept_beside_the_backups(host: BackupHost) -> None:
+    backup_set = drill_set(host)
+    beside = host.db_target / "db.identity"
+    beside.write_bytes(host.db_identity.read_bytes())
+    beside.chmod(0o600)
+    result = host.run_drill(str(backup_set), str(beside))
+    assert result.returncode == 1
+    assert result.stderr == "FAIL  identity: kept beside the backups\n"
+    assert not IDENTITY_RE.search(result.stdout + result.stderr)
+
+
+@pytest.mark.parametrize("mode", [0o640, 0o604, 0o644])
+def test_the_drill_refuses_an_identity_readable_by_others(host: BackupHost, mode: int) -> None:
+    backup_set = drill_set(host)
+    host.db_identity.chmod(mode)
+    result = host.run_drill(str(backup_set), str(host.db_identity))
+    assert result.returncode == 1
+    assert result.stderr == "FAIL  identity: readable by others (chmod 600 it)\n"
+    assert not IDENTITY_RE.search(result.stdout + result.stderr)

@@ -35,6 +35,7 @@ readonly RETAIN_RE='^[1-9][0-9]{0,2}$'
 # (an identity, AGE-SECRET-KEY-1..., is refused without being echoed).
 readonly RECIPIENT_RE='^age1[02-9ac-hj-np-z]{58}$'
 readonly SET_RE='^ownvitals-db-[0-9]{8}T[0-9]{6}Z$'
+readonly NS_TIME_RE='^[0-9]{1,10}\.[0-9]{9}$'
 readonly KEYS_RE='^ownvitals-keys-[0-9]{8}T[0-9]{6}Z\.tar\.age$'
 # The key ring's files (docs/dev/crypto.md, "Keys: three kinds"): current and retired.
 readonly KEY_FILE_RE='^(connection_kek|webhook_seed|webhook_pepper)(_[a-z0-9-]{1,40})?$'
@@ -99,6 +100,9 @@ check_separation() {
     || fail "config: KEYS_TARGET is not a directory (is the key backup machine mounted?)"
   secrets=$(realpath -e -- "$SECRETS_DIR" 2> /dev/null) && [[ -d $secrets ]] \
     || fail "config: SECRETS_DIR is not a directory"
+  # "/" holds every directory, and "//"* would never match it below.
+  [[ $db != / && $keys != / && $secrets != / ]] \
+    || bad_conf "DB_TARGET, KEYS_TARGET and SECRETS_DIR must not be /"
   for a in "$db" "$keys" "$secrets"; do
     for b in "$db" "$keys" "$secrets"; do
       [[ $a == "$b" ]] && continue
@@ -197,12 +201,17 @@ backup_db() {
   mv -T -- "$partial" "$set" || { rm -rf -- "$partial"; fail "db: cannot rename the new backup"; }
   sync -f -- "$set" 2> /dev/null || true
   bytes=$(($(stat -c %s -- "$set/roles.sql.age") + $(stat -c %s -- "$set/db.dump.age")))
-  # Retention: the newest DB_RETAIN sets (their names sort by time).
+  # Retention: the newest DB_RETAIN sets (their names sort by time), but never the set just
+  # made: after a clock step backwards its name sorts before older sets.
   mapfile -t sets < <(list_sets)
   kept=${#sets[@]}
-  while ((kept > DB_RETAIN)); do
-    rm -rf -- "${DB_TARGET:?}/${sets[removed]}"
-    removed=$((removed + 1)) kept=$((kept - 1))
+  local i=0
+  while ((kept > DB_RETAIN && i < ${#sets[@]})); do
+    if [[ ${sets[i]} != "$name" ]]; then
+      rm -rf -- "${DB_TARGET:?}/${sets[i]}"
+      removed=$((removed + 1)) kept=$((kept - 1))
+    fi
+    i=$((i + 1))
   done
   ok "db: $name ($bytes bytes encrypted; $kept kept, $removed removed)"
 }
@@ -245,7 +254,7 @@ backup_keys() {
 
 check() {
   local -a sets=() keys=() files=()
-  local newest now age entry file status=0 newest_keys
+  local newest now age entry file status=0 newest_keys backed_up changed
   now=$(date +%s)
   mapfile -t sets < <(list_sets)
   if ((${#sets[@]} == 0)); then
@@ -278,8 +287,18 @@ check() {
   mapfile -t keys < <(printf '%s\n' "${keys[@]}" | sort)
   newest_keys=$KEYS_TARGET/${keys[-1]}
   mapfile -t files < <(key_files)
+  if [[ " ${files[*]} " != *" connection_kek "* ]]; then
+    printf 'FAIL  check: SECRETS_DIR has no connection_kek\n' >&2
+    return 1
+  fi
+  # A key file's change time (it moves on every write, chmod or rename, and cp -p cannot set
+  # it) against the newest key backup's modification time, in nanoseconds.
+  backed_up=$(stat -c %.9Y -- "$newest_keys")
+  [[ $backed_up =~ $NS_TIME_RE ]] || { printf 'FAIL  check: stat gave no nanosecond time\n' >&2; return 1; }
   for file in "${files[@]}"; do
-    if [[ $SECRETS_DIR/$file -nt $newest_keys ]]; then
+    changed=$(stat -c %.9Z -- "$SECRETS_DIR/$file")
+    [[ $changed =~ $NS_TIME_RE ]] || { printf 'FAIL  check: stat gave no nanosecond time\n' >&2; return 1; }
+    if ((10#${changed/./} >= 10#${backed_up/./})); then
       printf 'FAIL  check: a key file changed after the newest key backup (run: ownvitals-backup keys)\n' >&2
       return 1
     fi

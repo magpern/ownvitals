@@ -12,9 +12,9 @@ server, no target is chosen and no drill has run there. Those are the owner's st
 
 | Command | Does | Exit |
 |---|---|---|
-| `ownvitals-backup db` | `pg_dumpall --roles-only --no-role-passwords` and `pg_dump --format=custom` from the compose `db` service, each piped through `age` to the db recipients, into `DB_TARGET/ownvitals-db-<UTC>/` (`roles.sql.age`, `db.dump.age`); then keeps the newest `DB_RETAIN` sets | 0 written; 1 failed (nothing left behind); 64 usage or configuration; 75 another backup runs |
+| `ownvitals-backup db` | `pg_dumpall --roles-only --no-role-passwords` and `pg_dump --format=custom` from the compose `db` service, each piped through `age` to the db recipients, into `DB_TARGET/ownvitals-db-<UTC>/` (`roles.sql.age`, `db.dump.age`); then keeps the newest `DB_RETAIN` sets, never removing the set it just made (a clock stepped back) | 0 written; 1 failed (nothing left behind); 64 usage or configuration; 75 another backup runs |
 | `ownvitals-backup keys` | the key-ring files of `SECRETS_DIR` (`connection_kek*`, `webhook_seed*`, `webhook_pepper*`) as one tar through `age` to the keys recipients, into `KEYS_TARGET/ownvitals-keys-<UTC>.tar.age`; never removes one | as above |
-| `ownvitals-backup --check` | the monitoring hook: fails when the newest db set is missing, incomplete or older than **26 h**, or when a key-ring file is newer than the newest key backup | 0 healthy; 1 not; 64 configuration |
+| `ownvitals-backup --check` | the monitoring hook: fails when the newest db set is missing, incomplete or older than **26 h**, when `SECRETS_DIR` has no `connection_kek`, or when a key-ring file's change time (`ctime`, which `cp -p` cannot set back) is not older than the newest key backup | 0 healthy; 1 not; 64 configuration |
 | `ownvitals-restore-drill <set> <identity>` | restores one db set into a throwaway Postgres and checks it (below) | 0 passed within the RTO; 1 failed; 64 usage |
 
 Every run prints one line per result, `ok    <what>: ...` or `FAIL  <what>: ...`, and never a key,
@@ -23,7 +23,7 @@ a recipient file's content, a dump or a tool's own output (an error of `pg_dump`
 only.
 
 Every run refuses (exit 64) when `DB_TARGET`, `KEYS_TARGET` and `SECRETS_DIR` are not three
-separate directories (symlinks followed, none inside another), when a recipients file holds
+separate directories (symlinks followed, none inside another, none of them `/`), when a recipients file holds
 anything but `age1...` recipients (an identity is refused without being echoed), or when the
 db and keys recipients share a key.
 
@@ -166,7 +166,7 @@ test fails in CI and is skipped elsewhere.
 | File | Covers |
 |---|---|
 | `test_backup_harness.py` | `BackupHost` (a copy of each script with its installation lines pointed into a temporary directory, throwaway age keypairs made at runtime, a fake docker for the unit tests); the scripts as files (`#!/bin/bash -p`, LF, mode 100755, `bash -n`), the production installation lines, the drill's image equal to `compose.yaml`'s, no age identity in any tracked file |
-| `test_backup_scripts.py` | with the fake docker: a db set only the db identity opens, retention, a failed dump leaving nothing and showing no tool output, a leftover partial set, the lock; the key backup holding exactly the key ring, only in `KEYS_TARGET`, only for the keys identity; the db and key backups never sharing a path; every non-separate target (same, nested either way, a symlink, beside the live keys) refused for every command; a shared recipient and an identity in a recipients file refused; bad configuration lines; `--check` on no backup, fresh backups, 25.5 h / 26.5 h / 9 days, an incomplete set, a key file newer than the key backup; no key value or identity in any output |
+| `test_backup_scripts.py` | with the fake docker: a db set only the db identity opens, retention, a failed dump leaving nothing and showing no tool output, a leftover partial set, the lock; the key backup holding exactly the key ring, only in `KEYS_TARGET`, only for the keys identity; the db and key backups never sharing a path; every non-separate target (same, nested either way, a symlink, beside the live keys) refused for every command; a shared recipient and an identity in a recipients file refused; bad configuration lines; `--check` on no backup, fresh backups, 25.5 h / 26.5 h / 9 days, an incomplete set, a key file newer than the key backup; no key value or identity in any output; #469: `/` as any of the three directories, `--check` with no key ring, a key installed with an old mtime, retention after a clock step, the drill's refusal of an identity beside the backups or readable by others |
 | `test_backup_roundtrip.py` | the real round trip: a compose Postgres of the production image with the init roles, migrated to head with the db-functions scripts and synthetic users and owned rows; `ownvitals-backup db`; the drill restores it with every table's count equal to the source's, Alembic at head, the RLS check passing and the project and volume removed; the wrong identity fails and still tears down; a dump of a table that lost forced RLS fails the drill |
 
 Run them with `uv run pytest -q tests/test_backup_*.py` from `backend/` (needs age, and Docker
