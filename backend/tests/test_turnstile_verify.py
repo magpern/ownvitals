@@ -100,6 +100,13 @@ def test_the_secret_comes_only_from_its_file(
     assert SECRET not in repr(verifier)
 
 
+def test_on_a_public_base_url_without_a_host_is_refused() -> None:
+    settings = Settings(**ON)
+    settings.public_base_url = "https://"  # no host: nothing a siteverify answer could match
+    with pytest.raises(ValueError, match="public_base_url"):
+        build_verifier(settings)
+
+
 def test_on_it_builds_a_verifier_for_the_public_host_and_a_page_config() -> None:
     settings = Settings(**ON, public_base_url=f"https://{HOST}")
     verifier = build_verifier(settings)

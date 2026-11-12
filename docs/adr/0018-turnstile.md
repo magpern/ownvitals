@@ -84,8 +84,10 @@ load no third-party content (ADR 0016, the legal drafts); secrets come only from
 - With Turnstile on, sign-in depends on Cloudflare: an outage refuses every password sign-in,
   sign-up and reset request (fail closed). Passkeys, QR approve-login and Google sign-in are not
   gated and stay available. The owner weighs this before turning it on.
-- Each check costs web one outbound request of at most 5 seconds; the rate limiter does not count
-  a refused check (it runs first).
+- Each check costs web one outbound request of at most 5 seconds. The check runs **before** the
+  rate limiter, so a refused check is not counted against any limit, and a client sending junk
+  tokens costs web one siteverify call (at most 5 seconds) each; Cloudflare, not our limiter,
+  bounds that traffic. A request without a token costs no call.
 - Turning it on adds a third-party script, a frame and a cookie to the sign-in pages; the legal
   texts must say so before it is on.
 

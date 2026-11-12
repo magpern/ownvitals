@@ -31,6 +31,7 @@ from urllib.parse import parse_qsl, urlencode
 import httpx
 
 from ownvitals.egress.clients import AllowlistTransport, _network_transport
+from ownvitals.egress.code_exchange import _HEADERS as _EXCHANGE_HEADERS
 from ownvitals.egress.core import (
     TURNSTILE_ALLOWLIST,
     TURNSTILE_HOST,
@@ -53,7 +54,9 @@ _FORM_TYPE: Final = "application/x-www-form-urlencoded"
 _HEADERS: Final = {
     "Content-Type": _FORM_TYPE,
     "Accept": "application/json",
-    "User-Agent": "ownvitals",
+    # The code exchange's own value: the package's name as a string stays in its one pinned
+    # position (``tests/user_context_rules.py``, ``PACKAGE_STRING_PINS``).
+    "User-Agent": _EXCHANGE_HEADERS["User-Agent"],
 }
 _FORBIDDEN: Final = frozenset(";&=#")
 _MAX_BODY_BYTES: Final = 4096

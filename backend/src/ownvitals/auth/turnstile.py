@@ -85,6 +85,8 @@ def build_verifier(settings: Settings) -> CloudflareVerifier | None:
     if not settings.turnstile_enabled or settings.turnstile_secret_key is None:
         return None
     hostname = urlsplit(settings.public_base_url).hostname or ""
+    if not hostname:  # every answer would be judged against an empty host
+        raise ValueError("turnstile_enabled needs a public_base_url with a host")
     return CloudflareVerifier(settings.turnstile_secret_key.get_secret_value(), hostname)
 
 
