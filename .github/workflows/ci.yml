@@ -124,12 +124,13 @@ jobs:
             "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .
           fi
 
-      # The repository's shell: scripts/*.sh, the deploy's forced command and the database
-      # containers' scripts (docker/postgres/**/*.sh, POSIX sh: the images run them with dash).
+      # The repository's shell: scripts/*.sh, the deploy's forced command, the backup and
+      # restore-drill scripts (deploy/backup/*) and the database containers' scripts
+      # (docker/postgres/**/*.sh, POSIX sh: the images run them with dash).
       - name: bash -n
         run: |
           set -euo pipefail
-          for f in scripts/*.sh deploy/ownvitals-deploy; do bash -n "$f"; done
+          for f in scripts/*.sh deploy/ownvitals-deploy deploy/backup/*; do bash -n "$f"; done
           mapfile -t postgres_scripts < <(find docker/postgres -type f -name '*.sh' | sort)
           [ "${#postgres_scripts[@]}" -gt 0 ] || { echo "::error::no docker/postgres scripts"; exit 1; }
           for f in "${postgres_scripts[@]}"; do sh -n "$f"; done
@@ -143,7 +144,7 @@ jobs:
           [ "${#postgres_scripts[@]}" -gt 0 ] || { echo "::error::no docker/postgres scripts"; exit 1; }
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt \
             koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
-            scripts/*.sh deploy/ownvitals-deploy "${postgres_scripts[@]}"
+            scripts/*.sh deploy/ownvitals-deploy deploy/backup/* "${postgres_scripts[@]}"
 
       - name: CI gate and change-filter tests
         run: scripts/test-ci-gate.sh
@@ -336,6 +337,15 @@ jobs:
           psql -v ON_ERROR_STOP=1 -d ownvitals -f docker/postgres/init/10-roles.sql
           login=$(psql -v ON_ERROR_STOP=1 -d ownvitals -tAc "SELECT rolcanlogin FROM pg_roles WHERE rolname = 'ownvitals_maint'")
           test "$login" = t
+
+      # age for the backup tests (test_backup_*.py, docs/dev/backup.md): Ubuntu's signed
+      # package, the one the owner installs on the server. The tests fail in CI without it.
+      - name: Install age
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends age
+          age --version
 
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:

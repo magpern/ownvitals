@@ -16,6 +16,8 @@
 --
 -- No advisory lock: the bucket row is the mutex (ADR 0005 section 9, namespaces 1, 3 and 4
 -- stay what they are). 20-queue.sql admits these three functions by name and nothing else.
+-- The claim reads the clock after it holds the bucket row, and refilled_at never moves
+-- backwards (#470): otherwise every claim that waited for the lock earned a refill again.
 
 DO $$
 BEGIN
@@ -70,6 +72,9 @@ BEGIN
     FROM public.withings_rate_buckets b
    WHERE b.app_id = p_app_id
      FOR UPDATE;
+  -- The clock is read again now that this claim holds the bucket (#470): a time read before a
+  -- wait for the lock is older than the holder's refilled_at, and would earn that refill again.
+  v_now := pg_catalog.clock_timestamp();
 
   INSERT INTO public.withings_rate_demand (
       app_id, account_id, lane, seen_at, window_grants, window_started)
@@ -95,8 +100,9 @@ BEGIN
   END IF;
   v_remaining := least(
     v_budget::numeric, v_remaining + v_elapsed * v_budget / 60);
+  -- refilled_at never moves backwards (#470), even if the clock does.
   UPDATE public.withings_rate_buckets b
-     SET remaining = v_remaining, refilled_at = v_now, paused_until = NULL
+     SET remaining = v_remaining, refilled_at = GREATEST(v_refilled, v_now), paused_until = NULL
    WHERE b.app_id = p_app_id;
 
   v_cap := greatest(1, v_budget / 4);
@@ -270,7 +276,7 @@ GRANT EXECUTE ON FUNCTION public.withings_rate_pause(integer, double precision)
 RESET ROLE;
 
 COMMENT ON FUNCTION public.withings_rate_claim(integer, uuid, integer, integer)
-  IS 'ownvitals-rate v2';
-COMMENT ON FUNCTION public.withings_rate_release(uuid) IS 'ownvitals-rate v2';
+  IS 'ownvitals-rate v3';
+COMMENT ON FUNCTION public.withings_rate_release(uuid) IS 'ownvitals-rate v3';
 COMMENT ON FUNCTION public.withings_rate_pause(integer, double precision)
-  IS 'ownvitals-rate v2';
+  IS 'ownvitals-rate v3';

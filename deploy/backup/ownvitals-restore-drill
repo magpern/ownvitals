@@ -1,0 +1,207 @@
+#!/bin/bash -p
+# ownvitals-restore-drill: restores one db backup set into a throwaway Postgres and checks it
+# (PLAN-operations §9.2: RTO 4 h, a quarterly drill; ADR 0017).
+#
+#   ownvitals-restore-drill <backup set directory> <age identity file>
+#
+# Runs where the identity is (never on the app host, which holds only the recipients): starts
+# a Postgres of the production image in a compose project of its own (ownvitals-drill-<random>,
+# an internal network, no published port, its own volume), decrypts the roles and the dump into
+# it, prints the Alembic revision (`alembic current`, read from alembic_version), the row count
+# of every table and the RLS smoke check, then removes the project and its volume. It prints
+# counts only, never a value, and no tool's own output (a restore error can quote a row).
+# Exit 0: the drill passed within the RTO. docs/dev/backup.md is the reference.
+set -euo pipefail
+export LC_ALL=C
+umask 077
+
+# --- Installation. The tests rewrite exactly this line in a copy of this file.
+readonly SAFE_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# ---
+
+# compose.yaml's db image, the same index digest (test_backup_scripts.py checks they agree).
+readonly DB_IMAGE=postgres:17.11@sha256:31ba9c94a03ada9988f2bb493a22a75eef3a185884533e5cdbcd498ea835b08f
+readonly DATABASE=ownvitals
+readonly APP_ROLE=ownvitals_app
+readonly RTO_SECONDS=$((4 * 3600))
+readonly SET_RE='^ownvitals-db-[0-9]{8}T[0-9]{6}Z$'
+readonly COUNT_RE='^[a-z_][a-z0-9_]*'$'\t''[0-9]+$'
+
+PROJECT='' WORK='' SET_DIR='' IDENTITY=''
+
+ok() { printf 'ok    %s\n' "$1"; }
+fail() { printf 'FAIL  %s\n' "$1" >&2; exit 1; }
+
+clean_environment() {
+  local name home=${HOME:-/root}
+  while IFS= read -r name; do
+    unset -v "$name" 2> /dev/null || true
+  done < <(compgen -e)
+  export PATH=$SAFE_PATH LC_ALL=C HOME=$home
+}
+
+compose() { docker compose --project-directory "$WORK" -f "$WORK/compose.yaml" -p "$PROJECT" "$@"; }
+
+# psql in the throwaway, as the superuser over the container's socket; SQL on stdin.
+psql_db() { compose exec -T -u postgres db psql -X -q -v ON_ERROR_STOP=1 "$@" 2> /dev/null; }
+
+teardown() {
+  local status=$?
+  trap - EXIT
+  if [[ -n $WORK && -f $WORK/compose.yaml ]]; then
+    if compose down --volumes --remove-orphans --timeout 10 > /dev/null 2>&1; then
+      ok "teardown: removed $PROJECT and its volume"
+    else
+      printf 'FAIL  teardown: remove it by hand: docker compose -p %s down -v\n' "$PROJECT" >&2
+      status=1
+    fi
+  fi
+  [[ -z $WORK ]] || rm -rf -- "$WORK"
+  exit "$status"
+}
+
+check_arguments() {
+  local mode
+  (($# == 2)) || { printf 'FAIL  usage: ownvitals-restore-drill <backup set> <identity>\n' >&2; exit 64; }
+  SET_DIR=$(realpath -e -- "$1" 2> /dev/null) || fail "set: $1 does not exist"
+  [[ -d $SET_DIR && ${SET_DIR##*/} =~ $SET_RE ]] || fail "set: not an ownvitals-db-<time> directory"
+  [[ -s $SET_DIR/roles.sql.age && -s $SET_DIR/db.dump.age ]] || fail "set: incomplete"
+  IDENTITY=$(realpath -e -- "$2" 2> /dev/null) || fail "identity: $2 does not exist"
+  [[ -f $IDENTITY && -r $IDENTITY ]] || fail "identity: not a readable file"
+  [[ $IDENTITY/ != "${SET_DIR%/*}"/* ]] || fail "identity: kept beside the backups"
+  mode=$(stat -c %a -- "$IDENTITY")
+  ((8#$mode & 8#077)) && fail "identity: readable by others (chmod 600 it)"
+  return 0
+}
+
+start_db() {
+  local id
+  id=$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')
+  PROJECT=ownvitals-drill-$id
+  WORK=$(mktemp -d)
+  # The superuser's password of this throwaway only; never printed, removed at teardown.
+  od -An -N16 -tx1 /dev/urandom | tr -d ' \n' > "$WORK/postgres_password"
+  cat > "$WORK/compose.yaml" << EOF
+name: $PROJECT
+services:
+  db:
+    image: $DB_IMAGE
+    pull_policy: missing
+    environment:
+      POSTGRES_DB: $DATABASE
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - drill-data:/var/lib/postgresql/data
+    networks:
+      - drill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d $DATABASE"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+networks:
+  drill:
+    internal: true
+secrets:
+  postgres_password:
+    file: ./postgres_password
+volumes:
+  drill-data:
+EOF
+  compose up --detach --wait --wait-timeout 180 db > /dev/null 2>&1 \
+    || fail "db: the throwaway Postgres did not start"
+  ok "db: $PROJECT started (internal network, no published port)"
+}
+
+restore() {
+  # The roles (no passwords), without the superuser the image creates itself.
+  age --decrypt --identity "$IDENTITY" -- "$SET_DIR/roles.sql.age" 2> /dev/null \
+    | grep -v -x -e 'CREATE ROLE postgres;' \
+    | psql_db -d postgres > /dev/null \
+    || fail "restore: the roles did not restore (or the identity does not open this backup)"
+  ok "restore: roles"
+  age --decrypt --identity "$IDENTITY" -- "$SET_DIR/db.dump.age" 2> /dev/null \
+    | compose exec -T -u postgres db pg_restore --exit-on-error --single-transaction \
+      --dbname="$DATABASE" > /dev/null 2>&1 \
+    || fail "restore: pg_restore failed"
+  ok "restore: database $DATABASE"
+}
+
+alembic_current() {
+  local revision
+  revision=$(psql_db -d "$DATABASE" -tA <<< 'SELECT version_num FROM alembic_version') \
+    || fail "alembic: no alembic_version table"
+  [[ $revision =~ ^[0-9a-z_]{1,64}$ ]] || fail "alembic: not exactly one revision"
+  ok "alembic: current $revision"
+}
+
+readonly COUNT_SQL="SELECT format('SELECT %L, count(*) FROM %I.%I', c.relname, n.nspname, c.relname)
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+ORDER BY c.relname \\gexec"
+
+counts() {
+  local out line tables=0 rows=0
+  out=$(psql_db -d "$DATABASE" -tA -F $'\t' <<< "$COUNT_SQL") || fail "counts: a count failed"
+  while IFS= read -r line; do
+    [[ -z $line ]] && continue
+    [[ $line =~ $COUNT_RE ]] || fail "counts: unexpected output"
+    printf 'count %s\n' "${line/$'\t'/ }"
+    tables=$((tables + 1)) rows=$((rows + ${line##*$'\t'}))
+  done <<< "$out"
+  ((tables > 0)) || fail "counts: no table restored"
+  ok "counts: $tables tables, $rows rows"
+}
+
+# Owned tables (an owner_id column): every one keeps forced row-level security, and the app
+# role with no app.user_id sees none of their rows.
+readonly RLS_FLAGS_SQL="SELECT count(*), count(*) FILTER (WHERE NOT (c.relrowsecurity AND c.relforcerowsecurity))
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'owner_id' AND NOT a.attisdropped)"
+readonly RLS_VISIBLE_SQL="SET ROLE $APP_ROLE;
+SELECT format('SELECT count(*) FROM %I.%I', n.nspname, c.relname)
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'owner_id' AND NOT a.attisdropped)
+AND has_table_privilege(c.oid, 'SELECT')
+ORDER BY c.relname \\gexec"
+
+rls() {
+  local flags owned unforced out line checked=0 visible=0
+  flags=$(psql_db -d "$DATABASE" -tA -F ' ' <<< "$RLS_FLAGS_SQL") || fail "rls: the check failed"
+  [[ $flags =~ ^([0-9]+)\ ([0-9]+)$ ]] || fail "rls: unexpected output"
+  owned=${BASH_REMATCH[1]} unforced=${BASH_REMATCH[2]}
+  ((owned > 0)) || fail "rls: no owned table restored"
+  ((unforced == 0)) || fail "rls: $unforced of $owned owned tables lost forced row-level security"
+  out=$(psql_db -d "$DATABASE" -tA <<< "$RLS_VISIBLE_SQL") \
+    || fail "rls: the $APP_ROLE role could not read the owned tables"
+  while IFS= read -r line; do
+    [[ -z $line ]] && continue
+    [[ $line =~ ^[0-9]+$ ]] || fail "rls: unexpected output"
+    checked=$((checked + 1)) visible=$((visible + line))
+  done <<< "$out"
+  ((checked > 0)) || fail "rls: $APP_ROLE can read no owned table"
+  ((visible == 0)) || fail "rls: $APP_ROLE without a user sees $visible owned rows"
+  ok "rls: $owned owned tables forced; $APP_ROLE without a user sees 0 rows in $checked"
+}
+
+main() {
+  clean_environment
+  check_arguments "$@"
+  SECONDS=0
+  trap teardown EXIT
+  start_db
+  restore
+  alembic_current
+  counts
+  rls
+  if ((SECONDS > RTO_SECONDS)); then
+    fail "rto: the restore took ${SECONDS}s, more than the RTO of ${RTO_SECONDS}s"
+  fi
+  ok "rto: restored and checked in ${SECONDS}s (RTO ${RTO_SECONDS}s)"
+}
+
+main "$@"
