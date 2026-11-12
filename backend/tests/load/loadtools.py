@@ -193,6 +193,10 @@ class InFlight:
         self.now = 0
         self.peak = 0
 
+    def current(self) -> int:
+        with self._lock:
+            return self.now
+
     def enter(self) -> None:
         with self._lock:
             self.now += 1
