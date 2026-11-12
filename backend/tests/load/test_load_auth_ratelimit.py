@@ -2,8 +2,8 @@
 
 Many concurrent attempts, each a real ``RateLimiter.begin`` on its own pooled app-role
 connection, against the Postgres ``rate_limits`` table: sign-in (and password re-auth, which
-reserves the same buckets), password reset, and the TOTP step-up. Each scenario is run from
-many IPs on one account and from one IP across many accounts.
+reserves the same buckets), password reset, and the TOTP step-up. Each is run from many IPs
+on one account, from one IP across many accounts, and from one account on one IP (the pair).
 
 The admission bound is exact. An attempt is admitted while the bucket that binds the scenario
 is within its limit, so the admitted count is, per fixed window of that bucket, the smaller of
@@ -37,6 +37,7 @@ from ownvitals.auth.ratelimit import (
     MAIL_PAIR,
     MFA_ACCOUNT,
     MFA_IP,
+    MFA_PAIR,
     SIGN_IN_ACCOUNT,
     SIGN_IN_IP,
     SIGN_IN_PAIR,
@@ -149,6 +150,22 @@ SCENARIOS = [
         lambda i, tag: mfa_buckets(_user(tag, i), one_ip(tag)),
         lambda tag: (MFA_IP, bucket_ip(one_ip(tag))),
         20,
+    ),
+    Scenario(
+        "step-up: one account, one IP",
+        # Below the account's and the IP's 20, so only the pair's 5 binds.
+        lambda callers: min(callers, 19),
+        lambda i, tag: mfa_buckets(_user(tag), one_ip(tag)),
+        lambda tag: (MFA_PAIR, f"{_user(tag)}|{bucket_ip(one_ip(tag))}"),
+        5,
+    ),
+    Scenario(
+        "reset: one account, one IP",
+        # Below the account's and the IP's 10, so only the pair's 3 binds.
+        lambda callers: min(callers, 9),
+        lambda i, tag: reset_buckets(_email(tag), one_ip(tag)),
+        lambda tag: (MAIL_PAIR, f"{_email(tag)}|{bucket_ip(one_ip(tag))}"),
+        3,
     ),
 ]
 
