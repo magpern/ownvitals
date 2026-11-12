@@ -30,6 +30,7 @@ from ownvitals.egress import (
     google_oauth_client,
     install_worker_allowlist,
     model_async_client,
+    verify_turnstile_token,
     withings_async_client,
 )
 from ownvitals.mail import Mailer, MailMessage
@@ -49,6 +50,7 @@ GOOGLE_VALUES: dict[str, Any] = {
     "scope": "openid email",
     "redirect_uri": "https://ownvitals.example/api/oauth/google/callback",
 }
+TURNSTILE_VALUES: dict[str, Any] = {"secret": "synthetic-secret", "token": "synthetic-token"}
 MESSAGE = MailMessage(to="someone@example.com", subject="s", body="b")
 
 
@@ -76,6 +78,7 @@ WEB_ONLY: list[tuple[Callable[..., Any], str]] = [
     (google_async_client, "oauth2.googleapis.com"),
     (lambda: google_oauth_client(**GOOGLE_VALUES), "oauth2.googleapis.com"),
     (lambda: exchange_withings_code(**VALUES), "wbsapi.withings.net"),
+    (lambda: verify_turnstile_token(**TURNSTILE_VALUES), "challenges.cloudflare.com"),
 ]
 WORKER_ONLY: list[tuple[Callable[..., Any], str]] = [
     (withings_async_client, "wbsapi.withings.net"),
@@ -260,6 +263,7 @@ REQUEST_OPTIONS: dict[str, dict[str, Any]] = {"google_oauth_client": {"withhold_
 # Entry points that send one request they build themselves: called once, as a caller would.
 FIXED_REQUESTS: dict[str, Callable[[httpx.AsyncBaseTransport], Awaitable[httpx.Response]]] = {
     "exchange_withings_code": lambda inner: exchange_withings_code(**VALUES, inner=inner),
+    "verify_turnstile_token": lambda inner: verify_turnstile_token(**TURNSTILE_VALUES, inner=inner),
 }
 
 
@@ -345,6 +349,7 @@ PROCESSES: dict[str, tuple[Callable[[], urllib.request.OpenerDirector | None], s
         {
             *GOOGLE,
             "wbsapi.withings.net requesttoken authorization_code",
+            "challenges.cloudflare.com",  # its one siteverify POST (roadmap Amendment 12)
             "smtp (the configured host)",
         },
     ),

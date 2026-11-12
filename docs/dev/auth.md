@@ -66,6 +66,15 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 - `locales` (`OWNVITALS_LOCALES`, default `en,sv`; `config_auth.py`): the languages the operator
   enables. `en` is always on; a code that is not in the manifest is dropped, so the setting can
   switch a supported language off and never add one ("Language" below).
+- `turnstile_enabled` (default `false`), `turnstile_site_key` and the secret file
+  `turnstile_secret_key` (`config_turnstile.py`, ADR 0018): Cloudflare Turnstile on sign-up,
+  password sign-in and the reset request. On, the settings refuse to load without both keys;
+  the three routes then need an `X-Turnstile-Token` header that passes Cloudflare's check, or
+  answer 400 `turnstile_failed` before anything else (fail closed). `GET /api/auth/session`
+  hands the page `turnstile: {site_key, script_url}` (null while off), and the CSP admits
+  `https://challenges.cloudflare.com` in `script-src` and `frame-src` only while on. Tests use
+  a fake verifier (`tests/test_auth_turnstile.py`) and a fake transport; nothing reaches
+  Cloudflare. To try the widget locally the owner uses Cloudflare's published test keys.
 - The secret file `app_secret_key` (at least 32 bytes). Web refuses to start without it; the
   keys of ADR 0003 §1 ("Derived keys") come from it.
 

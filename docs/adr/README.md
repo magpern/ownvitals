@@ -40,6 +40,7 @@ question open says so in an **Open questions** section and names who answers it.
 | [0015](0015-multilingual.md) | Multilingual support: English and Swedish, typed catalogue, locale preference, codes not sentences, mail per locale, health-wording review | Proposed |
 | [0016](0016-public-site.md) | Public site: prerendered static pages, SEO, no cookies or analytics, legal gate | Proposed |
 | [0017](0017-backups.md) | Backups: age to public keys, separate key-ring backup, retention, `--check`, the restore drill | Proposed |
+| [0018](0018-turnstile.md) | Cloudflare Turnstile on sign-up, sign-in and reset: off by default, fail closed, web-only egress | Proposed |
 | [0019](0019-email-preferences-and-unsubscribe.md) | Email preferences per kind and the signed one-click unsubscribe (RFC 8058); two functions join the outbox family | Proposed |
 
 The health-data threat model that these ADRs feed is

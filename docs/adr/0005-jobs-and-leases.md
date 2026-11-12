@@ -516,7 +516,8 @@ past the per-call wait bound of `ingest/calls.py` (60 s), so a backfill failed a
   caller is excluded only for a live, uncapped one), so no claim waits for a turn nobody takes.
 - **Unchanged:** tokens, slots, the 601 pause, the 2-minute demand cleanup and the 60 s window of
   the share. No table, column or signature changes; the three functions' comment becomes
-  `ownvitals-rate v2` (`RATE_VERSION`) and the claim's digest is regenerated.
+  `ownvitals-rate v2` (`RATE_VERSION`) and the claim's digest is regenerated. (Now `v3`: since
+  #470 the claim reads the clock after it holds the bucket row, and `refilled_at` never moves back.)
 - **Consequence:** priority now applies between callers that are waiting at the same time. A
   higher lane loses nothing it asks for, but between its calls (while it is making one) a lower
   lane may be served. A waiting row that goes away (its attempt ended) holds the turn for at

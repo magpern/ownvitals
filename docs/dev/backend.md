@@ -122,7 +122,8 @@ All settings of the platform milestone exist already, so the issues that use the
 
 Secret files (`SECRET_FILE_FIELDS`): `database_password`, `database_owner_password`,
 `database_maint_password`, `app_secret_key` (at least 32 bytes), `smtp_password`,
-`oauth_google_client_secret`. The key ring's files (`connection_kek`, `webhook_seed`,
+`oauth_google_client_secret`, `turnstile_secret_key` (only with `turnstile_enabled`, ADR 0018).
+The key ring's files (`connection_kek`, `webhook_seed`,
 `webhook_pepper` and their retired `<file>_<id>`) are read by the crypto package, not by
 `Settings` ([crypto.md](crypto.md)).
 

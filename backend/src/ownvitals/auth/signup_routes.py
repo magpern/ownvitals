@@ -12,7 +12,7 @@ them (``oauth_handoff``); in any other browser the row and its token stay untouc
 from datetime import timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.exc import IntegrityError
@@ -31,6 +31,7 @@ from ownvitals.auth.passwords import PasswordRuleError, normalize_password
 from ownvitals.auth.ratelimit import SIGN_IN_IP, SIGNUP_ADDRESS, SIGNUP_IP, Bucket, password_buckets
 from ownvitals.auth.recipients import request_locale, request_mail_locale
 from ownvitals.auth.tables import invites, pending_signups
+from ownvitals.auth.turnstile import require_turnstile
 from ownvitals.config import Settings
 from ownvitals.db import system_session
 from ownvitals.emailnorm import normalize_email
@@ -82,7 +83,7 @@ async def valid_invite(db: AsyncSession, code: str | None) -> UUID | None:
     ).scalar_one_or_none()
 
 
-@router.post("/signup", status_code=202)
+@router.post("/signup", status_code=202, dependencies=[Depends(require_turnstile("signup"))])
 async def sign_up(body: SignUpIn, request: Request, background: BackgroundTasks) -> Accepted:
     settings = request.app.state.settings
     try:

@@ -19,7 +19,9 @@ library (``TRANSPORT_ERRORS`` and ``TIMEOUT_ERRORS``, for the Withings client, #
   the process-wide urllib opener), and ``api.anthropic.com`` only when AI is enabled
   (``install_worker_allowlist(ai_enabled=...)``, ``model_async_client``);
 - **web**: Google's sign-in hosts (``google_oauth_client``, ``google_async_client``), the one
-  Withings authorization-code exchange (``exchange_withings_code``) and the configured
+  Withings authorization-code exchange (``exchange_withings_code``), Cloudflare Turnstile's
+  verification when the operator turns it on (``verify_turnstile_token``, roadmap Amendment 12)
+  and the configured
   SMTP server through ``ownvitals.mail``, the one module the guard lets open a connection of its
   own (its host is a setting, so it is not a list entry). Each refuses in the worker
   (``refuse_in_worker``). Web's urllib opener refuses everything (``install_web_opener``, #10).
@@ -34,7 +36,8 @@ event loop must be the standard library's selector loop (``require_standard_even
 Modules: ``core`` (lists, refusal, process roles, request budget, TLS context), ``opener`` (the
 worker's urllib opener), ``deadline`` (the total deadline of a urllib request), ``clients`` (the
 httpx clients), ``transport`` (their allowlist transport), ``code_exchange`` (the web
-process's one Withings call), ``hook`` (the audit hook).
+process's one Withings call), ``turnstile`` (web's Turnstile verification), ``hook`` (the
+audit hook).
 
 The hook sees only Python's ``socket`` module (not C extensions such as libpq, nor ``ctypes``);
 a network-level egress rule stays the deployment's.
@@ -71,6 +74,10 @@ from ownvitals.egress.core import (
     HTTPS_PORT,
     MODEL_ALLOWLIST,
     MODEL_HOST,
+    TURNSTILE_ALLOWLIST,
+    TURNSTILE_HOST,
+    TURNSTILE_SCRIPT_URL,
+    TURNSTILE_VERIFY_URL,
     WITHINGS_ACCOUNT_HOST,
     WITHINGS_ALLOWLIST,
     WITHINGS_API_HOST,
@@ -115,6 +122,13 @@ from ownvitals.egress.opener import (
     install_web_opener,
     install_worker_allowlist,
 )
+from ownvitals.egress.turnstile import (
+    TURNSTILE_FIELDS,
+    TURNSTILE_TOTAL_SECONDS,
+    encode_turnstile_form,
+    is_turnstile_form,
+    verify_turnstile_token,
+)
 
 __all__ = [
     "CODE_EXCHANGE_ALLOWLIST",
@@ -135,6 +149,12 @@ __all__ = [
     "REQUEST_FALLBACK_SECONDS",
     "TIMEOUT_ERRORS",
     "TRANSPORT_ERRORS",
+    "TURNSTILE_ALLOWLIST",
+    "TURNSTILE_FIELDS",
+    "TURNSTILE_HOST",
+    "TURNSTILE_SCRIPT_URL",
+    "TURNSTILE_TOTAL_SECONDS",
+    "TURNSTILE_VERIFY_URL",
     "WEB_URLLIB_ALLOWLIST",
     "WITHINGS_ACCOUNT_HOST",
     "WITHINGS_ALLOWLIST",
@@ -160,6 +180,7 @@ __all__ = [
     "call_deadline_until",
     "check_total_seconds",
     "encode_code_exchange",
+    "encode_turnstile_form",
     "exchange_withings_code",
     "google_async_client",
     "google_oauth_client",
@@ -169,6 +190,7 @@ __all__ = [
     "installed_kind",
     "installed_worker_hosts",
     "is_code_exchange_form",
+    "is_turnstile_form",
     "model_async_client",
     "refuse_in_worker",
     "request_budget",
@@ -176,6 +198,7 @@ __all__ = [
     "require_standard_event_loop",
     "smtp_session",
     "tls_client_context",
+    "verify_turnstile_token",
     "withings_async_client",
     "worker_allowlist",
     "worker_allowlist_installed",
