@@ -56,3 +56,15 @@ def test_the_fingerprint_follows_the_revisions_and_the_points() -> None:
     assert fingerprint(a, (1, 0, 0)) != fingerprint(a, (0, 1, 0))
     b = inputs(points={key: ((DAY - timedelta(days=1), 2.0),)})
     assert fingerprint(a, (1, 0, 0)) != fingerprint(b, (1, 0, 0))
+
+
+def test_shipped_table_his_is_invisible_without_the_switch() -> None:
+    from ownvitals.analysis.scores.his_table import parse_table
+    from ownvitals.config_scores import DEFAULT_HIS_BAND_TABLE
+
+    table = parse_table(DEFAULT_HIS_BAND_TABLE.read_bytes())
+    off = compute_scores(inputs(table=table, birth_year=1995, sex="male"))
+    assert "his" not in off
+    assert "his" not in kinds(inputs(table=table))
+    on = compute_scores(inputs(table=table, birth_year=1995, sex="male", experimental=True))
+    assert "his" in on

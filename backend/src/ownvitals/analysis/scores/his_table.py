@@ -1,8 +1,8 @@
 """The Health Improvement Score band table (ADR 0012 §2): parse and validate. Pure.
 
-A table is a JSON document the owner approves; the code ships none (``REGISTERED`` is empty), so
-HIS is ``not_set`` until a reviewed PR registers a table's SHA-256. Reading the file is the
-wiring's job (``derived.scores_tables``); this module gets the bytes.
+A table is a JSON document the owner approves; only a table whose SHA-256 a reviewed PR registers
+in ``REGISTERED`` loads (``withings_card_v1``, owner decision 2026-11-12, provisional). Reading
+the file is the wiring's job (``derived.scores_tables``); this module gets the bytes.
 """
 
 import hashlib
@@ -24,8 +24,10 @@ CRITERIA: Final = (
 )
 VERTICALS: Final = ("body", "heart", "activity", "sleep")  # nutrition: no public-API input
 SEXES: Final = ("any", "female", "male")
-# table_id -> SHA-256 of its file. Empty: the owner has not approved a table (question 1).
-REGISTERED: Final[Mapping[str, str]] = {}
+# table_id -> SHA-256 of its file (ADR 0012 owner question 1: the Withings card values).
+REGISTERED: Final[Mapping[str, str]] = {
+    "withings_card_v1": "9f20d86e398e9b9357cf8fd7b7acbcd7b2fa92c6459ad694a24369df441212cb",
+}
 
 
 class InvalidBandTable(ValueError):

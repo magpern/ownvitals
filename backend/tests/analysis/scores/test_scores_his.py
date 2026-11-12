@@ -75,8 +75,8 @@ def _in(value: float | None, status: Status = Status.COMPUTED) -> CriterionInput
     return CriterionInput(status, value, "u", reason=None if value is not None else "x")
 
 
-def test_nothing_registered_in_product() -> None:
-    assert REGISTERED == {}
+def test_only_the_shipped_table_is_registered() -> None:
+    assert set(REGISTERED) == {"withings_card_v1"}  # pinned by test_scores_his_withings_card
     with pytest.raises(InvalidBandTable, match="not_registered"):
         parse_table(_raw(DOC))
 
