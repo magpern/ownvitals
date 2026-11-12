@@ -26,5 +26,5 @@ export function deltaOf(tile: MetricTile): Delta | null {
   const mid = values.length >= 3 ? median(values) : null
   if (mid === null) return null
   const amount = tile.latest.value - mid
-  return { amount, direction: Math.abs(amount) < 1e-9 ? 'flat' : amount > 0 ? 'up' : 'down', days: tile.sparkline.length }
+  return { amount, direction: Math.abs(amount) < 1e-9 ? 'flat' : amount > 0 ? 'up' : 'down', days: values.length }
 }

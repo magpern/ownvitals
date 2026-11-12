@@ -5,6 +5,7 @@ import { SIGN_IN_PATH } from '../auth/access'
 import { useSession } from '../auth/SessionContext'
 import { Notice } from '../components/forms'
 import { PasskeyList } from '../components/PasskeyList'
+import { SecurityActivity } from '../components/security/SecurityActivity'
 import { Cancelled, useProtected } from '../components/StepUp'
 import { Button } from '../components/ui/Button'
 import { Card, ComingLater } from '../components/ui/Card'
@@ -91,6 +92,7 @@ export function SecurityPage() {
         <ComingLater label={t('security.laterLabel')}>{t('security.later')}</ComingLater>
       </Card>
       <SignedInSessions />
+      <SecurityActivity />
     </div>
   )
 }

@@ -77,6 +77,14 @@ URL typed on the command line, and nothing stops a `--no-verify` commit: the wor
 and sealed, so such a commit cannot leave it (and CI refuses the paths in any PR). Removing
 the worktree (section 7) removes its config with it.
 
+Two limits of `seal`. A `url.<base>.insteadOf` (or `pushInsteadOf`) in any config scope that
+matches the sealed URL (`local-real-no-push://...`) rewrites it to a real one at push time, so
+never set one for that scheme; `git ls-remote --get-url origin` and `git remote get-url --push
+origin` show the URL git will really use. And `seal` checks the config as it is when it runs:
+**run it again after any git config change** (a new remote, a global or included file, a rewrite
+rule), then repeat the two checks above. An included file's push URL is caught by the final check
+(`still has another push URL`), but only when `seal` runs.
+
 The base `compose.yaml` mounts `connection_kek` for web only. Write the overlay that also gives
 it to `migrate` (to store the app's client secret) and to the worker (to open the grant), inside
 the git-ignored directory:

@@ -284,3 +284,19 @@ def test_seal_refuses_a_global_pushurl(repo: Path, tmp_path: Path) -> None:
     refused = run("seal", cwd=real, env={"GIT_CONFIG_GLOBAL": str(gitconfig)})
     assert refused.returncode == 1
     assert "pushurl is set outside this worktree" in refused.stderr
+
+
+def test_seal_refuses_a_pushurl_pulled_in_by_an_include_of_the_worktree_config(
+    repo: Path, tmp_path: Path
+) -> None:
+    """An included file reports the including file's scope (worktree), so the scope check alone
+    passes it; the final check on the remote's push URLs must still catch it (#444, #454)."""
+    remote, real = real_worktree(repo, tmp_path)
+    assert run("seal", cwd=real).returncode == 0
+    included = tmp_path / "included.gitconfig"
+    included.write_text(f'[remote "origin"]\n\tpushurl = {remote}\n')
+    git(real, "config", "--worktree", "include.path", str(included))
+    refused = run("seal", cwd=real)
+    assert refused.returncode == 1
+    assert "still has another push URL" in refused.stderr
+    assert str(remote) not in refused.stderr + refused.stdout
