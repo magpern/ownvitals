@@ -1,13 +1,14 @@
 """The score settings (ADR 0012): kept out of ``ownvitals.config`` (a separate, small class)."""
 
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, Final
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_HIS_BAND_TABLE: Final = (
-    Path(__file__).parent / "analysis" / "scores" / "his_tables" / "withings_card_v1.json"
+DEFAULT_HIS_BAND_TABLE: Final = Path(
+    str(files("ownvitals.analysis.scores") / "his_tables" / "withings_card_v1.json")
 )
 
 
