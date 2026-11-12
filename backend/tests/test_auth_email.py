@@ -4,9 +4,16 @@ import logging
 
 import pytest
 
-from authtools import Env, auth_schema_fixture, clean_auth_fixture, menv_fixture, smtp_fixture  # noqa: F401 - fixtures
+from authtools import (  # noqa: F401 - fixtures
+    Env,
+    auth_schema_fixture,
+    clean_auth_fixture,
+    menv_fixture,
+    smtp_fixture,
+)
 from flows import Browser, age_reauth, only_user_id, reason, signed_in, user_with_password
 from smtpfake import SmtpFake
+from windowtools import clear_of_window
 
 EMAIL = "user@example.com"
 NEW = "new.address@example.com"
@@ -61,6 +68,7 @@ async def test_the_request_rejects_a_malformed_address(menv: Env) -> None:
 
 
 async def test_email_change_mail_is_limited_per_address(menv: Env, smtp: SmtpFake) -> None:
+    await clear_of_window(3600)
     browser = await signed_in(menv)
     codes = [(await change(browser)).status_code for _ in range(4)]
     assert codes == [202, 202, 202, 429]

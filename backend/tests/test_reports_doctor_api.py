@@ -34,6 +34,7 @@ from ownvitals.jobs import KindRegistry, queue
 from ownvitals.jobs.runner import Execution, RunConfig, execute
 from ownvitals.reports.doctor import KIND, register_doctor_kind
 from ownvitals.worker.loop import create_worker_engine
+from windowtools import clear_of_window
 
 SYNTHETIC = True
 START, END = date(2026, 1, 1), date(2026, 3, 31)
@@ -199,6 +200,7 @@ async def test_one_doctor_report_builds_at_a_time(xenv: Env) -> None:
 
 
 async def test_ten_requests_a_day_then_429(xenv: Env, app_database_url: str) -> None:
+    await clear_of_window(86400)
     browser = await exporter(xenv)
     for _ in range(10):
         assert (await request(browser)).status_code == 202

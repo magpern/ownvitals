@@ -23,6 +23,7 @@ from ownvitals.egress import exchange_withings_code as egress_exchange
 from ownvitals.withings import oauth as oauth_module
 from ownvitals.withings.apps import create_app
 from ownvitals.withings.oauth_state import StateStore
+from windowtools import clear_of_window
 from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport
 from withingswire import ACCOUNT_HOST, AUTHORIZE_PATH, Request
@@ -351,6 +352,7 @@ async def test_start_counts_against_the_per_ip_oauth_start_limit(
     """ADR 0004 section 7: the start is limited per IP as well as per user. A two-slot window
     here (the real one is 30 per 15 minutes, shared with Google's start); the per-user state
     limit (30) is far away, so the third start is refused by the IP limit alone."""
+    await clear_of_window(900)
     from ownvitals.auth import deps
     from ownvitals.auth.ratelimit import OAUTH_IP, Limit
 
@@ -370,6 +372,7 @@ async def test_the_per_ip_limit_refuses_before_a_state_is_issued(
 ) -> None:
     """The IP limit runs before ``withings.oauth.start``: a refused start leaves no state behind
     and spends none of the user's 30 starts (#308)."""
+    await clear_of_window(900)
     from ownvitals.auth import deps
     from ownvitals.auth.ratelimit import OAUTH_IP, Limit
 

@@ -17,6 +17,7 @@ from ownvitals.auth.cookies import SESSION_COOKIE
 from ownvitals.auth.hooks import register_reset_link_sender, send_reset_link
 from ownvitals.auth.reset_routes import make_reset_link_sender
 from smtpfake import SmtpFake
+from windowtools import clear_of_window
 
 EMAIL = "user@example.com"
 NEW = "a brand new passphrase"
@@ -73,6 +74,7 @@ async def test_a_disabled_user_gets_the_same_answer_and_no_mail(menv: Env, smtp:
 
 
 async def test_reset_mail_is_limited_per_address_and_per_ip(menv: Env, smtp: SmtpFake) -> None:
+    await clear_of_window(3600)
     await user_with_password(menv)
     codes = [(await ask(Browser(menv))).status_code for _ in range(4)]
     assert codes == [202, 202, 202, 429]
@@ -273,6 +275,7 @@ async def trip_ip_limit(env: Env) -> None:
 async def test_complete_never_hashes_for_a_tripped_limit_or_a_junk_token(
     menv: Env, smtp: SmtpFake
 ) -> None:
+    await clear_of_window(900)
     await user_with_password(menv)
     await ask(Browser(menv))
     token = smtp.messages[0].token()
@@ -336,6 +339,7 @@ async def test_complete_checks_method_ownership_before_hashing(menv: Env, smtp: 
 
 
 async def test_password_change_is_limited_per_user(menv: Env) -> None:
+    await clear_of_window(3600)
     browser = await signed_in(menv)
     codes = [
         (await browser.post("/api/auth/password/change", {"new_password": NEW})).status_code
