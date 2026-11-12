@@ -18,7 +18,7 @@ from authtools import (  # noqa: F401 - fixtures
     clean_auth_fixture,
     running_env,
 )
-from flows import Browser, reason, signed_in
+from flows import Browser, reason, signed_in, signed_in_owing_code
 from ownvitals.ecg.validate_cli import input_fingerprint
 from ownvitals.ingest.codec import frame_signal
 from pdftools import text as pdf_text
@@ -92,7 +92,7 @@ async def test_anonymous_and_half_signed_in_requests_are_refused(env: Env) -> No
     anonymous = Browser(env)
     response = await anonymous.get("/api/ecg")
     assert (response.status_code, reason(response)) == (401, "not_authenticated")
-    half = await signed_in(env, "half@example.com", second_factor=False)
+    half = await signed_in_owing_code(env, "half@example.com")  # #475: owes its TOTP code
     assert (await half.get(f"/api/ecg/{uuid4()}")).status_code == 403
     assert (await half.get(f"/api/ecg/{uuid4()}.pdf")).status_code == 403
 

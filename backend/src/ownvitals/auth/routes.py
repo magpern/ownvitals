@@ -56,12 +56,16 @@ class SessionOut(BaseModel):
     id: UUID
     expires_at: datetime
     recent_auth: bool
-    # The session passed its second factor (it is full, ownvitals ADR 0003 section 2).
+    # The session owes no second factor (it is full, ownvitals ADR 0003 section 2): it passed
+    # its TOTP, or the account has none and is not required to have one (#475).
     mfa: bool
     stepup: bool
     # The account has a confirmed TOTP, so the SPA sends a session that is not full to the code
     # prompt rather than to enrolment.
     totp_enabled: bool
+    # The account must have a TOTP (an admin, #475): the SPA offers no "Skip for now" and no
+    # "Turn off".
+    totp_required: bool
     # What a session that is not full still owes: "enrol" or "verify"; null once it is full.
     second_factor: Literal["enrol", "verify"] | None
     # The signed-in account is an admin whose TOTP check is missing or lapsed, so the page shows
@@ -138,6 +142,7 @@ async def get_session(
                 mfa=info.full,
                 stepup=info.full and info.recent_stepup,
                 totp_enabled=info.totp_enabled,
+                totp_required=info.totp_required,
                 second_factor=info.second_factor,
                 admin_pending_mfa=info.admin_pending_mfa,
             ),

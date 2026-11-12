@@ -211,6 +211,7 @@ async def test_the_write_needs_a_full_session_and_the_csrf_token(menv: Env) -> N
     assert (await Browser(menv).request("PUT", LOCALE, {"locale": "sv"})).status_code == 401
     half = Browser(menv)
     user_id = await user_with_password(menv, "half@example.com")
+    await menv.enrol(user_id)  # #475: an account with a TOTP, whose code this session owes
     assert (await half.sign_in("half@example.com")).status_code == 200
     response = await half.request("PUT", LOCALE, {"locale": "sv"})
     assert (response.status_code, reason(response)) == (403, "two_factor_required")

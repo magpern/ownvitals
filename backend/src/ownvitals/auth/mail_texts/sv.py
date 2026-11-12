@@ -81,6 +81,14 @@ TEXTS: Final = MappingProxyType(
             "En autentiseringsapp har registrerats (eller bytts ut) på ditt ownvitals-konto.\n"
             "Om det inte var du, återställ ditt lösenord och kontakta operatören.\n"
         ),
+        "totp_removed.subject": "Tvåfaktorsautentisering har stängts av på ditt ownvitals-konto",
+        "totp_removed.body": (
+            "Autentiseringsappen har tagits bort från ditt ownvitals-konto, tillsammans med dess "
+            "återställningskoder. Inloggning kräver nu bara ditt lösenord, Google eller en "
+            "passkey.\n"
+            "Om det inte var du, återställ ditt lösenord, ställ in autentiseringsappen igen och "
+            "kontakta operatören.\n"
+        ),
         "mfa_failures.subject": "Misslyckade tvåfaktorsförsök på ditt ownvitals-konto",
         "mfa_failures.body": (
             "Det har gjorts fem misslyckade tvåfaktorsförsök på ditt ownvitals-konto inom en "

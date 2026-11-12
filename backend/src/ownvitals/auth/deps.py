@@ -6,8 +6,10 @@ neither clears the cookie (the token may have just been rotated). A known sessio
 expired, idle, belongs to a disabled user, or never passed its second factor within ten minutes
 is deleted and the cookie is cleared.
 
-TOTP is mandatory (ownvitals ADR 0003 section 2): a session yields a ``UserContext`` only once it
-is full. The middleware's gate (``gate.py``) refuses every other route to a session that is not.
+A session yields a ``UserContext`` only once it is full (ownvitals ADR 0003 section 2, amended
+2026-11-12, #475: an account with TOTP must pass it in the session, an admin must have one, a
+user without one is full after the first factor). The middleware's gate (``gate.py``) refuses
+every other route to a session that is not.
 """
 
 from collections.abc import Awaitable, Callable
@@ -134,11 +136,12 @@ async def require_stepup(
     ctx: Annotated[UserContext, Depends(require_user)],
     info: Annotated[SessionInfo | None, Depends(current_session)],
 ) -> UserContext:
-    """A full session with a TOTP or recovery code within the step-up window
-    (``stepup_window_minutes``, 10 minutes; ownvitals ADR 0003 section 4), else 403
-    ``step_up_required``. For: replacing, removing or resetting the TOTP, new recovery codes,
-    log out everywhere, and (with ``require_sensitive``) every action that also needs recent
-    authentication."""
+    """A full session with a step-up within the step-up window (``stepup_window_minutes``, 10
+    minutes; ownvitals ADR 0003 section 4), else 403 ``step_up_required``. The step-up is a TOTP
+    or recovery code; for an account without TOTP that is not required to have one, a fresh
+    password, Google re-authentication or passkey (#475, ``stepup_first_factor``). For:
+    replacing, removing or resetting the TOTP, new recovery codes, log out everywhere, and (with
+    ``require_sensitive``) every action that also needs recent authentication."""
     if info is None or not info.recent_stepup:
         _refuse(403, "step_up_required")
     return ctx

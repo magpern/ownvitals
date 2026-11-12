@@ -2,11 +2,12 @@
 make a session full, step it up or re-authenticate an admin (``/api/auth/mfa/verify``,
 ``/api/auth/mfa/stepup``, ``/api/auth/reauth/totp``) are in ``mfa_verify_routes``.
 
-ADR 0003 sections 6 and 7, and ownvitals ADR 0003 sections 2 and 4: TOTP is mandatory, so a
-session that has not passed it reaches only ``verify`` (with a confirmed TOTP) or the first
-enrolment (without one); the gate in the middleware enforces that, and ``require_session`` lets
-those routes see such a session. Replacing or removing the TOTP and new recovery codes need
-step-up. Every code attempt first takes its rate-limit slots (5 per 5 minutes
+ADR 0003 sections 6 and 7, and ownvitals ADR 0003 sections 2 and 4 (amended 2026-11-12, #475:
+TOTP is optional for users, mandatory for admins): a session that owes its second factor reaches
+only ``verify`` (with a confirmed TOTP) or the first enrolment (an admin without one); the gate
+in the middleware enforces that, and ``require_session`` lets those routes see such a session.
+A user without TOTP enrols from a full session. Replacing or removing the TOTP and new recovery
+codes need step-up. Every code attempt first takes its rate-limit slots (5 per 5 minutes
 per account and IP, section 9) and is refused above the limit before any code is checked. A
 wrong or replayed code writes ``mfa_failed``; the fifth in an hour mails the user. Each success
 rotates the session. Wrong codes answer 400 ``invalid_code`` (403 stays reserved for "you lack
@@ -31,7 +32,7 @@ from ownvitals.auth.deps import (
 )
 from ownvitals.auth.events import record_event
 from ownvitals.auth.keys import Keys
-from ownvitals.auth.notices import notify_mfa_failures, notify_totp_enrolled
+from ownvitals.auth.notices import notify_mfa_failures, notify_totp_enrolled, notify_totp_removed
 from ownvitals.auth.ratelimit import RateLimited, RateLimiter, mfa_buckets
 from ownvitals.auth.recipients import request_mail_locale
 from ownvitals.auth.sessions import (
@@ -236,12 +237,15 @@ async def confirm_enrollment(
 async def remove_totp(
     request: Request,
     response: Response,
+    background: BackgroundTasks,
     ctx: Annotated[UserContext, Depends(require_stepup)],
     info: Info,
 ) -> None:
-    """Remove (or reset) the TOTP: step-up first. Every other session is revoked, and this one
-    is rotated without its second factor, so it goes straight to enrolment (ownvitals ADR 0003
-    section 4: there is never a full session without TOTP)."""
+    """Turn the TOTP off (remove or reset it): a step-up with it first (a TOTP or recovery code;
+    an account with TOTP never steps up by its first factor). The TOTP and the recovery codes go,
+    every other session is revoked, ``totp_removed`` is written and the user is mailed. This
+    session is rotated without its second factor: a user's stays full (TOTP is optional, #475),
+    an admin's goes straight to enrolment (admins must have TOTP)."""
     session = _session(info)
     _need_totp(session)
     async with system_session(_factory(request)) as db:
@@ -259,6 +263,9 @@ async def remove_totp(
             )
         except SessionGone:
             raise _refuse(401, "not_authenticated") from None
+        locale = await request_mail_locale(db, request, ctx.user_id)
+    # Committed: mail the user now (after the response).
+    background.add_task(notify_totp_removed, ctx.user_id, session.email, locale)
     set_session_cookie(response, issued)
 
 

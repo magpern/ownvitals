@@ -37,6 +37,7 @@ from ownvitals.auth.sessions import (
     rotate_session,
     start_session,
 )
+from ownvitals.auth.stepup_first_factor import record_stepup, steps_up
 from ownvitals.auth.tables import pending_signups, users
 from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
@@ -169,13 +170,20 @@ async def _reauth(db: AsyncSession, req: Request) -> Outcome:
             detail={"why": why, "provider": req.flow.provider},
         )
         return _fail(code, why)
+    # The user row is locked (``has_password`` above): an account without TOTP that is not
+    # required to have one steps up with this answer too (#475; the H1 rule above still holds).
+    stepup = await steps_up(db, req.settings, info.user_id)
     try:
-        issued = await rotate_session(db, info, reauth=True, user_agent=req.user_agent, ip=req.ip)
+        issued = await rotate_session(
+            db, info, reauth=True, stepup=stepup, user_agent=req.user_agent, ip=req.ip
+        )
     except SessionGone:
         return _fail("session_mismatch", "session_gone")
     await record_event(
         db, "reauth", user_id=info.user_id, ip=req.ip, detail={"provider": req.flow.provider}
     )
+    if stepup:
+        await record_stepup(db, info.user_id, req.ip, "google")
     return Outcome("ok", issued=issued, next="reauthed")
 
 

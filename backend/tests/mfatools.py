@@ -27,12 +27,16 @@ class FakeNotifier:
     def __init__(self) -> None:
         self.enrolled: list[UUID] = []
         self.failures: list[UUID] = []
+        self.removed: list[UUID] = []
 
     async def totp_enrolled(self, user_id: UUID, email: str, locale: str = "en") -> None:
         self.enrolled.append(user_id)
 
     async def mfa_failures(self, user_id: UUID, email: str, locale: str = "en") -> None:
         self.failures.append(user_id)
+
+    async def totp_removed(self, user_id: UUID, email: str, locale: str = "en") -> None:
+        self.removed.append(user_id)
 
 
 @pytest.fixture(name="notifier")

@@ -273,7 +273,9 @@ async def test_each_user_reads_only_their_own_events(env: Env) -> None:
 async def test_the_list_needs_a_full_session(env: Env) -> None:
     anonymous = await env.client.get("/api/auth/activity")
     assert anonymous.status_code == 401
-    half = await env.login(await env.user())  # the second factor still owed
+    owing = await env.user()
+    await env.enrol(owing)  # #475: an account with a TOTP whose code this session still owes
+    half = await env.login(owing)
     response = await _activity(env, half)
     assert response.status_code == 403
     assert response.json()["detail"] == {"reason": "two_factor_required"}
