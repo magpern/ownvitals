@@ -53,6 +53,18 @@ ever touches the project `ownvitals-<n>` (whatever the worktree's `.env` says), 
 git does not see as merged (squash merges never are; delete it with `git branch -D` after the PR
 merged).
 
+**Rules for parallel agents** (2026-11-12, after two agents crossed work):
+
+- Start every issue with `scripts/worktree.sh new <issue> <slug>`, never a bare `git worktree add`,
+  so it gets its own compose project, volume and ports. A Reviewer uses a number of its own (for
+  example `9000 + PR`), and removes it with `scripts/worktree.sh rm` when done.
+- Run DB-backed tests only against your own project's Postgres, or a throwaway one you started.
+  Never against a database another agent started: a shared database also skews concurrency tests.
+- **Never use `git stash`.** All worktrees of one clone share a single stash list, so two agents
+  that stash and pop at the same moment swap each other's work. Commit to your branch, or keep a
+  patch file in your scratchpad.
+- Before pushing, check that `git diff --stat origin/main...HEAD` lists only your issue's files.
+
 A throwaway test Postgres for `pytest` (see [backend.md](backend.md)) may use any free port. If it
 uses the stack's own Postgres port (`30000 + n`), stop it before starting the stack.
 
