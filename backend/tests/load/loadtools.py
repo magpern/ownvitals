@@ -137,21 +137,47 @@ def record(config: pytest.Config, report: Report) -> None:
 class FakeWithings:
     """A fake Withings API answer, in memory. Call ``n`` (1-based) of the run answers as
     ``answers`` says (``601`` or ``429``); every other call answers an empty success. The
-    bodies have the public API's shape; nothing is sent anywhere."""
+    bodies have the public API's shape; nothing is sent anywhere.
+
+    With ``hold_after``, every call numbered above it waits until ``open_gate`` (a slow
+    provider while the 601 is handled): those calls keep their slots, so once the four slots
+    are held no claim can be granted, and at most three calls follow call ``hold_after``
+    before the gate opens, however long the pause waits for the bucket lock."""
 
     OK = b'{"status": 0, "body": {}}'
     RATE_601 = b'{"status": 601, "body": {"wait_seconds": 30}}'
 
-    def __init__(self, answers: dict[int, int] | None = None) -> None:
+    def __init__(
+        self,
+        answers: dict[int, int] | None = None,
+        *,
+        hold_after: int | None = None,
+        timeout: float = 60.0,
+    ) -> None:
         self._answers = answers or {}
         self._lock = threading.Lock()
+        self._gate = threading.Event()
+        self._hold_after = hold_after
+        self._timeout = timeout
         self.calls = 0
+        if hold_after is None:
+            self._gate.set()
+
+    def open_gate(self) -> None:
+        self._gate.set()
 
     def call(self) -> tuple[int, bytes]:
         """One call: the HTTP status and body."""
         with self._lock:
             self.calls += 1
-            answer = self._answers.get(self.calls)
+            number = self.calls
+            answer = self._answers.get(number)
+        if (
+            self._hold_after is not None
+            and number > self._hold_after
+            and not self._gate.wait(self._timeout)
+        ):
+            raise TimeoutError("the fake Withings gate never opened")
         if answer == 601:
             return 200, self.RATE_601
         if answer == 429:

@@ -192,6 +192,7 @@ def _drive(
                 pause(conn, app_id, exc.wait_seconds)
             with run.lock:
                 run.pause_done = time.monotonic()
+            fake.open_gate()  # the calls held behind the 601 may answer now
         except Transient:
             # A 429: the retry is the worker's next claim, which spends a token of its own.
             with run.lock:
@@ -288,7 +289,7 @@ def test_a_601_holds_every_worker_until_the_pause_ends(
     accounts = _accounts(profile)
     app_id, started = _seed(database_url, profile.budget, accounts)
     trip = max(1, profile.budget // 2)
-    fake = FakeWithings({trip: 601})
+    fake = FakeWithings({trip: 601}, hold_after=trip, timeout=profile.deadline)
 
     held = _drive(
         app_database_url,
@@ -303,8 +304,9 @@ def test_a_601_holds_every_worker_until_the_pause_ends(
     assert not held.drained
     # No claim that started after the pause committed was granted, by any worker.
     assert held.late_grants == 0
-    # The tripping call was granted; what else got in did so before the pause committed.
-    assert sum(held.grants.values()) >= trip
+    # Before the pause: the tripping call and at most the three calls that took the other
+    # slots (the fake holds them until the pause has committed, so no fifth call gets in).
+    assert trip <= sum(held.grants.values()) <= trip + SLOT_CAP - 1
     assert fake.calls == sum(held.grants.values())
     # Every worker was told to come back at the same resume time, the 601's 30 seconds on.
     assert held.paused_claims >= 3 * profile.workers
