@@ -1,7 +1,7 @@
 import { get } from './client'
 import { list, object, optionalText, strings, text } from './decode'
 
-// The admin abuse view (issue 461, ADR 0017): recent session anomalies across accounts. The server
+// The admin abuse view (issue 461, ADR 0018): recent session anomalies across accounts. The server
 // sends signal codes, the account and the coarse origin; never an address. Synthetic in tests.
 
 export const ANOMALIES_PATH = '/api/admin/anomalies'

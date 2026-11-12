@@ -1,5 +1,6 @@
 import { screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { setLocale } from '../../i18n'
 import { SIGNED_IN, fakeApi, reason } from '../../test/fakeApi'
 import { renderAt } from '../../test/render'
 import { eventDevice, eventLabel, withinWindow } from './SecurityActivity'
@@ -68,9 +69,32 @@ describe('the helpers', () => {
     expect(eventDevice({ browser: 'Chrome', os: null })).toBe('Chrome')
     expect(eventDevice({ browser: null, os: 'Linux' })).toBe('Linux')
   })
+  it('words the "other" family as an unknown device, keeping a family that is known', () => {
+    expect(eventDevice({ browser: 'other', os: 'other' })).toBe('Unknown device')
+    expect(eventDevice({ browser: 'other', os: 'Linux' })).toBe('Linux')
+    expect(eventDevice({ browser: 'Chrome', os: 'other' })).toBe('Chrome')
+  })
   it('keeps only the last 30 days', () => {
     const now = new Date('2030-02-01T00:00:00Z')
     const mk = (at: string) => ({ kind: 'sign_in', at, method: null, browser: null, os: null, place: 'SE' })
     expect(withinWindow([mk('2030-01-31T00:00:00Z'), mk('2029-12-01T00:00:00Z')], now)).toHaveLength(1)
+  })
+})
+
+describe('in Swedish', () => {
+  afterEach(async () => {
+    await setLocale('en')
+  })
+
+  it('words an unknown place and an unknown device in Swedish', async () => {
+    await setLocale('sv')
+    fakeApi(
+      route([{ kind: 'sign_in', at: ago(1), method: 'password', browser: 'other', os: 'other', place: 'Place unknown' }]),
+    )
+    renderAt('/settings/security')
+    const item = (await screen.findByText('Okänd enhet', { exact: false })).closest('li')
+    expect(item).toHaveTextContent('Okänd enhet · Okänd plats')
+    expect(item).not.toHaveTextContent('Place unknown')
+    expect(item).not.toHaveTextContent('other')
   })
 })

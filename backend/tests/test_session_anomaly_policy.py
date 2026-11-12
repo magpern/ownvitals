@@ -1,4 +1,4 @@
-"""The session anomaly policy (#461, ADR 0017): each signal on its own, with the clock and every
+"""The session anomaly policy (#461, ADR 0018): each signal on its own, with the clock and every
 input passed in. Pure: no database, no request. Synthetic addresses (documentation ranges) and
 agent strings only."""
 

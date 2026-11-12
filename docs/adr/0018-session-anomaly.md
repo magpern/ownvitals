@@ -1,4 +1,4 @@
-# ADR 0017: Session anomaly signal, security log and admin abuse view
+# ADR 0018: Session anomaly signal, security log and admin abuse view
 
 Status: Proposed (roadmap Amendment 7, P2; issue #461; port of classbeat #577, #632 and #750).
 

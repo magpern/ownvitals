@@ -67,7 +67,7 @@ SHOWN: Final[dict[str, str]] = {
     "export_expired": "export_expired",
     "doctor_pdf_requested": "doctor_pdf_requested",
     "doctor_pdf_downloaded": "doctor_pdf_downloaded",
-    # The session anomaly signal (#461, ADR 0017): the origin is the request that looked odd.
+    # The session anomaly signal (#461, ADR 0018): the origin is the request that looked odd.
     "session_anomaly": "session_anomaly",
 }
 STORED_KINDS: Final = tuple(sorted(SHOWN))

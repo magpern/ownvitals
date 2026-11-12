@@ -1,4 +1,4 @@
-"""The admin abuse view (#461, ADR 0017): recent session anomalies across users.
+"""The admin abuse view (#461, ADR 0018): recent session anomalies across users.
 
 ``GET /api/admin/anomalies?limit=&before_at=&before_id=``: the ``session_anomaly`` events of the
 last 30 days, newest first, paged by the cursor ``(before_at, before_id)`` of the last row of the

@@ -1,4 +1,4 @@
-"""Whether a request looks like scripted use of a stolen session (#461, ADR 0017). Pure.
+"""Whether a request looks like scripted use of a stolen session (#461, ADR 0018). Pure.
 
 A request is scored against what its session has seen so far (``History``: the address and
 ``User-Agent`` the session was issued to, the country of its first request when a geo source

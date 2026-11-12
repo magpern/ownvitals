@@ -261,10 +261,7 @@ ADMIN_ACCOUNTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
         for c in ("kind", "ip", "browser", "os", "place")
     },
     # #461: the abuse view reads the anomaly rows, never the address (ip).
-    **{
-        ("auth_events", c): {(ADMIN_ACCOUNTS, "SELECT")}
-        for c in ("id", "user_id", "at", "detail")
-    },
+    **{("auth_events", c): {(ADMIN_ACCOUNTS, "SELECT")} for c in ("id", "user_id", "at", "detail")},
     **{
         ("auth_events", c): {(ADMIN_ACCOUNTS, "INSERT"), (ADMIN_ACCOUNTS, "SELECT")}
         for c in ("kind", "browser", "os", "place")
