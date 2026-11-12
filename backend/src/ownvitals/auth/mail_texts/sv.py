@@ -84,8 +84,7 @@ TEXTS: Final = MappingProxyType(
         "totp_removed.subject": "Tvåfaktorsautentisering har stängts av på ditt ownvitals-konto",
         "totp_removed.body": (
             "Autentiseringsappen har tagits bort från ditt ownvitals-konto, tillsammans med dess "
-            "återställningskoder. Inloggning kräver nu bara ditt lösenord, Google eller en "
-            "passkey.\n"
+            "återställningskoder. Inloggning kräver nu bara ditt lösenord eller Google.\n"
             "Om det inte var du, återställ ditt lösenord, ställ in autentiseringsappen igen och "
             "kontakta operatören.\n"
         ),

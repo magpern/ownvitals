@@ -83,7 +83,7 @@ TEXTS: Final = MappingProxyType(
         ),
         "totp_removed.body": (
             "The authenticator app was removed from your ownvitals account, together with its "
-            "recovery codes. Signing in now needs only your password, Google or a passkey.\n"
+            "recovery codes. Signing in now needs only your password or Google.\n"
             "If this wasn't you, reset your password, set up the authenticator again and contact "
             "the operator.\n"
         ),
