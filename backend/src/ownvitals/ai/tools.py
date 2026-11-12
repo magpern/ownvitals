@@ -37,6 +37,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.ai import consent, tools_vitals
+from ownvitals.ai.local_day import local_today, today_of
 from ownvitals.ai.tools_model import (
     DAILY_MAX_POINTS,
     FINDINGS_MAX,
@@ -97,9 +98,10 @@ async def _list_metrics(
         facts = await r.status_facts(now)
         daily = await r.daily(keys)
         revision = await r.measures_revision()
+        today = local_today(now, await r.home_zone())
     tiles = [
         assemble.tile(
-            key, daily[key], settle(facts, STREAM_OF[key], now), today=now.date(), revision=revision
+            key, daily[key], settle(facts, STREAM_OF[key], now), today=today, revision=revision
         )
         for key in keys
         if daily[key]
@@ -117,7 +119,8 @@ async def _metric_summary(
         facts = await r.status_facts(now)
         records = (await r.daily((key,)))[key]
         revision = await r.measures_revision()
-    anchor = assemble.anchor_day(assemble.to_daily(records), now.date())
+        today = local_today(now, await r.home_zone())
+    anchor = assemble.anchor_day(assemble.to_daily(records), today)
     out = assemble_detail.detail(
         key,
         records,
@@ -164,8 +167,9 @@ async def _daily_values(
     key, days = args.metric, args.period
     async with reading(factory, ctx) as r:
         records = (await r.daily((key,)))[key]
+        today = local_today(now, await r.home_zone())
     values = assemble.to_daily(records)
-    anchor = assemble.anchor_day(values, now.date())
+    anchor = assemble.anchor_day(values, today)
     start = anchor - timedelta(days=days - 1)
     points = [
         DayValue(day=v.day, value=round(float(v.value), 2))
@@ -181,7 +185,7 @@ async def _findings(
     found = await read_findings(
         factory, ctx, settings, consumer="ai_context", query=FindingsQuery()
     )
-    since = now.date() - timedelta(days=args.period - 1)
+    since = await today_of(factory, ctx, now) - timedelta(days=args.period - 1)
     items = [
         FindingItem(
             rule_id=v.rule_id,
