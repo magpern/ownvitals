@@ -16,17 +16,37 @@ import { renderAt } from '../test/render'
 // The overview, the area pages and the freshness line, end to end against synthetic API answers
 // (test/overviewFixtures.ts): no network, no real account.
 
+// A synthetic `his` entry of GET /api/scores (not a real person's score).
+function fakeScore(o: { status?: string; value?: number | null; reason?: string }) {
+  return {
+    kind: 'his',
+    day: '2026-11-01',
+    status: o.status ?? 'computed',
+    value: o.value === undefined ? 71 : o.value,
+    tier: 'experimental',
+    stale: false,
+    algo_version: 'his/1',
+    how_key: 'score.his.how',
+    components: {
+      synthetic: true,
+      ...(o.reason === undefined ? {} : { reason: o.reason }),
+      verticals: { body: 78, heart: 70, activity: 64, sleep: null },
+    },
+  }
+}
+
 const FINDINGS = 'GET /api/findings?tab=live&limit=20'
 
 function open(
   url: string,
-  more: { metrics?: unknown[]; status?: unknown; findings?: unknown; profile?: object } = {},
+  more: { metrics?: unknown[]; status?: unknown; findings?: unknown; profile?: object; scores?: unknown[] } = {},
 ) {
   fakeApi({
     'GET /api/auth/session': SIGNED_IN,
     'GET /api/metrics': fakeMetrics(more.metrics ?? [fakeMetric('weight')]),
     'GET /api/status': more.status ?? fakeStatus(),
     [FINDINGS]: more.findings ?? fakeFindings(),
+    'GET /api/scores': { scores: more.scores ?? [] },
     ...(more.profile === undefined ? {} : { 'GET /api/profile': more.profile }),
   })
   return renderAt(url)
@@ -125,10 +145,25 @@ describe('the overview: tiles', () => {
     expect(link).toHaveAttribute('href', '/m/weight?range=90d')
   })
 
-  it('shows the health score as not available, with no number', async () => {
+  it('shows no score card when the API sends none (flag off) or the score is not set', async () => {
     open('/overview')
-    expect(await screen.findByText('Health score')).toBeInTheDocument()
-    expect(screen.getByText("The health score isn't computed yet.")).toBeInTheDocument()
+    await screen.findByText('Nerve, activity, sleep and score')
+    expect(screen.queryByText('Health score')).toBeNull()
+  })
+
+  it('shows no score card for a not_set score', async () => {
+    open('/overview', { scores: [fakeScore({ status: 'not_set', value: null, reason: 'no_band_table' })] })
+    await screen.findByText('Nerve, activity, sleep and score')
+    expect(screen.queryByText('Health score')).toBeNull()
+  })
+
+  it('shows the computed score with its areas and n/a for an area without data', async () => {
+    open('/overview', { scores: [fakeScore({})] })
+    const card = (await screen.findByText('Health score')).closest('.ov-card') as HTMLElement
+    expect(within(card).getByText('71', { selector: '.ov-sr' })).toBeInTheDocument()
+    expect(within(card).getByText('Body 78')).toBeInTheDocument()
+    expect(within(card).getByText('Heart 70')).toBeInTheDocument()
+    expect(within(card).getByText('Sleep n/a (not enough data yet)')).toBeInTheDocument()
   })
 
   it('stays quiet: no streaks, rings or nudges', async () => {
