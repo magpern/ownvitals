@@ -19,7 +19,8 @@ The maint role's password, compose, `db-functions`, the `Dockerfile` and CI are 
 | `backend/src/ownvitals/admin/user_revoke.py` | the admin delete's wait for its revoke job (#365): reads only the job's `state` (maint's column grant on `jobs`) in a `user.revoke_wait` read transaction, for up to `ADMIN_REVOKE_WAIT_SECONDS` (25 s); the `user.delete` row then records `revoke`: `none`, `revoked` or `failed`. The job itself is `ownvitals.auth.admin_revoke_job` (`withings_admin_revoke`), run by the worker |
 | `backend/src/ownvitals/admin/db.py` | the maint engine and its role check, `admin_session` (the audited transaction), `audit_refusal` |
 | `backend/src/ownvitals/admin/audit.py` | the action codes, each action's `params` model, the refusal and request limiters |
-| `backend/src/ownvitals/admin/routes.py` | `admin_gate`, `admin_router()`, `install(app)` (handlers, body limit), the route guard's helpers |
+| `backend/src/ownvitals/admin/routes.py` | `admin_gate`, `admin_router()`, `install(app)` (handlers, body limit) |
+| `backend/src/ownvitals/admin/route_guard.py` | the route guard's helpers (`admin_area_routes`, `gate_problems`) |
 | `backend/src/ownvitals/admin/audit_routes.py`, `settings.py`, `jobs.py` | `GET /api/admin/audit`; `GET`, `PUT`, `DELETE /api/admin/settings[/{key}]`; `GET /api/admin/jobs` |
 | `backend/src/ownvitals/flags/` | `core` (keys, validation, stricter wins), `effective` (per request, from `app_settings`), `routes` (`GET /api/settings/public`) |
 | `backend/tests/test_maint_privileges.py` | guard 11: maint's exact allowlist, its secret-column and forbidden-table registry, append-only |

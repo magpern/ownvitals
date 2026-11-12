@@ -25,7 +25,8 @@ from admintools import (  # noqa: F401 - fixtures
     reason,
 )
 from authtools import Env, session_cookie
-from ownvitals.admin.routes import admin_area_routes, admin_gate, gate_problems
+from ownvitals.admin.route_guard import admin_area_routes, gate_problems
+from ownvitals.admin.routes import admin_gate
 from ownvitals.auth.deps import require_admin
 from ownvitals.config import Settings
 from ownvitals.web import create_app
