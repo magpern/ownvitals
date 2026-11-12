@@ -61,7 +61,7 @@ export const overview = {
   'score.area.heart': 'Hjärta',
   'score.area.activity': 'Aktivitet',
   'score.area.sleep': 'Sömn',
-  'score.areaValue': '{area} {value}',
+  'score.areaValue': '{area}: {value}',
   'score.areaNa': '{area} saknas ({reason})',
   'score.reason.noInputs': 'inte tillräckligt med data ännu',
   'fresh.label': 'Datats aktualitet',
