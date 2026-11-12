@@ -161,9 +161,8 @@ describe('the overview: tiles', () => {
     open('/overview', { scores: [fakeScore({})] })
     const card = (await screen.findByText('Health score')).closest('.ov-card') as HTMLElement
     expect(within(card).getByText('71', { selector: '.ov-sr' })).toBeInTheDocument()
-    expect(within(card).getByText('Body 78')).toBeInTheDocument()
-    expect(within(card).getByText('Heart 70')).toBeInTheDocument()
-    expect(within(card).getByText('Sleep n/a (not enough data yet)')).toBeInTheDocument()
+    expect(within(card).getByText('ownvitals 1.0')).toBeInTheDocument()
+    expect(within(card).getByText(/Body 78 · Heart 70 · Activity 64 · Sleep n\/a/)).toBeInTheDocument()
   })
 
   it('stays quiet: no streaks, rings or nudges', async () => {
