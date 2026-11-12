@@ -85,7 +85,7 @@ function Actions({ t }: { t: Text }) {
   )
 }
 
-function Home({ locale, t }: Omit<Props, 'page'>) {
+function Home({ locale, t }: Omit<Props, 'page' | 'legal'>) {
   return (
     <>
       <section className="pub-hero pub-hero--split">
