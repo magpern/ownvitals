@@ -1,0 +1,5 @@
+Content-Language: sv
+Subject: Tvåfaktorsautentisering har stängts av på ditt ownvitals-konto
+
+Autentiseringsappen har tagits bort från ditt ownvitals-konto, tillsammans med dess återställningskoder. Inloggning kräver nu bara ditt lösenord, Google eller en passkey.
+Om det inte var du, återställ ditt lösenord, ställ in autentiseringsappen igen och kontakta operatören.
