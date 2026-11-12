@@ -15,10 +15,10 @@ set -euo pipefail
 die() { echo "local-real-guard: $*" >&2; exit 1; }
 
 # A path that must never be committed. Lower-cased before matching.
-#   .env and .env.<anything> but .env.example, and direnv's .envrc; secret/ and secrets/
+#   .env and .env.<anything> but .env.example, direnv's .envrc and .envrc.<anything>; secret/ and secrets/
 #   anywhere; the local-real/ output directory anywhere; probe output; database dumps and their
 #   compressed forms; archives (the app's own data export is a .zip); CSV and HAR exports.
-FORBIDDEN='(^|/)\.env$|(^|/)\.env\.|(^|/)\.envrc$|(^|/)secrets?(/|$)|(^|/)local-real(/|$)|(^|/)probe-output|\.(dump|pgdump|pg_dump|backup|bak)$|\.sql\.(gz|bz2|xz|zst|zip|7z)$|(^|/)[^/]*dump[^/]*\.sql$|\.(tar|tgz|tbz2|txz|zip|har)$|\.tar\.(gz|bz2|xz|zst)$'
+FORBIDDEN='(^|/)\.env$|(^|/)\.env\.|(^|/)\.envrc(\.|$)|(^|/)secrets?(/|$)|(^|/)local-real(/|$)|(^|/)probe-output|\.(dump|pgdump|pg_dump|backup|bak)$|\.sql\.(gz|bz2|xz|zst|zip|7z)$|(^|/)[^/]*dump[^/]*\.sql$|\.(tar|tgz|tbz2|txz|zip|har)$|\.tar\.(gz|bz2|xz|zst)$'
 ALLOWED='(^|/)\.env\.example$'
 # Plain .sql is source only under docker/postgres/<area>/ (the dump rule above still applies
 # there); anywhere else it is taken for a dump. A .csv is a synthetic fixture (synthetic_ prefix)
@@ -85,17 +85,28 @@ cmd_install() {
 NO_PUSH_URL='local-real-no-push://this-worktree-never-pushes'
 
 cmd_seal() {
-  local common remote remotes=()
+  local common scope scopes remote remotes=()
   is_real_worktree || die "no local-real/REAL-ACCOUNT here; seal only the real-account worktree"
   common="$(git rev-parse --git-common-dir)"
   # With worktreeConfig on, a core.worktree in the shared config would apply to every worktree.
   if git config --file "$common/config" core.worktree > /dev/null; then
     die "core.worktree is set in $common/config; move it to config.worktree first (git help worktree)"
   fi
+  # pushurl is multi-valued and git pushes to every value in turn: a pushurl from the shared,
+  # global or system config would still be pushed to before ours fails. Refuse while one exists.
+  # (The URLs are not printed: one could hold a token.)
+  scopes="$(git config --show-scope --get-regexp '^remote\..*\.pushurl$' | cut -f1 || true)"
+  while IFS= read -r scope; do
+    [ -z "$scope" ] || [ "$scope" = worktree ] ||
+      die "a remote.<name>.pushurl is set outside this worktree's config; remove it first (git config --show-origin --get-regexp 'remote\..*\.pushurl')"
+  done <<< "$scopes"
   git config extensions.worktreeConfig true
   mapfile -t remotes < <(git remote)
   for remote in "${remotes[@]}"; do
     git config --worktree "remote.$remote.pushurl" "$NO_PUSH_URL"
+    # The sealed URL must be the only push URL git sees for this remote.
+    [ "$(git config --get-all "remote.$remote.pushurl")" = "$NO_PUSH_URL" ] ||
+      die "remote $remote still has another push URL; not sealed"
   done
   echo "sealed ${#remotes[@]} remote(s) for this worktree; seal again after adding a remote"
 }

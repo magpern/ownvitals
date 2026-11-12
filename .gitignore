@@ -5,6 +5,7 @@
 secrets/
 secret/
 .envrc
+.envrc.*
 .claude/settings.local.json
 .claude/worktrees/
 
@@ -47,6 +48,9 @@ local-real/
 *.sql.zip
 *.sql.7z
 *dump*.sql
+# These patterns are case-sensitive where the file system is (core.ignoreCase false, as on
+# Linux); on the owner's Windows checkout git ignores case. scripts/local-real-guard.sh lower-cases
+# every path, so an upper-case EXPORT.CSV is still refused when staged and in CI.
 # Plain .sql is source only under docker/postgres/<area>/; elsewhere it is taken for a dump
 *.sql
 !/docker/postgres/*/*.sql

@@ -42,6 +42,7 @@ FORBIDDEN = [
     "backend/.env.example.bak",
     ".envrc",
     "frontend/.envrc",
+    ".envrc.local",
     "secret/connection_kek",
     "deploy/secret/x",
     "backup.sql",
@@ -75,10 +76,17 @@ ALLOWED = [
 IDENTITY = ("-c", "user.name=t", "-c", "user.email=t@example.invalid")
 
 
-def run(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
+def run(
+    *args: str, cwd: Path = ROOT, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     assert BASH is not None
     return subprocess.run(  # noqa: S603 - our own script, fixed arguments
-        [BASH, str(SCRIPT), *args], cwd=cwd, capture_output=True, text=True, check=False
+        [BASH, str(SCRIPT), *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, **(env or {})},
     )
 
 
@@ -232,3 +240,47 @@ def test_seal_breaks_pushes_from_the_real_worktree_only(repo: Path, tmp_path: Pa
     # The other worktrees keep their push URL.
     assert git(repo, "push", "-q", "--no-verify", "origin", "HEAD:refs/heads/y").returncode == 0
     assert git(remote, "branch", "--list", "y").stdout.strip() == "y"
+
+
+def real_worktree(repo: Path, tmp_path: Path) -> tuple[Path, Path]:
+    """A bare remote, one commit, and a marked linked worktree (synthetic files only)."""
+    remote = tmp_path / "remote.git"
+    git(tmp_path, "init", "-q", "--bare", str(remote))
+    git(repo, "remote", "add", "origin", str(remote))
+    touch(repo, "docs/a.md")
+    git(repo, "add", "docs/a.md")
+    git(repo, "commit", "-q", "-m", "a")
+    real = tmp_path / "real"
+    git(repo, "worktree", "add", "-q", "--detach", str(real))
+    touch(real, "local-real/REAL-ACCOUNT")
+    return remote, real
+
+
+def test_seal_refuses_a_shared_pushurl_and_no_ref_reaches_the_remote(
+    repo: Path, tmp_path: Path
+) -> None:
+    """pushurl is multi-valued: a shared one would be pushed to before the sealed one fails."""
+    remote, real = real_worktree(repo, tmp_path)
+    git(repo, "config", "remote.origin.pushurl", str(remote))
+    refused = run("seal", cwd=real)
+    assert refused.returncode == 1
+    assert "pushurl is set outside this worktree" in refused.stderr
+    assert str(remote) not in refused.stderr + refused.stdout  # a URL could hold a token
+    assert git(real, "config", "--get-all", "remote.origin.pushurl").stdout.strip() == str(remote)
+    git(repo, "config", "--unset", "remote.origin.pushurl")  # as the message says
+    assert run("seal", cwd=real).returncode == 0
+    assert run("seal", cwd=real).returncode == 0  # sealing again is fine
+    pushurls = git(real, "config", "--get-all", "remote.origin.pushurl").stdout.split()
+    assert pushurls == ["local-real-no-push://this-worktree-never-pushes"]
+    blocked = git(real, "push", "--no-verify", "origin", "HEAD:refs/heads/leak", check=False)
+    assert blocked.returncode != 0
+    assert git(remote, "for-each-ref").stdout == ""  # no ref was created
+
+
+def test_seal_refuses_a_global_pushurl(repo: Path, tmp_path: Path) -> None:
+    remote, real = real_worktree(repo, tmp_path)
+    gitconfig = tmp_path / "gitconfig"
+    gitconfig.write_text(f'[remote "origin"]\n\tpushurl = {remote}\n')
+    refused = run("seal", cwd=real, env={"GIT_CONFIG_GLOBAL": str(gitconfig)})
+    assert refused.returncode == 1
+    assert "pushurl is set outside this worktree" in refused.stderr
