@@ -13,9 +13,9 @@ the owner's part of M8. This page is what the owner runs.
 
 | Test | Asserts |
 |---|---|
-| `test_load_withings_rate.py::test_the_app_budget_holds_under_n_workers_and_m_users` | N worker threads (one app-role connection each) share M accounts on the poll lane until the bucket is empty. Admitted ≤ budget + the refill the run had time for (Postgres clock); admitted + remaining ≤ the same (no lost update); admitted ≥ budget (a drained bucket gave all of it); at most 4 calls in flight; every account served and the shares within 2 of each other (round-robin). Every 7th fake call answers HTTP 429: its retry is a new claim and spends its own token, so the fake saw exactly as many calls as were granted. |
+| `test_load_withings_rate.py::test_the_app_budget_holds_under_n_workers_and_m_users` | N worker threads (one app-role connection each) share M accounts on the poll lane until the bucket is empty. Admitted ≤ budget + the refill the run had time for (Postgres clock); admitted + remaining ≤ the same (no lost update); admitted ≥ budget (a drained bucket gave all of it); the fake holds every call, and so its slot, until a claim is refused `busy`, so the cap of 4 is contended on every run and the calls in flight reach exactly 4, never more (a fifth slot puts a fifth call in flight; a cap that never refuses leaves the gate shut and the test fails); every account served and the shares within 2 of each other (round-robin). Every 7th fake call answers HTTP 429: its retry is a new claim and spends its own token, so the fake saw exactly as many calls as were granted. |
 | `…::test_a_601_holds_every_worker_until_the_pause_ends` | Mid-run the fake answers `601` (30 s). The worker pauses the app as `ingest.calls.limited` does, while the fake holds the calls after it (and so their slots) until the pause has committed: at most three more grants get in first. No claim that starts after the pause committed is granted, every worker is given the same resume time, and once the superuser ends the hold (the fake clock) the rest drains within the same bounds. |
-| `test_load_auth_ratelimit.py` (7 scenarios) | Concurrent `RateLimiter.begin` calls, one pooled app-role connection per caller: sign-in (and password re-auth, the same buckets), password reset and the TOTP step-up, each from many IPs on one account and from one IP across many accounts, plus the (account, IP) pair. Admitted equals, per fixed window of the binding bucket, the smaller of its reservations and its limit; the limits are pinned as numbers (50, 30, 10, 10, 10, 20, 20). |
+| `test_load_auth_ratelimit.py` (9 scenarios) | Concurrent `RateLimiter.begin` calls, one pooled app-role connection per caller: sign-in (and password re-auth, the same buckets), password reset and the TOTP step-up, each from many IPs on one account, from one IP across many accounts, and from one account on one IP (the pair buckets). Admitted equals, per fixed window of the binding bucket, the smaller of its reservations and its limit; the limits are pinned as numbers (sign-in 50, 30, 10; reset 10, 10, 3; step-up 20, 20, 5). |
 | `…::test_the_load_variants_are_wired`, `…::test_the_network_guard_covers_the_load_tests`, `…::test_no_load_test_lifts_the_network_guard` | The CI variant has at least 50 callers and no marker; the full one is marked `load` and deselected by default; the suite's network guard is active and no load test is marked `allow_network`. |
 
 Two profiles drive the same tests:
@@ -31,6 +31,13 @@ Two profiles drive the same tests:
 On a throwaway Postgres 17 with the roles and functions installed, as for any database test
 ([backend.md](backend.md), [isolation.md](isolation.md); the `ci.yml` `backend-tests` steps are
 the reference). Never against the live database: the fixtures migrate and drop the schema.
+
+> **Use a throwaway Postgres, never a stack's own compose database.** The session fixture
+> `role_urls` sets new random passwords for `ownvitals_owner` and `ownvitals_app` on every run
+> ([isolation.md](isolation.md)), so after one run that stack's `alembic upgrade` and services
+> no longer log in. Also never export `OWNVITALS_SECRETS_DIR` in the test shell: the
+> module-scoped schema fixtures run before the per-test isolation, read that directory, and the
+> auth tests then fail in setup.
 
 ```bash
 cd backend

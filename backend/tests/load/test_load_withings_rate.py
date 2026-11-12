@@ -44,7 +44,7 @@ from withingsschema import new_app
 
 # Pinned here, not read from ``rate``: a loosened constant must fail this test.
 SLOT_CAP = 4
-# Seconds a granted call holds its slot: long enough for the cap to be contended.
+# Seconds a granted call holds its slot.
 HOLD = 0.002
 # A refused claim asks again after this (the job path waits for ``retry_at``; the load wants
 # contention, so it asks sooner).
@@ -100,6 +100,7 @@ class Run:
     refused: int = 0
     waits: list[float] = field(default_factory=lambda: list[float]())
     retries_429: int = 0
+    busy: int = 0  # refused because every slot was taken
     paused_claims: int = 0
     paused_retry_at: set[datetime] = field(default_factory=lambda: set[datetime]())
     late_grants: int = 0  # granted although the claim started after the pause committed
@@ -119,6 +120,7 @@ def _drive(
     deadline: float,
     *,
     stop_after_paused: int | None = None,
+    open_gate_on_busy: bool = False,
 ) -> Run:
     """``workers`` threads claim until the bucket is empty (or, with ``stop_after_paused``,
     until each has been refused for the pause that many times)."""
@@ -162,6 +164,11 @@ def _drive(
                             return
                         time.sleep(RETRY)
                     elif got.reason in {"busy", "wait"}:
+                        if got.reason == "busy":
+                            with run.lock:
+                                run.busy += 1
+                            if open_gate_on_busy:
+                                fake.open_gate()
                         time.sleep(RETRY)
                     else:
                         raise AssertionError(f"unexpected claim reason {got.reason}")
@@ -248,8 +255,21 @@ def test_the_app_budget_holds_under_n_workers_and_m_users(
     accounts = _accounts(profile)
     app_id, started = _seed(database_url, profile.budget, accounts)
     # Every 7th call answers HTTP 429: its retry must spend a token like any other call.
-    fake = FakeWithings({n: 429 for n in range(7, 10 * profile.budget, 7)})
-    run = _drive(app_database_url, app_id, accounts, profile.workers, fake, profile.deadline)
+    # The fake holds every call (and so its slot) until a claim is refused for want of a slot:
+    # the cap is contended on every run, and with a fifth slot a fifth call would be in flight
+    # before the gate opens (#479).
+    fake = FakeWithings(
+        {n: 429 for n in range(7, 10 * profile.budget, 7)}, hold_after=0, timeout=10.0
+    )
+    run = _drive(
+        app_database_url,
+        app_id,
+        accounts,
+        profile.workers,
+        fake,
+        profile.deadline,
+        open_gate_on_busy=True,
+    )
 
     admitted = sum(run.grants.values())
     assert run.drained
@@ -257,8 +277,10 @@ def test_the_app_budget_holds_under_n_workers_and_m_users(
     # Every call the fake Withings saw was a granted claim: no call bypassed the limiter.
     assert fake.calls == admitted
     assert run.retries_429 == len([n for n in range(7, admitted + 1, 7)])
-    # The global in-flight cap.
-    assert 1 <= run.in_flight.peak <= SLOT_CAP
+    # The global in-flight cap, contended: claims were refused for want of a slot, and the
+    # calls in flight reached the cap but never passed it.
+    assert run.busy > 0
+    assert run.in_flight.peak == SLOT_CAP
     # No starvation: every waiting account was served, and the round-robin keeps the shares
     # within a couple of grants of each other.
     shares = [run.grants[account] for account in accounts]
