@@ -179,9 +179,9 @@ ALLOWED: dict[str, Allowed] = {
     ),
     "__file__": Allowed(
         "the locale manifest's path, found from the package's own location (ADR 0015 section 1, "
-        "issue 249)",
+        "issue 249); the shipped HIS band table's default path (issue 488)",
         _forms("name"),
-        _modules("locales.py"),
+        _modules("locales.py", "config_scores.py"),
     ),
     "__code__": Allowed(
         "the egress hook recognises `socket.socketpair`'s own code",
