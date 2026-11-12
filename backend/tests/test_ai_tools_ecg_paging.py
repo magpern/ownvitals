@@ -68,3 +68,45 @@ async def test_paging_stops_once_a_page_is_past_the_period(
     found = await tools_vitals._recordings_in(None, None, first, TODAY.date())  # type: ignore[arg-type]
     assert offsets == [0, LIST_MAX, 2 * LIST_MAX]  # the page at 9 days ends the scan
     assert len(found) == 2 * LIST_MAX
+
+
+async def test_the_scan_keeps_a_one_day_zone_margin_before_the_period(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A page that ends within one day before the period's UTC start may still hold a recording
+    whose local day is in the period (a zone ahead of UTC), so the next page is read."""
+    first = TODAY.date() - timedelta(days=7)
+    floor = datetime(first.year, first.month, first.day, tzinfo=UTC) - timedelta(days=1)
+    inside = [_recording(floor + timedelta(minutes=LIST_MAX - i)) for i in range(LIST_MAX)]
+    older = [_recording(floor - timedelta(hours=i + 1)) for i in range(5)]
+    offsets: list[int] = []
+    monkeypatch.setattr(tools_vitals, "list_recordings", _fake_reader(inside + older, offsets))
+    await tools_vitals._recordings_in(None, None, first, TODAY.date())  # type: ignore[arg-type]
+    assert offsets == [0, LIST_MAX]  # the page ending at the margin is not the last read
+
+
+async def test_the_scan_stops_once_a_page_is_past_the_margin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = TODAY.date() - timedelta(days=7)
+    floor = datetime(first.year, first.month, first.day, tzinfo=UTC) - timedelta(days=1)
+    past = [_recording(floor - timedelta(minutes=1 + i)) for i in range(LIST_MAX)]
+    offsets: list[int] = []
+    monkeypatch.setattr(tools_vitals, "list_recordings", _fake_reader(past + past, offsets))
+    await tools_vitals._recordings_in(None, None, first, TODAY.date())  # type: ignore[arg-type]
+    assert offsets == [0]
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (None, "not_reported"),
+        (0, "negative"),
+        (1, "positive"),
+        (2, "inconclusive"),
+        (3, "undocumented"),
+        (-1, "undocumented"),
+    ],
+)
+def test_classification_maps_every_documented_code(code: int | None, expected: str) -> None:
+    assert tools_vitals.classification(code) == expected

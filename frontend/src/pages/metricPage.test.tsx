@@ -96,6 +96,14 @@ describe('the metric screen', () => {
     expect(links[0]?.getAttribute('aria-current')).toBe('true')
   })
 
+  it('links the crumb back to the app start, not to the public home', async () => {
+    fakeApi({ ...SESSION, 'GET /api/metrics/weight?range=7d': syntheticMetric({ range: '7d' }) })
+    renderAt('/m/weight?range=7d')
+    await screen.findByRole('heading', { level: 2, name: 'Weight' })
+    const crumbs = screen.getByRole('navigation', { name: 'You are here' })
+    expect(within(crumbs).getByRole('link', { name: 'Overview' })).toHaveAttribute('href', '/overview')
+  })
+
   it('opens on 7 days for a user whose saved range is the new default', async () => {
     const api = fakeApi({
       ...SESSION,

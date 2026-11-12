@@ -160,4 +160,22 @@ describe('approving a sign-in on the phone', () => {
       expect(screen.getByText('This account cannot approve a sign-in on another device.')).toBeInTheDocument()
     })
   })
+
+  it('links the failed and denied screens to the app start, not to the public home', async () => {
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN, 'POST /api/auth/qr/scan': reason(404, 'qr_unavailable') })
+    const failed = renderAt(`/qr#${NONCE}`)
+    expect(await screen.findByText(/This code has expired or was already used/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Go to ownvitals' })).toHaveAttribute('href', '/overview')
+    failed.unmount()
+
+    fakeApi({
+      'GET /api/auth/session': SIGNED_IN,
+      'POST /api/auth/qr/scan': SCANNED,
+      'POST /api/auth/qr/row-1/deny': { status: 'denied' },
+    })
+    renderAt(`/qr#${NONCE}`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Deny' }))
+    expect(await screen.findByRole('heading', { name: 'Sign-in denied' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Go to ownvitals' })).toHaveAttribute('href', '/overview')
+  })
 })
