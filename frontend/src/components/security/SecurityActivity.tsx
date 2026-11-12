@@ -12,8 +12,8 @@ import { ResourceView } from '../ui/DataState'
 // generic line, never a blank or a raw code.
 
 const WINDOW_DAYS = 30
-/** Events that did not succeed: the mock-up's warning tone. */
-const FAILURES = new Set(['sign_in_failed', 'reauth_failed', 'mfa_failed'])
+/** Events that did not succeed, and a session that looked misused: the mock-up's warning tone. */
+const FAILURES = new Set(['sign_in_failed', 'reauth_failed', 'mfa_failed', 'session_anomaly'])
 
 /** The event's wording: by code, and for a sign-in by method. */
 export function eventLabel(item: Pick<ActivityEvent, 'kind' | 'method'>): string {

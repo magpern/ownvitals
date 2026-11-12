@@ -19,7 +19,7 @@ from dbtools import (
 from jobtools import ensure_user
 from ownvitals.derived.tables import user_profiles
 
-HEAD = "0028_chart_range_7d"
+HEAD = "0029_session_anomaly"
 
 
 def test_the_revisions_form_one_line() -> None:

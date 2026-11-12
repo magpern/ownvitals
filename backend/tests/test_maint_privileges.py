@@ -61,6 +61,7 @@ EXPECTED: frozenset[tuple[str, str]] = frozenset(
             "admin_account_enable(uuid)",
             "admin_account_delete(uuid,text,text,text,text,text)",
             "admin_account_revoke(uuid,text,uuid)",  # #365; never queue_enqueue_admin_revoke
+            "admin_session_anomalies(integer,timestamp with time zone,uuid)",  # #461
         )
     }
 )

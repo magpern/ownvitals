@@ -141,6 +141,8 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "record_event",
         }
     ),
+    # the admin abuse view (#461): the signal codes it may show
+    "ownvitals.auth.session_anomaly_policy": frozenset({"SIGNALS"}),
     # the admin Users view (#127): list and find, emails by id, disable, enable and delete
     "ownvitals.auth.admin_accounts": frozenset(
         {
@@ -239,6 +241,8 @@ SUBMODULES = frozenset(
         "ratelimit",
         "reset_routes",
         "routes",
+        "session_anomaly",
+        "session_anomaly_policy",
         "session_manage",
         "session_model",
         "session_resolve",

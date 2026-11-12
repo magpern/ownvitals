@@ -34,6 +34,7 @@ from ownvitals.web import create_app
 # One sample request per admin route: (method, route template) -> (path, JSON body).
 SAMPLES: dict[tuple[str, str], tuple[str, Any]] = {
     ("GET", "/api/admin/whoami"): ("/api/admin/whoami", None),
+    ("GET", "/api/admin/anomalies"): ("/api/admin/anomalies", None),
     ("GET", "/api/admin/audit"): ("/api/admin/audit", None),
     ("GET", "/api/admin/jobs"): ("/api/admin/jobs", None),
     ("GET", "/api/admin/settings"): ("/api/admin/settings", None),
@@ -58,6 +59,8 @@ SAMPLES: dict[tuple[str, str], tuple[str, Any]] = {
     ),
 }
 SAFE = {"GET", "HEAD"}
+# Reads that show other people's accounts and so need a step-up too (#461, ADR 0017).
+STEPUP_READS = {("GET", "/api/admin/anomalies")}
 
 
 def _app() -> FastAPI:
@@ -163,7 +166,9 @@ async def test_an_admin_whose_totp_is_older_than_12_hours_is_refused(
     assert (response.status_code, reason(response)) == (403, "mfa_required")
 
 
-@pytest.mark.parametrize(("method", "template"), [k for k in _gated() if k[0] not in SAFE])
+@pytest.mark.parametrize(
+    ("method", "template"), [k for k in _gated() if k[0] not in SAFE or k in STEPUP_READS]
+)
 async def test_an_admin_write_needs_a_step_up_within_5_minutes(
     aenv: AdminEnv, method: str, template: str
 ) -> None:
@@ -177,7 +182,9 @@ async def test_an_admin_write_needs_a_step_up_within_5_minutes(
     assert [r.reason for r in await aenv.audit_rows()] == ["step_up_required"] * 2
 
 
-@pytest.mark.parametrize(("method", "template"), [k for k in _gated() if k[0] in SAFE])
+@pytest.mark.parametrize(
+    ("method", "template"), [k for k in _gated() if k[0] in SAFE and k not in STEPUP_READS]
+)
 async def test_an_admin_read_needs_no_step_up(aenv: AdminEnv, method: str, template: str) -> None:
     admin = await caller(aenv, stepup=False)
     response = await _call(aenv, admin, method, template)

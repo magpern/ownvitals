@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.auth import session_anomaly
 from ownvitals.auth.clientip import bucket_ip, client_ip
 from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
 from ownvitals.auth.flowtools import reserve
@@ -56,6 +57,9 @@ async def resolve_request(request: Request) -> Resolution:
     if resolution.outcome == "refused":
         request.state.clear_session_cookie = True
     setattr(request.state, _RESOLUTION, resolution)
+    if resolution.info is not None:  # the anomaly signal (#461): it never refuses the request
+        info = resolution.info
+        await session_anomaly.observe(request, info.id, info.user_id, request_ip(request))
     return resolution
 
 

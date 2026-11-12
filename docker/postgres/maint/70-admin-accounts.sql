@@ -1,9 +1,10 @@
 -- The admin account family (ADR 0002 sections 3 to 5 and ADR 0005 section 3, both amended
 -- 2026-11-10 by #314 and #365): admin_account_disable, admin_account_enable,
--- admin_account_delete and admin_account_revoke (#365), SECURITY DEFINER functions owned by
--- the NOLOGIN role ownvitals_admin_accounts and executable by ownvitals_maint only. They let an
--- admin's account change commit in the same transaction as its ok audit row
--- (ownvitals.admin.db.admin_session inserts that row first).
+-- admin_account_delete and admin_account_revoke (#365), and the read admin_session_anomalies
+-- (#461), SECURITY DEFINER functions owned by the NOLOGIN role ownvitals_admin_accounts and
+-- executable by ownvitals_maint only. They let an admin's account change commit in the same
+-- transaction as its ok audit row (ownvitals.admin.db.admin_session inserts that row first), and
+-- the abuse view's read happen only inside its audited transaction.
 --
 -- Run as the superuser, after `alembic upgrade head` and after every other db-functions script
 -- (30-maint.sql revokes every function privilege of ownvitals_maint, 40-withings.sql installs
@@ -23,13 +24,14 @@
 -- raises bad_context. It then takes the target's users row FOR NO KEY UPDATE (the lock order of
 -- ownvitals/auth/userlock.py), refuses an admin target, and returns an outcome: 'ok',
 -- 'not_found', 'target_is_admin' or 'email_mismatch'. Nothing else leaves it: no address, no
--- hash, no token.
+-- hash, no token. admin_session_anomalies (#461, ADR 0017) checks the same way for its action
+-- anomaly.list (target_user_id NULL) and returns rows of the abuse view only (see its comment).
 --
 -- The role has no BYPASSRLS: it touches system tables only (users, sessions, auth_events,
 -- admin_audit). The rows that go with a deleted account are removed by the foreign keys'
 -- referential actions, which Postgres runs as the referencing table's owner. Column grants only
 -- where a table holds a secret: never users.password_hash, never a session token. 20-queue.sql
--- admits the four by name; their bodies are pinned by digest (ownvitals/db/queue_digests.py)
+-- admits the five by name; their bodies are pinned by digest (ownvitals/db/queue_digests.py)
 -- and checked by web and the worker at startup.
 
 DO $$
@@ -104,7 +106,8 @@ BEGIN
                         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
                        WHERE p.oid = r.objid AND n.nspname = 'public'
                          AND p.proname IN ('admin_account_disable', 'admin_account_enable',
-                                           'admin_account_delete', 'admin_account_revoke')) THEN
+                                           'admin_account_delete', 'admin_account_revoke',
+                                           'admin_session_anomalies')) THEN
       RAISE EXCEPTION 'ownvitals_admin_accounts owns % (catalog %, object %); it may own only '
         'the admin account functions: drop or reassign it by hand',
         coalesce(r.what, '?'), r.catalog, r.objid;
@@ -211,6 +214,9 @@ GRANT DELETE ON TABLE public.sessions TO ownvitals_admin_accounts;
 -- The account_deleted event, with no user_id (the row is about to go).
 GRANT INSERT (kind, ip, browser, os, place) ON TABLE public.auth_events
   TO ownvitals_admin_accounts;
+-- The abuse view (#461): the session_anomaly rows, never the address (ip) of any row.
+GRANT SELECT (id, user_id, kind, at, detail, browser, os, place) ON TABLE public.auth_events
+  TO ownvitals_admin_accounts;
 -- The check that this transaction holds the matching ok audit row. Never the IP's HMAC, never
 -- a write: the log stays append-only through maint alone.
 GRANT SELECT (xmin, created_at, actor_id, action, target_user_id, outcome)
@@ -231,11 +237,13 @@ BEGIN
              FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'public'
               AND p.proname IN ('admin_account_disable', 'admin_account_enable',
-                                'admin_account_delete', 'admin_account_revoke')
+                                'admin_account_delete', 'admin_account_revoke',
+                                'admin_session_anomalies')
               AND p.oid::regprocedure::text NOT IN (
                 'admin_account_disable(uuid)', 'admin_account_enable(uuid)',
                 'admin_account_delete(uuid,text,text,text,text,text)',
-                'admin_account_revoke(uuid,text,uuid)') LOOP
+                'admin_account_revoke(uuid,text,uuid)',
+                'admin_session_anomalies(integer,timestamp with time zone,uuid)') LOOP
     EXECUTE format('DROP ROUTINE public.%s', r.signature);
   END LOOP;
   -- An earlier draft with other OUT columns cannot be replaced in place: it goes first.
@@ -246,6 +254,15 @@ BEGIN
                     <> 'p_target uuid, OUT outcome text, OUT disabled_at timestamp with time '
                        'zone, OUT sessions_revoked integer') THEN
     DROP FUNCTION public.admin_account_disable(uuid);
+  END IF;
+  -- Likewise an earlier draft of the abuse view's read with other result columns.
+  IF EXISTS (SELECT FROM pg_catalog.pg_proc p
+               JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public' AND p.proname = 'admin_session_anomalies'
+                AND pg_catalog.pg_get_function_result(p.oid)
+                    <> 'TABLE(id uuid, at timestamp with time zone, user_id uuid, email text, '
+                       'signals jsonb, browser text, os text, place text)') THEN
+    DROP FUNCTION public.admin_session_anomalies(integer, timestamp with time zone, uuid);
   END IF;
 END $$;
 
@@ -416,11 +433,56 @@ BEGIN
 END
 $fn$;
 
+-- The admin abuse view (#461, ADR 0017): the session_anomaly events of the last 30 days across
+-- every user, newest first, at most p_limit (1 to 101) of them, after the cursor
+-- (p_before_at, p_before_id) when one is given (both or neither). Only inside the transaction
+-- that holds this admin's ok anomaly.list row, as the account functions are. Each row: the
+-- event's id and time, the account's id and address (NULL once the account is gone), the
+-- event's signal codes (detail -> 'signals') and its coarse origin. Never the event's address,
+-- any other detail, a session, a token or another kind of event.
+CREATE OR REPLACE FUNCTION public.admin_session_anomalies(
+  p_limit integer, p_before_at timestamp with time zone, p_before_id uuid)
+  RETURNS TABLE(id uuid, at timestamp with time zone, user_id uuid, email text, signals jsonb,
+                browser text, os text, place text)
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+BEGIN
+  IF coalesce(pg_catalog.current_setting('app.user_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'bad_context' USING ERRCODE = '42501';
+  END IF;
+  IF NOT EXISTS (
+       SELECT FROM public.admin_audit a JOIN public.users u ON u.id = a.actor_id
+        WHERE a.xmin = pg_catalog.pg_current_xact_id()::xid
+          AND a.created_at = pg_catalog.now() AND a.outcome = 'ok'
+          AND a.action = 'anomaly.list' AND a.target_user_id IS NULL
+          AND u.role = 'admin' AND u.disabled_at IS NULL) THEN
+    RAISE EXCEPTION 'no_audit_row' USING ERRCODE = '42501';
+  END IF;
+  IF p_limit IS NULL OR p_limit < 1 OR p_limit > 101
+     OR (p_before_at IS NULL) <> (p_before_id IS NULL) THEN
+    RAISE EXCEPTION 'bad_argument' USING ERRCODE = '22023';
+  END IF;
+  RETURN QUERY
+    SELECT e.id, e.at, e.user_id, u.email_normalized, e.detail -> 'signals',
+           e.browser, e.os, e.place
+      FROM public.auth_events e LEFT JOIN public.users u ON u.id = e.user_id
+     WHERE e.kind = 'session_anomaly'
+       AND e.at > pg_catalog.now() - interval '30 days'
+       AND (p_before_at IS NULL OR (e.at, e.id) < (p_before_at, p_before_id))
+     ORDER BY e.at DESC, e.id DESC
+     LIMIT p_limit;
+END
+$fn$;
+
 ALTER FUNCTION public.admin_account_disable(uuid) OWNER TO ownvitals_admin_accounts;
 ALTER FUNCTION public.admin_account_enable(uuid) OWNER TO ownvitals_admin_accounts;
 ALTER FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
   OWNER TO ownvitals_admin_accounts;
 ALTER FUNCTION public.admin_account_revoke(uuid, text, uuid) OWNER TO ownvitals_admin_accounts;
+ALTER FUNCTION public.admin_session_anomalies(integer, timestamp with time zone, uuid)
+  OWNER TO ownvitals_admin_accounts;
 
 -- Every EXECUTE but the owner's goes (PUBLIC's default, and any grant to another role), then
 -- the admin role gets it again.
@@ -429,6 +491,8 @@ REVOKE ALL ON FUNCTION public.admin_account_enable(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
   FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_account_revoke(uuid, text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_session_anomalies(integer, timestamp with time zone, uuid)
+  FROM PUBLIC;
 DO $$
 DECLARE
   r record;
@@ -439,7 +503,8 @@ BEGIN
                   aclexplode(p.proacl) a
             WHERE n.nspname = 'public'
               AND p.proname IN ('admin_account_disable', 'admin_account_enable',
-                                'admin_account_delete', 'admin_account_revoke')
+                                'admin_account_delete', 'admin_account_revoke',
+                                'admin_session_anomalies')
               AND a.grantee <> 0 AND a.grantee <> p.proowner LOOP
     EXECUTE format('SET LOCAL ROLE %s', r.grantor);
     EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM %s CASCADE', r.signature, r.grantee);
@@ -453,9 +518,13 @@ GRANT EXECUTE ON FUNCTION public.admin_account_enable(uuid) TO ownvitals_maint;
 GRANT EXECUTE ON FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
   TO ownvitals_maint;
 GRANT EXECUTE ON FUNCTION public.admin_account_revoke(uuid, text, uuid) TO ownvitals_maint;
+GRANT EXECUTE ON FUNCTION public.admin_session_anomalies(integer, timestamp with time zone, uuid)
+  TO ownvitals_maint;
 
 COMMENT ON FUNCTION public.admin_account_disable(uuid) IS 'ownvitals-admin-accounts v1';
 COMMENT ON FUNCTION public.admin_account_enable(uuid) IS 'ownvitals-admin-accounts v1';
 COMMENT ON FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
   IS 'ownvitals-admin-accounts v1';
 COMMENT ON FUNCTION public.admin_account_revoke(uuid, text, uuid) IS 'ownvitals-admin-accounts v1';
+COMMENT ON FUNCTION public.admin_session_anomalies(integer, timestamp with time zone, uuid)
+  IS 'ownvitals-admin-accounts v1';

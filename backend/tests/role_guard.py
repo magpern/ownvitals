@@ -31,11 +31,11 @@ account table, no jobs) and
 ``docker/postgres/maint/70-admin-accounts.sql`` has run (#314, ADR 0002 section 3), the NOLOGIN
 role ``ownvitals_admin_accounts`` (no ``BYPASSRLS``) has exactly its attributes, the column grants
 and the two ``DELETE`` privileges that script creates (no health table, no secret column), owns
-the four admin account functions, which only ``ownvitals_maint`` may ``EXECUTE``, and is the
-only grantee of ``webhook_events_purge_account`` and of the queue's
-``queue_enqueue_admin_revoke`` (#365; owned by ``ownvitals_queue``, executable by nobody else,
-and by nobody at all before the family is installed). The app role may execute none of those
-six. Any other grantee fails.
+the five admin account functions (#461: the abuse view's read among them), which only
+``ownvitals_maint`` may ``EXECUTE``, and is the only grantee of ``webhook_events_purge_account``
+and of the queue's ``queue_enqueue_admin_revoke`` (#365; owned by ``ownvitals_queue``, executable
+by nobody else, and by nobody at all before the family is installed). The app role may execute
+none of those seven. Any other grantee fails.
 """
 
 from collections.abc import Callable
@@ -243,6 +243,7 @@ ADMIN_ACCOUNTS_FUNCTIONS = {
     "admin_account_enable": ADMIN_ACCOUNTS,
     "admin_account_delete": ADMIN_ACCOUNTS,
     "admin_account_revoke": ADMIN_ACCOUNTS,  # #365
+    "admin_session_anomalies": ADMIN_ACCOUNTS,  # #461: the abuse view's read
 }
 ADMIN_ACCOUNTS_ATTRIBUTES = (False, False, False, False, False, False, False)
 # Its table-level privileges: the account delete and the disable's sign-out everywhere.
@@ -258,6 +259,15 @@ ADMIN_ACCOUNTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     **{
         ("auth_events", c): {(ADMIN_ACCOUNTS, "INSERT")}
         for c in ("kind", "ip", "browser", "os", "place")
+    },
+    # #461: the abuse view reads the anomaly rows, never the address (ip).
+    **{
+        ("auth_events", c): {(ADMIN_ACCOUNTS, "SELECT")}
+        for c in ("id", "user_id", "at", "detail")
+    },
+    **{
+        ("auth_events", c): {(ADMIN_ACCOUNTS, "INSERT"), (ADMIN_ACCOUNTS, "SELECT")}
+        for c in ("kind", "browser", "os", "place")
     },
     **{
         ("admin_audit", c): {(ADMIN_ACCOUNTS, "SELECT")}

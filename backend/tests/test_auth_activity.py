@@ -35,6 +35,9 @@ SAFARI_IPHONE = (
     "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 )
 FIELDS = {"kind", "at", "method", "browser", "os", "place"}
+# The test client's own address. A session issued to another address that then sends a real
+# browser's agent string looks like a stolen one (#461) and records a ``session_anomaly``.
+HERE = "127.0.0.1"
 
 
 async def _csrf(env: Env, issued: IssuedSession) -> str:
@@ -98,7 +101,7 @@ async def test_ending_this_session_from_the_list_is_a_sign_out(env: Env) -> None
 
 async def test_ending_another_session_is_recorded_once_and_seen_by_the_rest(env: Env) -> None:
     user_id = await env.user()
-    mine = await env.full_login(user_id)
+    mine = await env.full_login(user_id, ip=HERE)
     spare = await env.login(user_id)
     third = await env.full_login(user_id)
     headers = await _unsafe(env, mine, SAFARI_IPHONE)
@@ -120,7 +123,7 @@ async def test_ending_another_session_is_recorded_once_and_seen_by_the_rest(env:
 
 
 async def test_another_users_session_is_a_404_and_records_nothing(env: Env) -> None:
-    mine = await env.full_login(await env.user())
+    mine = await env.full_login(await env.user(), ip=HERE)
     theirs = await env.login(await env.user("other@example.com"))
     response = await env.client.delete(
         f"/api/auth/sessions/{theirs.id}", headers=await _unsafe(env, mine)
@@ -151,7 +154,7 @@ async def test_a_failed_event_write_never_keeps_the_session(
         await db.execute(insert(auth_events).values(kind=kind, place=""))  # violates the check
 
     monkeypatch.setattr(routes, "record_event", broken)
-    issued = await env.login(await env.user())
+    issued = await env.login(await env.user(), ip=HERE)
     response = await env.client.post("/api/auth/logout", headers=await _unsafe(env, issued))
     assert response.status_code == 204
     assert await env.scalar("SELECT count(*) FROM sessions") == 0

@@ -212,7 +212,8 @@ END $$;
 -- ai_reserve, ai_settle, ai_release, ai_settle_lost (ai/50-ai.sql, #205), ai_audit_purge
 -- (#331) and ai_purge_expired (#395), and exports_purge_expired (exports/60-exports.sql, #333), and admin_account_disable,
 -- admin_account_enable and admin_account_delete (maint/70-admin-accounts.sql, #314) and
--- admin_account_revoke (#365), are admitted here by name, and no other function is.
+-- admin_account_revoke (#365) and admin_session_anomalies (#461), are admitted here by name, and
+-- no other function is.
 -- Their bodies are pinned by digest with the queue functions (ownvitals/db/queue_digests.py;
 -- the outbox's in ownvitals/db/outbox_digests.py).
 DO $$
@@ -235,7 +236,7 @@ BEGIN
             'ai_purge_expired',
             'exports_purge_expired',
             'admin_account_disable', 'admin_account_enable', 'admin_account_delete',
-            'admin_account_revoke'))
+            'admin_account_revoke', 'admin_session_anomalies'))
        AND (p.oid >= 16384 OR n.nspname = 'public'
             OR (n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                 AND n.nspname !~ '^pg_(toast_)?temp_[0-9]+$'))
