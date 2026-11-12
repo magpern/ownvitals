@@ -21,7 +21,8 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ownvitals.ai.local_day import local_today, today_of
+from ownvitals.ai.local_day import local_today
+from ownvitals.ai.local_day_read import today_of
 from ownvitals.ai.tools_vitals_model import (
     ACTIVITY_KEYS,
     ECG_MAX_ITEMS,
@@ -164,7 +165,7 @@ async def _per_day(
 ) -> list[dict[str, Any]]:
     """One row per day with data in the period, oldest first: ``{"day": d, field: value}``."""
     async with reading(factory, ctx) as r:
-        last = local_today(now, await r.home_zone())
+        last = local_today(now, await r.home_zone(now))
         first = last - timedelta(days=period - 1)
         found = await r.stream_days(tuple(sorted(keys.values())), first, last)
     days = sorted({d for values in found.values() for d in values})[-STREAM_MAX_POINTS:]

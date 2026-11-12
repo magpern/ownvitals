@@ -54,8 +54,11 @@ _ACTIVE_IMPORTS = text(
 _LAST_READING = text(
     "SELECT max(measured_at) FROM measure_groups WHERE owner_id = :o AND deleted_at IS NULL"
 )
+ZONE_LOOKBACK = timedelta(days=90)
 _NEWEST_ZONE = text(
-    "SELECT source_tz FROM observations WHERE owner_id = :o ORDER BY ts DESC LIMIT 1"
+    "SELECT source_tz FROM observations WHERE owner_id = :o AND ts <= :now AND ts > :floor "
+    "AND NOT (quality_flags && ARRAY['unconfirmed','implausible','duplicate']) "
+    "ORDER BY ts DESC LIMIT 1"
 )
 _REVISION = text("SELECT revision FROM data_revisions WHERE owner_id = :o AND stream = :s")
 _DAILY = text(
@@ -261,13 +264,18 @@ class Reader:
     async def latest_scores(self, *, settings: Settings) -> list[tuple[Any, bool]]:
         return await latest_scores(self._db, self._owner, settings)
 
-    async def home_zone(self) -> str | None:
-        """The zone of the user's day: the profile's fixed zone, else the newest reading's own
-        zone, else ``None`` (nothing stored yet)."""
+    async def home_zone(self, now: datetime) -> str | None:
+        """The zone of the user's day: the profile's fixed zone, else the zone of the newest
+        confirmed reading in the last ``ZONE_LOOKBACK`` up to ``now`` (a bounded scan: the table
+        has only a BRIN index on ``ts``), else ``None``."""
         fixed = await read_day_tz(self._db, self._owner)
         if fixed is not None:
             return fixed
-        newest = (await self._db.execute(_NEWEST_ZONE, {"o": self._owner})).scalar_one_or_none()
+        newest = (
+            await self._db.execute(
+                _NEWEST_ZONE, {"o": self._owner, "now": now, "floor": now - ZONE_LOOKBACK}
+            )
+        ).scalar_one_or_none()
         return None if newest is None else str(newest)
 
     async def stream_days(self, keys: tuple[str, ...], first: date, last: date) -> DayValues:
