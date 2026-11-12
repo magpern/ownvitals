@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.analysis.daily import DailyMethod, DailyValue
+from ownvitals.analysis.scores.his_inputs import pick_height
 from ownvitals.config import Settings
 from ownvitals.derived.daily_db import read_day_tz
 from ownvitals.derived.findings_gather import today_in_zone
@@ -58,7 +59,7 @@ _BEHIND_POINTS = text(
 _HEIGHT = text(
     "SELECT ts, value FROM observations WHERE owner_id = :o AND metric_key = 'height' "
     "AND NOT (quality_flags && ARRAY['unconfirmed','implausible','duplicate']) "
-    "ORDER BY ts DESC, source_grpid DESC NULLS LAST LIMIT 1"
+    "ORDER BY ts DESC, source_grpid DESC NULLS LAST LIMIT 50"
 )
 _BEHIND_HEIGHT = text(
     "SELECT count(*) FROM observations WHERE owner_id = :o "
@@ -151,7 +152,9 @@ async def gather(
     points = _points(
         (await db.execute(_POINTS, {"o": owner, "keys": list(OBSERVATION_KEYS)})).all(), day_tz
     )
-    height_row = (await db.execute(_HEIGHT, {"o": owner})).first()
+    height, height_rejected = pick_height(
+        (r.ts.isoformat(), float(r.value)) for r in (await db.execute(_HEIGHT, {"o": owner})).all()
+    )
     latest = (await db.execute(_LATEST_ZONE, {"o": owner})).first()
     inputs = ScoreInputs(
         day=today_in_zone(now, day_tz, None if latest is None else str(latest.source_tz)),
@@ -164,7 +167,8 @@ async def gather(
         table_digest=table.digest,
         experimental=experimental,
         day_tz=day_tz,
-        height=None if height_row is None else (height_row.ts.isoformat(), float(height_row.value)),
+        height=height,
+        height_rejected=height_rejected,
     )
     return Gathered(revisions, fingerprint(inputs, revisions), inputs)
 

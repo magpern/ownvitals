@@ -20,7 +20,7 @@ const AREA_LABEL: Record<(typeof HIS_AREAS)[number], MessageKey> = {
 }
 
 /** How an algorithm version is shown in the source tag; an unlisted one is shown as sent. */
-const VERSION_LABEL: Record<string, string> = { 'his/2': '2.0' }
+const VERSION_LABEL: Record<string, string> = { 'his/1': '1.0', 'his/2': '2.0' }
 
 export function sourceTag(algoVersion: string): string {
   return `ownvitals ${VERSION_LABEL[algoVersion] ?? algoVersion}`

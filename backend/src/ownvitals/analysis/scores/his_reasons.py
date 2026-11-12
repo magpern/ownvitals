@@ -1,9 +1,9 @@
 """One reason code per HIS area that has no score (ADR 0012 §1 data states; G4: codes only). Pure.
 
 A criterion's own reason (``his._one``) is mapped to the area-level vocabulary the UI words:
-``birth_year_unset``, ``sex_unset``, ``no_height``, ``insufficient_data``, ``no_band_row``,
-``not_supported``, ``not_available``. When several criteria of an area lack a score, the one
-the user can act on first wins (the order of ``PRIORITY``).
+``birth_year_unset``, ``sex_unset``, ``no_height``, ``implausible_height``, ``insufficient_data``,
+``no_band_row``, ``not_supported``, ``not_available``. When several criteria of an area lack a
+score, the one the user can act on first wins (the order of ``PRIORITY``).
 """
 
 from collections.abc import Mapping
@@ -13,6 +13,7 @@ PRIORITY: Final = (
     "birth_year_unset",
     "sex_unset",
     "no_height",
+    "implausible_height",
     "insufficient_data",
     "no_band_row",
     "not_supported",

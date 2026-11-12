@@ -110,13 +110,14 @@ async def test_a_newer_unconfirmed_or_implausible_height_is_ignored(env: Env) ->
     assert comp["criteria"]["bmi"]["value"] == pytest.approx(80 / 1.7**2, abs=0.1)
 
 
-async def test_only_an_implausible_height_gives_no_height_never_a_bmi(env: Env) -> None:
+async def test_only_an_implausible_height_gives_implausible_height_never_a_bmi(env: Env) -> None:
     ctx, connection = await a_year(env)
     profile(env, ctx)
     await env.ingest(ctx, connection, height(9001, 10, 17500))
     comp, _ = await his(env, ctx)
     bmi = comp["criteria"]["bmi"]
-    assert (bmi["status"], bmi["reason"]) == ("not_available", "no_height")
+    assert (bmi["status"], bmi["reason"]) == ("not_available", "implausible_height")
+    assert comp["vertical_reasons"]["body"] == "implausible_height"
 
 
 async def test_a_height_behind_the_revision_makes_the_scoring_wait(env: Env) -> None:
@@ -136,12 +137,23 @@ async def test_a_height_behind_the_revision_makes_the_scoring_wait(env: Env) -> 
 
 
 async def test_the_height_alone_changes_the_fingerprint(env: Env) -> None:
-    """Same weights, same revisions in effect: only the height differs."""
+    """Same revisions, same weights: only the stored height value moves (no ingest, no derive)."""
     ctx, connection = await a_year(env)
     profile(env, ctx)
-    _, without = await his(env, ctx)
     await env.ingest(ctx, connection, height(9001, 10, 1700))
-    _, with_height = await his(env, ctx)
-    await env.ingest(ctx, connection, height(9002, 11, 1800))
-    _, other_height = await his(env, ctx)
-    assert len({without, with_height, other_height}) == 3
+    _, before = await his(env, ctx)
+    env.jenv.sql(
+        "UPDATE observations SET value = 1.8 WHERE owner_id = :o AND metric_key = 'height'",
+        o=ctx.user_id,
+    )
+    await score_owner(
+        env.opener(ctx),
+        ctx.user_id,
+        settings=env.settings(experimental=True),
+        table=STATE,
+        now=NOW,
+    )
+    async with user_session(env.factory, ctx) as db:
+        row = (await db.execute(text(HIS), {"o": ctx.user_id})).one()
+    assert bytes(row.input_fingerprint) != before
+    assert row.components["criteria"]["bmi"]["value"] == pytest.approx(80 / 1.8**2, abs=0.1)

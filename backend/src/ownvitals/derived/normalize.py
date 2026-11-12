@@ -52,7 +52,7 @@ MAX_MAGNITUDE: Final = Decimal(10) ** 12
 UNIT_MIN: Final = -30
 UNIT_MAX: Final = 30
 # Provenance names both versions: a change of the quality gates changes the stored flags.
-PINNED_QUALITY_VERSION: Final = "quality/2"
+PINNED_QUALITY_VERSION: Final = "quality/1"
 
 
 @dataclass(frozen=True, slots=True)

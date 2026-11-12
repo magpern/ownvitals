@@ -38,10 +38,12 @@ def _token(unit: str) -> str:
     return _UNIT_TOKENS.get(unit, unit)
 
 
-# Types the quality table has no row for (height has one since #492). Temperatures, VO2 max, BMR
-# and the AFib enums are ``unknown`` until a source says otherwise (withings-findings §2).
+# Types the quality table has no row for. Units are given only where the findings document them
+# (height, in metres); temperatures, VO2 max, BMR and the AFib enums are ``unknown`` until a
+# source says otherwise. withings-findings §2, "Measure types".
 EXTRA: Final = MappingProxyType(
     {
+        4: ("height", "m"),
         12: ("temperature", UNKNOWN_UNIT),
         71: ("body_temperature", UNKNOWN_UNIT),
         73: ("skin_temperature", UNKNOWN_UNIT),

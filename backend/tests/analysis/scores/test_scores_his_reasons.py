@@ -33,3 +33,7 @@ def test_a_scored_area_has_no_reason_and_each_unscored_one_has_its_own() -> None
         "activity": None,
         "sleep": "no_band_row",
     }
+
+
+def test_an_implausible_height_is_actionable_after_no_height() -> None:
+    assert area_reason(["implausible_height", "insufficient_data"]) == "implausible_height"

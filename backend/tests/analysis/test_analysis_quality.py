@@ -272,30 +272,3 @@ def test_an_aware_instant_in_any_offset_is_normalised_to_utc() -> None:
     r = Reading(1, plus_two, "UTC", 0, Decimal(80))
     assert r.measured_at.utcoffset() == timedelta(0)
     assert r.measured_at == plus_two
-
-
-# --- height (#492): an engineering bound, so a typo never becomes a BMI ----------------------
-
-
-@pytest.mark.parametrize("value", ["0.5", "1.75", "2.6"])  # both edges are inclusive
-def test_a_plausible_height_is_usable(value: str) -> None:
-    only = reading(T0, value)
-    assert assess("height", [only]).usable == (only,)
-
-
-@pytest.mark.parametrize("value", ["0.17", "0.499", "2.601", "17.5", "0"])
-def test_an_implausible_height_is_flagged_and_not_used(value: str) -> None:
-    only = reading(T0, value)
-    result = assess("height", [only])
-    assert result.usable == ()
-    assert flags_of(result, only) == {Flag.IMPLAUSIBLE}
-
-
-def test_a_non_finite_height_is_refused_before_it_can_be_assessed() -> None:
-    with pytest.raises(ValueError, match="finite"):
-        reading(T0, "NaN")
-
-
-def test_the_height_bound_is_an_engineering_bound() -> None:
-    assert METRICS["height"].bound == ENGINEERING
-    assert (METRICS["height"].meastype, METRICS["height"].unit) == (4, "m")

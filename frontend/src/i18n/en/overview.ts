@@ -65,6 +65,7 @@ export const overview = {
   'score.areaReason': '{area}: {reason}',
   'score.reason.fallback': 'not computed yet',
   'score.reason.insufficient_data': 'not enough data yet',
+  'score.reason.implausible_height': 'an implausible height was recorded',
   'score.reason.no_height': 'no height recorded yet',
   'score.reason.no_band_row': 'no band for your age or sex',
   'score.reason.not_supported': 'not supported by this account',

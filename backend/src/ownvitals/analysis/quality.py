@@ -34,7 +34,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-ALGO_VERSION = "quality/2"
+ALGO_VERSION = "quality/1"
 
 UNCONFIRMED_ATTRIB = 1
 
@@ -181,8 +181,6 @@ _WEIGHT_JUMP = JumpRule(absolute=Decimal(2), relative=Decimal("0.03"))
 # row (with its source) before a metric is analysed; a metric without a row is refused.
 _SPECS = (
     _spec("weight", 1, "kg", "10", "300", jump=_WEIGHT_JUMP),
-    # Height in metres: an engineering bound, not a health range (0.5 to 2.6 m, inclusive).
-    _spec("height", 4, "m", "0.5", "2.6", bound=ENGINEERING),
     _spec("fat_free_mass", 5, "kg", "5", "250"),
     _spec("fat_ratio", 6, "%", "1", "75"),
     _spec("fat_mass", 8, "kg", "0.5", "250"),
