@@ -1,4 +1,4 @@
-"""The unsubscribe endpoint's two pages, in English and Swedish (ADR 0017; #459). Pure: no I/O.
+"""The unsubscribe endpoint's two pages, in English and Swedish (ADR 0018; #459). Pure: no I/O.
 
 ``confirm`` (the answer to ``GET``) asks before anything changes and posts the link's token back
 to the same URL; ``done`` (the answer to every ``POST``) says the same whether the token was

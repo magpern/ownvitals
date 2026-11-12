@@ -9,7 +9,7 @@ whose only use is to pick a table; every table has the same kinds, each with ``{
 once and no other placeholder (``tests/test_notify_templates_locales.py``). The link is
 ``public_base_url`` plus the route's fixed path (T12).
 
-A suppressible kind's mail (``ownvitals.notify.email_policy``; ADR 0017, #459) then goes through
+A suppressible kind's mail (``ownvitals.notify.email_policy``; ADR 0018, #459) then goes through
 ``with_unsubscribe``, which appends the locale's unsubscribe footer, whose only placeholder is the
 signed one-click link: the endpoint's fixed path under ``public_base_url`` and an opaque token of
 a fixed alphabet and length (``ownvitals.notify.unsubscribe``; anything else is refused).
@@ -44,7 +44,7 @@ __all__ = [
 TABLES: Final[Mapping[str, Mapping[str, Template]]] = MappingProxyType(
     {"en": en.TABLE, "sv": sv.TABLE}
 )
-# The unsubscribe footer of each table's locale (ADR 0017).
+# The unsubscribe footer of each table's locale (ADR 0018).
 FOOTERS: Final[Mapping[str, str]] = MappingProxyType({"en": en.UNSUBSCRIBE, "sv": sv.UNSUBSCRIBE})
 
 

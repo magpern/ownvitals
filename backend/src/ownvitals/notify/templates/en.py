@@ -45,7 +45,7 @@ TABLE: Final = MappingProxyType(
     }
 )
 
-# The unsubscribe footer of a suppressible kind's mail (ADR 0017; #459), after the sign-off:
+# The unsubscribe footer of a suppressible kind's mail (ADR 0018; #459), after the sign-off:
 # ``UNSUBSCRIBE_LINK`` is the signed one-click link, exactly once.
 UNSUBSCRIBE: Final = (
     "\nDon't want emails like this one? Switch them off: "

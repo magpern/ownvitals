@@ -113,7 +113,7 @@ AI_USER_SESSION = ("ownvitals.ai.consent", "ownvitals.ai.chat_store", "ownvitals
 # The export (#211): the web side's own export rows (request, list, download, the tidy of the
 # user's expired and failed rows). The builder runs in the worker and writes through the fence.
 REPORTS_USER_SESSION = ("ownvitals.reports.export_store",)
-# Email preferences (#459, ADR 0017): the settings' read and write of the caller's own
+# Email preferences (#459, ADR 0018): the settings' read and write of the caller's own
 # ``email_prefs`` rows. The unsubscribe endpoint opens none: it calls the outbox family's
 # ``email_unsubscribe`` through ``ownvitals.notify.outbox``.
 NOTIFY_USER_SESSION = ("ownvitals.notify.email_prefs_store",)

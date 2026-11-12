@@ -202,7 +202,7 @@ async def reserve_oauth_start(request: Request) -> None:
 
 async def reserve_unsubscribe(request: Request) -> int | None:
     """One slot of the per-IP unsubscribe limit (``UNSUBSCRIBE_IP``, 20 per 15 minutes; ADR
-    0017). ``None`` when taken, else the seconds to wait: the endpoint runs outside the auth
+    0018). ``None`` when taken, else the seconds to wait: the endpoint runs outside the auth
     middleware and its handlers, so it answers the 429 itself."""
     attempt = await limiter(request).begin([Bucket(UNSUBSCRIBE_IP, bucket_ip(request_ip(request)))])
     return None if attempt.allowed else attempt.retry_after

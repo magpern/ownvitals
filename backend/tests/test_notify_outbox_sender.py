@@ -284,7 +284,7 @@ async def test_a_user_mail_is_in_the_account_s_language(
     assert mail.message["Content-Language"] == expected
     template = TABLES[expected]["findings_waiting"]
     assert mail.subject == template.subject
-    # The locale's own unsubscribe footer too (ADR 0017), with the link of the headers.
+    # The locale's own unsubscribe footer too (ADR 0018), with the link of the headers.
     link = str(mail.message["List-Unsubscribe"]).strip("<>")
     footer = FOOTERS[expected].replace(UNSUBSCRIBE_LINK, link)
     expected_body = template.body.replace(LINK, f"{BASE}/findings") + footer

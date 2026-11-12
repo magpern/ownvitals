@@ -1,4 +1,4 @@
-# ADR 0017: Email preferences per kind and the signed one-click unsubscribe
+# ADR 0018: Email preferences per kind and the signed one-click unsubscribe
 
 Status: Proposed (#459; roadmap Amendment 7, "M6 additions", classbeat #655).
 

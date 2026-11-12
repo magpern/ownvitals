@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Final
 
 LINK: Final = "{link}"
-# The one placeholder of a locale's unsubscribe footer (ADR 0017; #459).
+# The one placeholder of a locale's unsubscribe footer (ADR 0018; #459).
 UNSUBSCRIBE_LINK: Final = "{unsubscribe}"
 
 

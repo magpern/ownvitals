@@ -4,7 +4,7 @@ Revision ID: 0029_email_prefs
 Revises: 0028_chart_range_7d
 Create Date: 2026-11-12
 
-Roadmap Amendment 7 ("M6 additions", classbeat #655) and ADR 0017: a user can switch off the
+Roadmap Amendment 7 ("M6 additions", classbeat #655) and ADR 0018: a user can switch off the
 email of each suppressible outbox kind, in the settings or through the signed unsubscribe link
 of a mail of that kind.
 

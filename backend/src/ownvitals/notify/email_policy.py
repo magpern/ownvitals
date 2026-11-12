@@ -1,4 +1,4 @@
-"""Which mail a user may switch off (roadmap Amendment 7, ADR 0017; #459). Pure: no I/O.
+"""Which mail a user may switch off (roadmap Amendment 7, ADR 0018; #459). Pure: no I/O.
 
 **Suppressible** (``SUPPRESSIBLE_KINDS``): the outbox kinds that tell the user something is
 waiting in the app. Each has an email preference (``email_prefs``, default on), and every mail

@@ -1,4 +1,4 @@
-"""The signed one-click unsubscribe token (ADR 0017; #459). Pure: no clock, no I/O.
+"""The signed one-click unsubscribe token (ADR 0018; #459). Pure: no clock, no I/O.
 
 A token binds one user, one suppressible kind, the generation of that kind's preference when the
 mail was sent, and an expiry; it is MAC'd with a key derived for this purpose only:

@@ -140,7 +140,7 @@ OUTBOX_FUNCTIONS = {
     "mail_outbox_claim": OUTBOX,
     "mail_outbox_mark": OUTBOX,
     "owner_notice_queue": OUTBOX,
-    # ADR 0017 (#459): the email preference's read and the one-click unsubscribe.
+    # ADR 0018 (#459): the email preference's read and the one-click unsubscribe.
     "mail_outbox_email_pref": OUTBOX,
     "email_unsubscribe": OUTBOX,
 }
@@ -171,7 +171,7 @@ OUTBOX_COLUMNS[("mail_outbox", "owner_id")] = {(OUTBOX, "SELECT")}
 # The owner-notice write inserts a kind and its route, nothing else.
 OUTBOX_COLUMNS[("owner_notices", "kind")] |= {(OUTBOX, "INSERT")}
 OUTBOX_COLUMNS[("owner_notices", "route")] |= {(OUTBOX, "INSERT")}
-# ADR 0017 (#459): on ``email_prefs`` the read and the unsubscribe's insert-or-update; no DELETE.
+# ADR 0018 (#459): on ``email_prefs`` the read and the unsubscribe's insert-or-update; no DELETE.
 for _column, _privs in {
     "owner_id": {"SELECT", "INSERT"},
     "kind": {"SELECT", "INSERT"},

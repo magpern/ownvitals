@@ -1,4 +1,4 @@
-"""Email preferences per kind and the outbox family's two new functions (ADR 0017; #459), against
+"""Email preferences per kind and the outbox family's two new functions (ADR 0018; #459), against
 the migrated schema, the app role and the in-process SMTP fake. Synthetic accounts
 (``example.test``) only; no health data.
 

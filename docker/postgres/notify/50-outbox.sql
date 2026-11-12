@@ -1,6 +1,6 @@
 -- The mail outbox's role and SECURITY DEFINER functions (ADR 0007 sections 1 to 3, ADR 0005
 -- section 3, ADR 0002 sections 3 and 5; #194), with the email preference's read and the one-click
--- unsubscribe (ADR 0017; #459).
+-- unsubscribe (ADR 0018; #459).
 --
 -- Run as the superuser, after `alembic upgrade head` and after 20-queue.sql, in ONE transaction.
 -- Plain SQL: no psql meta-commands and no transaction control. Migrations never create these
@@ -17,10 +17,10 @@
 --   owner_notice_queue(p_kind)                   writes an owner notice; the route comes from
 --                                                the kind, through the fixed mapping below;
 --   mail_outbox_email_pref(p_id)                 the email preference behind one claimed row
---                                                (ADR 0017): on or off, and its generation;
+--                                                (ADR 0018): on or off, and its generation;
 --   email_unsubscribe(p_owner, p_kind, p_generation)
 --                                                switches one suppressible kind's email off, only
---                                                while it is on at that generation (ADR 0017).
+--                                                while it is on at that generation (ADR 0018).
 -- Only email_unsubscribe takes an owner id: web calls it after verifying the signed token that
 -- names it, and it can do nothing but switch one suppressible kind off. The claim returns for
 -- each row its id, kind, route and, for an owned row, the owner_id the sender resolves the
@@ -191,7 +191,7 @@ END $$;
 
 -- Exactly these privileges (ADR 0007 section 3): USAGE on public, the claim's and the mark's
 -- columns, DELETE for the retention of sent and failed rows, and INSERT of (kind, route) on the
--- system table for the owner-notice write; on email_prefs (ADR 0017) the columns the preference
+-- system table for the owner-notice write; on email_prefs (ADR 0018) the columns the preference
 -- read and the unsubscribe need, and no DELETE. Everything else was revoked above.
 GRANT USAGE ON SCHEMA public TO ownvitals_mail_outbox;
 
@@ -379,7 +379,7 @@ BEGIN
 END
 $fn$;
 
--- The email preference behind one claimed row of a suppressible kind (ADR 0017): whether its
+-- The email preference behind one claimed row of a suppressible kind (ADR 0018): whether its
 -- email is on and the generation an unsubscribe link must name; no row of email_prefs means on,
 -- at generation 0. No row at all when the row is not claimed or its kind is not suppressible. It
 -- takes the row's id, never an owner id, and returns no id.
@@ -411,7 +411,7 @@ BEGIN
 END
 $fn$;
 
--- The one-click unsubscribe (ADR 0017, RFC 8058): switch p_owner's email of p_kind off, only
+-- The one-click unsubscribe (ADR 0018, RFC 8058): switch p_owner's email of p_kind off, only
 -- while it is on at p_generation (no row is generation 0), and count the change in the
 -- generation, so the same link never works twice and an older one never works once the choice
 -- has changed. It changes at most that one row and can only switch off: never on, never another

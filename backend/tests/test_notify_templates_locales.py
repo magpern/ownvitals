@@ -4,7 +4,7 @@
 - one fixed table per locale of the manifest with the same kinds, ``{link}`` exactly once and no
   other placeholder, and a golden file per kind and locale (``test_golden_*``); a suppressible
   kind's golden file ends with the locale's unsubscribe footer and a synthetic token, and every
-  locale has that footer with ``{unsubscribe}`` exactly once (ADR 0017, #459);
+  locale has that footer with ``{unsubscribe}`` exactly once (ADR 0018, #459);
 - the Swedish table is the English copy on the untranslated list until G6 translates it
   (``test_the_untranslated_list_*``);
 - the decision is pure: a user's stored code while usable, else ``en``; owner notices ``en``;
@@ -159,7 +159,7 @@ def test_policy_request_mail(stored: object, requested: object, expected: str) -
 
 def test_the_outbox_sql_and_its_digests_are_unchanged() -> None:
     """G5 adds no column and changes no definer function (ADR 0015 section 7, T59): the script
-    and the committed digests are those of #194, with #459's two added functions (ADR 0017); the
+    and the committed digests are those of #194, with #459's two added functions (ADR 0018); the
     three of #194 keep their digests."""
     raw = (REPO / "docker" / "postgres" / "notify" / "50-outbox.sql").read_bytes()
     sql = raw.replace(b"\r\n", b"\n")  # the same on a Windows checkout

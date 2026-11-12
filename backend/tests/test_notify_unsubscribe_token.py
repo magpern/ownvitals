@@ -1,4 +1,4 @@
-"""The signed one-click unsubscribe token (ADR 0017; #459). Pure: no database, no clock.
+"""The signed one-click unsubscribe token (ADR 0018; #459). Pure: no database, no clock.
 
 - a token verifies to exactly the owner, kind and generation it was issued for, under the key
   derived for this purpose only (``test_a_token_round_trips*``, ``test_the_key_*``);
