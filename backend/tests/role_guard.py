@@ -16,7 +16,7 @@ checks that it holds exactly its allowlist, so its column privileges are left ou
 check here. Maint is not granted the client secret or ``webhook_secrets``. When
 ``docker/postgres/notify/50-outbox.sql`` has run (#194, ADR 0007 section 3), the NOLOGIN role
 ``ownvitals_mail_outbox`` has exactly its attributes and the grants that script creates, owns the
-three outbox functions, and the app role may ``EXECUTE`` them; the app role holds nothing on
+five outbox functions (#459), and the app role may ``EXECUTE`` them; the app role holds nothing on
 ``owner_notices``. When ``docker/postgres/ai/50-ai.sql`` has run (#205, ADR 0014 section 7),
 the NOLOGIN role ``ownvitals_ai`` has exactly its attributes and the column grants that script
 creates, with ``DELETE`` on ``ai_audit`` and ``ai_conversations`` for the two retention purges
@@ -140,6 +140,9 @@ OUTBOX_FUNCTIONS = {
     "mail_outbox_claim": OUTBOX,
     "mail_outbox_mark": OUTBOX,
     "owner_notice_queue": OUTBOX,
+    # ADR 0017 (#459): the email preference's read and the one-click unsubscribe.
+    "mail_outbox_email_pref": OUTBOX,
+    "email_unsubscribe": OUTBOX,
 }
 # Table-level privileges of the outbox role (its reads and writes are column grants, below).
 OUTBOX_RELATIONS = {
@@ -168,6 +171,15 @@ OUTBOX_COLUMNS[("mail_outbox", "owner_id")] = {(OUTBOX, "SELECT")}
 # The owner-notice write inserts a kind and its route, nothing else.
 OUTBOX_COLUMNS[("owner_notices", "kind")] |= {(OUTBOX, "INSERT")}
 OUTBOX_COLUMNS[("owner_notices", "route")] |= {(OUTBOX, "INSERT")}
+# ADR 0017 (#459): on ``email_prefs`` the read and the unsubscribe's insert-or-update; no DELETE.
+for _column, _privs in {
+    "owner_id": {"SELECT", "INSERT"},
+    "kind": {"SELECT", "INSERT"},
+    "enabled": {"SELECT", "INSERT", "UPDATE"},
+    "generation": {"SELECT", "INSERT", "UPDATE"},
+    "updated_at": {"INSERT", "UPDATE"},
+}.items():
+    OUTBOX_COLUMNS[("email_prefs", _column)] = {(OUTBOX, p) for p in _privs}
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 OUTBOX_ATTRIBUTES = (False, False, False, False, False, True, False)
 # 50-ai.sql (#205): the AI cost cap's family, owned by its own NOLOGIN role.

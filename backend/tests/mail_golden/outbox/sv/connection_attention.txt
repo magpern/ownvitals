@@ -1,4 +1,6 @@
 Content-Language: sv
+List-Unsubscribe: <https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkBAAAAAAAAAAAAAAAAaaTTAEB6pmbS1H1wwkIl7SnHBsk>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
 Subject: ownvitals: en anslutning behöver din uppmärksamhet
 
 En av dina anslutningar i ownvitals behöver din uppmärksamhet.
@@ -8,3 +10,6 @@ En av dina anslutningar i ownvitals behöver din uppmärksamhet.
 Det här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du har loggat in.
 
 - ownvitals
+
+Vill du inte få sådana här mejl? Stäng av dem: https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkBAAAAAAAAAAAAAAAAaaTTAEB6pmbS1H1wwkIl7SnHBsk
+Du kan slå på dem igen i ownvitals under Inställningar, Aviseringar.

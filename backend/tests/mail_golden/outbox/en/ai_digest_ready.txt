@@ -1,4 +1,6 @@
 Content-Language: en
+List-Unsubscribe: <https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkCAAAAAAAAAAAAAAAAaaTTAK9uuoVZxZbIGco3Yy5rvNw>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
 Subject: ownvitals: your weekly summary is waiting
 
 Your weekly summary is waiting for you in ownvitals.
@@ -8,3 +10,6 @@ Open it here: https://ownvitals.example.test/overview
 This email says no more than that on purpose: what is waiting is shown only after you sign in.
 
 - ownvitals
+
+Don't want emails like this one? Switch them off: https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkCAAAAAAAAAAAAAAAAaaTTAK9uuoVZxZbIGco3Yy5rvNw
+You can switch them on again in ownvitals under Settings, Notifications.

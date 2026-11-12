@@ -19,13 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.auth.clientip import bucket_ip, client_ip
 from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
-from ownvitals.auth.flowtools import reserve
+from ownvitals.auth.flowtools import limiter, reserve
 from ownvitals.auth.ratelimit import (
     AI_CHAT_ACCOUNT,
     AI_CONVERSATION_ACCOUNT,
     DOCTOR_PDF_ACCOUNT,
     EXPORT_ACCOUNT,
     OAUTH_IP,
+    UNSUBSCRIBE_IP,
     Bucket,
 )
 from ownvitals.auth.sessions import (
@@ -197,6 +198,14 @@ async def reserve_oauth_start(request: Request) -> None:
     section 9) that Google's start reserves too: the Withings connect start (ADR 0004 section 7)
     counts against it. Raises ``RateLimited`` (429 with ``Retry-After``) above it."""
     await reserve(request, [Bucket(OAUTH_IP, bucket_ip(request_ip(request)))])
+
+
+async def reserve_unsubscribe(request: Request) -> int | None:
+    """One slot of the per-IP unsubscribe limit (``UNSUBSCRIBE_IP``, 20 per 15 minutes; ADR
+    0017). ``None`` when taken, else the seconds to wait: the endpoint runs outside the auth
+    middleware and its handlers, so it answers the 429 itself."""
+    attempt = await limiter(request).begin([Bucket(UNSUBSCRIBE_IP, bucket_ip(request_ip(request)))])
+    return None if attempt.allowed else attempt.retry_after
 
 
 async def reserve_export_request(request: Request, ctx: UserContext) -> None:

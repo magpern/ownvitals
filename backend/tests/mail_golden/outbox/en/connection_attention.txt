@@ -1,4 +1,6 @@
 Content-Language: en
+List-Unsubscribe: <https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkBAAAAAAAAAAAAAAAAaaTTAEB6pmbS1H1wwkIl7SnHBsk>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
 Subject: ownvitals: a connection needs your attention
 
 One of your connections in ownvitals needs your attention.
@@ -8,3 +10,6 @@ Open it here: https://ownvitals.example.test/overview
 This email says no more than that on purpose: what is waiting is shown only after you sign in.
 
 - ownvitals
+
+Don't want emails like this one? Switch them off: https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkBAAAAAAAAAAAAAAAAaaTTAEB6pmbS1H1wwkIl7SnHBsk
+You can switch them on again in ownvitals under Settings, Notifications.

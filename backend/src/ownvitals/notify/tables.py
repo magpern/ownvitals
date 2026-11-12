@@ -1,5 +1,6 @@
 """``notify_holds``: ADR 0006 section 11's notification hold, one row per held E4/E6 finding
-(migration ``0020_notify_holds``, #195).
+(migration ``0020_notify_holds``, #195); ``email_prefs``: the email preference per suppressible
+mail kind (migration ``0029_email_prefs``, ADR 0017, #459).
 
 Owned: ``owner_id`` cascading from ``users``, forced RLS and the ``owner_isolation`` policy.
 ``finding_id`` is not a foreign key, so a hold outlives a withdrawn (deleted) finding and records
@@ -11,6 +12,7 @@ from typing import Final, Literal, get_args
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -39,7 +41,7 @@ HoldOutcome = Literal["sent", "sent_not_evaluated", "hidden", "none"]
 REASONS: Final[tuple[str, ...]] = get_args(Reason)
 HOLD_OUTCOMES: Final[tuple[str, ...]] = get_args(HoldOutcome)
 HELD_RULES: Final = ("E4", "E6")
-NOTIFY_OWNED: Final = ("notify_holds",)
+NOTIFY_OWNED: Final = ("notify_holds", "email_prefs")
 
 metadata = MetaData()
 
@@ -66,4 +68,21 @@ notify_holds = Table(
     Column("outcome", Text),
     UniqueConstraint("owner_id", "id"),
     UniqueConstraint("owner_id", "finding_id", name="notify_holds_finding_key"),
+)
+
+# Owned: at most one row per owner and suppressible kind; no row is "on, generation 0". The
+# generation counts every change of ``enabled`` (ADR 0017: an unsubscribe link binds it).
+email_prefs = Table(
+    "email_prefs",
+    metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()),
+    Column(
+        "owner_id", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    ),
+    Column("kind", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False, server_default=text("true")),
+    Column("generation", BigInteger, nullable=False, server_default=text("0")),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("owner_id", "id"),
+    UniqueConstraint("owner_id", "kind", name="email_prefs_owner_kind"),
 )

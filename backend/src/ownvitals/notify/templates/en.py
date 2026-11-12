@@ -4,7 +4,7 @@ section 7). Each says only that something is waiting and links to the app (T59, 
 from types import MappingProxyType
 from typing import Final
 
-from ownvitals.notify.templates.base import LINK, Template
+from ownvitals.notify.templates.base import LINK, UNSUBSCRIBE_LINK, Template
 
 _FOOTER: Final = (
     "\n\nThis email says no more than that on purpose: what is waiting is shown only after you "
@@ -43,4 +43,12 @@ TABLE: Final = MappingProxyType(
             "here: " + LINK + _FOOTER,
         ),
     }
+)
+
+# The unsubscribe footer of a suppressible kind's mail (ADR 0017; #459), after the sign-off:
+# ``UNSUBSCRIBE_LINK`` is the signed one-click link, exactly once.
+UNSUBSCRIBE: Final = (
+    "\nDon't want emails like this one? Switch them off: "
+    + UNSUBSCRIBE_LINK
+    + "\nYou can switch them on again in ownvitals under Settings, Notifications.\n"
 )

@@ -39,6 +39,7 @@ question open says so in an **Open questions** section and names who answers it.
 | [0014](0014-ai-insights.md) | AI insights: provider review, consent, minimal tools, worker-only client, cost cap, prompt-injection evals | Proposed |
 | [0015](0015-multilingual.md) | Multilingual support: English and Swedish, typed catalogue, locale preference, codes not sentences, mail per locale, health-wording review | Proposed |
 | [0016](0016-public-site.md) | Public site: prerendered static pages, SEO, no cookies or analytics, legal gate | Proposed |
+| [0017](0017-email-preferences-and-unsubscribe.md) | Email preferences per kind and the signed one-click unsubscribe (RFC 8058); two functions join the outbox family | Proposed |
 
 The health-data threat model that these ADRs feed is
 [docs/security/threat-model.md](../security/threat-model.md).

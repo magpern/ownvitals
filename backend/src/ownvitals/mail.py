@@ -83,16 +83,23 @@ class MailError(Exception):
 @dataclass(frozen=True, slots=True, repr=False)
 class MailMessage:
     """``locale`` is the mail's language, a manifest code (ADR 0015 section 7): it becomes the
-    ``Content-Language`` header and nothing else, and any other value is refused here."""
+    ``Content-Language`` header and nothing else, and any other value is refused here.
+    ``unsubscribe_url`` (the outbox sender's, ADR 0017) becomes the RFC 8058 headers."""
 
     to: str
     subject: str
     body: str
     locale: str = "en"
+    unsubscribe_url: str | None = None
 
     def __post_init__(self) -> None:
         if self.locale not in SUPPORTED_LOCALES:
             raise ValueError("the mail's locale is not a supported code")
+        url = self.unsubscribe_url
+        if url is not None and (
+            not url.startswith(("https://", "http://")) or any(c in url for c in " \t\r\n<>")
+        ):
+            raise ValueError("the unsubscribe link is not a plain URL")
 
     def __repr__(self) -> str:
         return "MailMessage(...)"
@@ -232,6 +239,11 @@ class Mailer:
         built["Subject"] = message.subject
         built.set_content(message.body)  # this clears any Content-* header, so it comes first
         built["Content-Language"] = message.locale  # a manifest code (``MailMessage``)
+        if message.unsubscribe_url is not None:  # RFC 8058 one-click (ADR 0017)
+            # Fold at RFC 5322's 998, not 78, or a long URL goes out as RFC 2047 encoded words.
+            built.policy = built.policy.clone(max_line_length=998)
+            built["List-Unsubscribe"] = f"<{message.unsubscribe_url}>"
+            built["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         return built
 
     def _send_blocking(self, message: MailMessage, at: float | None = None) -> None:

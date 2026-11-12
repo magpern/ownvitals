@@ -1,11 +1,13 @@
 """The outbox's definer family (ADR 0007 section 3, #194): ``mail_outbox_claim``,
-``mail_outbox_mark`` and ``owner_notice_queue``, their role, and the startup check that pins them.
-Synthetic users (``example.test``) only; no health data.
+``mail_outbox_mark`` and ``owner_notice_queue``, with ADR 0017's ``mail_outbox_email_pref`` and
+``email_unsubscribe`` (#459; their behaviour is ``test_notify_email_prefs_db.py``'s), their role,
+and the startup check that pins them. Synthetic users (``example.test``) only; no health data.
 
 - each function is executable by the app role and by no other caller role
   (``test_each_function_is_the_app_role_s_only``);
-- none takes an owner id; the owner-notice write takes only a kind and its route comes from the
-  fixed mapping (``test_the_signatures_take_no_owner_and_no_route``,
+- none takes a route, and only the unsubscribe takes an owner id; the owner-notice write takes
+  only a kind and its route comes from the fixed mapping
+  (``test_the_signatures_take_no_route_and_only_the_unsubscribe_an_owner``,
   ``test_an_owner_notice_takes_its_kind_s_route``);
 - at most one pending owner notice per kind (``test_a_second_pending_owner_notice_is_coalesced``);
 - the claim returns the minimum and the mark takes an id and an outcome; retries, leases,
@@ -62,6 +64,15 @@ CALLS = {
     "mail_outbox_claim": ("SELECT * FROM mail_outbox_claim(1, 60)", {}),
     "mail_outbox_mark": ("SELECT mail_outbox_mark(:id, 'sent')", {"id": uuid.uuid4()}),
     "owner_notice_queue": ("SELECT owner_notice_queue('connection_needs_reconnect')", {}),
+    "mail_outbox_email_pref": (
+        "SELECT * FROM mail_outbox_email_pref(:id)",
+        {"id": uuid.uuid4()},
+    ),
+    # No such account: the function answers false (and writes nothing).
+    "email_unsubscribe": (
+        "SELECT email_unsubscribe(:o, 'findings_waiting', 0)",
+        {"o": uuid.uuid4()},
+    ),
 }
 
 
@@ -145,7 +156,9 @@ def test_each_function_is_the_app_role_s_only(
         outbox.execute(text("DROP ROLE ownvitals_test_public"))
 
 
-def test_the_signatures_take_no_owner_and_no_route(outbox: Connection) -> None:
+def test_the_signatures_take_no_route_and_only_the_unsubscribe_an_owner(
+    outbox: Connection,
+) -> None:
     rows = outbox.execute(
         text(
             "SELECT p.proname, pg_get_function_identity_arguments(p.oid), "
@@ -161,7 +174,12 @@ def test_the_signatures_take_no_owner_and_no_route(outbox: Connection) -> None:
         ),
         "mail_outbox_mark": ("p_id uuid, p_outcome text", "boolean"),
         "owner_notice_queue": ("p_kind text", "boolean"),
+        "mail_outbox_email_pref": ("p_id uuid", "TABLE(enabled boolean, generation bigint)"),
+        # ADR 0017: the one owner id of the family, from a verified token; it can only switch
+        # one suppressible kind off.
+        "email_unsubscribe": ("p_owner uuid, p_kind text, p_generation bigint", "boolean"),
     }
+    assert [n for n, (args, _) in found.items() if "p_owner" in args] == ["email_unsubscribe"]
     assert {name: pin[0] for name, pin in OUTBOX_PINS.items()} == {
         name: args for name, (args, _) in found.items()
     }

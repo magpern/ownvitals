@@ -1,4 +1,15 @@
+import { useState } from 'react'
+import {
+  decodeEmailPrefs,
+  EMAIL_KINDS,
+  EMAIL_PREFS_PATH,
+  setEmailPref,
+  type EmailKind,
+  type EmailPrefs,
+} from '../../api/emailPrefs'
+import { errorMessage } from '../../api/messages'
 import { TIERS, type Tier } from '../../api/profile'
+import { useResource } from '../../api/useResource'
 import { Notice } from '../../components/forms'
 import { Card, Stack } from '../../components/ui/Card'
 import { useT } from '../../i18n'
@@ -7,7 +18,55 @@ import type { ProfileState } from './useProfile'
 
 // "Notifications" (/settings/notifications). In-app notices are always on. An email only says that
 // something is waiting, with a link, and never what or how much (ADR 0007, T59); the screen says
-// so. Imported history never notifies.
+// so. Imported history never notifies. Each kind of "something is waiting" email can be switched
+// off on its own (issue 459, ADR 0017), here or with the one-click link in the email itself;
+// account and security emails always arrive.
+
+function EmailKinds() {
+  const t = useT()
+  const resource = useResource(EMAIL_PREFS_PATH, decodeEmailPrefs)
+  const [saved, setSaved] = useState<EmailPrefs | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const prefs = saved ?? resource.data
+  if (prefs === null) {
+    return resource.error !== null ? <Notice kind="error">{resource.error.message}</Notice> : null
+  }
+
+  const flip = async (kind: EmailKind) => {
+    setBusy(true)
+    setError(null)
+    try {
+      setSaved(await setEmailPref(kind, !prefs[kind]))
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Row
+      label={t('settings.notify.kinds.label')}
+      help={t('settings.notify.kinds.help')}
+      below={error !== null ? <Notice kind="error">{error}</Notice> : undefined}
+    >
+      <div className="ov-settings-chips" role="group" aria-label={t('settings.notify.kinds.label')}>
+        {EMAIL_KINDS.map((kind) => (
+          <Chip
+            key={kind}
+            label={t(`settings.notify.kind.${kind}`)}
+            pressed={prefs[kind]}
+            disabled={busy}
+            onClick={() => {
+              void flip(kind)
+            }}
+          />
+        ))}
+      </div>
+    </Row>
+  )
+}
 
 export function NotificationsTab({ state }: { state: ProfileState }) {
   const t = useT()
@@ -66,6 +125,7 @@ export function NotificationsTab({ state }: { state: ProfileState }) {
             })}
           </div>
         </Row>
+        <EmailKinds />
       </Card>
     </Stack>
   )

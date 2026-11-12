@@ -37,6 +37,8 @@ from ownvitals.flags.routes import router as flags_router
 from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
 from ownvitals.notify import sender as outbox_sender
+from ownvitals.notify import unsubscribe_routes
+from ownvitals.notify.email_prefs_routes import router as email_prefs_router
 from ownvitals.public_site import (
     PUBLIC_CACHE_CONTROL,
     RobotsHeaders,
@@ -97,6 +99,7 @@ FEATURE_ROUTERS = (
     ai_digest_router,
     exports_router,
     doctor_router,
+    email_prefs_router,
 )
 
 
@@ -192,11 +195,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.engine = engine
             app.state.session_factory = session_factory
             attach_state(app, settings, session_factory)
+            unsubscribe_routes.install(app, settings)  # the unsubscribe token key (ADR 0017)
             # The outbox sender (ADR 0007 section 2): web sends what the worker queued.
             outbox_task = outbox_sender.start(
                 session_factory,
                 app.state.mailer,
                 settings.public_base_url,
+                app.state.unsubscribe_key,
                 settings.enabled_locales,  # intersected with the manifest when used
             )
             admin_db = AdminDb.from_settings(settings)
@@ -256,6 +261,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Outside the auth middleware (added earlier, so inner): Withings sends no Origin or CSRF
     # token. The secret in the path is the check. SecurityHeaders stays the outermost layer.
     app.add_middleware(WebhookMiddleware)
+    # The one-click unsubscribe (RFC 8058, ADR 0017) likewise: a mail client sends no Origin,
+    # cookie or CSRF token; the signed token in the query string is the check.
+    app.add_middleware(unsubscribe_routes.UnsubscribeMiddleware)
     app.add_middleware(RobotsHeaders)  # noindex on all but a served public file (ADR 0016)
     # Added last, so it is the outermost middleware: the CSP and Referrer-Policy go on every
     # response, the answers of the feature routers' middleware included.

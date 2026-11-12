@@ -1,12 +1,13 @@
 -- The mail outbox's role and SECURITY DEFINER functions (ADR 0007 sections 1 to 3, ADR 0005
--- section 3, ADR 0002 sections 3 and 5; #194).
+-- section 3, ADR 0002 sections 3 and 5; #194), with the email preference's read and the one-click
+-- unsubscribe (ADR 0017; #459).
 --
 -- Run as the superuser, after `alembic upgrade head` and after 20-queue.sql, in ONE transaction.
 -- Plain SQL: no psql meta-commands and no transaction control. Migrations never create these
 -- functions (handing a function to another role needs the superuser).
 --
 -- Idempotent: running it again repairs the NOLOGIN role ownvitals_mail_outbox (attributes,
--- memberships, settings), revokes and re-grants exactly its privileges, replaces the three
+-- memberships, settings), revokes and re-grants exactly its privileges, replaces the five
 -- functions with their owner, ACL and version comment, and revokes the app role's privileges on
 -- the system table again.
 --
@@ -14,14 +15,21 @@
 --   mail_outbox_claim(p_limit, p_lease_seconds)  claims a batch of rows from both tables;
 --   mail_outbox_mark(p_id, p_outcome)            marks one claimed row sent, failed or retry;
 --   owner_notice_queue(p_kind)                   writes an owner notice; the route comes from
---                                                the kind, through the fixed mapping below.
--- None takes an owner id. The claim returns for each row its id, kind, route and, for an owned
--- row, the owner_id the sender resolves the address from: never an address, never text.
+--                                                the kind, through the fixed mapping below;
+--   mail_outbox_email_pref(p_id)                 the email preference behind one claimed row
+--                                                (ADR 0017): on or off, and its generation;
+--   email_unsubscribe(p_owner, p_kind, p_generation)
+--                                                switches one suppressible kind's email off, only
+--                                                while it is on at that generation (ADR 0017).
+-- Only email_unsubscribe takes an owner id: web calls it after verifying the signed token that
+-- names it, and it can do nothing but switch one suppressible kind off. The claim returns for
+-- each row its id, kind, route and, for an owned row, the owner_id the sender resolves the
+-- address from: never an address, never text.
 --
 -- The role has BYPASSRLS (the claim reads every user's owned rows) and only the column privileges
--- the three functions need on the two outbox tables: no account table, no health table.
--- 20-queue.sql admits these three functions by name and no other; their bodies are pinned by
--- digest (ownvitals/db/outbox_digests.py) and checked by web and the worker at startup.
+-- the five functions need on the two outbox tables and on email_prefs: no account table, no
+-- health table. 20-queue.sql admits these five functions by name and no other; their bodies are
+-- pinned by digest (ownvitals/db/outbox_digests.py) and checked by web and the worker at startup.
 --
 -- Fixed numbers: at most 5 attempts a row; a retry waits 2 minutes times the attempts made;
 -- sent and failed rows are deleted 30 days after their last change (at most 500 a table on each
@@ -34,8 +42,10 @@ BEGIN
     RAISE EXCEPTION 'this script must run as the superuser';
   END IF;
   IF pg_catalog.to_regclass('public.mail_outbox') IS NULL
-     OR pg_catalog.to_regclass('public.owner_notices') IS NULL THEN
-    RAISE EXCEPTION 'migrate to head first: public.mail_outbox or public.owner_notices is missing';
+     OR pg_catalog.to_regclass('public.owner_notices') IS NULL
+     OR pg_catalog.to_regclass('public.email_prefs') IS NULL THEN
+    RAISE EXCEPTION 'migrate to head first: public.mail_outbox, public.owner_notices or '
+      'public.email_prefs is missing';
   END IF;
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_app') THEN
     RAISE EXCEPTION 'ownvitals_app does not exist; run docker/postgres/init/10-roles.sql first';
@@ -89,7 +99,8 @@ BEGIN
                         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
                        WHERE p.oid = r.objid AND n.nspname = 'public'
                          AND p.proname IN ('mail_outbox_claim', 'mail_outbox_mark',
-                                           'owner_notice_queue')) THEN
+                                           'owner_notice_queue', 'mail_outbox_email_pref',
+                                           'email_unsubscribe')) THEN
       RAISE EXCEPTION 'ownvitals_mail_outbox owns % (catalog %, object %); it may own only the '
         'outbox functions: drop or reassign it by hand', coalesce(r.what, '?'), r.catalog, r.objid;
     END IF;
@@ -180,7 +191,8 @@ END $$;
 
 -- Exactly these privileges (ADR 0007 section 3): USAGE on public, the claim's and the mark's
 -- columns, DELETE for the retention of sent and failed rows, and INSERT of (kind, route) on the
--- system table for the owner-notice write. Everything else was revoked above.
+-- system table for the owner-notice write; on email_prefs (ADR 0017) the columns the preference
+-- read and the unsubscribe need, and no DELETE. Everything else was revoked above.
 GRANT USAGE ON SCHEMA public TO ownvitals_mail_outbox;
 
 GRANT SELECT (id, owner_id, kind, route, state, attempts, hold_until, created_at, updated_at)
@@ -196,11 +208,18 @@ GRANT UPDATE (state, attempts, hold_until, updated_at, sent_at)
   ON TABLE public.owner_notices TO ownvitals_mail_outbox;
 GRANT DELETE ON TABLE public.owner_notices TO ownvitals_mail_outbox;
 
+GRANT SELECT (owner_id, kind, enabled, generation)
+  ON TABLE public.email_prefs TO ownvitals_mail_outbox;
+GRANT INSERT (owner_id, kind, enabled, generation, updated_at)
+  ON TABLE public.email_prefs TO ownvitals_mail_outbox;
+GRANT UPDATE (enabled, generation, updated_at)
+  ON TABLE public.email_prefs TO ownvitals_mail_outbox;
+
 -- The app role has no privilege on the system table (ADR 0007 section 3, amended #72); the
 -- migration revokes it too, and so does 10-roles.sql's restore list.
 REVOKE ALL ON TABLE public.owner_notices FROM ownvitals_app, PUBLIC;
 
--- Any other function under one of the three names (an overload) goes: each must exist once.
+-- Any other function under one of the five names (an overload) goes: each must exist once.
 DO $$
 DECLARE
   r record;
@@ -208,10 +227,12 @@ BEGIN
   FOR r IN SELECT p.oid::regprocedure::text AS signature
              FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'public'
-              AND p.proname IN ('mail_outbox_claim', 'mail_outbox_mark', 'owner_notice_queue')
+              AND p.proname IN ('mail_outbox_claim', 'mail_outbox_mark', 'owner_notice_queue',
+                                'mail_outbox_email_pref', 'email_unsubscribe')
               AND p.oid::regprocedure::text NOT IN (
                 'mail_outbox_claim(integer,integer)', 'mail_outbox_mark(uuid,text)',
-                'owner_notice_queue(text)') LOOP
+                'owner_notice_queue(text)', 'mail_outbox_email_pref(uuid)',
+                'email_unsubscribe(uuid,text,bigint)') LOOP
     EXECUTE format('DROP ROUTINE public.%s', r.signature);
   END LOOP;
 END $$;
@@ -358,15 +379,89 @@ BEGIN
 END
 $fn$;
 
+-- The email preference behind one claimed row of a suppressible kind (ADR 0017): whether its
+-- email is on and the generation an unsubscribe link must name; no row of email_prefs means on,
+-- at generation 0. No row at all when the row is not claimed or its kind is not suppressible. It
+-- takes the row's id, never an owner id, and returns no id.
+CREATE OR REPLACE FUNCTION public.mail_outbox_email_pref(p_id uuid)
+  RETURNS TABLE (enabled boolean, generation bigint)
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+#variable_conflict use_column
+DECLARE
+  v_owner uuid;
+  v_kind text;
+BEGIN
+  IF p_id IS NULL THEN
+    RAISE EXCEPTION 'invalid email preference read' USING ERRCODE = '22023';
+  END IF;
+  SELECT o.owner_id, o.kind INTO v_owner, v_kind
+    FROM public.mail_outbox o
+   WHERE o.id = p_id AND o.state = 'claimed';
+  IF NOT FOUND
+     OR v_kind NOT IN ('findings_waiting', 'connection_attention', 'ai_digest_ready') THEN
+    RETURN;
+  END IF;
+  RETURN QUERY
+    SELECT coalesce(bool_and(e.enabled), true), coalesce(max(e.generation), 0)::bigint
+      FROM public.email_prefs e
+     WHERE e.owner_id = v_owner AND e.kind = v_kind;
+END
+$fn$;
+
+-- The one-click unsubscribe (ADR 0017, RFC 8058): switch p_owner's email of p_kind off, only
+-- while it is on at p_generation (no row is generation 0), and count the change in the
+-- generation, so the same link never works twice and an older one never works once the choice
+-- has changed. It changes at most that one row and can only switch off: never on, never another
+-- kind, never a mail that is not suppressible. True when it changed; false for a stale or
+-- repeated link and for an account that no longer exists.
+CREATE OR REPLACE FUNCTION public.email_unsubscribe(p_owner uuid, p_kind text,
+                                                    p_generation bigint)
+  RETURNS boolean
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+  v_now timestamp with time zone := pg_catalog.clock_timestamp();
+BEGIN
+  IF p_owner IS NULL OR p_kind IS NULL OR p_generation IS NULL OR p_generation < 0
+     OR p_kind NOT IN ('findings_waiting', 'connection_attention', 'ai_digest_ready') THEN
+    RAISE EXCEPTION 'invalid unsubscribe' USING ERRCODE = '22023';
+  END IF;
+  IF p_generation = 0 THEN
+    INSERT INTO public.email_prefs AS e (owner_id, kind, enabled, generation, updated_at)
+    VALUES (p_owner, p_kind, false, 1, v_now)
+    ON CONFLICT (owner_id, kind) DO UPDATE
+       SET enabled = false, generation = e.generation + 1, updated_at = v_now
+     WHERE e.generation = 0 AND e.enabled;
+  ELSE
+    UPDATE public.email_prefs e
+       SET enabled = false, generation = e.generation + 1, updated_at = v_now
+     WHERE e.owner_id = p_owner AND e.kind = p_kind
+       AND e.generation = p_generation AND e.enabled;
+  END IF;
+  RETURN FOUND;
+EXCEPTION WHEN foreign_key_violation THEN
+  RETURN false;  -- the account is gone
+END
+$fn$;
+
 ALTER FUNCTION public.mail_outbox_claim(integer, integer) OWNER TO ownvitals_mail_outbox;
 ALTER FUNCTION public.mail_outbox_mark(uuid, text) OWNER TO ownvitals_mail_outbox;
 ALTER FUNCTION public.owner_notice_queue(text) OWNER TO ownvitals_mail_outbox;
+ALTER FUNCTION public.mail_outbox_email_pref(uuid) OWNER TO ownvitals_mail_outbox;
+ALTER FUNCTION public.email_unsubscribe(uuid, text, bigint) OWNER TO ownvitals_mail_outbox;
 
 -- Every EXECUTE but the owner's goes (PUBLIC's default, and any grant to another role), then
 -- the app role gets it again.
 REVOKE ALL ON FUNCTION public.mail_outbox_claim(integer, integer) FROM PUBLIC, ownvitals_app;
 REVOKE ALL ON FUNCTION public.mail_outbox_mark(uuid, text) FROM PUBLIC, ownvitals_app;
 REVOKE ALL ON FUNCTION public.owner_notice_queue(text) FROM PUBLIC, ownvitals_app;
+REVOKE ALL ON FUNCTION public.mail_outbox_email_pref(uuid) FROM PUBLIC, ownvitals_app;
+REVOKE ALL ON FUNCTION public.email_unsubscribe(uuid, text, bigint) FROM PUBLIC, ownvitals_app;
 DO $$
 DECLARE
   r record;
@@ -376,7 +471,8 @@ BEGIN
              FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace,
                   aclexplode(p.proacl) a
             WHERE n.nspname = 'public'
-              AND p.proname IN ('mail_outbox_claim', 'mail_outbox_mark', 'owner_notice_queue')
+              AND p.proname IN ('mail_outbox_claim', 'mail_outbox_mark', 'owner_notice_queue',
+                                'mail_outbox_email_pref', 'email_unsubscribe')
               AND a.grantee <> 0 AND a.grantee <> p.proowner LOOP
     EXECUTE format('SET LOCAL ROLE %s', r.grantor);
     EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM %s CASCADE', r.signature, r.grantee);
@@ -388,7 +484,11 @@ END $$;
 GRANT EXECUTE ON FUNCTION public.mail_outbox_claim(integer, integer) TO ownvitals_app;
 GRANT EXECUTE ON FUNCTION public.mail_outbox_mark(uuid, text) TO ownvitals_app;
 GRANT EXECUTE ON FUNCTION public.owner_notice_queue(text) TO ownvitals_app;
+GRANT EXECUTE ON FUNCTION public.mail_outbox_email_pref(uuid) TO ownvitals_app;
+GRANT EXECUTE ON FUNCTION public.email_unsubscribe(uuid, text, bigint) TO ownvitals_app;
 
 COMMENT ON FUNCTION public.mail_outbox_claim(integer, integer) IS 'ownvitals-outbox v1';
 COMMENT ON FUNCTION public.mail_outbox_mark(uuid, text) IS 'ownvitals-outbox v1';
 COMMENT ON FUNCTION public.owner_notice_queue(text) IS 'ownvitals-outbox v1';
+COMMENT ON FUNCTION public.mail_outbox_email_pref(uuid) IS 'ownvitals-outbox v1';
+COMMENT ON FUNCTION public.email_unsubscribe(uuid, text, bigint) IS 'ownvitals-outbox v1';

@@ -286,6 +286,9 @@ def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
         "'user', 'synthetic question' FROM ai_conversations WHERE owner_id = :o",
         # Issue 209: the digest opt-in and one synthetic weekly digest.
         "INSERT INTO ai_digest_prefs (owner_id) VALUES (:o)",
+        # #459: an email preference switched off (a setting: kept).
+        "INSERT INTO email_prefs (owner_id, kind, enabled, generation) "
+        "VALUES (:o, 'findings_waiting', false, 1)",
         "INSERT INTO ai_digests (owner_id, week_start, status, content) "
         "VALUES (:o, '2026-11-02', 'ready', 'synthetic digest')",
         # #211: an expired export record and one synthetic chunk of it.
@@ -363,6 +366,7 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
         "data_revisions",
         "devices",
         "ecg_recordings",
+        "email_prefs",
         "export_chunks",
         "exports",
         "findings",
@@ -478,6 +482,7 @@ async def test_delete_imported_removes_only_that_owners_rows(
         "ai_consents",
         "ai_audit",
         "ai_digest_prefs",
+        "email_prefs",
     }
     assert {"ai_messages", "ai_conversations", "ai_digests"} <= purged
     assert {"exports", "export_chunks"} <= purged

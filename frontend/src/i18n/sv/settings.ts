@@ -71,6 +71,12 @@ export const settings = {
   'notify.weekly.help': 'Samma enkla e-post: den säger bara att något väntar.',
   'notify.tiers.label': 'Vilka fynd som aviseras',
   'notify.tiers.help': 'Importerad historik aviserar aldrig.',
+  'notify.kinds.label': 'Vilka mejl du får',
+  'notify.kinds.help':
+    'Stäng av en sort här eller med länken i själva mejlet. Mejl om inloggning, säkerhet och ditt konto, och en export du har bett om, kommer alltid.',
+  'notify.kind.findings_waiting': 'Något väntar',
+  'notify.kind.connection_attention': 'En anslutning behöver ses över',
+  'notify.kind.ai_digest_ready': 'Veckosammanfattning',
   'tier.device': 'Enhet',
   'tier.trend': 'Trend',
   'tier.system': 'System',

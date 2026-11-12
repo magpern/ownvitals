@@ -169,6 +169,11 @@ ROWS: Final[Mapping[str, str]] = {
     "toolset_version, cost_microusd, reservation_id, latency_ms, attempts, status, error, "
     "settlement, request_hmac) VALUES (:owner, :job, 'chat', 'synthetic-model', '1', '1', :n, "
     "gen_random_uuid(), 0, 1, 'failed', 'not_sent', 'released', :hash) RETURNING id",
+    # Email preferences (#459): one row per owner and kind, so the kind follows the planting
+    # (1, own insert 2, foreign 3 are three different kinds).
+    "email_prefs": "INSERT INTO public.email_prefs (owner_id, kind, enabled, generation) VALUES "
+    "(:owner, (ARRAY['findings_waiting', 'connection_attention', 'ai_digest_ready'])[1 + :n % 3], "
+    "false, 1) RETURNING id",
 }
 # Tables with one row per owner (a unique key on ``owner_id`` alone): the own-insert control
 # first removes the context's own row, in the same rolled-back savepoint, or the planted row

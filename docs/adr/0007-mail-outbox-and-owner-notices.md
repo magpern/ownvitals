@@ -180,3 +180,11 @@ Architect's decisions on N4 and B2 of the reviews of the PR that made these edit
   kind, from §1's fixed list, so a caller can't choose a route. The Architect's decision on B2 of
   the #97 review (it makes the dedupe key's premise a requirement). Owned (user-facing) rows are
   unchanged and still take a route key from the fixed list.
+
+### 2026-11-12 (#459): email preferences and the one-click unsubscribe
+
+[ADR 0017](0017-email-preferences-and-unsubscribe.md) adds two functions to the family of §3,
+`mail_outbox_email_pref` (by a claimed row's id) and `email_unsubscribe` (the family's one function
+that takes an owner id, from a verified signed token; it can only switch a suppressible kind off),
+with column privileges on the new owned table `email_prefs`. §1 is unchanged: the row holds no
+preference, link or token.
