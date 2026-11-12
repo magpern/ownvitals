@@ -30,6 +30,7 @@ from ownvitals.auth.cookies import SESSION_COOKIE
 from ownvitals.auth.deps import require_admin_stepup, require_sensitive, require_stepup
 from ownvitals.context import UserContext
 from passkeytools import SoftAuthenticator
+from windowtools import clear_of_window
 
 # PLAN section 6's step-up list, and the actions ADR 0003 section 4 adds, each with the test
 # below that covers it. A new action goes here and gets its test.
@@ -288,6 +289,7 @@ async def test_a_step_up_rotates_the_session_and_is_audited(env: Env) -> None:
 
 
 async def test_step_up_attempts_are_rate_limited(env: Env, notifier: FakeNotifier) -> None:
+    await clear_of_window(300)
     browser = await signed_in(env)
     answers: list[Any] = []
     for _ in range(6):

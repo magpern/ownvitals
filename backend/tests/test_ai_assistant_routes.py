@@ -31,6 +31,7 @@ from flows import reason
 from ownvitals.ai.chat_model import CHAT_KIND
 from ownvitals.response_codes import AI
 from test_response_codes import assert_response_code
+from windowtools import clear_of_window
 
 SYNTHETIC = True
 SRC = Path(__file__).resolve().parent.parent / "src" / "ownvitals"
@@ -175,6 +176,7 @@ async def test_malformed_messages_are_refused(chat: ChatEnv) -> None:
 
 
 async def test_the_chat_limit_is_twenty_messages_an_hour(chat: ChatEnv) -> None:
+    await clear_of_window(3600)
     alice = await user(chat, "synthetic-route-k@example.com")
     conv = await conversation(chat, alice)
     for n in range(20):
@@ -256,6 +258,7 @@ def test_the_job_kind_is_the_consent_modules_ai_kind() -> None:
 
 
 async def test_creating_conversations_is_limited_to_thirty_an_hour(chat: ChatEnv) -> None:
+    await clear_of_window(3600)
     alice = await user(chat, "synthetic-route-conv-a@example.com")
     bob = await user(chat, "synthetic-route-conv-b@example.com")
     for n in range(30):
@@ -269,6 +272,7 @@ async def test_creating_conversations_is_limited_to_thirty_an_hour(chat: ChatEnv
 
 
 async def test_a_refused_creation_takes_no_slot_of_the_creation_limit(chat: ChatEnv) -> None:
+    await clear_of_window(3600)
     alice = await user(chat, "synthetic-route-conv-c@example.com")
     with settings_changed(chat, ai_insights=False):
         for _ in range(31):  # more refusals than the limit allows

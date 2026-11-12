@@ -26,6 +26,7 @@ from ownvitals.auth.notices import (
     notify_totp_removed,
     register_security_notifier,
 )
+from windowtools import clear_of_window
 
 VERIFY = "/api/auth/mfa/verify"
 STEPUP = "/api/auth/mfa/stepup"
@@ -238,6 +239,7 @@ async def test_failures_write_events_without_the_code_and_the_fifth_mails_once(
 async def test_the_sixth_failure_in_five_minutes_is_rate_limited(
     env: Env, make_actor: Any, clock: list[float]
 ) -> None:
+    await clear_of_window(300)
     _, _, _, user_id = await admin_with_totp(env, make_actor)
     actor = await make_actor(user_id)
     for _ in range(5):
@@ -261,6 +263,7 @@ async def test_successes_do_not_count_toward_the_limit(
 async def test_enrollment_failures_are_limited_too(
     env: Env, make_actor: Any, clock: list[float]
 ) -> None:
+    await clear_of_window(300)
     actor = await make_actor(await env.user())
     body = (await actor.post("/api/auth/mfa/totp/start")).json()
     payload = {"pending": body["pending"], "code": "000000"}

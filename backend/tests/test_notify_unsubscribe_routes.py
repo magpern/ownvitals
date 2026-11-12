@@ -32,6 +32,7 @@ from jobtools import admin_url, engine_for
 from ownvitals.auth.ratelimit import UNSUBSCRIBE_IP
 from ownvitals.notify import unsubscribe
 from ownvitals.notify.email_policy import SUPPRESSIBLE_KINDS
+from windowtools import clear_of_window
 
 PATH = "/api/unsubscribe"
 Prefs = set[tuple[uuid.UUID, str, bool, int]]
@@ -150,6 +151,7 @@ async def test_post_of_one_kind_leaves_the_other_kinds_on(env: Env) -> None:
 
 
 async def test_post_is_rate_limited(env: Env) -> None:
+    await clear_of_window(900)
     alice = await env.user("synthetic-unsub-g@example.test")
     for _ in range(UNSUBSCRIBE_IP.max_count):
         assert (await _post(env, "x" * 67))[0] == 200

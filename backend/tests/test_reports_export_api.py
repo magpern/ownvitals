@@ -27,6 +27,7 @@ from exporttools import (  # noqa: F401 - fixture
 from flows import age_reauth, reason
 from jobtools import admin_url
 from ownvitals.reports import export, export_archive, export_store
+from windowtools import clear_of_window
 
 SYNTHETIC = True
 
@@ -96,6 +97,7 @@ async def test_one_export_builds_at_a_time(xenv: Env) -> None:
 
 
 async def test_three_requests_a_day_then_429(xenv: Env, app_database_url: str) -> None:
+    await clear_of_window(86400)
     browser = await exporter(xenv)
     for _ in range(3):
         assert (await request_export(browser)).status_code == 202

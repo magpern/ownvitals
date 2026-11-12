@@ -26,6 +26,7 @@ from passkeytools import (
     sign_in,
     signin_options,
 )
+from windowtools import clear_of_window
 
 EMAIL = "user@example.com"
 
@@ -215,6 +216,7 @@ async def test_failures_count_in_the_sign_in_buckets_and_a_success_releases_them
 
 
 async def test_sign_in_options_are_limited_per_ip(env: Env) -> None:
+    await clear_of_window(600)
     limit = ratelimit.PASSKEY_OPTIONS_IP
     assert (limit.action, limit.scope, limit.max_count, limit.window_seconds) == (
         "passkey-options",

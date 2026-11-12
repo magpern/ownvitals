@@ -28,6 +28,7 @@ from qrtools import (
     start,
     unavailable,
 )
+from windowtools import clear_of_window
 
 
 async def scanned(env: Env, mobile: QrBrowser) -> str:
@@ -107,6 +108,7 @@ async def test_no_code_is_checked_for_a_row_that_cannot_be_approved(env: Env) ->
 
 
 async def test_approvals_are_limited_to_three_an_hour_per_account(env: Env) -> None:
+    await clear_of_window(3600)
     mobile = await phone(env)
     for _ in range(3):
         qr_id = await scanned(env, mobile)
@@ -119,6 +121,7 @@ async def test_approvals_are_limited_to_three_an_hour_per_account(env: Env) -> N
 
 
 async def test_scans_are_limited_to_ten_in_ten_minutes_per_account(env: Env) -> None:
+    await clear_of_window(600)
     mobile = await phone(env)
     for _ in range(10):
         answer = await mobile.post(f"{BASE}/scan", {"nonce": "A" * 43})
@@ -131,6 +134,7 @@ async def test_scans_are_limited_to_ten_in_ten_minutes_per_account(env: Env) -> 
 
 @pytest.mark.parametrize("family", ["ipv4", "ipv6"])
 async def test_starts_are_limited_to_twenty_in_ten_minutes_per_ip(env: Env, family: str) -> None:
+    await clear_of_window(600)
     first, neighbour, other = (
         ("198.51.100.40", "198.51.100.40", "198.51.100.41")
         if family == "ipv4"
@@ -148,6 +152,7 @@ async def test_the_start_limit_key_is_not_spoofable(
 ) -> None:
     """With no trusted proxy, ``X-Forwarded-For`` and ``CF-Connecting-IP`` are ignored and the
     bucket is the peer (ADR 0003 section 8, the #165 item b): changing them changes nothing."""
+    await clear_of_window(600)
     async with running_env(app_database_url, trusted_proxies="") as env:
         for i in range(21):
             answer = await env.client.post(
