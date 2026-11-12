@@ -21,7 +21,7 @@ The maint role's password, compose, `db-functions`, the `Dockerfile` and CI are 
 | `backend/src/ownvitals/admin/audit.py` | the action codes, each action's `params` model, the refusal and request limiters |
 | `backend/src/ownvitals/admin/routes.py` | `admin_gate`, `admin_router()`, `install(app)` (handlers, body limit) |
 | `backend/src/ownvitals/admin/route_guard.py` | the route guard's helpers (`admin_area_routes`, `gate_problems`) |
-| `backend/src/ownvitals/admin/anomaly_routes.py` | `GET /api/admin/anomalies` (#461, ADR 0018): the abuse view, behind the gate **and** a step-up (a read of other people's accounts), audited as `anomaly.list`, read through the definer `admin_session_anomalies` of `70-admin-accounts.sql`, which refuses without that transaction's `ok` row; never an address |
+| `backend/src/ownvitals/admin/anomaly_routes.py` | `GET /api/admin/anomalies` (#461, ADR 0020): the abuse view, behind the gate **and** a step-up (a read of other people's accounts), audited as `anomaly.list`, read through the definer `admin_session_anomalies` of `70-admin-accounts.sql`, which refuses without that transaction's `ok` row; never an address |
 | `backend/src/ownvitals/admin/audit_routes.py`, `settings.py`, `jobs.py` | `GET /api/admin/audit`; `GET`, `PUT`, `DELETE /api/admin/settings[/{key}]`; `GET /api/admin/jobs` |
 | `backend/src/ownvitals/flags/` | `core` (keys, validation, stricter wins), `effective` (per request, from `app_settings`), `routes` (`GET /api/settings/public`) |
 | `backend/tests/test_maint_privileges.py` | guard 11: maint's exact allowlist, its secret-column and forbidden-table registry, append-only |

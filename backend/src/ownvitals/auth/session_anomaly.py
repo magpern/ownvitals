@@ -1,4 +1,4 @@
-"""The session anomaly signal in the session check (#461, ADR 0018).
+"""The session anomaly signal in the session check (#461, ADR 0020).
 
 ``deps.resolve_request`` calls ``observe`` once per request whose session cookie resolved to a
 valid session. In one ``system_session`` transaction it
@@ -18,7 +18,7 @@ signal codes and the user and session ids. Never the address (not even in part),
 ``User-Agent`` string, the place, a token or a cookie.
 
 **It is only a signal**: nothing here signs a session out, refuses a request or changes what the
-session may do (ADR 0018 section 3).
+session may do (ADR 0020 section 3).
 """
 
 import logging

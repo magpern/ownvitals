@@ -1,4 +1,4 @@
-"""The admin abuse view (#461, ADR 0018): ``GET /api/admin/anomalies``.
+"""The admin abuse view (#461, ADR 0020): ``GET /api/admin/anomalies``.
 
 Refused without the admin gate (``test_admin_routes_guard`` covers every kind of caller) and,
 although a read, without a step-up within the admin window; the refusal is audited. Past both,

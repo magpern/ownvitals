@@ -59,7 +59,7 @@ SAMPLES: dict[tuple[str, str], tuple[str, Any]] = {
     ),
 }
 SAFE = {"GET", "HEAD"}
-# Reads that show other people's accounts and so need a step-up too (#461, ADR 0018).
+# Reads that show other people's accounts and so need a step-up too (#461, ADR 0020).
 STEPUP_READS = {("GET", "/api/admin/anomalies")}
 
 

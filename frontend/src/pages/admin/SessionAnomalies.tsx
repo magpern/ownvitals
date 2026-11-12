@@ -7,7 +7,7 @@ import { Cancelled, useProtected } from '../../components/StepUp'
 import { Button } from '../../components/ui/Button'
 import { isMessageKey, t as translate, useT } from '../../i18n'
 
-// The admin abuse view (issue 461, ADR 0018): the session anomalies of the last 30 days across
+// The admin abuse view (issue 461, ADR 0020): the session anomalies of the last 30 days across
 // accounts. A read of other people's accounts, so it needs a fresh code (the step-up dialog) and
 // loads only when the admin asks. Nothing here signs anyone out: the admin acts from Accounts.
 

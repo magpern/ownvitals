@@ -24,7 +24,7 @@
 -- raises bad_context. It then takes the target's users row FOR NO KEY UPDATE (the lock order of
 -- ownvitals/auth/userlock.py), refuses an admin target, and returns an outcome: 'ok',
 -- 'not_found', 'target_is_admin' or 'email_mismatch'. Nothing else leaves it: no address, no
--- hash, no token. admin_session_anomalies (#461, ADR 0018) checks the same way for its action
+-- hash, no token. admin_session_anomalies (#461, ADR 0020) checks the same way for its action
 -- anomaly.list (target_user_id NULL) and returns rows of the abuse view only (see its comment).
 --
 -- The role has no BYPASSRLS: it touches system tables only (users, sessions, auth_events,
@@ -433,7 +433,7 @@ BEGIN
 END
 $fn$;
 
--- The admin abuse view (#461, ADR 0018): the session_anomaly events of the last 30 days across
+-- The admin abuse view (#461, ADR 0020): the session_anomaly events of the last 30 days across
 -- every user, newest first, at most p_limit (1 to 101) of them, after the cursor
 -- (p_before_at, p_before_id) when one is given (both or neither). Only inside the transaction
 -- that holds this admin's ok anomaly.list row, as the account functions are. Each row: the

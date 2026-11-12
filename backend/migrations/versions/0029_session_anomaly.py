@@ -1,4 +1,4 @@
-"""accounts: the session anomaly signal's per-session state (#461, ADR 0018)
+"""accounts: the session anomaly signal's per-session state (#461, ADR 0020)
 
 Revision ID: 0029_session_anomaly
 Revises: 0028_chart_range_7d

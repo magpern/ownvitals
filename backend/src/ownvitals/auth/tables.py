@@ -105,7 +105,7 @@ sessions = Table(
     Column("mfa_by_approval", Boolean, nullable=False, server_default="false"),
     Column("approved_factor", Text),
     Column("approved_by_session_id", UUID(as_uuid=True)),
-    # The session anomaly signal (ADR 0018; migration 0029_session_anomaly, #461).
+    # The session anomaly signal (ADR 0020; migration 0029_session_anomaly, #461).
     _ts("seen_window_at"),
     Column("seen_count", Integer, nullable=False, server_default="0"),
     Column("seen_country", Text),

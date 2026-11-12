@@ -1,4 +1,4 @@
-"""The session anomaly signal in the session check (#461, ADR 0018; ``auth/session_anomaly.py``).
+"""The session anomaly signal in the session check (#461, ADR 0020; ``auth/session_anomaly.py``).
 
 A scripted replay of a session from another network with another browser writes exactly one
 ``session_anomaly`` event however many requests it makes, the user sees it in their activity, and
