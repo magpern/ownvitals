@@ -19,6 +19,12 @@ signal codes and the user and session ids. Never the address (not even in part),
 
 **It is only a signal**: nothing here signs a session out, refuses a request or changes what the
 session may do (ADR 0020 section 3).
+
+**It fails open**: any error of its transaction (a lock or statement timeout, a deadlock, a lost
+connection) rolls that whole transaction back, so no counter, flag or event is half written, and
+is logged as one WARNING (``session anomaly check failed``, with the error's class and SQLSTATE
+only). The request then goes on with its resolution unchanged: every auth check ran before the
+hook and none depends on it.
 """
 
 import logging
@@ -37,10 +43,12 @@ from ownvitals.auth.session_anomaly_policy import Request as Seen
 from ownvitals.auth.tables import sessions, users
 from ownvitals.config import Settings
 from ownvitals.db import system_session
+from ownvitals.log import describe_database_error, find_database_error
 
 logger = logging.getLogger("ownvitals.auth.anomaly")
 
 LOG_MESSAGE: Final = "session anomaly"
+FAILED_MESSAGE: Final = "session anomaly check failed"
 _COUNTRY: Final = re.compile(r"[A-Z0-9]{2}")  # ``geo``'s country code, the column's check
 
 
@@ -61,12 +69,20 @@ async def observe(
     request: Request, session_id: UUID, user_id: UUID, ip: str | None
 ) -> Verdict | None:
     """Score this request against its session and record the first anomaly (module docstring).
-    None when the session went meanwhile."""
+    None when the session went meanwhile or the check failed (it fails open)."""
     settings: Settings = request.app.state.settings
     factory: async_sessionmaker[AsyncSession] = request.app.state.session_factory
     country = country_of(geo.place(request, settings))
-    async with system_session(factory) as db:
-        verdict = await _observe(db, session_id, user_id, ip, _agent(request), country)
+    try:
+        async with system_session(factory) as db:  # rolled back whole if anything raises
+            verdict = await _observe(db, session_id, user_id, ip, _agent(request), country)
+    except Exception as exc:  # fail open (ADR 0020 section 3): the class and SQLSTATE only
+        database = find_database_error(exc)
+        logger.warning(
+            FAILED_MESSAGE,
+            extra={"error": describe_database_error(database) if database else type(exc).__name__},
+        )
+        return None
     if verdict is not None and verdict.record:
         logger.warning(
             LOG_MESSAGE,

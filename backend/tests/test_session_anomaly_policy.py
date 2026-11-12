@@ -141,3 +141,13 @@ def test_a_flagged_session_is_not_recorded_again() -> None:
     again = assess(replace(history, flagged=True), seen)
     assert again.signals == policy.SIGNALS
     assert not again.record
+
+
+def test_tor_is_a_country_of_its_own() -> None:
+    """Cloudflare's ``T1``: a session that moves onto Tor (or off it) changes country."""
+    assert assess(replace(HISTORY, country="SE"), replace(SAME, country="T1")).signals == (
+        policy.COUNTRY_CHANGE,
+    )
+    assert assess(replace(HISTORY, country="T1"), replace(SAME, country="SE")).signals == (
+        policy.COUNTRY_CHANGE,
+    )

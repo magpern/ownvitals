@@ -23,7 +23,7 @@ passed in). Three signals, each a code:
 |---|---|---|
 | `new_ip_and_agent` | the address is on another network than the session's (`clientip.same_network`: another IPv4 address, or another IPv6 /64) **and** the browser or OS family differs (`useragent.describe`) | both together; either alone is ordinary (roaming, a browser update) |
 | `request_rate` | more requests in one fixed window of the session than a person makes | more than **300 per 60 s** (`RATE_LIMIT`, `RATE_WINDOW`) |
-| `country_change` | the country differs from the one the session's first request came from | only with a geo source; with `geo_source = none` every country is unknown and it never fires; `XX` is unknown |
+| `country_change` | the country differs from the one the session's first request came from | only with a geo source; with `geo_source = none` every country is unknown and it never fires; `XX` is unknown; Cloudflare's `T1` (Tor) is a country of its own, so a session that moves onto or off Tor counts as a country change |
 
 An unknown value on either side is never a change. The thresholds are constants in the policy
 module, not settings: changing one is a reviewed PR. 300 per minute is far above what the SPA
@@ -48,6 +48,13 @@ measured on real traffic. The user sees the event in "Recent security activity" 
 the device out or sign out everywhere; the admin sees it in the abuse view and can disable the
 account. Automatic sign-out is a reversible later step (a new ADR) once the signal's false
 positive rate is known.
+
+**The hook fails open.** Any error of its own transaction (a lock or statement timeout, a
+deadlock, a lost connection) is caught around the hook alone: the transaction rolls back whole,
+so no counter, flag or event is half written; one WARNING (`session anomaly check failed`, the
+error's class and SQLSTATE only, never an address, token or cookie) is logged; and the request
+goes on with its normal resolution. A signal must never turn a valid request into a 500, and
+nothing it skips is a check: every auth check runs before the hook and none depends on it.
 
 **4. The security log.** The event is shown to its user (`activity_model.SHOWN`, worded in
 `i18n/*/security.ts`). One WARNING line on `ownvitals.auth.anomaly` follows the commit, with the

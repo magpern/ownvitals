@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from authtools import (  # noqa: F401 - fixtures
     Env,
@@ -23,10 +24,18 @@ from authtools import (  # noqa: F401 - fixtures
     env_fixture,
     session_cookie,
 )
+from ownvitals.auth import session_anomaly
 from ownvitals.auth.cookies import SESSION_COOKIE
-from ownvitals.auth.session_anomaly import LOG_MESSAGE, country_of, logger
+from ownvitals.auth.session_anomaly import FAILED_MESSAGE, LOG_MESSAGE, country_of, logger
 from ownvitals.auth.session_anomaly_policy import RATE_LIMIT
 from ownvitals.log import JsonFormatter
+
+
+class _LockTimeout(Exception):
+    """A driver error with a SQLSTATE, as psycopg's lock timeout carries it."""
+
+    sqlstate = "55P03"
+
 
 HERE = "127.0.0.1"  # the test client's address
 ISSUED_TO = "198.51.100.231"  # where the session was signed in: another network
@@ -154,6 +163,51 @@ async def test_an_anonymous_or_unknown_cookie_is_not_scored(env: Env) -> None:
     assert (await env.client.get("/api/auth/session")).status_code == 200
     assert (await _get(env, "not-a-session-token", SCRIPT)).status_code == 200
     assert await _anomalies(env) == []
+
+
+@pytest.mark.parametrize(
+    ("error", "logged"),
+    [
+        pytest.param(
+            OperationalError("SELECT", {}, _LockTimeout("planted 198.51.100.231")),
+            "OperationalError (SQLSTATE 55P03)",
+            id="lock-timeout",
+        ),
+        pytest.param(RuntimeError("planted 198.51.100.231"), "RuntimeError", id="other"),
+    ],
+)
+async def test_a_failing_check_fails_open_and_writes_nothing(
+    env: Env,
+    monkeypatch: pytest.MonkeyPatch,
+    logs: pytest.LogCaptureFixture,
+    error: Exception,
+    logged: str,
+) -> None:
+    """The hook's transaction raises after it wrote its event: the request still gets its
+    normal answer, the transaction rolled back whole (no event, no flag, no counter), and one
+    WARNING names the error's class and SQLSTATE only."""
+    real = session_anomaly._observe  # pyright: ignore[reportPrivateUsage]
+
+    async def failing(db: Any, *args: Any) -> Any:
+        await real(db, *args)  # the event and the session's state are written ...
+        raise error  # ... and then the transaction fails
+
+    monkeypatch.setattr(session_anomaly, "_observe", failing)
+    user_id = await env.user()
+    issued = await env.full_login(user_id, ip=ISSUED_TO)
+    response = await _get(env, issued.token, SCRIPT)
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["authenticated"], body["user"]["id"]) == (True, str(user_id))
+    assert await _anomalies(env) == []
+    row = await env.row("SELECT seen_count, anomaly_at FROM sessions WHERE id = :i", i=issued.id)
+    assert tuple(row) == (0, None)
+    lines = [r for r in logs.records if r.name == logger.name]
+    assert [(r.levelno, r.getMessage()) for r in lines] == [(logging.WARNING, FAILED_MESSAGE)]
+    line = logs.handler.format(lines[0])
+    assert json.loads(line)["error"] == logged
+    for planted in (issued.token, SESSION_COOKIE, "198.51.100", "127.0.0", "planted"):
+        assert planted not in line
 
 
 @pytest.mark.parametrize(

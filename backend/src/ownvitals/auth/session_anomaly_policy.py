@@ -15,7 +15,8 @@ signals, each a code:
   far below it; a script replaying the cookie does not.
 - ``country_change``: the country differs from the one the session first came from. Only with
   a geo source (``geo_source = cloudflare``); with the default ``none`` every country is
-  unknown and this signal never fires. ``XX`` (Cloudflare's "unknown") is unknown too.
+  unknown and this signal never fires. ``XX`` (Cloudflare's "unknown") is unknown too;
+  ``T1`` (Cloudflare's Tor) is a country of its own, so moving onto or off Tor is a change.
 
 It is only a signal. ``assess`` never signs anyone out: the caller records one
 ``session_anomaly`` event per session, the first time any signal fires (``record``), and
