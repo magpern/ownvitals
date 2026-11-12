@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.analysis.daily import DailyMethod, DailyValue
+from ownvitals.analysis.scores.his_inputs import pick_height
 from ownvitals.config import Settings
 from ownvitals.derived.daily_db import read_day_tz
 from ownvitals.derived.findings_gather import today_in_zone
@@ -54,6 +55,15 @@ _POINTS = text(
 _BEHIND_POINTS = text(
     "SELECT count(*) FROM observations WHERE owner_id = :o AND source_type IS NULL "
     "AND metric_key LIKE :pattern AND input_revision <> :r"
+)
+_HEIGHT = text(
+    "SELECT ts, value FROM observations WHERE owner_id = :o AND metric_key = 'height' "
+    "AND NOT (quality_flags && ARRAY['unconfirmed','implausible','duplicate']) "
+    "ORDER BY ts DESC, source_grpid DESC NULLS LAST LIMIT 50"
+)
+_BEHIND_HEIGHT = text(
+    "SELECT count(*) FROM observations WHERE owner_id = :o "
+    "AND metric_key = 'height' AND input_revision <> :r"
 )
 _LATEST_ZONE = text(
     "SELECT source_tz FROM observations WHERE owner_id = :o "
@@ -132,6 +142,7 @@ async def gather(
         stale += (
             await db.execute(_BEHIND_POINTS, {"o": owner, "pattern": pattern, "r": revision})
         ).scalar_one()
+    stale += (await db.execute(_BEHIND_HEIGHT, {"o": owner, "r": revisions[0]})).scalar_one()
     if stale:
         return Skipped("behind")
     day_tz = await read_day_tz(db, owner)
@@ -140,6 +151,9 @@ async def gather(
     daily = _daily((await db.execute(_DAILY, {"o": owner, "keys": keys})).all())
     points = _points(
         (await db.execute(_POINTS, {"o": owner, "keys": list(OBSERVATION_KEYS)})).all(), day_tz
+    )
+    height, height_rejected = pick_height(
+        (r.ts.isoformat(), float(r.value)) for r in (await db.execute(_HEIGHT, {"o": owner})).all()
     )
     latest = (await db.execute(_LATEST_ZONE, {"o": owner})).first()
     inputs = ScoreInputs(
@@ -153,6 +167,8 @@ async def gather(
         table_digest=table.digest,
         experimental=experimental,
         day_tz=day_tz,
+        height=height,
+        height_rejected=height_rejected,
     )
     return Gathered(revisions, fingerprint(inputs, revisions), inputs)
 

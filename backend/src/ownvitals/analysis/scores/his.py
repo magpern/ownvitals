@@ -13,9 +13,10 @@ from itertools import pairwise
 from typing import Any, Final
 
 from ownvitals.analysis.scores import ScoreResult, Status, result, round_half_up
+from ownvitals.analysis.scores.his_reasons import vertical_reasons
 from ownvitals.analysis.scores.his_table import VERTICALS, BandRow, BandTable, Side
 
-ALGO_VERSION: Final = "his/1"
+ALGO_VERSION: Final = "his/2"
 KIND: Final = "his"
 MIN_VERTICALS: Final = 2
 
@@ -121,6 +122,9 @@ def evaluate_his(
     components: dict[str, Any] = {
         "criteria": criteria,
         "verticals": {v: None if s is None else round_half_up(s) for v, s in verticals.items()},
+        "vertical_reasons": vertical_reasons(
+            {r.criterion: r.vertical for r in table.rows}, criteria, verticals
+        ),
         "table": {"id": table.table_id, "version": table.version, "source": table.source},
         "text_key": "score.his.how",
         "disclaimer_key": "score.his.not_medical",

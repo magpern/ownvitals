@@ -19,19 +19,23 @@ describe('decodeHisScore', () => {
       scores: [
         {
           kind: 'his',
-          algo_version: 'his/1',
+          algo_version: 'his/2',
           status: 'computed',
           value: 71,
-          components: { verticals: { body: 78, sleep: null } },
+          components: {
+            verticals: { body: 78, sleep: null },
+            vertical_reasons: { body: null, sleep: 'insufficient_data', heart: '', activity: 7 },
+          },
         },
       ],
     })
     expect(his).toEqual({
-      algoVersion: 'his/1',
+      algoVersion: 'his/2',
       status: 'computed',
       value: 71,
       reason: null,
       areas: { body: 78, heart: null, activity: null, sleep: null },
+      areaReasons: { body: null, heart: null, activity: null, sleep: 'insufficient_data' },
     })
   })
 
@@ -40,7 +44,7 @@ describe('decodeHisScore', () => {
       scores: [
         {
           kind: 'his',
-          algo_version: 'his/1',
+          algo_version: 'his/2',
           status: 'not_set',
           value: null,
           components: { reason: 'no_band_table' },

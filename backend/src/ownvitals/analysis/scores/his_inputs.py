@@ -6,6 +6,7 @@ without a record is never 0: it is simply not a point. Inputs are the quality-ga
 readings, ``attrib=1`` excluded, chosen by the caller.
 """
 
+import math
 from collections.abc import Iterable, Sequence
 from datetime import date, timedelta
 from statistics import median
@@ -64,9 +65,29 @@ def median_criterion(
     return _done(float(median(values)), unit, day, days, len(values))
 
 
-def bmi(weight: Iterable[Point], height_m: float | None, day: date) -> CriterionInput:
-    if height_m is None or height_m <= 0:
-        return CriterionInput(Status.NOT_AVAILABLE, unit="kg/m2", reason="no_height")
+# Height in metres: an engineering bound, not a health range. Inclusive; a value outside it (or not
+# finite) is a typo or a unit mix-up and is never used.
+HEIGHT_M_MIN: Final = 0.5
+HEIGHT_M_MAX: Final = 2.6
+
+
+def pick_height(candidates: Iterable[tuple[str, float]]) -> tuple[tuple[str, float] | None, bool]:
+    """``(newest in-bound height, any rejected)`` from confirmed heights, newest first. A bad newer
+    reading never hides a good older one; ``rejected`` says an out-of-bound one existed."""
+    rejected = False
+    for when, metres in candidates:
+        if math.isfinite(metres) and HEIGHT_M_MIN <= metres <= HEIGHT_M_MAX:
+            return (when, metres), rejected
+        rejected = True
+    return None, rejected
+
+
+def bmi(
+    weight: Iterable[Point], height_m: float | None, day: date, height_rejected: bool = False
+) -> CriterionInput:
+    if height_m is None:
+        reason = "implausible_height" if height_rejected else "no_height"
+        return CriterionInput(Status.NOT_AVAILABLE, unit="kg/m2", reason=reason)
     c = median_criterion(weight, day, days=30, minimum=4, unit="kg/m2")
     if c.status is not Status.COMPUTED or c.value is None:
         return c

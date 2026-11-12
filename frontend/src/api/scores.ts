@@ -11,7 +11,7 @@ export type HisArea = (typeof HIS_AREAS)[number]
 export interface HisScore {
   /** `computed`, `insufficient_data`, `not_available`, `not_supported` or `not_set`. */
   status: string
-  /** The algorithm version, `his/1`. */
+  /** The algorithm version, `his/2`. */
   algoVersion: string
   /** Set only when computed. */
   value: number | null
@@ -19,6 +19,9 @@ export interface HisScore {
   reason: string | null
   /** Each area's integer score, or `null` for "n/a". */
   areas: Record<HisArea, number | null>
+  /** Why an area has no score, a code from the server (G4: never a sentence); `null` when it has
+   * a score or the server sent none. The card words the code, an unknown one generically. */
+  areaReasons: Record<HisArea, string | null>
 }
 
 function areaScore(verticals: JsonObject, key: string): number | null {
@@ -26,10 +29,16 @@ function areaScore(verticals: JsonObject, key: string): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
+function areaReason(reasons: JsonObject, key: string): string | null {
+  const v = reasons[key]
+  return typeof v === 'string' && v !== '' ? v : null
+}
+
 function decodeHis(entry: JsonObject): HisScore {
   const raw = entry.value
   const components = isObject(entry.components) ? entry.components : {}
   const verticals = isObject(components.verticals) ? components.verticals : {}
+  const reasons = isObject(components.vertical_reasons) ? components.vertical_reasons : {}
   return {
     status: text(entry, 'status'),
     algoVersion: text(entry, 'algo_version'),
@@ -40,6 +49,12 @@ function decodeHis(entry: JsonObject): HisScore {
       heart: areaScore(verticals, 'heart'),
       activity: areaScore(verticals, 'activity'),
       sleep: areaScore(verticals, 'sleep'),
+    },
+    areaReasons: {
+      body: areaReason(reasons, 'body'),
+      heart: areaReason(reasons, 'heart'),
+      activity: areaReason(reasons, 'activity'),
+      sleep: areaReason(reasons, 'sleep'),
     },
   }
 }

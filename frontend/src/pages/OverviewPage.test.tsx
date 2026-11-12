@@ -25,7 +25,7 @@ function fakeScore(o: { status?: string; value?: number | null; reason?: string 
     value: o.value === undefined ? 71 : o.value,
     tier: 'experimental',
     stale: false,
-    algo_version: 'his/1',
+    algo_version: 'his/2',
     how_key: 'score.his.how',
     components: {
       synthetic: true,
@@ -161,7 +161,7 @@ describe('the overview: tiles', () => {
     open('/overview', { scores: [fakeScore({})] })
     const card = (await screen.findByText('Health score')).closest('.ov-card') as HTMLElement
     expect(within(card).getByText('71', { selector: '.ov-sr' })).toBeInTheDocument()
-    expect(within(card).getByText('ownvitals 1.0')).toBeInTheDocument()
+    expect(within(card).getByText('ownvitals 2.0')).toBeInTheDocument()
     expect(card).toHaveClass('ov-card--experimental')
     expect(within(card).getByText(/Body 78 · Heart 70 · Activity 64 · Sleep n\/a/)).toBeInTheDocument()
   })
