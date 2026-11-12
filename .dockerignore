@@ -15,4 +15,7 @@ frontend/dist-public
 docs
 # The mock-ups the public build copies (scripts/build-public.mjs reads ../docs/design/mockups/png).
 !docs/design/mockups/png
+# The legal drafts the public build renders when the legal gate is open (frontend/src/public/legalPages.ts).
+!docs/legal
 *.md
+!docs/legal/*.md

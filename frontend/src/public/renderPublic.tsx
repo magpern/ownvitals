@@ -18,6 +18,8 @@ export interface RenderOptions {
   origin: string
   /** The URL of the one stylesheet the build emits. */
   stylesheet: string
+  /** True for a build that passed the legal gate (footer links); the legal pages themselves are chosen by site.ts. */
+  legal?: boolean
 }
 
 const CATALOGUES: Record<Locale, Catalogue> = { en: EN, sv: SV }
@@ -34,7 +36,7 @@ function dataBlock(json: string): string {
   return `<script type="application/ld+json">${json}</script>`
 }
 
-export function renderPublicPage({ page, locale, origin, stylesheet }: RenderOptions): string {
+export function renderPublicPage({ page, locale, origin, stylesheet, legal = false }: RenderOptions): string {
   const t = textFor(locale)
   const meta = pageMeta(page, locale, origin, t)
   const markup = renderToStaticMarkup(
@@ -65,7 +67,7 @@ export function renderPublicPage({ page, locale, origin, stylesheet }: RenderOpt
         <link rel="stylesheet" href={stylesheet} />
       </head>
       <body className="pub">
-        <PublicBody page={page} locale={locale} t={t} />
+        <PublicBody page={page} locale={locale} t={t} legal={legal} />
       </body>
     </html>,
   )

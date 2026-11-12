@@ -1,7 +1,8 @@
 import { INTL_TAG, type Locale } from '../i18n/locale'
 import type { MessageKey } from '../i18n/en'
 import { PUBLIC_IMAGES, imageUrl } from './images'
-import { alternates, publicPath, type PublicPage } from './routes'
+import { legalDescription, legalTitle } from './legalPages'
+import { alternates, isLegalPage, publicPath, type PublicPage } from './routes'
 
 // What goes in the <head> of a public page (ADR 0016 section 3). Pure: text and the canonical
 // origin are passed in. The origin is a build setting, never taken from a request.
@@ -42,8 +43,8 @@ export function pageMeta(page: PublicPage, locale: Locale, origin: string, t: Te
   const canonical = `${base}${publicPath(page, locale)}`
   const share = PUBLIC_IMAGES[0]
   const image = `${base}${imageUrl(share?.light ?? '')}`
-  const description = t(page === 'home' ? 'site.meta.home.description' : 'site.meta.features.description')
-  const title = t(page === 'home' ? 'site.meta.home.title' : 'site.meta.features.title')
+  const description = isLegalPage(page) ? legalDescription(page, locale) : t(page === 'home' ? 'site.meta.home.description' : 'site.meta.features.description')
+  const title = isLegalPage(page) ? `${legalTitle(page, locale)}: ownvitals` : t(page === 'home' ? 'site.meta.home.title' : 'site.meta.features.title')
   const jsonLd = safeJson({
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',

@@ -26,6 +26,8 @@ RUN npm run build
 # The public build copies the owner-approved mock-ups from ../docs/design/mockups/png, which is
 # /docs/... here (WORKDIR /spa); .dockerignore lets exactly this folder through.
 COPY docs/design/mockups/png /docs/design/mockups/png
+# The legal drafts (/docs/legal here), read only by a build that passes the legal gate.
+COPY docs/legal /docs/legal
 ARG OWNVITALS_PUBLIC_ORIGIN=https://ownvitals.eu
 ARG OWNVITALS_PUBLIC_LEGAL_APPROVED
 RUN npm run build:public

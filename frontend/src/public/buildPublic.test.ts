@@ -129,15 +129,44 @@ describe('the legal gate fails closed', () => {
     for (const value of [undefined, '', 'TRUE', 'True', '1', 'yes', 'false', ' true', 'true ']) {
       expect(legalApproved(value), String(value)).toBe(false)
     }
-    // Today no legal page exists yet, so either way the set is the two pages; the gate is the
-    // only way the legal issue's pages can join it.
     expect(builtPages(false)).toEqual(['home', 'features'])
+    expect(builtPages(true)).toEqual(['home', 'features', 'security', 'privacy', 'terms', 'cookies'])
   })
 
   it('leaves the output unchanged for any other value of the flag', () => {
-    const { out, result } = run({ OWNVITALS_PUBLIC_ORIGIN: ORIGIN, OWNVITALS_PUBLIC_LEGAL_APPROVED: 'yes' })
+    for (const value of ['yes', 'True', '1', ' true']) {
+      const { out, result } = run({ OWNVITALS_PUBLIC_ORIGIN: ORIGIN, OWNVITALS_PUBLIC_LEGAL_APPROVED: value })
+      expect(result.status, value).toBe(0)
+      expect(listing(out).sort(), value).toEqual(builtPaths(ORIGIN, false).sort())
+      const sitemap = readFileSync(join(out, 'sitemap.xml'), 'utf8')
+      expect(sitemap, value).not.toMatch(/privacy|terms|cookies|\/security/)
+      expect(readFileSync(join(out, 'index.html'), 'utf8'), value).not.toMatch(/href="[^"]*\/(privacy|terms|security|cookies)"/)
+    }
+  }, 240_000)
+
+  it('builds both languages of the four legal pages for exactly true, and no more', () => {
+    const { out, result } = run({ OWNVITALS_PUBLIC_ORIGIN: ORIGIN, OWNVITALS_PUBLIC_LEGAL_APPROVED: 'true' })
     expect(result.status).toBe(0)
-    expect(listing(out).sort()).toEqual(builtPaths(ORIGIN, false).sort())
+    expect(listing(out).sort()).toEqual(builtPaths(ORIGIN, true).sort())
+    const pages = listing(out).filter((path) => path.endsWith('index.html'))
+    for (const name of ['privacy', 'terms', 'security', 'cookies']) {
+      expect(pages).toContain(`${name}/index.html`)
+      expect(pages).toContain(`sv/${name}/index.html`)
+    }
+    const sitemap = readFileSync(join(out, 'sitemap.xml'), 'utf8')
+    const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1])
+    expect(locs).toContain(`${ORIGIN}/cookies`)
+    expect(locs).toContain(`${ORIGIN}/sv/cookies`)
+    expect(locs).toHaveLength(12)
+    expect(readFileSync(join(out, 'robots.txt'), 'utf8').split('\n').filter((line) => /^disallow/i.test(line))).toEqual(['Disallow: /api/'])
+    for (const path of pages) {
+      const html = readFileSync(join(out, path), 'utf8')
+      expect([...html.matchAll(/<script\b[^>]*>/g)].map((match) => match[0]), path).toEqual(['<script type="application/ld+json">'])
+      expect(html, path).not.toMatch(/document\.cookie|<iframe|<form|<style|\sstyle=|\son[a-z]+=/i)
+      for (const url of html.matchAll(/(?:href|src|srcSet|content)="(https?:\/\/[^"]+)"/g)) {
+        expect(url[1]?.startsWith(ORIGIN), `${path} ${url[1]}`).toBe(true)
+      }
+    }
   }, 120_000)
 
   it('is set in no committed file (a workflow may pass the owner\'s repository variable)', () => {

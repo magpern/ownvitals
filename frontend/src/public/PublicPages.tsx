@@ -3,7 +3,9 @@ import type { MessageKey } from '../i18n/en'
 import { LOCALES, LOCALE_NAMES, type Locale } from '../i18n/locale'
 import { Mockup, StatStrip, Steps } from './PublicLively'
 import { PUBLIC_IMAGES, imageUrl } from './images'
-import { APP_LINKS, publicPath, type PublicPage } from './routes'
+import { LegalBody } from './LegalBody'
+import { legalTitle } from './legalPages'
+import { APP_LINKS, isLegalPage, publicPath, type LegalPage, type PublicPage } from './routes'
 
 // The body of the public pages: plain elements and ordinary links, no script, no `style`
 // attribute (ADR 0016 section 5). Text comes from the catalogue through `t`.
@@ -19,9 +21,13 @@ interface Props {
   page: PublicPage
   locale: Locale
   t: Text
+  /** True only in a build that passed the legal gate: the footer then links the legal pages. */
+  legal: boolean
 }
 
-function Header({ page, locale, t }: Props) {
+const LEGAL_LINKS: readonly LegalPage[] = ['privacy', 'terms', 'security', 'cookies']
+
+function Header({ page, locale, t }: Omit<Props, 'legal'>) {
   const current = (target: PublicPage) => (target === page ? 'page' : undefined)
   return (
     <header className="pub-header">
@@ -41,11 +47,20 @@ function Header({ page, locale, t }: Props) {
   )
 }
 
-function Footer({ page, locale, t }: Props) {
+function Footer({ page, locale, t, legal }: Props) {
   return (
     <footer className="pub-footer">
       <p>{t('site.footer.disclaimer')}</p>
       <p>{t('site.footer.nocookies')}</p>
+      {legal ? (
+        <nav aria-label={t('site.footer.legal')}>
+          {LEGAL_LINKS.map((target) => (
+            <a key={target} href={publicPath(target, locale)} aria-current={target === page ? 'page' : undefined}>
+              {legalTitle(target, locale)}
+            </a>
+          ))}
+        </nav>
+      ) : null}
       <nav aria-label={t('site.nav.language')}>
         {LOCALES.map((code) => (
           <a key={code} href={publicPath(page, code)} lang={code} hrefLang={code} aria-current={code === locale ? 'true' : undefined}>
@@ -70,7 +85,7 @@ function Actions({ t }: { t: Text }) {
   )
 }
 
-function Home({ locale, t }: Omit<Props, 'page'>) {
+function Home({ locale, t }: Omit<Props, 'page' | 'legal'>) {
   return (
     <>
       <section className="pub-hero pub-hero--split">
@@ -142,7 +157,7 @@ function Features({ t }: { t: Text }) {
   )
 }
 
-export function PublicBody({ page, locale, t }: Props): ReactNode {
+export function PublicBody({ page, locale, t, legal }: Props): ReactNode {
   return (
     <>
       <a className="pub-skip" href="#content">
@@ -150,9 +165,9 @@ export function PublicBody({ page, locale, t }: Props): ReactNode {
       </a>
       <Header page={page} locale={locale} t={t} />
       <main id="content" className="pub-main">
-        {page === 'home' ? <Home locale={locale} t={t} /> : <Features t={t} />}
+        {isLegalPage(page) ? <LegalBody page={page} locale={locale} /> : page === 'home' ? <Home locale={locale} t={t} /> : <Features t={t} />}
       </main>
-      <Footer page={page} locale={locale} t={t} />
+      <Footer page={page} locale={locale} t={t} legal={legal} />
     </>
   )
 }

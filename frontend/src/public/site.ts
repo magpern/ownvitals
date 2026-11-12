@@ -8,8 +8,8 @@ import { PUBLIC_PAGES, alternates, publicPath, type PublicPage } from './routes'
 // `dist-public/` and text. Pure: the origin and the legal flag are passed in. The script
 // scripts/build-public.mjs writes them, adds `public.css` and copies the images.
 
-/** The legal pages (privacy, terms, cookies), built only once the owner has passed the legal gate. */
-export const LEGAL_PAGES: readonly PublicPage[] = []
+/** The legal pages (privacy, terms, security, cookies), built only once the owner has passed the legal gate. */
+export const LEGAL_PAGES: readonly PublicPage[] = ['security', 'privacy', 'terms', 'cookies']
 
 export const STYLESHEET_URL = '/public.css'
 
@@ -60,7 +60,7 @@ export function siteFiles(origin: string, legal: boolean): SiteFile[] {
   const html = pages.flatMap((page) =>
     LOCALES.map((locale) => ({
       path: fileOf(publicPath(page, locale)),
-      content: renderPublicPage({ page, locale, origin: base, stylesheet: STYLESHEET_URL }),
+      content: renderPublicPage({ page, locale, origin: base, stylesheet: STYLESHEET_URL, legal }),
     })),
   )
   return [...html, { path: 'sitemap.xml', content: sitemap(base, pages) }, { path: 'robots.txt', content: robots(base) }]
