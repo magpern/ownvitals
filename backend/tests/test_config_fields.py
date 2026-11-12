@@ -75,6 +75,9 @@ ADDED = frozenset(
         "ai_conversation_retention_days",  # issue 395: the conversation retention (ADR 0014 §5)
         "webhook_cache_ttl_seconds",  # issue 322: web's webhook entry cache TTL (ADR 0008)
         "public_dir",  # issue 418: the prerendered public site (ADR 0016)
+        "turnstile_enabled",  # issue 460: Cloudflare Turnstile, off by default (ADR 0018)
+        "turnstile_site_key",
+        "turnstile_secret_key",
     }
 )
 

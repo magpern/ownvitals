@@ -103,6 +103,7 @@ GENERIC: Final[tuple[TableSpec, ...]] = (
         "id", "week_start", "status", "content", "created_at",
     )),
     TableSpec("ai_digest_prefs", "ai_digest_prefs", ("id", "opted_in_at")),
+    TableSpec("email_prefs", "email_prefs", ("id", "kind", "enabled", "updated_at")),  # #459
 )  # fmt: skip
 
 # Owned tables read by their own module, with the columns that module exports.
@@ -171,6 +172,10 @@ NOT_EXPORTED_COLUMNS: Final[Mapping[str, Mapping[str, str]]] = {
     "ai_messages": {"owner_id": _OWNER},
     "ai_digests": {"owner_id": _OWNER},
     "ai_digest_prefs": {"owner_id": _OWNER},
+    "email_prefs": {
+        "owner_id": _OWNER,
+        "generation": "a change counter that voids old unsubscribe links, no data of the user",
+    },
     ECG_TABLE: {
         "owner_id": _OWNER,
         "payload_hash": _HASH,

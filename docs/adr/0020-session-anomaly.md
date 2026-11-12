@@ -33,7 +33,7 @@ makes for a person (a page loads a handful of calls) and far below a script's re
 whose cookie resolved to a valid session, in its own `system_session` transaction: the user row
 `FOR KEY SHARE`, then the session row `FOR NO KEY UPDATE` (the `userlock` order, so an account
 delete or a rotation in flight finishes first), the policy, the new counter and country stored on
-the session (`seen_window_at`, `seen_count`, `seen_country`; migration `0029_session_anomaly`).
+the session (`seen_window_at`, `seen_count`, `seen_country`; migration `0030_session_anomaly`).
 The first time any signal fires for a session, `anomaly_at` is set and **one** `auth_events` row
 of kind `session_anomaly` is written (`detail`: `{"signals": [...]}`; the address and coarse
 origin as every event has them). A session is flagged at most once, so a replay loop writes one

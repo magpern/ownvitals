@@ -7,6 +7,7 @@ import { Card, Field, Notice, useAction } from '../components/forms'
 import { passkeyError } from '../components/PasskeyList'
 import { ProviderButtons } from '../components/ProviderButtons'
 import { QrLoginPanel } from '../components/QrLoginPanel'
+import { useTurnstile } from '../components/Turnstile'
 import { useT } from '../i18n'
 import { Link, safeReturnTo, useQuery, useRouter } from '../router/Router'
 
@@ -28,6 +29,7 @@ export function SignInPage() {
   const [password, setPassword] = useState('')
   const [phone, setPhone] = useState(false)
   const action = useAction()
+  const turnstile = useTurnstile('signin')
 
   useEffect(() => {
     // A Google sign-in without a verified address: the address page finishes it.
@@ -37,7 +39,11 @@ export function SignInPage() {
   const submit = (event: FormEvent) => {
     event.preventDefault()
     void action.run(async () => {
-      await login(email, password)
+      try {
+        await login(email, password, turnstile.token)
+      } finally {
+        turnstile.reset() // a token is single-use
+      }
       await refresh()
     })
   }
@@ -94,7 +100,8 @@ export function SignInPage() {
           }}
           required
         />
-        <button className="button" type="submit" disabled={action.busy}>
+        {turnstile.widget}
+        <button className="button" type="submit" disabled={action.busy || (turnstile.required && !turnstile.token)}>
           {t('common.signIn')}
         </button>
       </form>

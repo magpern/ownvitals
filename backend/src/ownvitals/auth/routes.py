@@ -30,6 +30,7 @@ from ownvitals.auth.sessions import (
     revoke_session,
     revoke_user_sessions,
 )
+from ownvitals.auth.turnstile import TurnstileConfig, session_config
 from ownvitals.auth.userlock import lock_user_row
 from ownvitals.context import UserContext
 from ownvitals.db import system_session
@@ -74,6 +75,8 @@ class SessionState(BaseModel):
     csrf_token: str
     user: UserOut | None = None
     session: SessionOut | None = None
+    # The widget's site key and script while Turnstile is on (ADR 0018); null while it is off.
+    turnstile: TurnstileConfig | None = None
 
 
 class SessionItem(BaseModel):
@@ -125,6 +128,7 @@ async def get_session(
             locale = await user_locale(db, request.app.state.settings, info.user_id)
         return SessionState(
             authenticated=True,
+            turnstile=session_config(request.app.state.settings),
             csrf_token=csrf_token_for_session(request.app.state.keys, info.id),
             user=UserOut(id=info.user_id, email=info.email, role=info.role, locale=locale),
             session=SessionOut(
@@ -142,7 +146,11 @@ async def get_session(
     if not value or len(value) > CSRF_VALUE_MAX:
         value = secrets.token_urlsafe(32)
         set_csrf_cookie(response, value)
-    return SessionState(authenticated=False, csrf_token=value)
+    return SessionState(
+        authenticated=False,
+        csrf_token=value,
+        turnstile=session_config(request.app.state.settings),
+    )
 
 
 @router.get("/sessions")

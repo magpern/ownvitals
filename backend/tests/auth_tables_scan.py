@@ -92,6 +92,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "reserve_oauth_start",
             "reserve_ai_chat",
             "reserve_ai_conversation",
+            "reserve_unsubscribe",  # the one-click unsubscribe's per-IP limit (#459)
             "session_probe",
         }
     ),
@@ -217,6 +218,7 @@ SUBMODULES = frozenset(
         "passkey_routes",
         "passkey_signin_routes",
         "passkeys",
+        "password_change_routes",
         "oauth_client",
         "oauth_errors",
         "oauth_handoff",
@@ -256,6 +258,8 @@ SUBMODULES = frozenset(
         "tokens",
         "totp",
         "totp_keys",
+        "turnstile",
+        "turnstile_policy",
     }
 )
 FORBIDDEN_NAMES = frozenset(TABLE_NAMES) | {"metadata"} | SUBMODULES

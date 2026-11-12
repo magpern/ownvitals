@@ -14,7 +14,7 @@ RATE_FUNCTION_NAMES = (
     "withings_rate_release",
     "withings_rate_pause",
 )
-RATE_VERSION = "ownvitals-rate v2"  # v2: only live demand holds a lane (#370)
+RATE_VERSION = "ownvitals-rate v3"  # v3: the claim reads the clock under the lock (#470)
 _RATE_CONFIG = "search_path=pg_catalog, pg_temp;TimeZone=UTC"
 _RATE_ACL = "ownvitals_app=X/ownvitals_owner,ownvitals_owner=X/ownvitals_owner"
 RATE_PINS: dict[str, tuple[str, str, str, str]] = {
@@ -34,12 +34,15 @@ RATE_PINS: dict[str, tuple[str, str, str, str]] = {
 }
 # The mail outbox's family (docker/postgres/notify/50-outbox.sql, ADR 0007 section 3; #194),
 # owned by its own NOLOGIN role. Absent until db-functions has run that script; once present,
-# pinned the same way.
+# pinned the same way. With the email preference's read and the one-click unsubscribe (ADR 0019;
+# #459), five functions, each pinned the same way once present.
 OUTBOX_ROLE = "ownvitals_mail_outbox"
 OUTBOX_FUNCTION_NAMES = (
     "mail_outbox_claim",
     "mail_outbox_mark",
     "owner_notice_queue",
+    "mail_outbox_email_pref",
+    "email_unsubscribe",
 )
 OUTBOX_VERSION = "ownvitals-outbox v1"
 _OUTBOX_ACL = f"ownvitals_app=X/{OUTBOX_ROLE},{OUTBOX_ROLE}=X/{OUTBOX_ROLE}"
@@ -58,6 +61,18 @@ OUTBOX_PINS: dict[str, tuple[str, str, str, str]] = {
     ),
     "owner_notice_queue": (
         "p_kind text",
+        OUTBOX_ROLE,
+        "search_path=pg_catalog, pg_temp",
+        _OUTBOX_ACL,
+    ),
+    "mail_outbox_email_pref": (
+        "p_id uuid",
+        OUTBOX_ROLE,
+        "search_path=pg_catalog, pg_temp",
+        _OUTBOX_ACL,
+    ),
+    "email_unsubscribe": (
+        "p_owner uuid, p_kind text, p_generation bigint",
         OUTBOX_ROLE,
         "search_path=pg_catalog, pg_temp",
         _OUTBOX_ACL,

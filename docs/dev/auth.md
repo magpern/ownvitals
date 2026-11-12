@@ -67,6 +67,15 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 - `locales` (`OWNVITALS_LOCALES`, default `en,sv`; `config_auth.py`): the languages the operator
   enables. `en` is always on; a code that is not in the manifest is dropped, so the setting can
   switch a supported language off and never add one ("Language" below).
+- `turnstile_enabled` (default `false`), `turnstile_site_key` and the secret file
+  `turnstile_secret_key` (`config_turnstile.py`, ADR 0018): Cloudflare Turnstile on sign-up,
+  password sign-in and the reset request. On, the settings refuse to load without both keys;
+  the three routes then need an `X-Turnstile-Token` header that passes Cloudflare's check, or
+  answer 400 `turnstile_failed` before anything else (fail closed). `GET /api/auth/session`
+  hands the page `turnstile: {site_key, script_url}` (null while off), and the CSP admits
+  `https://challenges.cloudflare.com` in `script-src` and `frame-src` only while on. Tests use
+  a fake verifier (`tests/test_auth_turnstile.py`) and a fake transport; nothing reaches
+  Cloudflare. To try the widget locally the owner uses Cloudflare's published test keys.
 - The secret file `app_secret_key` (at least 32 bytes). Web refuses to start without it; the
   keys of ADR 0003 §1 ("Derived keys") come from it.
 
@@ -291,7 +300,7 @@ window (`request_rate`), or another country than its first one (`country_change`
 one `session_anomaly` event (`detail.signals`), which the user's activity list shows, and one
 WARNING line on `ownvitals.auth.anomaly` (codes and ids only). **Nothing is signed out.** The
 per-session state (`seen_window_at`, `seen_count`, `seen_country`, `anomaly_at`; migration
-`0029_session_anomaly`) goes with the session row. A test session issued to another address
+`0030_session_anomaly`) goes with the session row. A test session issued to another address
 than the test client's (`127.0.0.1`) that sends a real browser's agent string records an event,
 as a replay would. Tests: `test_session_anomaly_policy.py`, `test_session_anomaly.py`.
 

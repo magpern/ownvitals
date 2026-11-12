@@ -4,11 +4,13 @@ and derived properties; the refusing validators stay in ``Settings``)."""
 from typing import Literal
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+
+from ownvitals.config_turnstile import TurnstileSettings
 
 
-class AuthSettings(BaseSettings):
-    """Sessions, proxies, passkeys and QR login. Every refusing validator stays in ``Settings``."""
+class AuthSettings(TurnstileSettings):
+    """Sessions, proxies, passkeys and QR login. Every refusing validator stays in ``Settings``,
+    except Turnstile's own (``config_turnstile``), which come with it."""
 
     # The one public origin, for the Origin check and for links in mail.
     public_base_url: str = "http://127.0.0.1:8000"

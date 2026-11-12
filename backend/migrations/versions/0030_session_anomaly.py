@@ -1,7 +1,7 @@
 """accounts: the session anomaly signal's per-session state (#461, ADR 0020)
 
-Revision ID: 0029_session_anomaly
-Revises: 0028_chart_range_7d
+Revision ID: 0030_session_anomaly
+Revises: 0029_email_prefs
 Create Date: 2026-11-12
 
 ``sessions`` gains what ``auth/session_anomaly.py`` keeps per session to score a request
@@ -29,8 +29,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0029_session_anomaly"
-down_revision: str | Sequence[str] | None = "0028_chart_range_7d"
+revision: str = "0030_session_anomaly"
+down_revision: str | Sequence[str] | None = "0029_email_prefs"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

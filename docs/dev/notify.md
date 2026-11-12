@@ -56,7 +56,8 @@ is in `tests/egress_worker.py`'s worker packages and entry points; the sender is
 `docker/postgres/notify/50-outbox.sql`, run by `db-functions` after `rate.sql` as the superuser
 (idempotent; it repairs the role, revokes whatever else it holds and re-grants exactly its list).
 The role `ownvitals_mail_outbox` is `NOLOGIN BYPASSRLS NOINHERIT`, a member of nothing, and owns
-the three functions. Web and the worker pin each function at startup (owner, `SECURITY DEFINER`,
+the five functions (the claim, the mark, the owner-notice write, and #459's
+`mail_outbox_email_pref` and `email_unsubscribe`, below). Web and the worker pin each function at startup (owner, `SECURITY DEFINER`,
 `search_path`, comment `ownvitals-outbox v1`, ACL and `md5(pg_get_functiondef)`; ADR 0005 §3);
 guard 2 (`tests/role_guard.py`) checks the role's attributes and grants, guard 9
 (`tests/queue_guard.py`) the functions.
@@ -70,6 +71,19 @@ uv run python tests/outbox_digests.py --write   # --check fails when they are st
 
 `tests/test_notify_outbox_functions.py` runs the check in the backend suite. A change to a column
 the functions read bumps the version comment in the script and `OUTBOX_VERSION` together.
+
+## Email preferences and the one-click unsubscribe (#459, ADR 0019)
+
+| Piece | Where |
+|---|---|
+| Which kinds can be switched off | `ownvitals.notify.email_policy`: `findings_waiting`, `connection_attention`, `ai_digest_ready`. `export_ready`, owner notices and every account or security mail (`ownvitals.auth.mails`, `keys_cli`) always go out |
+| The preference | `email_prefs` (owned, migration 0029): one row per owner and kind, no row = on at generation 0; `generation` counts every change |
+| Settings API | `GET /api/notify/email`, `PUT /api/notify/email {kind, enabled}` (`email_prefs_routes`, `email_prefs_store`; the caller's own rows in their session) |
+| Send time | the sender reads `mail_outbox_email_pref(row id)` for a suppressible kind: off, the row is marked `failed` (counted as switched off); on, the mail gets the token as a footer link and `List-Unsubscribe` / `List-Unsubscribe-Post` |
+| Token | `ownvitals.notify.unsubscribe`: owner, kind, generation, 60-day expiry, HMAC under HKDF(`app_secret_key`, `unsubscribe-v1`); never stored or logged |
+| Endpoint | `/api/unsubscribe?t=…` (`unsubscribe_routes`, a middleware outside the auth middleware): `GET` a confirm page, no state; `POST` 20 per address in 15 minutes, then `email_unsubscribe(owner, kind, generation)`; the same answer for every token |
+
+Regenerate the golden mails after a footer change with `WRITE_MAIL_GOLDEN=1` (see "Tests").
 
 ## Tests
 

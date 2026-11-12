@@ -47,6 +47,7 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.ai.chat_store",
             "ownvitals.ai.digest_store",
             "ownvitals.reports.export_store",
+            "ownvitals.notify.email_prefs_store",
         ),
     )
     system = Allowlist(
@@ -155,6 +156,12 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.notify.outbox", False, True),
         ("ownvitals.notify.sender", False, False),
         ("ownvitals.notify", False, False),
+        # Email preferences (#459): the settings store opens the user's sessions; the
+        # unsubscribe endpoint writes only through the outbox module's definer call.
+        ("ownvitals.notify.email_prefs_store", True, False),
+        ("ownvitals.notify.email_prefs_routes", False, False),
+        ("ownvitals.notify.unsubscribe_routes", False, False),
+        ("ownvitals.notify.unsubscribe", False, False),
         # The AI reaper (#205): that exact module, never a user session, nothing else in ai.
         ("ownvitals.ai.budget", False, True),
         # The audit retention (#331): that exact module, never a user session; not the log.

@@ -15,6 +15,7 @@ change in `egress/core.py` and a security-critical review.
 | worker, AI enabled | `model_async_client()` | `api.anthropic.com` (M7) |
 | web | `google_oauth_client()`, `google_async_client()` | `oauth2.googleapis.com` (token), `www.googleapis.com` (JWKS) |
 | web | `exchange_withings_code()` (`egress/code_exchange.py`) | one request it builds itself: `POST https://wbsapi.withings.net/v2/oauth2`, `action=requesttoken`, `grant_type=authorization_code` |
+| web, `turnstile_enabled` | `verify_turnstile_token()` (`egress/turnstile.py`) | one request it builds itself: `POST https://challenges.cloudflare.com/turnstile/v0/siteverify` with exactly `secret` and `response`; the hook resolves the host only while Turnstile is on (roadmap Amendment 12, ADR 0018) |
 | web | `ownvitals.mail.Mailer` | the configured SMTP server (`smtp_host`, a setting, not a list entry) |
 
 `tests/test_egress_runtime.py` enumerates it: every entry point against every candidate request,

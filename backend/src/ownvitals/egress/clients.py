@@ -15,6 +15,7 @@ each one's list is chosen here.
 | ``model_async_client`` | worker, AI enabled | ``api.anthropic.com`` |
 | ``google_oauth_client``, ``google_async_client`` | web | Google's token endpoint and JWKS |
 | ``exchange_withings_code`` (``code_exchange``) | web | one ``POST`` (roadmap Amendment 1) |
+| ``verify_turnstile_token`` (``turnstile``) | web, Turnstile on | one ``POST`` (Amendment 12) |
 """
 
 import warnings

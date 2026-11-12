@@ -35,7 +35,8 @@ Each has its own allowlist, of packages (the package and everything under it) an
   opt-in; the digest job (``ownvitals.ai.digest``) reads and writes through the fence. The
   exact module ``ownvitals.reports.export_store`` (#211) reads and writes the caller's own
   export rows and chunks for the export's request, list and download; the export builder is a
-  job kind and writes through the fence. **The rest of
+  job kind and writes through the fence. The exact module ``ownvitals.notify.email_prefs_store``
+  (#459) reads and writes the caller's own email preferences for the settings. **The rest of
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
   through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
@@ -112,6 +113,10 @@ AI_USER_SESSION = ("ownvitals.ai.consent", "ownvitals.ai.chat_store", "ownvitals
 # The export (#211): the web side's own export rows (request, list, download, the tidy of the
 # user's expired and failed rows). The builder runs in the worker and writes through the fence.
 REPORTS_USER_SESSION = ("ownvitals.reports.export_store",)
+# Email preferences (#459, ADR 0019): the settings' read and write of the caller's own
+# ``email_prefs`` rows. The unsubscribe endpoint opens none: it calls the outbox family's
+# ``email_unsubscribe`` through ``ownvitals.notify.outbox``.
+NOTIFY_USER_SESSION = ("ownvitals.notify.email_prefs_store",)
 JOBS_SYSTEM_SESSION = ("ownvitals.jobs.queue",)
 # The key ring's startup check (#8), the one module of ``ownvitals.crypto`` that may.
 KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
@@ -143,6 +148,7 @@ USER_SESSION = Allowlist(
         *DERIVED_USER_SESSION,
         *AI_USER_SESSION,
         *REPORTS_USER_SESSION,
+        *NOTIFY_USER_SESSION,
     ),
 )
 SYSTEM_SESSION = Allowlist(

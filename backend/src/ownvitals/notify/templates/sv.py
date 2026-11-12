@@ -4,7 +4,7 @@ from types import MappingProxyType
 from typing import Final
 
 from ownvitals.notify.templates import en
-from ownvitals.notify.templates.base import LINK, Template
+from ownvitals.notify.templates.base import LINK, UNSUBSCRIBE_LINK, Template
 
 _FOOTER: Final = (
     "\n\nDet här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du "
@@ -37,4 +37,11 @@ TABLE: Final = MappingProxyType(
             "här: " + LINK + _FOOTER,
         ),
     }
+)
+
+# The unsubscribe footer of a suppressible kind's mail (ADR 0019; #459).
+UNSUBSCRIBE: Final = (
+    "\nVill du inte få sådana här mejl? Stäng av dem: "
+    + UNSUBSCRIBE_LINK
+    + "\nDu kan slå på dem igen i ownvitals under Inställningar, Aviseringar.\n"
 )
