@@ -5,7 +5,7 @@ owner asked for a livelier app ("use your best judgement") and delegated the des
 Architect, then approved it with one change: no score ring (the score stays a plain number). The
 owner may amend it at the M8 review; the M10 implementation issues (#424-#426) may start.
 It extends [README.md](README.md) ("Quiet instrument") and changes no specification text. Where it
-conflicts with the README it says so under "Owner decisions needed".
+conflicts with the README it says so under "Owner decisions (2026-11-11)".
 
 ## Principle: lively, not loud
 
@@ -79,7 +79,7 @@ No spring physics, no overshoot, no durations above 700 ms, except the import mo
    this file is removed: durations compute to `0.01ms`, count-ups show the final value at once,
    draw-ins show the finished chart, shimmer becomes a static block, the pulse and import moment
    become static states (the status line text still changes). The rule is one global block in
-   `tokens.css` plus a `useMotion()` hook that every JS animation must call; a test mounts every
+   `styles/motion.css` (the duration tokens are in `tokens.css`) plus a `useMotion()` hook that every JS animation must call; a test mounts every
    animated component with the media query on and asserts the final DOM and no running
    animations. Also honoured: a Settings "Reduce motion" override that sets `data-motion="off"`
    (follows the existing Light/Dark/System pattern).
@@ -117,7 +117,7 @@ No spring physics, no overshoot, no durations above 700 ms, except the import mo
 
 ## Implementation split (for the Architect)
 
-- **#424** tokens, reduced-motion block, `useMotion`, `CountUp`, `Reveal` (stagger), card
+- **#424** tokens (`tokens.css`), reduced-motion block (`styles/motion.css`), `useMotion`, `CountUp`, `Reveal` (stagger), card
   hover/press, skeletons, size check, mock-up additions.
 - **#425** score glow, stat strip with deltas, chart draw-in, sparkline pulse, page transitions.
 - **#426** empty-state illustrations, import-finished moment, numbered steps, landing dashboard

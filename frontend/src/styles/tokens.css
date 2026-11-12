@@ -183,7 +183,7 @@
     --ov-google-text: #e3e3e3;
     --ov-scrim: rgba(0, 0, 0, 0.6);
     --ov-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
-  --ov-glow: 0 0 32px color-mix(in srgb, var(--ov-brand) 32%, transparent);
+    --ov-glow: 0 0 32px color-mix(in srgb, var(--ov-brand) 32%, transparent);
   }
 }
 
