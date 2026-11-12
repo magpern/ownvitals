@@ -9,8 +9,8 @@ import { ScoreReadout } from './ScoreReadout'
 
 // The health score card of the overview (docs/design/mockups/src/Dashboard.dc.html): the title with
 // the "ownvitals 1.0" source tag, the value, and the areas on one line, "n/a" where an area has no
-// score. The card is the mock-up's solid card; the backend lists the score only for accounts with
-// the owner-only switch. With no score, or `not_set`, there is no card.
+// score. The score is experimental tier (ADR 0012 §1; README tier marks: dashed diamond, dashed
+// borders), so the card is dashed and the tag carries the experimental glyph. With no score, or `not_set`, there is no card.
 
 const AREA_LABEL: Record<(typeof HIS_AREAS)[number], MessageKey> = {
   body: 'overview.score.area.body',
@@ -19,10 +19,11 @@ const AREA_LABEL: Record<(typeof HIS_AREAS)[number], MessageKey> = {
   sleep: 'overview.score.area.sleep',
 }
 
-/** "his/1" is shown as "ownvitals 1.0": the number after the slash, with a minor part. */
-function sourceTag(algoVersion: string): string {
-  const version = algoVersion.split('/')[1] ?? ''
-  return `ownvitals ${/^\d+$/.test(version) ? `${version}.0` : version}`.trim()
+/** How an algorithm version is shown in the source tag; an unlisted one is shown as sent. */
+const VERSION_LABEL: Record<string, string> = { 'his/1': '1.0' }
+
+export function sourceTag(algoVersion: string): string {
+  return `ownvitals ${VERSION_LABEL[algoVersion] ?? algoVersion}`
 }
 
 export function ScoreCard({ score }: { score: HisScore | null }) {
@@ -30,7 +31,7 @@ export function ScoreCard({ score }: { score: HisScore | null }) {
   if (score === null || score.status === 'not_set') return null
   const source = (
     <span className="ov-src">
-      <TierGlyph tier="trend" />
+      <TierGlyph tier="experimental" />
       {sourceTag(score.algoVersion)}
     </span>
   )
@@ -41,7 +42,7 @@ export function ScoreCard({ score }: { score: HisScore | null }) {
       : t('overview.score.areaValue', { area: t(AREA_LABEL[area]), value: String(value) })
   }).join(' · ')
   return (
-    <Card level={3} title={t('overview.metric.healthScore')} aside={source}>
+    <Card level={3} experimental title={t('overview.metric.healthScore')} aside={source}>
       {score.status === 'computed' && score.value !== null ? (
         <>
           <p>

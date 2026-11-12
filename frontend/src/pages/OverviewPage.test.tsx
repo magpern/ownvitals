@@ -162,6 +162,7 @@ describe('the overview: tiles', () => {
     const card = (await screen.findByText('Health score')).closest('.ov-card') as HTMLElement
     expect(within(card).getByText('71', { selector: '.ov-sr' })).toBeInTheDocument()
     expect(within(card).getByText('ownvitals 1.0')).toBeInTheDocument()
+    expect(card).toHaveClass('ov-card--experimental')
     expect(within(card).getByText(/Body 78 · Heart 70 · Activity 64 · Sleep n\/a/)).toBeInTheDocument()
   })
 
