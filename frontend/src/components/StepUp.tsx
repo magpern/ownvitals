@@ -13,6 +13,8 @@ import {
 import { getLinkedProviders, reauthenticate, startOAuthReauth, stepUp } from '../api/auth'
 import { ApiError } from '../api/client'
 import { errorMessage } from '../api/messages'
+import { listPasskeys, passkeysSupported, reauthWithPasskey } from '../api/passkeys'
+import { useSession } from '../auth/SessionContext'
 import { useT } from '../i18n'
 import { useRouter } from '../router/Router'
 import { Field, Notice, useAction } from './forms'
@@ -25,7 +27,10 @@ import { Icon } from './ui/Icon'
 // answers 403 `step_up_required` the dialog asks for a fresh authenticator or recovery code, and
 // for `reauth_required` it asks for the password first (or Google, when linked), then the code,
 // in the same dialog. After each proof the action is tried again. Cancel ends it with
-// `Cancelled`, and the caller shows nothing.
+// `Cancelled`, and the caller shows nothing. An account without an authenticator app (optional
+// for users, issue 475) steps up with the password, Google or a passkey alone: the server counts that
+// first factor as the step-up, so the dialog asks for it on `step_up_required` too. A passkey is
+// offered next to the password whenever the account has one.
 
 export const STEP_UP_REQUIRED = 'step_up_required'
 export const REAUTH_REQUIRED = 'reauth_required'
@@ -55,9 +60,9 @@ const ProtectContext = createContext<Protect | null>(null)
 /** How many proofs one action may ask for (the password, then the code). */
 const MAX_PROOFS = 3
 
-function proofFor(error: unknown): Step | null {
+function proofFor(error: unknown, totpEnabled: boolean): Step | null {
   if (!(error instanceof ApiError) || error.status !== 403) return null
-  if (error.reason === STEP_UP_REQUIRED) return 'code'
+  if (error.reason === STEP_UP_REQUIRED) return totpEnabled ? 'code' : 'password'
   if (error.reason === REAUTH_REQUIRED) return 'password'
   return null
 }
@@ -65,6 +70,12 @@ function proofFor(error: unknown): Step | null {
 export function StepUpProvider({ children }: { children: ReactNode }) {
   const [request, setRequest] = useState<Request | null>(null)
   const opener = useRef<HTMLElement | null>(null)
+  const { session } = useSession()
+  // Read when a refusal comes in, so an enrolment or removal meanwhile is seen.
+  const totpEnabled = useRef(true)
+  useEffect(() => {
+    totpEnabled.current = session?.totpEnabled ?? true
+  }, [session])
 
   const ask = useCallback(
     (step: Step, purpose: string) =>
@@ -89,7 +100,7 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
           try {
             return await action()
           } catch (error) {
-            const step = proofFor(error)
+            const step = proofFor(error, totpEnabled.current)
             if (step === null || proofs >= MAX_PROOFS) throw error
             await ask(step, purpose)
           }
@@ -106,7 +117,9 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
   return (
     <ProtectContext.Provider value={protect}>
       {children}
-      {request !== null ? <StepUpDialog key={request.step} request={request} /> : null}
+      {request !== null ? (
+        <StepUpDialog key={request.step} request={request} withCode={session?.totpEnabled ?? true} />
+      ) : null}
     </ProtectContext.Provider>
   )
 }
@@ -118,7 +131,7 @@ export function useProtected(): Protect {
   return protect
 }
 
-function StepUpDialog({ request }: { request: Request }) {
+function StepUpDialog({ request, withCode }: { request: Request; withCode: boolean }) {
   const t = useT()
   const titleId = useId()
   const textId = useId()
@@ -126,6 +139,7 @@ function StepUpDialog({ request }: { request: Request }) {
   const [password, setPassword] = useState('')
   const [factor, setFactor] = useState<SecondFactor>(NO_CODE)
   const [google, setGoogle] = useState(false)
+  const [passkey, setPasskey] = useState(false)
   const { pathname, search } = useRouter()
 
   useEffect(() => {
@@ -139,6 +153,16 @@ function StepUpDialog({ request }: { request: Request }) {
         setGoogle(false)
       },
     )
+    if (passkeysSupported()) {
+      listPasskeys(controller.signal).then(
+        (found) => {
+          setPasskey(found.passkeys.some((row) => !row.suspended))
+        },
+        () => {
+          setPasskey(false)
+        },
+      )
+    }
     return () => {
       controller.abort()
     }
@@ -149,6 +173,13 @@ function StepUpDialog({ request }: { request: Request }) {
     void action.run(async () => {
       if (request.step === 'password') await reauthenticate(password)
       else await stepUp(factor.code.trim())
+      request.done()
+    }, errorMessage)
+  }
+
+  const confirmWithPasskey = () => {
+    void action.run(async () => {
+      await reauthWithPasskey()
       request.done()
     }, errorMessage)
   }
@@ -185,7 +216,9 @@ function StepUpDialog({ request }: { request: Request }) {
         </h2>
         {request.step === 'password' ? (
           <p id={textId} className="ov-small ov-muted">
-            {t('security.stepUp.password', { purpose: request.purpose })}
+            {withCode
+              ? t('security.stepUp.password', { purpose: request.purpose })
+              : t('security.stepUp.passwordOnly', { purpose: request.purpose })}
           </p>
         ) : (
           <p id={textId} className="ov-small ov-muted">
@@ -205,6 +238,11 @@ function StepUpDialog({ request }: { request: Request }) {
                 setPassword(event.target.value)
               }}
             />
+            {passkey ? (
+              <button className="ov-linkbutton" type="button" disabled={action.busy} onClick={confirmWithPasskey}>
+                {t('security.stepUp.passkey')}
+              </button>
+            ) : null}
             {google ? (
               <button className="ov-linkbutton" type="button" disabled={action.busy} onClick={reauthWithGoogle}>
                 {t('security.stepUp.google')}

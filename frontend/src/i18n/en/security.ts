@@ -1,6 +1,8 @@
 // The Sign-in and security screen and the shared "Confirm it's you" dialog.
 export const security = {
   band: 'Actions marked with a lock ask for a fresh code from your authenticator app. One code covers 10 minutes of protected actions.',
+  bandNoTotp:
+    'Actions marked with a lock ask you to confirm with your password, Google or a passkey. One confirmation covers 10 minutes of protected actions.',
   laterLabel: 'How you sign in and the second factor',
   later: 'Changing the password, Google, email, the authenticator and recovery codes comes in M6.',
   'sessions.title': "Where you're signed in",
@@ -30,6 +32,23 @@ export const security = {
   'stepUp.code':
     '{purpose} needs a fresh code from your authenticator app. It also covers other protected actions for the next 10 minutes.',
   'stepUp.google': 'Use Google instead',
+  'stepUp.passwordOnly':
+    '{purpose} needs your password. It also covers other protected actions for the next 10 minutes.',
+  'stepUp.passkey': 'Use a passkey instead',
+  'factor.title': 'Second factor',
+  'factor.on': 'On',
+  'factor.onRequired': 'On · required',
+  'factor.off': 'Off',
+  'factor.app': 'Authenticator app',
+  'factor.appOn': 'Every sign-in asks for a code from it.',
+  'factor.appOff':
+    "Recommended. With an authenticator app, someone who learns your password still can't sign in.",
+  'factor.setUp': 'Set up',
+  'factor.turnOff': 'Turn off…',
+  'factor.offPurpose': 'Turning off the authenticator app',
+  'factor.codes': 'Recovery codes',
+  'factor.codesLeft.one': '{count} left. Each works once if you lose your phone.',
+  'factor.codesLeft.other': '{count} left. Each works once if you lose your phone.',
   'activity.title': 'Recent security activity',
   'activity.window': 'Last 30 days',
   'activity.empty': 'Nothing to show from the last 30 days.',

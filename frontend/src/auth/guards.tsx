@@ -2,7 +2,8 @@ import { useEffect, type ReactNode } from 'react'
 import { Card, Notice } from '../components/forms'
 import { safeReturnTo, useQuery, useRouter } from '../router/Router'
 import { useT } from '../i18n'
-import { HOME_PATH, accessOf, pathFor, withReturnTo, type Access } from './access'
+import { ENROL_PATH, HOME_PATH, accessOf, mayAddTotp, pathFor, withReturnTo, type Access } from './access'
+import { totpOffered } from './totpOffer'
 import { useSession } from './SessionContext'
 
 // Route guards. Each one decides from the session alone and sends the visitor where they
@@ -55,6 +56,11 @@ export function RequireReady({ children }: { children: ReactNode }) {
   const { pathname, search } = useRouter()
   if (status !== 'ready') return <Waiting />
   const access = accessOf(session)
+  // A user without an authenticator app is offered one once per browser session, after the
+  // password or Google sign-in alike, with "Skip for now" (issue 475).
+  if (mayAddTotp(session) && session?.user && !totpOffered(session.user.id)) {
+    return <Redirect to={withReturnTo(ENROL_PATH, pathname + search)} />
+  }
   if (access === 'ready') return <>{children}</>
   return <Redirect to={withReturnTo(pathFor(access), pathname + search)} />
 }
@@ -89,5 +95,7 @@ export function RequireTwoFactorStep({
   if (status !== 'ready') return <Waiting />
   const access = accessOf(session)
   if (access === step) return <>{children}</>
+  // The enrolment page is also open to a user who may add an authenticator app (issue 475).
+  if (step === 'enrol' && mayAddTotp(session)) return <>{children}</>
   return <Redirect to={destination(access, returnTo)} />
 }

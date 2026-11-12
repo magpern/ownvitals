@@ -5,6 +5,7 @@ import { SIGN_IN_PATH } from '../auth/access'
 import { useSession } from '../auth/SessionContext'
 import { Notice } from '../components/forms'
 import { PasskeyList } from '../components/PasskeyList'
+import { SecondFactorCard } from '../components/security/SecondFactorCard'
 import { SecurityActivity } from '../components/security/SecurityActivity'
 import { Cancelled, useProtected } from '../components/StepUp'
 import { Button } from '../components/ui/Button'
@@ -22,7 +23,9 @@ import { SettingsTabs } from './settings/SettingsTabs'
 // "Confirm it's you" dialog) and nothing else: the other cards of the mock-up stay "Coming later"
 // until their issue (Architect, #11). Issue 180 adds the passkeys (`PasskeyList`) and the "Approve
 // sign-ins from your phone" row of "How you sign in" (ADR 0011 section 10). The account's language
-// (ADR 0015 section 2, issue 249) is a row of Settings → Profile and display (issue 203).
+// (ADR 0015 section 2, issue 249) is a row of Settings → Profile and display (issue 203). Issue
+// 475 adds the "Second factor" card (`SecondFactorCard`): the authenticator app is optional for
+// users.
 
 /** "Firefox on Windows", from the browser's user agent (shown only to its own user). */
 export function deviceName(userAgent: string | null): string {
@@ -72,13 +75,15 @@ export function lastActive(iso: string, now: Date = new Date()): string {
 
 export function SecurityPage() {
   const t = useT()
+  const { session } = useSession()
   return (
     <div className="ov-stack" data-gap="lg">
       <SettingsTabs />
       <p className="ov-band" role="note">
         <Icon name="lock" />
-        {t('security.band')}
+        {session?.totpEnabled === false ? t('security.bandNoTotp') : t('security.band')}
       </p>
+      <SecondFactorCard />
       <Card title={t('passkeys.card.title')}>
         <PasskeyList />
         <div className="ov-setting">

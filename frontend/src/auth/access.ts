@@ -1,13 +1,15 @@
 import type { SessionState } from '../api/auth'
 
 /**
- * How far a visitor is through signing in. Every account needs TOTP (PLAN section 6), so a
- * signed-in session is only `ready` once it has an authenticator app and has passed it.
+ * How far a visitor is through signing in. The authenticator app is optional for users and
+ * required for administrators (owner decision of 2026-11-12, issue 475); the server says which in the
+ * session answer (`mfa`: the session owes nothing more).
  *
  * - `anonymous`: not signed in.
- * - `enrol`: signed in, no authenticator app yet: only enrolment is open.
+ * - `enrol`: signed in to an account that must have an authenticator app and has none yet: only
+ *   enrolment is open.
  * - `challenge`: signed in with an authenticator app, but this session has not passed it.
- * - `ready`: signed in and through the second factor.
+ * - `ready`: signed in and owing nothing: through the code, or without an authenticator app.
  */
 export type Access = 'anonymous' | 'enrol' | 'challenge' | 'ready'
 
@@ -20,8 +22,16 @@ export const HOME_PATH = '/overview'
 
 export function accessOf(session: SessionState | null): Access {
   if (session === null || !session.authenticated) return 'anonymous'
-  if (!session.totpEnabled) return 'enrol'
-  return session.session?.mfa === true ? 'ready' : 'challenge'
+  if (session.session?.mfa === true) return 'ready'
+  return session.totpEnabled ? 'challenge' : 'enrol'
+}
+
+/**
+ * A ready session of an account that may set up an authenticator app but has not (issue 475): the
+ * enrolment page is open to it with "Skip for now", and it is offered after each sign-in.
+ */
+export function mayAddTotp(session: SessionState | null): boolean {
+  return accessOf(session) === 'ready' && session?.totpEnabled === false && !session.totpRequired
 }
 
 /** The page a visitor with this access belongs on, before any `return_to`. */
