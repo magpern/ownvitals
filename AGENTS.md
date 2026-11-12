@@ -86,6 +86,9 @@ deterministic CI security checks (§10.3) and on the owner's human security revi
    and only then posts the `PASS`. A `PASS` on red or pending CI does not count, and the
    Architect never asks for one; if CI turns out red, the Reviewer is resumed for the new head.
    A `FAIL` may be recorded at once.
+   The Architect starts a Reviewer (first or delta) only once `ci` is green on the head; a red
+   head goes back to its Developer with the failing tests. A Reviewer never polls CI: it reports
+   "PASS pending CI" and ends its turn, and the Architect resumes it to post the `PASS`.
 2. The Reviewer's first review of the PR was a fresh context: Opus for security-critical and security-adjacent PRs
    (first review), Sonnet for the rest (UI, docs, tooling, tests, Dependabot). Tier doubts are
    settled upward (see the definitions above).
