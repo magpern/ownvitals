@@ -13,7 +13,8 @@ from ownvitals.derived.scores_revision import revision_digest
 from ownvitals.flags import effective
 
 _LATEST_SCORES = text(
-    "SELECT DISTINCT ON (kind) kind, day, value, components, algo_version, input_revision "
+    "SELECT DISTINCT ON (kind) kind, day, value, components, algo_version, input_revision, "
+    "input_fingerprint "
     "FROM scores "
     "WHERE owner_id = :o ORDER BY kind, day DESC"
 )

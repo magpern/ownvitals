@@ -7,7 +7,7 @@ shown as an integer (round half up). With no table, or an invalid one, HIS is ``
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from itertools import pairwise
 from typing import Any, Final
@@ -70,13 +70,18 @@ def pick_row(
     return "sex_unset" if sex is None and rows else "no_band_row"
 
 
+def _side_doc(side: Side | None) -> dict[str, float] | None:
+    return None if side is None else asdict(side)
+
+
 def _one(
     table: BandTable, name: str, data: CriterionInput | None, age: int | None, sex: str | None
 ) -> tuple[dict[str, Any], BandRow | None]:
     picked = pick_row(table, name, age=age, sex=sex)
     if isinstance(picked, str):
         status = Status.NOT_AVAILABLE if picked == "no_band_row" else Status.NOT_SET
-        return {"status": status.value, "reason": picked}, None
+        area = next(r.vertical for r in table.rows if r.criterion == name)
+        return {"status": status.value, "reason": picked, "vertical": area}, None
     index, row = picked
     data = data or CriterionInput(Status.NOT_AVAILABLE, reason="no_input")
     out: dict[str, Any] = {
@@ -84,6 +89,12 @@ def _one(
         "unit": row.unit,
         "table_id": table.table_id,
         "row": index,
+        "vertical": row.vertical,
+        "weight": row.weight,
+        "age_min": row.age_min,
+        "age_max": row.age_max,
+        "low": _side_doc(row.low),
+        "high": _side_doc(row.high),
         "window": dict(data.window),
         "data_quality": dict(data.data_quality),
     }

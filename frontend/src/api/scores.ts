@@ -1,4 +1,5 @@
 import { isObject, list, object, optionalText, text, type JsonObject } from './decode'
+import { decodeHisDetail, type HisDetail } from './scoreDetail'
 
 // GET /api/scores (backend/src/ownvitals/views/scores_routes.py, ADR 0012). Only what the overview
 // readout shows is read: the Health Index Score (`his`), its status, its value and its areas.
@@ -22,6 +23,8 @@ export interface HisScore {
   /** Why an area has no score, a code from the server (G4: never a sentence); `null` when it has
    * a score or the server sent none. The card words the code, an unknown one generically. */
   areaReasons: Record<HisArea, string | null>
+  /** What the "How it's computed" panel shows (#493). */
+  detail: HisDetail
 }
 
 function areaScore(verticals: JsonObject, key: string): number | null {
@@ -56,6 +59,7 @@ function decodeHis(entry: JsonObject): HisScore {
       activity: areaReason(reasons, 'activity'),
       sleep: areaReason(reasons, 'sleep'),
     },
+    detail: decodeHisDetail(entry, components),
   }
 }
 

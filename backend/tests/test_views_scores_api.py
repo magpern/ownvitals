@@ -16,6 +16,7 @@ from authtools import (  # noqa: F401 - fixtures
     running_env,
 )
 from flows import Browser, reason, signed_in, signed_in_owing_code
+from ownvitals.analysis.scores.his_table import REGISTERED
 from ownvitals.derived.scores_revision import revision_digest
 from test_views_findings import run, store_flag
 
@@ -121,3 +122,17 @@ async def test_a_row_is_stale_when_the_data_revision_moved_on(env: Env) -> None:
     plant_revision(alice_id, 2)  # an ingest or the purge bumped the stream after the pass
     (row,) = (await alice.get("/api/scores")).json()["scores"]
     assert row["stale"] is True
+
+
+async def test_a_his_row_carries_its_provenance_for_the_panel(owner_env: Env) -> None:
+    alice, alice_id = await _user(owner_env, "alice@example.com")
+    plant_score(alice_id, "his", value=None, status="not_set")
+    run(
+        "UPDATE scores SET components = components || CAST(:c AS jsonb) WHERE owner_id = :o",
+        o=alice_id,
+        c=json.dumps({"table": {"id": "withings_card_v1", "version": "1", "source": "s"}}),
+    )
+    (row,) = (await alice.get("/api/scores")).json()["scores"]
+    assert row["input_revision"] == str(revision_digest((1, 0, 0)))
+    assert row["input_fingerprint"] == "00" * 32
+    assert row["table_sha"] == REGISTERED["withings_card_v1"]

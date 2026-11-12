@@ -1,4 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SIGNED_IN, fakeApi, reason } from '../test/fakeApi'
 import {
@@ -358,5 +360,56 @@ describe('the area pages', () => {
     open('/activity', { status: fakeStatus({ streams: [fakeStream('activity_daily', 'importing', { progress_percent: 10 })] }) })
     expect(await screen.findByRole('heading', { name: 'Activity', level: 2 })).toBeInTheDocument()
     expect(screen.getAllByText(/Importing/).length).toBeGreaterThan(0)
+  })
+})
+
+describe('the Health score panel (#493)', () => {
+  const withBands = () => {
+    const his = fakeScore({})
+    return {
+      ...his,
+      stale: false,
+      input_revision: '42',
+      input_fingerprint: 'ab'.repeat(32),
+      table_sha: 'cd'.repeat(32),
+      components: {
+        ...his.components,
+        table: { id: 'withings_card_v1', version: '1', source: 'synthetic' },
+        criteria: {
+          bmi: {
+            status: 'computed',
+            vertical: 'body',
+            unit: 'kg/m2',
+            value: 22,
+            score: 100,
+            low: { perfect: 18.5, good: 17, average: 15, bad: 13 },
+            high: { perfect: 25, good: 27, average: 30, bad: 35 },
+          },
+        },
+      },
+    }
+  }
+
+  it('opens from the link, shows the criteria and closes on Escape with the focus back on the link', async () => {
+    open('/overview', { scores: [withBands()] })
+    fireEvent.click(await screen.findByRole('link', { name: "How it's computed" }))
+    expect(await screen.findByText('How your score became 71')).toBeInTheDocument()
+    expect(window.location.search).toBe('?score=his')
+    expect(screen.getByText('Body mass index')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByText('How your score became 71')).toBeNull())
+    expect(screen.getByRole('link', { name: "How it's computed" })).toHaveFocus()
+  })
+
+  it('has no link and no panel without a his entry, and a deep link closes quietly', async () => {
+    open('/overview?score=his', { scores: [] })
+    await waitFor(() => expect(window.location.search).toBe(''))
+    expect(screen.queryByRole('link', { name: "How it's computed" })).toBeNull()
+    expect(screen.queryByText('Why there is no score yet')).toBeNull()
+  })
+
+  it('is full-screen on a phone (the stylesheet pins it under 64rem)', () => {
+    const css = readFileSync(resolve(__dirname, '../styles/metric.css'), 'utf8')
+    expect(css).toMatch(/@media \(max-width: 63\.99rem\) \{\s*\.ov-score-panel \{\s*position: fixed;\s*inset: 0;/)
   })
 })
