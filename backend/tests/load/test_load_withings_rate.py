@@ -120,12 +120,24 @@ def _drive(
     deadline: float,
     *,
     stop_after_paused: int | None = None,
-    open_gate_on_busy: bool = False,
+    open_gate_at: int | None = None,
 ) -> Run:
     """``workers`` threads claim until the bucket is empty (or, with ``stop_after_paused``,
     until each has been refused for the pause that many times)."""
     run = Run()
     stop = threading.Event()
+
+    def maybe_open_gate() -> None:
+        """With ``open_gate_at``: open the fake's gate once a claim was refused ``busy`` and that
+        many calls are in flight. Until then no call returns, so no slot is released: a busy
+        refusal means every slot is leased, and each lease's holder enters before it waits."""
+        if open_gate_at is None:
+            return
+        with run.lock:
+            busy = run.busy
+        if busy and run.in_flight.current() >= open_gate_at:
+            fake.open_gate()
+
     start = threading.Barrier(workers)
     ends = time.monotonic() + deadline
 
@@ -167,8 +179,7 @@ def _drive(
                         if got.reason == "busy":
                             with run.lock:
                                 run.busy += 1
-                            if open_gate_on_busy:
-                                fake.open_gate()
+                            maybe_open_gate()
                         time.sleep(RETRY)
                     else:
                         raise AssertionError(f"unexpected claim reason {got.reason}")
@@ -190,6 +201,7 @@ def _drive(
             if run.pause_done is not None and began > run.pause_done:
                 run.late_grants += 1
         run.in_flight.enter()
+        maybe_open_gate()
         try:
             status, body = fake.call()
             interpret("measure:getmeas", status, body, EmptyBody)
@@ -255,9 +267,11 @@ def test_the_app_budget_holds_under_n_workers_and_m_users(
     accounts = _accounts(profile)
     app_id, started = _seed(database_url, profile.budget, accounts)
     # Every 7th call answers HTTP 429: its retry must spend a token like any other call.
-    # The fake holds every call (and so its slot) until a claim is refused for want of a slot:
-    # the cap is contended on every run, and with a fifth slot a fifth call would be in flight
-    # before the gate opens (#479).
+    # The fake holds every call (and so its slot) until a claim is refused for want of a slot
+    # and every slot's holder is in flight: the cap is contended on every run, and the peak is
+    # the number of slots, exactly (#479). A fifth slot row means a fifth call in flight.
+    with engine_for(database_url) as engine, engine.connect() as conn:
+        slots = int(conn.execute(text("SELECT count(*) FROM withings_rate_slots")).scalar_one())
     fake = FakeWithings(
         {n: 429 for n in range(7, 10 * profile.budget, 7)}, hold_after=0, timeout=10.0
     )
@@ -268,7 +282,7 @@ def test_the_app_budget_holds_under_n_workers_and_m_users(
         profile.workers,
         fake,
         profile.deadline,
-        open_gate_on_busy=True,
+        open_gate_at=slots,
     )
 
     admitted = sum(run.grants.values())
