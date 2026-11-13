@@ -98,3 +98,15 @@
     align-items: start;
   }
 }
+
+/* The Health score panel (#493): full-screen on a phone, as the reading panel is. */
+@media (max-width: 63.99rem) {
+  .ov-score-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    overflow-y: auto;
+    border: 0;
+    border-radius: 0;
+  }
+}

@@ -266,3 +266,17 @@ def test_no_value_judging_words_in_scores_package() -> None:
         for n in ast.walk(tree):
             if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings:
                 assert " " not in n.value or not banned.search(n.value), (f.name, n.value)
+
+
+def test_each_criterion_carries_its_area_and_bands_for_the_panel() -> None:
+    """#493: the stored outcome holds what the panel shows (area, weight, bracket, boundaries)."""
+    res = evaluate_his(
+        _table(), inputs={"bmi": _in(22.0)}, day=DAY, birth_year=DAY.year - 50, sex="female"
+    )
+    bmi = res.components["criteria"]["bmi"]
+    assert (bmi["vertical"], bmi["weight"], bmi["age_min"], bmi["age_max"]) == ("body", 1.0, 18, 99)
+    assert (bmi["low"], bmi["high"], bmi["row"]) == (LOW, HIGH, 0)
+    unset = evaluate_his(_table(), inputs={}, day=DAY, birth_year=None, sex=None).components[
+        "criteria"
+    ]["bmi"]
+    assert (unset["vertical"], unset["reason"]) == ("body", "birth_year_unset")

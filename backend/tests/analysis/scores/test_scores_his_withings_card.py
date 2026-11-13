@@ -121,7 +121,11 @@ def test_adults_18_to_40_compute(sex: str, values: dict[str, float]) -> None:
         assert (crit[name]["status"], crit[name]["score"]) == ("computed", 75.0)
     assert res.components["verticals"] == {"body": 75, "heart": 75, "activity": 75, "sleep": 75}
     if sex == "female":  # no night-HR row for women: not banded, not guessed
-        assert crit["night_hr"] == {"status": "not_available", "reason": "no_band_row"}
+        assert crit["night_hr"] == {
+            "status": "not_available",
+            "reason": "no_band_row",
+            "vertical": "heart",
+        }
 
 
 def test_a_70_year_old_gets_the_undocumented_components_not_computed() -> None:
@@ -134,7 +138,7 @@ def test_a_70_year_old_gets_the_undocumented_components_not_computed() -> None:
     )
     crit = res.components["criteria"]
     for name in MAN:
-        assert crit[name] == {"status": "not_available", "reason": "no_band_row"}
+        assert (crit[name]["status"], crit[name]["reason"]) == ("not_available", "no_band_row")
     assert crit["high_bp_ratio"]["status"] == "computed"  # the one documented 40+ row
     assert (res.status, res.value) == (Status.INSUFFICIENT_DATA, None)  # one vertical only
 

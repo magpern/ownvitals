@@ -15,6 +15,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
+from ownvitals.analysis.scores.his_table import REGISTERED
 from ownvitals.auth.deps import require_user
 from ownvitals.context import UserContext
 from ownvitals.views.reads import reading
@@ -32,10 +33,23 @@ class ScoreOut(BaseModel):
     algo_version: str
     how_key: str | None
     components: dict[str, Any]
+    # Provenance for the "How it's computed" panel (#493). The revision is a 63-bit digest, so it
+    # is sent as text (a JSON number would lose digits in a browser).
+    input_revision: str
+    input_fingerprint: str
+    table_sha: str | None
 
 
 class ScoresOut(BaseModel):
     scores: list[ScoreOut]
+
+
+def _table_sha(kind: str, components: dict[str, Any]) -> str | None:
+    """The registered SHA-256 of the band table a ``his`` row used (its id is stored)."""
+    table = components.get("table")
+    if kind != "his" or not isinstance(table, dict):
+        return None
+    return REGISTERED.get(str(table.get("id")))
 
 
 def _tier(kind: str) -> str:
@@ -60,6 +74,9 @@ async def list_scores(
                 algo_version=r.algo_version,
                 how_key=r.components.get("text_key"),
                 components=dict(r.components),
+                input_revision=str(r.input_revision),
+                input_fingerprint=bytes(r.input_fingerprint).hex(),
+                table_sha=_table_sha(r.kind, r.components),
             )
             for r, stale in rows
         ]

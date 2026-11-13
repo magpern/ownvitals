@@ -2,10 +2,12 @@ import type { HisScore } from '../../api/scores'
 import { HIS_AREAS } from '../../api/scores'
 import type { MessageKey } from '../../i18n/en'
 import { isMessageKey, useT } from '../../i18n'
+import { Link } from '../../router/Router'
 import { Card } from '../ui/Card'
 import { DataState } from '../ui/DataState'
 import { TierGlyph } from '../ui/TierMark'
 import { ScoreReadout } from './ScoreReadout'
+import { SCORE_LINK_ID } from './scorePanelModel'
 
 // The health score card of the overview (docs/design/mockups/src/Dashboard.dc.html): the title with
 // the "ownvitals 2.0" source tag, the value, and the areas on one line, "n/a" where an area has no
@@ -32,7 +34,8 @@ export function reasonKey(code: string): MessageKey {
   return isMessageKey(key) ? key : 'overview.score.reason.fallback'
 }
 
-export function ScoreCard({ score }: { score: HisScore | null }) {
+/** `openTo` is the address that opens the "How it's computed" panel (`?score=his`). */
+export function ScoreCard({ score, openTo }: { score: HisScore | null; openTo?: string }) {
   const t = useT()
   if (score === null || score.status === 'not_set') return null
   const source = (
@@ -66,6 +69,13 @@ export function ScoreCard({ score }: { score: HisScore | null }) {
         </>
       ) : (
         <DataState kind="not-available">{t('overview.score.detail')}</DataState>
+      )}
+      {openTo === undefined ? null : (
+        <p className="ov-small">
+          <Link id={SCORE_LINK_ID} to={openTo}>
+            {t('overview.score.howLink')}
+          </Link>
+        </p>
       )}
     </Card>
   )

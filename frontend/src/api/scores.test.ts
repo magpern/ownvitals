@@ -36,6 +36,7 @@ describe('decodeHisScore', () => {
       reason: null,
       areas: { body: 78, heart: null, activity: null, sleep: null },
       areaReasons: { body: null, heart: null, activity: null, sleep: 'insufficient_data' },
+      detail: { criteria: [], table: null, day: null, stale: false, inputRevision: null, inputFingerprint: null },
     })
   })
 

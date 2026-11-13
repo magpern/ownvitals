@@ -14,6 +14,7 @@ function score(reasons: HisScore['areaReasons']): HisScore {
     reason: null,
     areas: { body: null, heart: 70, activity: null, sleep: null },
     areaReasons: reasons,
+    detail: { criteria: [], table: null, day: null, stale: false, inputRevision: null, inputFingerprint: null },
   }
 }
 

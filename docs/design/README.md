@@ -312,3 +312,41 @@ The two-factor setup screen when the server answers `reauth_required` is not dra
 mock-ups. It uses the existing error `Notice` with the catalogue message (en "Confirm it is you:
 sign in again, then continue.", sv "Bekräfta att det är du: logga in igen och fortsätt sedan.");
 no new component, state or token.
+
+## Health score panel, designed for #493
+
+The overview's Health score tile has a "How it's computed" link (owner decisions, 2026-10-31); the
+`Dashboard` mock-up points it at `Reading.dc.html` and no mock-up covers the screen. **Owner
+decision 2026-11-12: "You figure it out"**, so this is designed under rule 3, **delegated and
+provisional**. It is re-checked at the M8 review, wording included, which goes to the owner's
+medical-claims review. It is built only from the `Reading` mock-up's right-hand panel
+(`ReadingPanel.tsx`): the "Calculated by ownvitals" card, the measure table and the Provenance
+block. No new component, colour, icon or chart style.
+
+- **Opening it.** The link opens a panel beside the overview the way a reading opens on the day
+  view: `?score=his` on the overview (the chosen `range` stays). Escape and the close button close
+  it, and the focus goes back to the link. The link and the panel exist only while `/api/scores`
+  lists `his` (owner-only flag); a deep link with no `his` drops the parameter quietly. On a phone
+  the panel is full-screen, as the reading panel is.
+- **Header.** "Health score", the source tag ("ownvitals 2.0", as on the tile) and the
+  experimental tier mark (dashed diamond).
+- **States.** For `not_set`, `insufficient_data`, `not_available` and `not_supported` the top of
+  the panel shows the data-state pill with the reason's sentence (the reason codes of #492, an
+  unknown code reads generically); the table still lists the criteria that have a value.
+- **Card "How your score became {value}"** ("Why there is no score yet" when not computed): a table
+  in the reading's measure-table style, *Area, Measure, Your value, Band, Points*, one row per
+  criterion in `components.criteria`. The band is the word (Perfect, Good, Average, Bad) with the
+  table's boundaries for the user's sex and age bracket beneath it. A criterion with no value shows
+  its reason's sentence across the row. Then one line per area, with its score or "n/a" and its
+  reason. Three sentences of method follow, from `his.py`: 100 points inside Perfect, 75 at Good,
+  50 at Average and 0 at Bad, in a straight line between; an area is the weighted mean of its
+  measures; the score is the mean of the areas that have one and needs at least two.
+- **Band word.** Inside the perfect range is Perfect; up to the Good boundary is Good; up to the
+  Average boundary is Average; beyond it is Bad. The panel derives it from the same boundaries the
+  server scored with (`components.criteria.*.low/high`); the points are the server's.
+- **"Where the bands come from".** "The bands are the values Withings shows on its Health
+  Improvement Score card (table {id} {version}). They aren't ownvitals' health ranges." and, in the
+  findings' "what it isn't" pattern, "This isn't a diagnosis or a medical assessment."
+- **Provenance.** `algo_version`, the table id and version, the table SHA-256, `input_revision`,
+  `input_fingerprint`, the day it was computed for, and Current or Stale. The stored score has a
+  day, not a time of day, so "computed" shows the day.
