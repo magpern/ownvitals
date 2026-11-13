@@ -347,6 +347,22 @@ def test_check_fails_when_the_secrets_directory_holds_no_key_ring(host: BackupHo
     assert "SECRETS_DIR has no connection_kek" in result.stderr
 
 
+def test_check_fails_when_other_key_ring_files_remain_but_no_connection_kek(
+    host: BackupHost,
+) -> None:
+    """Only the current KEK is gone: a retired KEK, the seed and the pepper stay. A check for
+    "no key files at all", or a prefix match that a retired ``connection_kek_*`` satisfies,
+    would pass here."""
+    assert host.run("db").returncode == 0
+    assert host.run("keys").returncode == 0
+    (host.secrets / "connection_kek").unlink()
+    remaining = {p.name for p in host.secrets.iterdir()}
+    assert {"connection_kek_kek-0", "webhook_seed", "webhook_pepper"} <= remaining
+    result = host.run("--check")
+    assert result.returncode == 1
+    assert "SECRETS_DIR has no connection_kek" in result.stderr
+
+
 def test_check_sees_a_key_installed_with_its_old_modification_time(host: BackupHost) -> None:
     """``cp -p`` keeps the source's mtime; the change time still moves."""
     assert host.run("db").returncode == 0
@@ -393,7 +409,7 @@ def test_the_drill_refuses_an_identity_kept_beside_the_backups(host: BackupHost)
     assert not IDENTITY_RE.search(result.stdout + result.stderr)
 
 
-@pytest.mark.parametrize("mode", [0o640, 0o604, 0o644])
+@pytest.mark.parametrize("mode", [0o640, 0o604, 0o644, 0o620, 0o602])
 def test_the_drill_refuses_an_identity_readable_by_others(host: BackupHost, mode: int) -> None:
     backup_set = drill_set(host)
     host.db_identity.chmod(mode)
