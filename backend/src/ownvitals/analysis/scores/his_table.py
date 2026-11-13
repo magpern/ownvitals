@@ -25,6 +25,9 @@ CRITERIA: Final = (
 VERTICALS: Final = ("body", "heart", "activity", "sleep")  # nutrition: no public-API input
 SEXES: Final = ("any", "female", "male")
 # table_id -> SHA-256 of its file (ADR 0012 owner question 1: the Withings card values).
+# An id is pinned to ONE digest for good: the scores API reports ``table_sha`` from this map by
+# the id a stored row names, so a changed table needs a NEW id (``withings_card_v2``), never a
+# new digest under an old id. ``test_scores_table_provenance`` freezes the pairs.
 REGISTERED: Final[Mapping[str, str]] = {
     "withings_card_v1": "9f20d86e398e9b9357cf8fd7b7acbcd7b2fa92c6459ad694a24369df441212cb",
 }
