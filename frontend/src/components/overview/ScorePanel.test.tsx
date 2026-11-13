@@ -102,6 +102,19 @@ describe('bandWord', () => {
     expect(bandWord(12, LOW, SIDE)).toBe('bad')
     expect(bandWord(5, null, null)).toBeNull()
   })
+
+  it('puts a value exactly on a boundary in the better band, on both sides', () => {
+    expect(bandWord(25, LOW, SIDE)).toBe('perfect')
+    expect(bandWord(18.5, LOW, SIDE)).toBe('perfect')
+    expect(bandWord(27, LOW, SIDE)).toBe('good')
+    expect(bandWord(17, LOW, SIDE)).toBe('good')
+    expect(bandWord(30, LOW, SIDE)).toBe('average')
+    expect(bandWord(15, LOW, SIDE)).toBe('average')
+    expect(bandWord(35, LOW, SIDE)).toBe('bad')
+    expect(bandWord(13, LOW, SIDE)).toBe('bad')
+    expect(bandWord(30.01, null, SIDE)).toBe('bad')
+    expect(bandWord(15, LOW, null)).toBe('average')
+  })
 })
 
 describe('the panel of a computed score', () => {
@@ -112,19 +125,24 @@ describe('the panel of a computed score', () => {
     expect(screen.getByText('Experimental')).toBeInTheDocument()
     const bmi = document.querySelector('[data-criterion="bmi"]') as HTMLElement
     expect(within(bmi).getByText('Perfect')).toBeInTheDocument()
-    expect(within(bmi).getByText(/Perfect 18\.5–25 · Good 17–27 · Average 15–30 · Bad 13–35/)).toBeInTheDocument()
+    expect(within(bmi).getByText(/Perfect 18\.5–25 · Good 17–27 · Average 15–30 · Bad: below 13 or above 35/)).toBeInTheDocument()
     expect(within(bmi).getByText('100')).toBeInTheDocument()
     const fat = document.querySelector('[data-criterion="fat_ratio"]') as HTMLElement
     expect(within(fat).getByText('Average')).toBeInTheDocument()
     expect(within(fat).getByText('62.5')).toBeInTheDocument()
+    expect(within(fat).getByText(/Bad: above 35$/)).toBeInTheDocument()
     expect(document.querySelectorAll('tbody tr')).toHaveLength(5)
     expect(screen.getByText('Body 78')).toBeInTheDocument()
     expect(screen.getByText('Activity n/a: not enough data yet')).toBeInTheDocument()
-    expect(screen.getByText(/withings_card_v1 1\)/)).toBeInTheDocument()
+    expect(screen.getByText('Band table synthetic (withings_card_v1, version 1).')).toBeInTheDocument()
     expect(screen.getByText('123456789012345678')).toBeInTheDocument()
     expect(screen.getByText('abababab…abababab')).toBeInTheDocument()
     expect(screen.getByText('Current')).toBeInTheDocument()
-    expect(screen.getByText("This isn't a diagnosis or a medical assessment.")).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This score compares your values with fixed bands for your age and sex; it is not a medical assessment.',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('words a criterion without a value by its code, an unknown code generically', () => {
@@ -171,10 +189,17 @@ describe('the panel of a computed score', () => {
     expect(screen.getByText('Insufficient data')).toBeInTheDocument()
   })
 
-  it('carries the not-a-diagnosis line in Swedish', async () => {
+  it('carries the ADR sentence, the table source and the Bad wording in Swedish', async () => {
     await setLocale('sv')
     render(<ScorePanel score={score()} onClose={() => {}} />)
-    expect(screen.getByText('Det här är ingen diagnos och ingen medicinsk bedömning.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Poängen jämför dina värden med fasta nivåer för din ålder och ditt kön; det är ingen medicinsk bedömning.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Nivåtabell synthetic (withings_card_v1, version 1).')).toBeInTheDocument()
+    expect(screen.getByText(/Dåligt: under 13 eller över 35/)).toBeInTheDocument()
+    expect(screen.getByText(/Dåligt: över 35$/)).toBeInTheDocument()
   })
 })
 

@@ -7,17 +7,13 @@ import { Link } from '../../router/Router'
 import { ResourceView, StatePill } from '../ui/DataState'
 import { SourceMark } from '../ui/TierMark'
 import { Mono, Value } from '../ui/Value'
+import { shortHash } from '../../lib/shortHash'
 import { decimalsOf } from './metricData'
 import { useMetricName } from './names'
 
 // The reading drawer (docs/design/mockups/src/Reading.dc.html): one reading, where it came from and
 // what was checked before it was used. It is opened by the address (`?reading=<id>`), so a link
 // reaches it and the back button closes it.
-
-/** A hash as the design shows it: the first and last eight characters. */
-function shortHash(hash: string): string {
-  return hash.length > 20 ? `${hash.slice(0, 8)}…${hash.slice(-8)}` : hash
-}
 
 function attribText(t: ReturnType<typeof useT>, attrib: number | null): string {
   if (attrib === null) return t('detail.reading.attrib.none')

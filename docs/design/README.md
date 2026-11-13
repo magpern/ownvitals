@@ -344,9 +344,15 @@ block. No new component, colour, icon or chart style.
 - **Band word.** Inside the perfect range is Perfect; up to the Good boundary is Good; up to the
   Average boundary is Average; beyond it is Bad. The panel derives it from the same boundaries the
   server scored with (`components.criteria.*.low/high`); the points are the server's.
-- **"Where the bands come from".** "The bands are the values Withings shows on its Health
-  Improvement Score card (table {id} {version}). They aren't ownvitals' health ranges." and, in the
-  findings' "what it isn't" pattern, "This isn't a diagnosis or a medical assessment."
+- **Band line.** Under the word: "Perfect 18.5–25 · Good 17–27 · Average 15–30" and then the Bad
+  line worded as beyond the boundaries, so it never reads as a range the value is inside: "Bad:
+  below 13 or above 35" on a two-sided row, "Bad: above 35" or "Bad: below 13" on a one-sided one.
+- **"Where the bands come from".** Per ADR 0012 section 2, which wins over the first design: the
+  band table's source, id and version ("Band table {source} ({id}, version {version}).") and
+  exactly "This score compares your values with fixed bands for your age and sex; it is not a
+  medical assessment." (Swedish: "Poängen jämför dina värden med fasta nivåer för din ålder och
+  ditt kön; det är ingen medicinsk bedömning."). The earlier sentences ("The bands are the values
+  Withings shows ...", "This isn't a diagnosis ...") are gone.
 - **Provenance.** `algo_version`, the table id and version, the table SHA-256, `input_revision`,
   `input_fingerprint`, the day it was computed for, and Current or Stale. The stored score has a
   day, not a time of day, so "computed" shows the day.

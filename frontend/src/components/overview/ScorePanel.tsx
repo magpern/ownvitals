@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { HIS_AREA_KEYS, type HisCriterion } from '../../api/scoreDetail'
 import type { HisScore } from '../../api/scores'
+import { shortHash } from '../../lib/shortHash'
 import { isMessageKey, useT } from '../../i18n'
 import { Card } from '../ui/Card'
 import { DataState, StatePill, type DataStateKind } from '../ui/DataState'
 import { TierMark } from '../ui/TierMark'
 import { Mono, Num } from '../ui/Value'
 import { reasonKey, sourceTag } from './ScoreCard'
-import { SCORE_LINK_ID, bandWord, hasBands, levelBounds, num, perfectRange, shortHash } from './scorePanelModel'
+import { SCORE_LINK_ID, badBeyond, bandWord, hasBands, levelBounds, num, perfectRange } from './scorePanelModel'
 
 // The Health score's "How it's computed" panel (issue 493, docs/design/README.md "Health score panel").
 // It is the Reading panel's pattern (components/metric/ReadingPanel.tsx): a drawer with a header, a
@@ -34,8 +35,16 @@ function measureName(t: T, key: string): string {
 
 function bandText(t: T, c: HisCriterion): string {
   const parts = [`${t('overview.score.band.perfect')} ${perfectRange(c.low, c.high)}`]
-  for (const level of ['good', 'average', 'bad'] as const) {
+  for (const level of ['good', 'average'] as const) {
     parts.push(`${t(`overview.score.band.${level}`)} ${levelBounds(level, c.low, c.high)}`)
+  }
+  const { below, above } = badBeyond(c.low, c.high)
+  if (below !== null && above !== null) {
+    parts.push(t('overview.score.band.badBoth', { below: num(below), above: num(above) }))
+  } else if (below !== null) {
+    parts.push(t('overview.score.band.badBelow', { below: num(below) }))
+  } else if (above !== null) {
+    parts.push(t('overview.score.band.badAbove', { above: num(above) }))
   }
   return parts.join(' · ')
 }
@@ -189,11 +198,12 @@ function Body({ score }: { score: HisScore }) {
         {table === null
           ? t('overview.score.panel.bands.noTable')
           : t('overview.score.panel.bands', {
+              source: table.source,
               id: table.id,
               version: table.version,
             })}
       </p>
-      <p className="ov-small ov-muted">{t('overview.score.panel.notMedical')}</p>
+      <p className="ov-small">{t('overview.score.panel.notMedical')}</p>
       <Provenance score={score} />
     </>
   )
