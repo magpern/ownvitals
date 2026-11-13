@@ -49,9 +49,9 @@ export function hasBands(c: HisCriterion): boolean {
   return c.low !== null || c.high !== null
 }
 
-/** A hash as the reading shows it: the first and last eight characters. */
-export function shortHash(hash: string): string {
-  return hash.length > 20 ? `${hash.slice(0, 8)}…${hash.slice(-8)}` : hash
+/** The Bad line's bounds: Bad begins beyond the Average boundary, as `bandWord` decides. */
+export function badBeyond(low: HisBand | null, high: HisBand | null): { below: number | null; above: number | null } {
+  return { below: low?.average ?? null, above: high?.average ?? null }
 }
 
 /** The id of the card's "How it's computed" link: the panel gives the focus back to it. */
