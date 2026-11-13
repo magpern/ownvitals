@@ -82,8 +82,8 @@ deterministic CI security checks (§10.3) and on the owner's human security revi
    starts `Agent review (<model>): PASS <head SHA>`, followed by the non-blocking findings. A
    `FAIL` is recorded the same way: `Agent review (<model>): FAIL <head SHA>`, blocking findings
    first, each with file and line. A `PASS` is recorded only when `ci` and `pr-title` are green on
-   that head: the Reviewer finishes its review, waits for (or is resumed once there is) green CI,
-   and only then posts the `PASS`. A `PASS` on red or pending CI does not count, and the
+   that head: the Reviewer finishes its review and, if CI is still pending, is resumed once it is
+   green, and only then posts the `PASS`. A `PASS` on red or pending CI does not count, and the
    Architect never asks for one; if CI turns out red, the Reviewer is resumed for the new head.
    A `FAIL` may be recorded at once.
    The Architect starts a Reviewer (first or delta) only once `ci` is green on the head; a red
