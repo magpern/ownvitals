@@ -99,7 +99,7 @@
   }
 }
 
-/* The Health score panel (#493): full-screen on a phone, as the reading panel is. */
+/* The Health score panel (#493): full-screen on a phone, as the reading panel is. Keep the query in step with PHONE_QUERY in ScorePanel.tsx. */
 @media (max-width: 63.99rem) {
   .ov-score-panel {
     position: fixed;

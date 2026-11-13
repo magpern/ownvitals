@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { HIS_AREA_KEYS, type HisCriterion } from '../../api/scoreDetail'
 import type { HisScore } from '../../api/scores'
 import { shortHash } from '../../lib/shortHash'
@@ -233,18 +233,39 @@ function trapTab(event: KeyboardEvent, panel: HTMLElement | null) {
   }
 }
 
+/** The phone breakpoint: the same query as the full-screen rule for `.ov-score-panel` in styles/metric.css. */
+export const PHONE_QUERY = '(max-width: 63.99rem)'
+
+/** True while the panel is the phone full-screen overlay. Desktop when `matchMedia` is missing (jsdom). */
+function usePhoneOverlay(): boolean {
+  const media = () => (typeof window.matchMedia === 'function' ? window.matchMedia(PHONE_QUERY) : null)
+  const [phone, setPhone] = useState(() => media()?.matches ?? false)
+  useEffect(() => {
+    const m = media()
+    if (m === null) return
+    const on = () => setPhone(m.matches)
+    on()
+    m.addEventListener('change', on)
+    return () => m.removeEventListener('change', on)
+  }, [])
+  return phone
+}
+
 export function ScorePanel({ score, onClose }: { score: HisScore; onClose: () => void }) {
   const t = useT()
+  const phone = usePhoneOverlay()
+  const trap = useRef(phone)
   const ref = useRef<HTMLElement>(null)
   const close = useRef(onClose)
   useEffect(() => {
     close.current = onClose
+    trap.current = phone
   })
   useEffect(() => {
     ref.current?.focus()
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') close.current()
-      if (event.key === 'Tab') trapTab(event, ref.current)
+      if (event.key === 'Tab' && trap.current) trapTab(event, ref.current)
     }
     document.addEventListener('keydown', onKey)
     return () => {
@@ -256,8 +277,8 @@ export function ScorePanel({ score, onClose }: { score: HisScore; onClose: () =>
     <aside
       ref={ref}
       tabIndex={-1}
-      role="dialog"
-      aria-modal="true"
+      role={phone ? 'dialog' : undefined}
+      aria-modal={phone ? 'true' : undefined}
       className="ov-metric__drawer ov-score-panel"
       aria-label={t('overview.metric.healthScore')}
     >
