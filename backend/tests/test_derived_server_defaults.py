@@ -25,8 +25,7 @@ def _declared() -> dict[tuple[str, str], str]:
             default = column.server_default
             if default is None:
                 continue
-            arg = getattr(default, "arg", None)
-            out[(table.name, column.name)] = str(arg.compile() if hasattr(arg, "compile") else arg)
+            out[(table.name, column.name)] = str(getattr(default, "arg", ""))
     return out
 
 
