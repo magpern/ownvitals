@@ -68,7 +68,7 @@ export const overview = {
   'score.reason.insufficient_data': 'för lite data ännu',
   'score.reason.implausible_height': 'en orimlig längd är registrerad',
   'score.reason.no_height': 'ingen längd registrerad ännu',
-  'score.reason.no_band_row': 'ingen poängtabell för din ålder eller ditt kön',
+  'score.reason.no_band_row': 'ingen rad i poängtabellen passar din ålder och ditt kön',
   'score.reason.not_supported': 'stöds inte av kontot',
   'score.reason.not_shared': 'inte delad med ownvitals',
   'score.reason.not_available': 'inga data från Withings ännu',

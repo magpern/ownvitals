@@ -159,7 +159,7 @@ describe('the panel of a computed score', () => {
   it('words a criterion without a value by its code, an unknown code generically', () => {
     render(<ScorePanel score={score()} onClose={() => {}} />)
     const hr = document.querySelector('[data-criterion="night_hr"]') as HTMLElement
-    expect(within(hr).getByText('no band for your age or sex')).toBeInTheDocument()
+    expect(within(hr).getByText('no row in the score table matches your age and sex')).toBeInTheDocument()
     const ahi = document.querySelector('[data-criterion="sleep_ahi"]') as HTMLElement
     expect(within(ahi).getByText('not computed yet')).toBeInTheDocument()
   })
@@ -238,5 +238,20 @@ describe('keyboard', () => {
     expect(close).toHaveBeenCalledTimes(2)
     unmount()
     expect(screen.getByRole('link', { name: "How it's computed" })).toHaveFocus()
+  })
+
+  it('is a labelled modal dialog that takes the focus and keeps Tab inside', () => {
+    render(<ScorePanel score={score()} onClose={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'Health score' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveFocus()
+    const items = Array.from(dialog.querySelectorAll<HTMLElement>('button, a[href]'))
+    const first = items[0] as HTMLElement
+    const last = items[items.length - 1] as HTMLElement
+    last.focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(first).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(last).toHaveFocus()
   })
 })

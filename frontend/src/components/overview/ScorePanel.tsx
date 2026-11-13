@@ -205,7 +205,6 @@ function Body({ score }: { score: HisScore }) {
           ? t('overview.score.panel.bands.noTable')
           : t('overview.score.panel.bands', {
               label: tableLabel(t, table.id),
-              id: table.id,
               version: table.version,
             })}
       </p>
@@ -213,6 +212,25 @@ function Body({ score }: { score: HisScore }) {
       <Provenance score={score} />
     </>
   )
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'
+
+/** Keep Tab inside the panel: wrap from the last focusable element to the first and back. */
+function trapTab(event: KeyboardEvent, panel: HTMLElement | null) {
+  if (panel === null) return
+  const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE))
+  const first = items[0]
+  const last = items[items.length - 1]
+  if (first === undefined || last === undefined) return
+  const active = document.activeElement
+  if (event.shiftKey && (active === first || active === panel || !panel.contains(active))) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (active === last || !panel.contains(active))) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 
 export function ScorePanel({ score, onClose }: { score: HisScore; onClose: () => void }) {
@@ -226,6 +244,7 @@ export function ScorePanel({ score, onClose }: { score: HisScore; onClose: () =>
     ref.current?.focus()
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') close.current()
+      if (event.key === 'Tab') trapTab(event, ref.current)
     }
     document.addEventListener('keydown', onKey)
     return () => {
@@ -237,6 +256,8 @@ export function ScorePanel({ score, onClose }: { score: HisScore; onClose: () =>
     <aside
       ref={ref}
       tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
       className="ov-metric__drawer ov-score-panel"
       aria-label={t('overview.metric.healthScore')}
     >
