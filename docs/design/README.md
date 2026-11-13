@@ -345,14 +345,16 @@ block. No new component, colour, icon or chart style.
   Average boundary is Average; beyond it is Bad. The panel derives it from the same boundaries the
   server scored with (`components.criteria.*.low/high`); the points are the server's.
 - **Band line.** Under the word: "Perfect 18.5–25 · Good 17–27 · Average 15–30" and then the Bad
-  line worded as beyond the boundaries, so it never reads as a range the value is inside: "Bad:
-  below 13 or above 35" on a two-sided row, "Bad: above 35" or "Bad: below 13" on a one-sided one.
+  line, which starts beyond the Average boundary (where the word turns Bad), so it never reads as
+  a range the value is inside: "Bad: below 15 or above 30" on a two-sided row, "Bad: above 30" or
+  "Bad: below 15" on a one-sided one.
 - **"Where the bands come from".** Per ADR 0012 section 2, which wins over the first design: the
-  band table's source, id and version ("Band table {source} ({id}, version {version}).") and
-  exactly "This score compares your values with fixed bands for your age and sex; it is not a
-  medical assessment." (Swedish: "Poängen jämför dina värden med fasta nivåer för din ålder och
-  ditt kön; det är ingen medicinsk bedömning."). The earlier sentences ("The bands are the values
-  Withings shows ...", "This isn't a diagnosis ...") are gone.
-- **Provenance.** `algo_version`, the table id and version, the table SHA-256, `input_revision`,
+  band table by a user-facing label keyed by its id, not its raw source, and its version ("Band
+  table: the values on Withings' Health Improvement Score card (provisional) (version 1)."; an
+  unknown id reads "a fixed band table"), and exactly "This score compares your values with fixed
+  bands for your age and sex; it is not a medical assessment." (Swedish: "Poängen jämför dina
+  värden med fasta nivåer för din ålder och ditt kön; det är ingen medicinsk bedömning."). The
+  table's raw `source` string is a mono row in Provenance, left out when there is none.
+- **Provenance.** `algo_version`, the table id and version, the table's `source`, the table SHA-256, `input_revision`,
   `input_fingerprint`, the day it was computed for, and Current or Stale. The stored score has a
   day, not a time of day, so "computed" shows the day.

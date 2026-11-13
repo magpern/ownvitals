@@ -49,9 +49,9 @@ export function hasBands(c: HisCriterion): boolean {
   return c.low !== null || c.high !== null
 }
 
-/** The Bad line's bounds: where each side that has one ends, so "below 13" is the low side. */
+/** The Bad line's bounds: Bad begins beyond the Average boundary, as `bandWord` decides. */
 export function badBeyond(low: HisBand | null, high: HisBand | null): { below: number | null; above: number | null } {
-  return { below: low?.bad ?? null, above: high?.bad ?? null }
+  return { below: low?.average ?? null, above: high?.average ?? null }
 }
 
 /** The id of the card's "How it's computed" link: the panel gives the focus back to it. */

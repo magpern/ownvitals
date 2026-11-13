@@ -34,7 +34,7 @@ export interface HisCriterion {
 
 export interface HisDetail {
   criteria: HisCriterion[]
-  table: { id: string; version: string; source: string; sha: string | null } | null
+  table: { id: string; version: string; source: string | null; sha: string | null } | null
   /** The day the score was computed for (`YYYY-MM-DD`), or `null`. */
   day: string | null
   stale: boolean
@@ -92,7 +92,7 @@ export function decodeHisDetail(entry: JsonObject, components: JsonObject): HisD
     table:
       table === null || id === null
         ? null
-        : { id, version: str(table.version) ?? '', source: str(table.source) ?? '', sha: str(entry.table_sha) },
+        : { id, version: str(table.version) ?? '', source: str(table.source), sha: str(entry.table_sha) },
     day: str(entry.day),
     stale: entry.stale === true,
     inputRevision: str(entry.input_revision),

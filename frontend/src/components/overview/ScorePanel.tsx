@@ -33,6 +33,11 @@ function measureName(t: T, key: string): string {
   return isMessageKey(k) ? t(k) : key
 }
 
+function tableLabel(t: T, id: string): string {
+  const k = `overview.score.table.${id}`
+  return isMessageKey(k) ? t(k) : t('overview.score.table.generic')
+}
+
 function bandText(t: T, c: HisCriterion): string {
   const parts = [`${t('overview.score.band.perfect')} ${perfectRange(c.low, c.high)}`]
   for (const level of ['good', 'average'] as const) {
@@ -160,6 +165,7 @@ function Provenance({ score }: { score: HisScore }) {
       <dl className="ov-metric__facts">
         {row('algo_version', score.algoVersion)}
         {row('table', d.table === null ? null : `${d.table.id} · ${d.table.version}`)}
+        {row('table_source', d.table?.source ?? null)}
         {row('table_sha256', d.table?.sha == null ? null : shortHash(d.table.sha))}
         {row('input_revision', d.inputRevision)}
         {row('input_fingerprint', d.inputFingerprint === null ? null : shortHash(d.inputFingerprint))}
@@ -198,7 +204,7 @@ function Body({ score }: { score: HisScore }) {
         {table === null
           ? t('overview.score.panel.bands.noTable')
           : t('overview.score.panel.bands', {
-              source: table.source,
+              label: tableLabel(t, table.id),
               id: table.id,
               version: table.version,
             })}
