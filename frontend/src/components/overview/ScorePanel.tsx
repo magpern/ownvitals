@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { HIS_AREA_KEYS, type HisCriterion } from '../../api/scoreDetail'
 import type { HisScore } from '../../api/scores'
 import { shortHash } from '../../lib/shortHash'
@@ -205,7 +205,6 @@ function Body({ score }: { score: HisScore }) {
           ? t('overview.score.panel.bands.noTable')
           : t('overview.score.panel.bands', {
               label: tableLabel(t, table.id),
-              id: table.id,
               version: table.version,
             })}
       </p>
@@ -215,17 +214,58 @@ function Body({ score }: { score: HisScore }) {
   )
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'
+
+/** Keep Tab inside the panel: wrap from the last focusable element to the first and back. */
+function trapTab(event: KeyboardEvent, panel: HTMLElement | null) {
+  if (panel === null) return
+  const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE))
+  const first = items[0]
+  const last = items[items.length - 1]
+  if (first === undefined || last === undefined) return
+  const active = document.activeElement
+  if (event.shiftKey && (active === first || active === panel || !panel.contains(active))) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (active === last || !panel.contains(active))) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+/** The phone breakpoint: the same query as the full-screen rule for `.ov-score-panel` in styles/metric.css. */
+export const PHONE_QUERY = '(max-width: 63.99rem)'
+
+/** True while the panel is the phone full-screen overlay. Desktop when `matchMedia` is missing (jsdom). */
+function usePhoneOverlay(): boolean {
+  const media = () => (typeof window.matchMedia === 'function' ? window.matchMedia(PHONE_QUERY) : null)
+  const [phone, setPhone] = useState(() => media()?.matches ?? false)
+  useEffect(() => {
+    const m = media()
+    if (m === null) return
+    const on = () => setPhone(m.matches)
+    on()
+    m.addEventListener('change', on)
+    return () => m.removeEventListener('change', on)
+  }, [])
+  return phone
+}
+
 export function ScorePanel({ score, onClose }: { score: HisScore; onClose: () => void }) {
   const t = useT()
+  const phone = usePhoneOverlay()
+  const trap = useRef(phone)
   const ref = useRef<HTMLElement>(null)
   const close = useRef(onClose)
   useEffect(() => {
     close.current = onClose
+    trap.current = phone
   })
   useEffect(() => {
     ref.current?.focus()
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') close.current()
+      if (event.key === 'Tab' && trap.current) trapTab(event, ref.current)
     }
     document.addEventListener('keydown', onKey)
     return () => {
@@ -237,6 +277,8 @@ export function ScorePanel({ score, onClose }: { score: HisScore; onClose: () =>
     <aside
       ref={ref}
       tabIndex={-1}
+      role={phone ? 'dialog' : undefined}
+      aria-modal={phone ? 'true' : undefined}
       className="ov-metric__drawer ov-score-panel"
       aria-label={t('overview.metric.healthScore')}
     >

@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HisScore } from '../../api/scores'
 import { decodeHisScore } from '../../api/scores'
 import { setLocale } from '../../i18n'
 import { RouterProvider } from '../../router/Router'
 import { ScoreCard } from './ScoreCard'
-import { ScorePanel } from './ScorePanel'
+import { PHONE_QUERY, ScorePanel } from './ScorePanel'
 import { badBeyond, bandWord } from './scorePanelModel'
 
 // Synthetic score values only (nothing here is a real person's data).
@@ -159,7 +159,7 @@ describe('the panel of a computed score', () => {
   it('words a criterion without a value by its code, an unknown code generically', () => {
     render(<ScorePanel score={score()} onClose={() => {}} />)
     const hr = document.querySelector('[data-criterion="night_hr"]') as HTMLElement
-    expect(within(hr).getByText('no band for your age or sex')).toBeInTheDocument()
+    expect(within(hr).getByText('no row in the score table matches your age and sex')).toBeInTheDocument()
     const ahi = document.querySelector('[data-criterion="sleep_ahi"]') as HTMLElement
     expect(within(ahi).getByText('not computed yet')).toBeInTheDocument()
   })
@@ -222,6 +222,16 @@ describe('the panel of a computed score', () => {
   })
 })
 
+function mockWidth(phone: boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: phone && query === PHONE_QUERY,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }))
+}
+
+afterEach(() => vi.unstubAllGlobals())
+
 describe('keyboard', () => {
   it('closes on Escape and the button, and gives the focus back to the link', () => {
     const close = vi.fn()
@@ -238,5 +248,34 @@ describe('keyboard', () => {
     expect(close).toHaveBeenCalledTimes(2)
     unmount()
     expect(screen.getByRole('link', { name: "How it's computed" })).toHaveFocus()
+  })
+
+  it('is a labelled modal dialog that keeps Tab inside at phone width', () => {
+    mockWidth(true)
+    render(<ScorePanel score={score()} onClose={() => {}} />)
+    const dialog = screen.getByRole('dialog', { name: 'Health score' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveFocus()
+    const items = Array.from(dialog.querySelectorAll<HTMLElement>('button, a[href]'))
+    const first = items[0] as HTMLElement
+    const last = items[items.length - 1] as HTMLElement
+    last.focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(first).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(last).toHaveFocus()
+  })
+
+  it('is a plain complementary region without a trap at desktop width', () => {
+    mockWidth(false)
+    render(<ScorePanel score={score()} onClose={() => {}} />)
+    const region = screen.getByRole('complementary', { name: 'Health score' })
+    expect(region).not.toHaveAttribute('aria-modal')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const last = region.querySelector<HTMLElement>('button') as HTMLElement
+    last.focus()
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    document.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(false)
   })
 })
