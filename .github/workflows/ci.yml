@@ -91,7 +91,7 @@ jobs:
       # The cache holds the tarball; ci-install-release.sh checks its SHA-256 again after a restore
       # and fails the job on a mismatch. Bump the `v1` in the key to evict a bad entry.
       - name: Cache gitleaks download
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/release-cache/gitleaks
           key: v1-gitleaks-${{ runner.os }}-${{ runner.arch }}-${{ env.GITLEAKS_VERSION }}
@@ -212,7 +212,7 @@ jobs:
       # The cache holds the tarball; ci-install-release.sh checks its SHA-256 again after a restore
       # and fails the job on a mismatch. Bump the `v1` in the key to evict a bad entry.
       - name: Cache Trivy download
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/release-cache/trivy
           key: v1-trivy-${{ runner.os }}-${{ runner.arch }}-${{ env.TRIVY_VERSION }}
@@ -469,7 +469,7 @@ jobs:
       # The cache holds the tarball; ci-install-release.sh checks its SHA-256 again after a restore
       # and fails the job on a mismatch. Bump the `v1` in the key to evict a bad entry.
       - name: Cache Trivy download
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/release-cache/trivy
           key: v1-trivy-${{ runner.os }}-${{ runner.arch }}-${{ env.TRIVY_VERSION }}
