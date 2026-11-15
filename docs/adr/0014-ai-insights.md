@@ -52,12 +52,13 @@ own path with its own lock, described there; it bypasses none of these for user 
    which also puts `api.anthropic.com` on the worker's allowlist (ADR 0009).
 2. **The provider review is recorded**: the setting `ai_provider_review_ref` is non-empty. The
    owner sets it to a reference (an issue URL or a dated document id) once the checklist of §2 is
-   complete; agents never set it. Empty: AI is off whatever the flag says, and the admin page
+   complete, or states in a session that they accept the provider's terms, in which case the
+   Architect records that statement (§2) and may set the reference to it. Empty: AI is off whatever the flag says, and the admin page
    says "provider review not recorded".
 3. **The evals passed for this model, prompt and tool set** (§9): the setting `ai_eval_ref` holds
    the model id, `ai_prompt_version` and `ai_toolset_version` (a constant bumped whenever a tool,
    its arguments or its output schema change) that the owner's eval run passed with, and all three
-   equal the current ones. The owner sets it after reading the summary; agents never set it.
+   equal the current ones. The owner sets it after reading the summary, or tells the Architect to set it; it is only ever set to a value a real eval run printed as passed.
 4. **The user consented** (§3), to the current consent version, and has not withdrawn.
 5. **The user's monthly budget allows it** (§7): a reservation succeeded.
 
@@ -88,7 +89,12 @@ and the model used, from the provider's current terms (not from this ADR):
 | Health data | Do the usage policies allow health-related assistance of this kind; any extra requirements |
 | Model | The model id and its pricing on the date of the review (they feed §7's table) |
 
-The record lives outside the repository's code (an issue or document the owner names); the
+The record is an issue, a document the owner names, or `docs/ai-provider-review.md`. The owner's
+plain statement that they have read the provider's terms and accept them is enough: the owner is
+the controller and decides how much checking the checklist needs. The Architect writes that
+statement into `docs/ai-provider-review.md` (date, provider, model, what the owner said, which
+rows of the table were not checked) and sets the reference to `docs/ai-provider-review.md@<date>`.
+An agent never records an acceptance the owner has not stated. The
 consent text (§3) summarises the retention answer for the user. A change of model or of the
 provider's terms needs a new review reference; the admin page shows the reference and its date.
 
