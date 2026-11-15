@@ -617,8 +617,13 @@ volume): the function-owner roles may own objects in one database per cluster, a
 refuses a cluster that holds any other database (`shared_cluster`). Two secret directories, both
 git-ignored and outside the repository: `$PREP` holds `postgres_password`,
 `database_owner_password`, `database_password` and `database_maint_password` (for the cluster
-and the prepare step); `$RUN` holds only `database_password` and `anthropic_api_key`. The run
-refuses to start with an owner or admin credential in its settings (`owner_credentials_present`).
+and the prepare step); `$RUN` holds only `database_password`, `anthropic_api_key` and
+`app_secret_key` (the audit rows' keyed hashes; without it `app_secret_missing`). The run refuses
+to start with an owner or admin credential in its settings (`owner_credentials_present`). A third
+directory, `$OUT`, also outside the repository and never committed, receives the answers of the
+cases for the owner's reading (`OWNVITALS_AI_EVAL_OUT_DIR`; unset `output_unset`, missing
+`output_unavailable`). If it sits under a checkout anyway, name it `ai-evaluation-out/`, which
+`.gitignore` ignores.
 
 ```sh
 # 1. The cluster: the stack's image and roles script, its own container, port and volume.
@@ -641,7 +646,7 @@ OWNVITALS_MIGRATIONS_DATABASE_URL=postgresql+psycopg://ownvitals_owner@127.0.0.1
 # 4. The run (app role), in a shell with none of the prepare step's variables.
 OWNVITALS_SECRETS_DIR="$RUN" \
 OWNVITALS_DATABASE_URL=postgresql+psycopg://ownvitals_app@127.0.0.1:5442/ownvitals_ai_eval \
-OWNVITALS_AI_EVAL=on OWNVITALS_AI_EVAL_CAP_MICROUSD=5000000 \
+OWNVITALS_AI_EVAL=on OWNVITALS_AI_EVAL_CAP_MICROUSD=5000000 OWNVITALS_AI_EVAL_OUT_DIR="$OUT" \
 OWNVITALS_AI_MODEL=<model id> OWNVITALS_AI_PROVIDER_REVIEW_REF=<review ref> \
   uv run python -m ownvitals.ai.eval
 # 5. Afterwards: docker rm -f ownvitals-ai-evaluation && docker volume rm ownvitals-ai-evaluation
@@ -657,8 +662,10 @@ threshold, a run stopped by a refusal, no prepared run), 2 refused before any mo
 
 1. `install_egress_hook(EVAL_HOOK_KIND, settings)`, before anything connects.
 2. `eval_gates.refusal`: `ai_eval` on, a cap above 0, a priced model, the provider review, a
-   `database_url` whose database name ends in `_ai_eval`, no owner or admin credential; then the
-   key (`ai_not_configured`).
+   `database_url` whose database name ends in `_ai_eval`, the output directory set
+   (`output_unset`), no owner or admin credential; then the key (`ai_not_configured`), the
+   `app_secret_key` (`app_secret_missing`) and the output directory existing
+   (`output_unavailable`). Nothing is claimed before these pass.
 3. The app role's engine with the role and queue checks (`database_role`), then
    `synthetic_jobs.database_refusal`: the database's name, no other database in its cluster but
    `postgres`, the templates and other `_ai_eval` ones, no account without `users.synthetic`.
@@ -668,8 +675,10 @@ threshold, a run stopped by a refusal, no prepared run), 2 refused before any mo
    the job's fence, the database and cluster again and any unmarked account; it seeds the plan's
    data through the fence, then asks each case as one chat turn (`run_turn`, the real tool loop
    and client, audited as `ai_audit.kind = 'eval'`). Before every reservation the client's
-   `precheck` checks the accounts again. A `ModelRefused` stops the whole run; a `ModelFailed`
-   fails that case only.
+   `precheck` checks the accounts again, and again before a retry after a 429 or 529. A
+   `ModelRefused`, or a precheck refusal before a retry, stops the whole run; any other
+   `ModelFailed` fails that case only. A job that fails before or outside its handler
+   (`run_failed`) fails the run.
 
 Every call is reserved against the run's settings copy (`eval_gates.run_settings`): `ai_insights`
 and `ai_eval_ref` as the client's locks need them (the run is what produces the reference), the
@@ -695,9 +704,12 @@ passes, threshold and verdict; the largest ratio of the input tokens the provide
 input the budget bounded (`Turn.sizes`: request bytes plus `TOOL_ALLOWANCE_TOKENS`); the ids of
 the cases for the owner's reading (health and insufficient data); `result=pass|fail`; and, only
 when every category passed and no run stopped, the `ai_eval_ref=<value>` line to set as
-`OWNVITALS_AI_EVAL_REF`. No question, answer, tool result or account is printed or stored; the
-answers are not kept anywhere, so reading the listed cases is the owner's own step (asking them
-in the app on a synthetic account).
+`OWNVITALS_AI_EVAL_REF`, then `readings_file=<name>`. No question, answer, tool result or account
+is printed. The one procedure for the owner's reading: the run writes the health and
+insufficient-data cases' answers, one JSON line `{"case", "answer"}` each, to a new file
+`ai-evaluation-<UTC time>-<hex>.jsonl` (mode 0600) in `$OUT`, and the owner reads that file. The
+questions and the accounts' data are synthetic by construction, so the file holds no real
+health data; it is not part of any commit or report.
 
 ### Decision record (Option A, Architect, #527)
 
@@ -719,9 +731,10 @@ in the app on a synthetic account).
 
 | File | Covers |
 |---|---|
-| `test_ai_eval_cli.py` | `eval.run` with the fake model: every lock, the app database, an owner or admin credential, no key, a shared cluster, an unmarked account, no prepared run, another schema revision and an account unmarked mid-run each make no (or no further) request and print no reference; a complete safe run passes, prints the reference last, audits 180 `eval` rows and prints no content; one disclosure fails it |
+| `test_ai_eval_cli.py` | `eval.run` with the fake model: every lock, the app database, an owner or admin credential, no key, a shared cluster, an unmarked account, no prepared run, another schema revision, an account unmarked mid-run, a database or an account added after the start check (caught by the handler's own check, before the seed), the output directory unset or missing, no `app_secret_key` and a job that fails before its handler (`run_failed`) each make no (or no further) request and print no reference; a complete safe run passes, prints the reference, audits 180 `eval` rows, writes the readings file (0600, one line per owner-reading case) and prints no content; one disclosure fails it |
 | `test_ai_eval_jobs_db.py` | the `SCHEMA_HEAD` pin; each `synthetic_jobs` refusal (name, cluster, schema, unmarked account, invalid run) writes nothing; `queue_run` queues once and leaves `app.user_id` empty; the start check as the app role |
 | `test_ai_eval_rules.py` | the case counts and plans, every case buildable as a request, each grader rule, the thresholds (98 %, 95 %, 100 %, health's two sets), the ratio, the locks and the run settings |
+| `test_ai_client.py` (evaluation part) | the caller's `precheck` runs again before a 429 retry; a refusal there releases the reservation as `cancelled` |
 | `test_ai_turn_results.py` | `Turn.results` and `Turn.sizes`, the client's `audit_kind` and `precheck`, the closed audit kinds |
 | `evaldb.py` | the `_ai_eval` test database fixture (shared with `test_ai_eval_seed_db.py`) |
 

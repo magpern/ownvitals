@@ -267,6 +267,7 @@ def _settings(**values: Any) -> Settings:
             "ai_eval_cap_microusd": 5_000_000,
             "ai_model": MODEL,
             "ai_provider_review_ref": "synthetic-review-ref",
+            "ai_eval_out_dir": "/synthetic-out",
             **values,
         }
     )
@@ -284,6 +285,7 @@ def test_open_locks_pass() -> None:
         ({"ai_model": ""}, "ai_model_unset"),
         ({"ai_model": "synthetic-unpriced-1"}, "ai_model_unpriced"),
         ({"ai_provider_review_ref": ""}, "ai_provider_review_missing"),
+        ({"ai_eval_out_dir": " "}, "output_unset"),
         ({"database_url": EVAL_URL.replace("_ai_eval", "")}, "not_an_evaluation_database"),
         ({"database_url": EVAL_URL.replace("synthetic", "")}, "not_an_evaluation_database"),
         ({"database_owner_password": "synthetic-pw"}, "owner_credentials_present"),

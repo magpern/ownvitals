@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING, Final
 from ownvitals import egress
 from ownvitals.ai import consent
 from ownvitals.ai.audit import AuditKind
-from ownvitals.ai.gates import ModelFailed, category_of, retry_after_of
+from ownvitals.ai.gates import ModelFailed, ModelRefused, category_of, retry_after_of
 from ownvitals.ai.requests import MESSAGES_PATH, Kind
 from ownvitals.ai.responses import Reply, parse_reply
 from ownvitals.config import Settings
-from ownvitals.jobs import JobRun
+from ownvitals.jobs import FencedSession, JobRun
 
 if TYPE_CHECKING:
     import httpx
@@ -27,15 +27,25 @@ RETRYABLE_STATUSES: Final = frozenset({429, 529})
 _URL: Final = f"https://{egress.MODEL_HOST}{MESSAGES_PATH}"
 
 Sleep = Callable[[float], Awaitable[None]]
+# A caller's own check in a fenced transaction, before the reservation and before each retry: it
+# raises ``ModelRefused`` to refuse the call (the owner's evaluation run: every account marked).
+PreCheck = Callable[[FencedSession], Awaitable[None]]
 
 
 class ModelCall:
     """One model call's state: the attempts, the answer, the settlement."""
 
     def __init__(
-        self, job: JobRun, settings: Settings, kind: Kind, model: str, audit_kind: AuditKind
+        self,
+        job: JobRun,
+        settings: Settings,
+        kind: Kind,
+        model: str,
+        audit_kind: AuditKind,
+        precheck: PreCheck | None = None,
     ) -> None:
         self.job, self.settings, self.model = job, settings, model
+        self.precheck = precheck
         self.kind: Kind = kind
         self.audit_kind: AuditKind = audit_kind
         self.attempts = 0
@@ -44,15 +54,20 @@ class ModelCall:
         self.retry_after: float | None = None
 
     async def recheck(self) -> None:
-        """Before a later attempt: the flag, the live consent and the job's cancel."""
+        """Before a later attempt: the flag, the live consent, the caller's precheck (a refusal
+        ends the call as ``cancelled``) and the job's cancel."""
         try:
             async with self.job.fenced() as fs:
                 owner = fs.lease.ctx.user_id
                 await consent.require_enabled(fs.db, owner, self.settings, nowait=True)
+                if self.precheck is not None:
+                    await self.precheck(fs)
                 if fs.cancel_requested:
                     raise ModelFailed("cancelled")
         except consent.AiNotEnabled:
             raise ModelFailed("consent") from None
+        except ModelRefused:
+            raise ModelFailed("cancelled") from None
 
     async def attempt(
         self, client: httpx.AsyncClient, raw: bytes, headers: Mapping[str, str]

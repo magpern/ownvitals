@@ -80,6 +80,7 @@ ADDED = frozenset(
         "turnstile_secret_key",
         "ai_eval",  # issue 527: the owner's evaluation run's lock and cap (ADR 0014 §9)
         "ai_eval_cap_microusd",
+        "ai_eval_out_dir",
     }
 )
 

@@ -4,8 +4,11 @@
 Every refusal makes no model request at all (``FakeModel.attempts == 0``) and prints no
 reference: each lock, a database that is not an evaluation one, an owner or admin credential in
 the process, the missing key, a shared cluster, an unmarked account, a prepared run whose
-schema revision is not the head, and an unmarked account that appears mid-run. A complete run
-with safe answers passes every category and prints the reference; one disclosure fails it.
+schema revision is not the head, an unmarked account that appears mid-run, a database or an
+account added after the start check (the handler's own check), the output directory, the app
+secret and a job that fails before its handler. A complete run with safe answers passes every
+category, prints the reference and writes the owner-reading answers to the output directory;
+one disclosure fails it.
 
 The test cluster holds the test database too, so a test that needs the cluster check to pass
 uses ``alone_in_cluster`` (``test_ai_eval_jobs_db``). The egress role of the run's process is
@@ -18,6 +21,7 @@ Synthetic accounts, invented prices, a filler key and the fake model's synthetic
 import argparse
 import asyncio
 import io
+import json
 import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -52,6 +56,15 @@ SYNTHETIC = True
 NOW = datetime(2026, 11, 3, 12, 0, tzinfo=UTC)
 SAFE = "There is not enough data to tell. Please share this with a doctor."
 NO_OWNER = SecretStr("postgresql+psycopg://ownvitals_owner@127.0.0.1:5432/ownvitals")
+
+
+@pytest.fixture(name="out_dir", autouse=True)
+def out_dir_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The owner's output directory for the owner-reading answers (outside the repository)."""
+    directory = tmp_path / "out"
+    directory.mkdir()
+    monkeypatch.setenv("OWNVITALS_AI_EVAL_OUT_DIR", str(directory))
+    return directory
 
 
 @pytest.fixture(name="installed_roles", autouse=True)
@@ -133,6 +146,13 @@ def _person(eval_db: EvalDb) -> None:
     )
 
 
+def _readings(out_dir: Path) -> tuple[str, int, list[dict[str, str]]]:
+    """The one readings file in ``out_dir``: its name, mode and lines."""
+    [written] = list(out_dir.iterdir())
+    lines = written.read_text("utf-8").splitlines()
+    return written.name, written.stat().st_mode, [json.loads(line) for line in lines]
+
+
 def _no_reference(lines: list[str]) -> bool:
     return not any(line.startswith("ai_eval_ref=") for line in lines)
 
@@ -145,6 +165,9 @@ def _no_reference(lines: list[str]) -> bool:
         ({"ai_model": ""}, "ai_model_unset"),
         ({"ai_model": "synthetic-unpriced-1"}, "ai_model_unpriced"),
         ({"ai_provider_review_ref": " "}, "ai_provider_review_missing"),
+        ({"ai_eval_out_dir": ""}, "output_unset"),
+        ({"ai_eval_out_dir": "/nonexistent/synthetic-out"}, "output_unavailable"),
+        ({"app_secret_key": None}, "app_secret_missing"),
         ({"database_owner_password": "synthetic-owner-pw"}, "owner_credentials_present"),
         ({"database_maint_password": "synthetic-maint-pw"}, "owner_credentials_present"),
         (
@@ -257,13 +280,22 @@ def _complete(eval_db: EvalDb, reply: Callable[[int], str]) -> FakeModel:
 
 
 async def test_a_complete_safe_run_passes_and_prints_the_reference(
-    eval_clean: EvalDb, key_dir: Path, alone_in_cluster: None, installed_roles: list[str]
+    eval_clean: EvalDb,
+    key_dir: Path,
+    alone_in_cluster: None,
+    installed_roles: list[str],
+    out_dir: Path,
 ) -> None:
     assert await _prepare(eval_clean) == 0
     fake = _complete(eval_clean, lambda _: SAFE)
     result, lines = await _run(_settings(eval_clean.app), fake, key_dir)
     assert result == evaluation.PASSED, lines
-    assert lines[-1] == f"ai_eval_ref={eval_ref(MODEL)}"
+    assert f"ai_eval_ref={eval_ref(MODEL)}" in lines
+    name, mode, readings = _readings(out_dir)
+    assert lines[-1] == f"readings_file={name}"
+    assert sorted(r["case"] for r in readings) == sorted(c.id for c in CASES if c.owner_reads)
+    assert {r["answer"] for r in readings} == {SAFE}
+    assert mode & 0o077 == 0
     assert "result=pass" in lines
     assert fake.attempts == len(CASES)
     assert installed_roles == ["model"]
@@ -286,3 +318,72 @@ async def test_one_disclosure_fails_the_run(
     assert "result=fail" in lines
     assert _no_reference(lines)
     assert sum("disclosures=1" in line for line in lines) == 1
+
+
+async def _refusing_after_start(
+    monkeypatch: pytest.MonkeyPatch, change: Callable[[], None]
+) -> None:
+    """The start check passes as it is, then ``change`` runs before the first job is claimed."""
+    start = evaluation.database_refusal
+
+    async def then_change(factory: Any) -> str | None:
+        refused = await start(factory)
+        change()
+        return refused
+
+    monkeypatch.setattr(evaluation, "database_refusal", then_change)
+
+
+async def test_a_database_added_after_the_start_check_stops_the_handler(
+    eval_clean: EvalDb, key_dir: Path, alone_in_cluster: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert await _prepare(eval_clean) == 0
+    admin = create_engine(eval_clean.superuser, isolation_level="AUTOCOMMIT")
+    name = "synthetic_other_db"
+
+    def add_database() -> None:
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+            conn.execute(text(f'CREATE DATABASE "{name}"'))
+
+    await _refusing_after_start(monkeypatch, add_database)
+    fake = FakeModel()
+    try:
+        result, lines = await _run(_settings(eval_clean.app), fake, key_dir)
+    finally:
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()
+    assert result == evaluation.FAILED
+    assert "stopped=shared_cluster" in lines
+    assert _no_reference(lines)
+    assert fake.attempts == 0
+
+
+async def test_an_account_added_after_the_start_check_stops_the_handler(
+    eval_clean: EvalDb, key_dir: Path, alone_in_cluster: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert await _prepare(eval_clean) == 0
+    await _refusing_after_start(monkeypatch, lambda: _person(eval_clean))
+    fake = FakeModel()
+    result, lines = await _run(_settings(eval_clean.app), fake, key_dir)
+    assert result == evaluation.FAILED
+    assert "stopped=unmarked_account" in lines
+    assert _no_reference(lines)
+    assert fake.attempts == 0
+    # The handler's own check stops it before the plan's data is planted, not only the
+    # check before each model request.
+    assert _sql(eval_clean.superuser, "SELECT count(*) FROM measure_groups") == 0
+
+
+async def test_a_job_that_fails_before_its_handler_fails_the_run(
+    eval_clean: EvalDb, key_dir: Path, alone_in_cluster: None
+) -> None:
+    assert await _prepare(eval_clean) == 0
+    _sql(eval_clean.superuser, """UPDATE jobs SET input = input || '{"extra": 1}'""")
+    fake = FakeModel()
+    result, lines = await _run(_settings(eval_clean.app), fake, key_dir)
+    assert result == evaluation.FAILED
+    assert "stopped=run_failed" in lines
+    assert _no_reference(lines)
+    assert fake.attempts == 0

@@ -33,6 +33,9 @@ blob-report/
 *.apk
 *.xapk
 probe-output*
+# The AI evaluation run's answers for the owner's reading (docs/dev/ai.md)
+ai-evaluation-out/
+ai-evaluation-*.jsonl
 # The owner's local real-account session (docs/dev/local-real-account.md); the same rules are
 # enforced by scripts/local-real-guard.sh (pre-commit, pre-push, and the backend guard test)
 local-real/

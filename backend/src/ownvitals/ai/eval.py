@@ -8,7 +8,9 @@ before the next:
 
 1. the egress hook of the evaluation's role (``EVAL_HOOK_KIND``), before anything connects;
 2. the locks (``eval_gates.refusal``): ``OWNVITALS_AI_EVAL`` on, a cap, a priced model, the
-   provider review, the database's name, no owner or admin credential; then the provider key;
+   provider review, the database's name, an output directory, no owner or admin credential;
+   then the provider key, the audit log's ``app_secret_key`` and that the output directory
+   exists;
 3. the app role's engine with the role and queue checks, then ``synthetic_jobs.database_refusal``
    (the database alone in its cluster, every account marked synthetic);
 4. only then the model's allowlist (``install_eval_allowlist``), the one host it may reach.
@@ -16,18 +18,23 @@ before the next:
 It then claims and executes the prepared runs one by one with the jobs runner (``eval_job``):
 every model call is a leased running job's, under the run's own cap. No prepared run, or a run
 stopped by a refusal, fails the whole evaluation. The summary is shape-only
-(``eval_summary``) and ends with the reference to record only when every category passed.
+(``eval_summary``) and ends with the reference to record only when every category passed. The
+answers of the cases for the owner's reading go to one new file in ``ai_eval_out_dir`` (case id
+and answer, one JSON line each; synthetic questions only), the one place the owner reads them.
 Exit status: 0 passed, 1 failed, 2 refused before any model call.
 """
 
 import asyncio
+import json
 import os
 import secrets
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Final
 
+from ownvitals.ai.audit import AuditNotConfigured, audit_key
 from ownvitals.ai.eval_gates import refusal, run_settings
 from ownvitals.ai.eval_job import Record, register_run_kind
 from ownvitals.ai.eval_summary import summarize
@@ -79,12 +86,7 @@ async def run(
 ) -> int:
     """The steps after the hook (module docstring); ``call_options`` reach the model client
     (the tests' fake transport, prices and key directory)."""
-    refused = refusal(settings, call_options.get("prices", PRICES))
-    if refused is None:
-        try:
-            read_api_key(call_options.get("secrets_directory"))
-        except ModelRefused as missing:
-            refused = missing.code
+    refused = _start_refusal(settings, call_options)
     if refused is not None:
         out(f"refused={refused}")
         return REFUSED
@@ -118,7 +120,37 @@ async def run(
     summary = summarize(record.outcomes, model=settings.ai_model, stopped=record.stopped)
     for line in summary.lines:
         out(line)
+    if record.readings:
+        out(f"readings_file={_write_readings(Path(settings.ai_eval_out_dir), record).name}")
     return PASSED if summary.passed else FAILED
+
+
+def _start_refusal(settings: Settings, call_options: dict[str, Any]) -> str | None:
+    refused = refusal(settings, call_options.get("prices", PRICES))
+    if refused is not None:
+        return refused
+    try:
+        read_api_key(call_options.get("secrets_directory"))
+    except ModelRefused as missing:
+        return missing.code
+    try:
+        audit_key(settings)
+    except AuditNotConfigured:
+        return "app_secret_missing"
+    if not Path(settings.ai_eval_out_dir).is_dir():
+        return "output_unavailable"
+    return None
+
+
+def _write_readings(directory: Path, record: Record) -> Path:
+    """A new file (never an existing one), readable by its owner only."""
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    path = directory / f"ai-evaluation-{stamp}-{secrets.token_hex(3)}.jsonl"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
+        for case_id, answer in record.readings:
+            file.write(json.dumps({"case": case_id, "answer": answer}, ensure_ascii=False) + "\n")
+    return path
 
 
 def main() -> int:

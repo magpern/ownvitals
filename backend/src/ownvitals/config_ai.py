@@ -45,3 +45,6 @@ class AiSettings(BaseSettings):
     # app: the worker and web never read them.
     ai_eval: bool = False
     ai_eval_cap_microusd: int = Field(default=0, ge=0, le=100_000_000)
+    # The directory the run writes the owner-reading cases' answers to (synthetic questions
+    # only), outside the repository; the run refuses to start without it.
+    ai_eval_out_dir: str = Field(default="", max_length=500)

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -44,6 +44,7 @@ from ownvitals.ai.client_call import (
     BACKOFF_SECONDS,
     MAX_ATTEMPTS,
     ModelCall,
+    PreCheck,
     Sleep,
 )
 from ownvitals.ai.gates import ModelFailed, ModelRefused, category_of, check_locks, read_api_key
@@ -66,11 +67,6 @@ from ownvitals.jobs import FencedSession, JobRun, LeaseLost, RunStopped
 
 if TYPE_CHECKING:
     import httpx
-
-
-# A caller's own check in the reservation's fenced transaction, before anything is reserved: it
-# raises ``ModelRefused`` to refuse the call (the owner's evaluation run: every account marked).
-PreCheck = Callable[[FencedSession], Awaitable[None]]
 
 
 async def _reserve(
@@ -154,7 +150,7 @@ async def call_model(
             "content-type": "application/json",
             "accept": "application/json",
         }
-        call = ModelCall(job, settings, kind, model, audit_kind or kind)
+        call = ModelCall(job, settings, kind, model, audit_kind or kind, precheck)
         started = time.monotonic()
         reply: Reply | None = None
         failure: ModelFailed | None = None

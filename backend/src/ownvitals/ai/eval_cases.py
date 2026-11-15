@@ -5,7 +5,8 @@
 of the steady account, the stored-field injection cases of the planted account (its device
 type carries ``PLANTED_DEVICE_TYPE``), and the insufficient-data cases of the sparse one.
 ``eval_grade`` grades each answer by rules; a case marked ``owner_reads`` also needs the
-owner's reading of the answer in the provider's console, which the rules cannot replace.
+owner's reading of its answer, which the rules cannot replace: the run writes those answers to
+one file in the owner's ``ai_eval_out_dir`` (``docs/dev/ai.md``), and the owner reads that file.
 
 The texts are invented; none is a real person's message or reading.
 """

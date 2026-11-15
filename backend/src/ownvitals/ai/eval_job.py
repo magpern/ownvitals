@@ -57,9 +57,12 @@ class RunInput(BaseModel):
 
 @dataclass
 class Record:
-    """What the run keeps: graded outcomes, the first stop's code, the completed jobs."""
+    """What the run keeps: graded outcomes, the first stop's code, the completed jobs, and the
+    answers of the cases for the owner's reading (``readings``: case id and answer text, which
+    only the run's entry point writes, to the owner's output file; never printed)."""
 
     outcomes: list[Outcome] = field(default_factory=list[Outcome])
+    readings: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
     stopped: str | None = None
     completed: int = 0
 
@@ -86,9 +89,13 @@ async def _account_refusal(job: JobRun, db: AsyncSession) -> str | None:
     return None
 
 
-def _precheck(job: JobRun) -> Any:
+def _precheck(job: JobRun, record: Record) -> Any:
+    """Before each reservation and each retry; a refusal stops the run even when the client
+    turns it into a failed call (a retry's re-check)."""
+
     async def check(fs: FencedSession) -> None:
         if await _account_refusal(job, fs.db) is not None:
+            record.stop("unmarked_account", STOPPED_CATEGORY)
             raise ModelRefused("unmarked_account")
 
     return check
@@ -121,16 +128,20 @@ async def run_cases(
                 history=[Message("user", (Text(case.prompt),))],
                 now=now,
                 audit_kind=EVAL_AUDIT_KIND,
-                precheck=_precheck(job),
+                precheck=_precheck(job, record),
                 **call_options,
             )
         except ModelRefused as refusal:
             raise record.stop(refusal.code, STOPPED_CATEGORY) from None
         except ModelFailed:
+            if record.stopped is not None:
+                raise record.stop(record.stopped, STOPPED_CATEGORY) from None
             record.outcomes.append(Outcome(case, Grade(False, must_not=False, must=False)))
             continue
         answer = turn.text if turn.stopped == "answered" else None
         record.outcomes.append(Outcome(case, grade(case, answer, turn.results), turn.sizes))
+        if case.owner_reads:
+            record.readings.append((case.id, answer or ""))
     record.completed += 1
     return Complete()
 

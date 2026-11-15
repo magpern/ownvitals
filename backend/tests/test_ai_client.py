@@ -281,6 +281,23 @@ async def test_a_cancel_between_attempts_stops_the_retry(aicall: AiCall) -> None
     assert [r.state for r in aicall.reservations()] == ["released"]
 
 
+async def test_the_callers_precheck_runs_again_before_a_retry(aicall: AiCall) -> None:
+    calls: list[int] = []
+
+    async def precheck(_: Any) -> None:
+        calls.append(len(calls))
+        if len(calls) > 1:
+            raise ModelRefused("synthetic_refusal")
+
+    aicall.fake.script = [status(429), answer()]
+    with pytest.raises(ModelFailed, match="cancelled"):
+        await aicall.call(precheck=precheck)
+    assert len(calls) == 2  # before the reservation, then before the retry
+    assert aicall.fake.attempts == 1
+    assert [r.state for r in aicall.reservations()] == ["released"]
+    assert aicall.audit()[0].error == "cancelled"
+
+
 async def test_an_overrun_is_charged_in_full_and_recorded(aicall: AiCall) -> None:
     aicall.fake.script = [answer(input_tokens=10**7, output_tokens=10**6)]
     await aicall.call()

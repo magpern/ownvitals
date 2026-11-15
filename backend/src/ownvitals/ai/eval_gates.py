@@ -8,6 +8,8 @@ opens the database or allows a host: a closed code, or ``None`` when every lock 
 - a model is set and priced, and the provider review is recorded: the model client's own codes
   (``ai_model_unset``, ``model_unpriced``, ``ai_provider_review_missing``);
 - the database's name ends in ``_ai_eval``: ``not_an_evaluation_database``;
+- an output directory for the owner-reading answers is named (``ai_eval_out_dir``):
+  ``output_unset``;
 - the process holds no owner or admin credential (the owner's prepare step is a separate
   command with its own environment): ``owner_credentials_present``.
 
@@ -59,6 +61,8 @@ def refusal(settings: Settings, prices: Mapping[str, Price] = PRICES) -> str | N
         return "ai_provider_review_missing"
     if not is_eval_database_name(_database_name(settings)):
         return "not_an_evaluation_database"
+    if not settings.ai_eval_out_dir.strip():
+        return "output_unset"
     if _owner_credentials(settings):
         return "owner_credentials_present"
     return None
