@@ -18,7 +18,9 @@ database is asked again that every account in it is marked synthetic (``CallHook
 
 ``--show-failed`` adds the static labels of the failed cases to the summary. ``--review-file
 PATH`` writes the synthetic prompts and answers of the three cases that need a person's
-reading, to a file only the owner can read; without it no answer text is kept.
+reading, to a file only the owner can read; without it no answer text is kept. ``--failed-file
+PATH`` writes one line per failed or unsent case (prompt, answer, tool calls and results, the
+grader's reason codes; ``eval_failed``), likewise owner-only and never printed.
 """
 
 import argparse
@@ -41,10 +43,11 @@ from ownvitals.ai.eval_checks import (
     synthetic_only,
     verify_database,
 )
+from ownvitals.ai.eval_failed import prepare_failed_file, write_failed
 from ownvitals.ai.eval_locks import EvalRefused, check_locks, check_urls, run_settings
 from ownvitals.ai.eval_model import Outcome as CaseOutcome
 from ownvitals.ai.eval_report import passed, render, summarise
-from ownvitals.ai.eval_run import Driver, EvalInput, Factory, Run, write_review
+from ownvitals.ai.eval_run import Driver, EvalInput, Factory, Run, unsent, write_review
 from ownvitals.ai.eval_seed import seed_accounts
 from ownvitals.ai.eval_seed_model import PLANS
 from ownvitals.ai.pricing import PRICES, Price
@@ -80,6 +83,7 @@ class EvalEnv:
     before_calls: Callable[[], object] = lambda: None
     show_failed: bool = False
     review_file: Path | None = None
+    failed_file: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +114,8 @@ async def run_eval(settings: Settings, env: EvalEnv) -> Result:
     require_standard_event_loop()  # the egress hook sees no other loop's sockets
     model = check_locks(settings, env.prices, env.secrets_directory)
     check_urls(settings)
+    if env.failed_file is not None:
+        prepare_failed_file(env.failed_file)  # before any call: a bad path loses no paid run
     first = run_settings(settings, model, ceiling=0)
     owner, app = create_migrations_engine(first), create_worker_engine(first)
     try:
@@ -142,6 +148,7 @@ async def run_eval(settings: Settings, env: EvalEnv) -> Result:
             allowed,
             secrets_to_hide=secrets,
             keep_review=env.review_file is not None,
+            keep_failed=env.failed_file is not None,
             prices=env.prices,
             options={
                 "inner": env.inner,
@@ -154,6 +161,8 @@ async def run_eval(settings: Settings, env: EvalEnv) -> Result:
         await _drive(create_session_factory(app), run, ids)
         if env.review_file is not None:
             write_review(env.review_file, run.readings)
+        if env.failed_file is not None:
+            write_failed(env.failed_file, [*run.failures, *unsent(run)])
         every = [run.outcomes.get(c.label) or CaseOutcome(c, None) for c in cases.values()]
         results = summarise(every)
         lines = render(
@@ -193,6 +202,7 @@ def _args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="ownvitals-ai-evaluation")
     parser.add_argument("--show-failed", action="store_true")
     parser.add_argument("--review-file", type=Path, default=None)
+    parser.add_argument("--failed-file", type=Path, default=None)
     return parser.parse_args(list(argv))
 
 
@@ -203,6 +213,7 @@ def main(argv: Sequence[str] | None = None, env: EvalEnv | None = None) -> int:
     install_egress_hook(EVAL_HOOK_KIND, settings)
     env = env or EvalEnv(before_calls=install_eval_allowlist)
     env.show_failed, env.review_file = args.show_failed, args.review_file
+    env.failed_file = args.failed_file
     try:
         result = asyncio.run(run_eval(settings, env), loop_factory=event_loop_factory())
     except EvalRefused as refused:

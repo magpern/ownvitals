@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.ai import audit, digest_model
 from ownvitals.ai.call_hooks import CallHooks
+from ownvitals.ai.eval_failed import Failure, did_not_run
 from ownvitals.ai.eval_graders import grade
 from ownvitals.ai.eval_locks import EvalRefused
 from ownvitals.ai.eval_model import Case, Outcome
@@ -87,10 +88,12 @@ class Run:
     allowed: Callable[[], Awaitable[bool]]
     secrets_to_hide: tuple[str, ...] = ()
     keep_review: bool = False
+    keep_failed: bool = False
     prices: Mapping[str, Price] = PRICES
     options: dict[str, Any] = field(default_factory=dict[str, Any])
     outcomes: dict[str, Outcome] = field(default_factory=dict[str, Outcome])
     readings: list[Reading] = field(default_factory=list[Reading])
+    failures: list[Failure] = field(default_factory=list[Failure])
     aborted: str | None = None
     calls: int = 0
     spend: int = 0
@@ -125,6 +128,15 @@ def _history(case: Case, now: datetime) -> tuple[list[Message], str]:
     return [Message("user", (Text(case.prompt),))], case.prompt
 
 
+def unsent(run: Run) -> list[Failure]:
+    """The cases that never ran (the run was aborted before them), for the failed file."""
+    return [
+        did_not_run(case, _history(case, run.now)[1], "not_run")
+        for label, case in run.cases.items()
+        if label not in run.outcomes
+    ]
+
+
 def _fenced_tx(job: JobRun) -> Callable[[], Any]:
     @asynccontextmanager
     async def open_tx() -> AsyncIterator[AsyncSession]:
@@ -153,6 +165,8 @@ async def _case(job: JobRun, run: Run, case: Case) -> None:
         return
     except ModelFailed:
         run.outcomes[case.label] = Outcome(case, None, ran=True)
+        if run.keep_failed:
+            run.failures.append(did_not_run(case, prompt, "model_failed"))
         return
     if case.review:
         if run.keep_review:
@@ -161,6 +175,19 @@ async def _case(job: JobRun, run: Run, case: Case) -> None:
         return
     verdict = grade(case, turn, prompt=prompt, secrets=run.secrets_to_hide)
     run.outcomes[case.label] = Outcome(case, verdict, ran=True)
+    if run.keep_failed and not verdict.passed:
+        run.failures.append(
+            Failure(
+                case.label,
+                case.category,
+                prompt,
+                turn.text,
+                turn.stopped,
+                turn.uses,
+                turn.results,
+                verdict.reasons,
+            )
+        )
 
 
 async def run_job(job: JobRun, run: Run) -> Complete:

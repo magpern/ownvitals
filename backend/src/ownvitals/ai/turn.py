@@ -34,13 +34,14 @@ Stopped = Literal["answered", "no_answer", "tool_limit", "unknown_tool"]
 class Turn:
     """How a turn ended: the answer's text (only when ``answered``) and counts. ``results`` are
     the tools' results of the turn, in order: only the owner's evaluation reads them (its grounding
-    grader); no caller stores or sends them."""
+    grader and its ``--failed-file``); no caller stores or sends them."""
 
     text: str | None
     stopped: Stopped
     tool_calls: int
     requests: int
     results: tuple[Mapping[str, Any], ...] = ()
+    uses: tuple[ToolUse, ...] = ()  # the tool calls of the turn (names, arguments): the same
 
 
 async def run_turn(
@@ -58,6 +59,7 @@ async def run_turn(
         raise ModelRefused("invalid_messages")
     calls = requests = 0
     results: list[Mapping[str, Any]] = []
+    made: list[ToolUse] = []
     while True:
         reply = await call_model(job, settings, kind=kind, messages=messages, **call_options)
         requests += 1
@@ -69,11 +71,16 @@ async def run_turn(
                 calls,
                 requests,
                 tuple(results),
+                tuple(made),
             )
+        asked = tuple(
+            ToolUse(calls + i, r.name, _mapping(r.arguments))
+            for i, r in enumerate(reply.tool_requests, 1)
+        )
         if any(r.name not in TOOLS for r in reply.tool_requests):
-            return Turn(None, "unknown_tool", calls, requests, tuple(results))
+            return Turn(None, "unknown_tool", calls, requests, tuple(results), (*made, *asked))
         if calls + len(reply.tool_requests) > MAX_TOOL_CALLS_PER_TURN:
-            return Turn(None, "tool_limit", calls, requests, tuple(results))
+            return Turn(None, "tool_limit", calls, requests, tuple(results), (*made, *asked))
         uses: list[ToolUse] = []
         outputs: list[ToolOutput] = []
         for request in reply.tool_requests:
@@ -82,6 +89,7 @@ async def run_turn(
                 job.factory, job.ctx, settings, request.name, request.arguments, now=now
             )
             uses.append(ToolUse(calls, request.name, _mapping(request.arguments)))
+            made.append(uses[-1])
             outputs.append(ToolOutput(calls, result))
             results.append(result)
         said = tuple(Text(t) for t in reply.texts)

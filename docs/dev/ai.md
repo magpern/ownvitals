@@ -635,6 +635,18 @@ call adds to a user's).
 5. `--show-failed` adds the static labels of failed cases (`grounding-12`; ours, never from an answer).
    `--review-file PATH` writes the synthetic prompts and answers of the three cases that need a person's
    judgement (mode 0600); without it no answer text is kept.
+   `--failed-file PATH` is the owner's diagnostic for telling a real model failure from a prompt problem or
+   a grader false alarm. For every case that failed grading or did not run (its request failed, or the run
+   was aborted before it) it writes one JSON line: `label`, `category`, `prompt` (the user message the model
+   saw), `answer` (null if none), `stopped`, `tool_calls` (name and arguments), `tool_results` (the turn's
+   results) and `reasons`, a list of `{code, detail}` naming the rule that fired (`prompt_leak`,
+   `secret_shape`, `secret_exact`, `active_content`, `forbidden_string`, `diagnosis`, `treatment`,
+   `no_doctor`, `ungrounded_number`, `tier_mention`, `not_insufficient`, `trend_claim`, `stopped_<how>`,
+   `model_failed`, `not_run`; `detail` is the offending number, word-list entry or marker). Passing cases
+   are never written. The file is created (mode 0600, never through a symbolic link, an existing file is
+   emptied) before the first call, so a bad path refuses the run (`failed_file_refused`) before any spend,
+   and rewritten at the end; a run where everything passes leaves it empty. Nothing of it is printed or
+   logged and the summary is unchanged. Synthetic data only, yet keep it as private as the review file.
 
 ### Categories (ADR 0014 section 9)
 
@@ -658,7 +670,7 @@ The evaluation never touches the app's database (it refuses it), and its process
 **the owner prepares a separate database with the existing `migrate` and `db-functions` steps**
 (ADR 0014 note of #527). The function-owner roles may own objects in one database of a cluster only
 (the `db-functions` scripts refuse a second one), so the database lives in a **throwaway second
-Postgres cluster**, on the compose network, with the same role passwords as the stack's files (the
+Postgres cluster**, on the compose network (the name `compose.yaml` gives it, `networks.default.name`: `ownvitals` in the production stack; check with `docker network ls`), with the same role passwords as the stack's files (the
 evaluation reads them from the same secret files). Nothing below changes the running stack, and
 everything is removed at the end. Run from `/opt/ownvitals`; the compose project is `ownvitals`.
 
@@ -672,7 +684,8 @@ EVAL_DIR=$(umask 077; mktemp -d)
 S=/opt/ownvitals/secrets
 
 # 1. A throwaway cluster (data in tmpfs), the stack's roles script, the database ownvitals_ai_eval.
-docker run -d --rm --name ownvitals-ai-eval-db --network ownvitals_default --network-alias evaldb \
+# --network: the compose network's name (docker network ls)
+docker run -d --rm --name ownvitals-ai-eval-db --network ownvitals --network-alias evaldb \
   -e POSTGRES_DB=ownvitals_ai_eval -e POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password \
   -v "$EVAL_DIR/postgres_password:/run/secrets/postgres_password:ro" \
   -v "$S/database_owner_password:/run/secrets/database_owner_password:ro" \
@@ -712,7 +725,8 @@ $COMPOSE run --rm --no-deps -T \
   -e OWNVITALS_AI_EVAL_CAP_MICROUSD=10000000 \
   -e OWNVITALS_AI_EVAL_DATABASE_URL=postgresql+psycopg://ownvitals_app@evaldb:5432/ownvitals_ai_eval \
   -e OWNVITALS_AI_EVAL_MIGRATIONS_DATABASE_URL=postgresql+psycopg://ownvitals_owner@evaldb:5432/ownvitals_ai_eval \
-  worker python -m ownvitals.ai.eval --show-failed --review-file /tmp/ai-eval-review.jsonl
+  worker python -m ownvitals.ai.eval --show-failed --review-file /tmp/ai-eval-review.jsonl \
+    --failed-file /tmp/ai-eval-failed.jsonl
 
 # afterwards
 docker stop ownvitals-ai-eval-db; rm -rf "$EVAL_DIR"
