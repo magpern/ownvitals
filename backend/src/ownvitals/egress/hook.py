@@ -1,18 +1,19 @@
 """Runtime egress enforcement: a PEP 578 audit hook in every process (ADR 0009).
 
-``install_egress_hook(kind, settings)`` (``kind``: ``web``, ``worker``, ``cli`` or ``migrate``,
-alembic's ``env.py``) is called first thing in each entry point. It adds one audit hook, which
-cannot be removed; a second call with the same kind does nothing (the first policy stays), with
-another kind it raises. For an event that does not start with ``socket.`` the hook does one set
-lookup (process creation, below) and returns; otherwise it decides:
+``install_egress_hook(kind, settings)`` (``kind``: ``web``, ``worker``, ``cli``, ``migrate``,
+alembic's ``env.py``, or ``eval``, the model evals' ``python -m ownvitals.ai.eval``) is called
+first thing in each entry point. It adds one audit hook, which cannot be removed; a second call
+with the same kind does nothing (the first policy stays), with another kind it raises. For an
+event that does not start with ``socket.`` the hook does one set lookup (process creation,
+below) and returns; otherwise it decides (the sets: ``ownvitals.egress.hook_hosts``):
 
 - **Resolution** (the audit events ``socket.getaddrinfo`` and ``socket.gethostbyname``, which
   ``gethostbyname_ex`` raises too): only a host in the process's resolvable set: its kind's
   egress hosts (web: Google sign-in, the Withings code exchange and, only with
-  ``turnstile_enabled``, Turnstile's verification host; any kind: the worker list
-  once ``install_worker_allowlist`` installed it), the configured database hosts, and the SMTP
-  host in web and the CLI. No context is required: asyncio resolves in an executor thread,
-  where context variables do not reach.
+  ``turnstile_enabled``, Turnstile's verification host; eval: the model host; any kind but eval:
+  the worker list once ``install_worker_allowlist`` installed it), the configured database
+  hosts, and the SMTP host in web and the CLI. No context is required: asyncio resolves in an
+  executor thread, where context variables do not reach.
 - **Reverse lookups** (``socket.gethostbyaddr``, ``socket.getnameinfo``): always refused.
 - **Socket creation** (``socket.__new__``): only ``AF_INET``, ``AF_INET6`` and ``AF_UNIX``; a raw
   or packet socket is refused before it exists (its sends raise no audit event).
@@ -58,17 +59,18 @@ from asyncio.selector_events import BaseSelectorEventLoop
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final, Literal, get_args
-
-from sqlalchemy.engine import make_url
+from typing import TYPE_CHECKING, Any, Final
 
 from ownvitals.egress.core import (
-    GOOGLE_SIGNIN_HOSTS,
-    TURNSTILE_HOST,
-    WITHINGS_API_HOST,
     _printable_host,  # the package's own; the guard refuses private names outside it
-    installed_worker_hosts,
+)
+from ownvitals.egress.hook_hosts import (  # noqa: F401 (EVAL_HOOK_KIND re-exported)
+    EVAL_HOOK_KIND,
+    KINDS,
+    Kind,
+    _normalise,  # the package's own
+    _Policy,
+    _policy_for,
 )
 
 if TYPE_CHECKING:
@@ -76,10 +78,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("ownvitals.egress")
 
-Kind = Literal["web", "worker", "cli", "migrate"]
-KINDS: Final = frozenset(get_args(Kind))
-WEB_HOSTS: Final = GOOGLE_SIGNIN_HOSTS | {WITHINGS_API_HOST}
-POSTGRES_PORT: Final = 5432
 _RESOLVE: Final = frozenset(
     {"socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyname_ex"}
 )
@@ -117,16 +115,6 @@ class EgressRefused(PermissionError):
         self.target = target
 
 
-@dataclass(frozen=True)
-class _Policy:
-    kind: Kind
-    hosts: frozenset[str]  # resolvable host names, lower case, no trailing dot
-    unix_paths: frozenset[str]  # AF_UNIX connect targets (the database's socket)
-
-    def resolvable(self, host: str) -> bool:
-        return host in self.hosts or host in installed_worker_hosts()
-
-
 _scope: ContextVar[str | None] = ContextVar("ownvitals_egress_scope", default=None)
 _policy: _Policy | None = None
 _install_lock = threading.Lock()
@@ -150,46 +138,6 @@ def smtp_session() -> Iterator[None]:
     refuses it anywhere else)."""
     with _connection_scope("smtp"):
         yield
-
-
-def _normalise(host: object) -> str | None:
-    if isinstance(host, bytes | bytearray):
-        host = bytes(host).decode("ascii", "replace")
-    if not isinstance(host, str):
-        return None
-    return host.strip().rstrip(".").lower()
-
-
-def _database_endpoints(settings: Settings) -> tuple[set[str], set[str]]:
-    """The host names and Unix socket paths of every configured database URL (only the host,
-    the port and the query's ``host`` are read)."""
-    hosts: set[str] = set()
-    paths: set[str] = set()
-    urls = [settings.database_url, settings.migrations_database_url, settings.maint_database_url]
-    for secret in urls:
-        if secret is None:
-            continue
-        url = make_url(secret.get_secret_value())
-        query_host = url.query.get("host")
-        names = [url.host] if url.host else []
-        names += [query_host] if isinstance(query_host, str) else list(query_host or ())
-        for name in (n for item in names for n in item.split(",") if n):
-            if name.startswith("/"):
-                paths.add(f"{name.rstrip('/')}/.s.PGSQL.{url.port or POSTGRES_PORT}")
-            elif (host := _normalise(name)) is not None:
-                hosts.add(host)
-    return hosts, paths
-
-
-def _policy_for(kind: Kind, settings: Settings) -> _Policy:
-    hosts, paths = _database_endpoints(settings)
-    if kind == "web":
-        hosts |= WEB_HOSTS
-        if settings.turnstile_enabled is True:  # roadmap Amendment 12: only when it is on
-            hosts.add(TURNSTILE_HOST)
-    if kind in ("web", "cli") and settings.smtp_host:
-        hosts.add(_normalise(settings.smtp_host) or "")
-    return _Policy(kind, frozenset(hosts - {""}), frozenset(paths))
 
 
 def install_egress_hook(kind: Kind, settings: Settings) -> None:
@@ -299,4 +247,4 @@ def _refuse(
 
 def resolvable_hosts() -> frozenset[str]:
     """The installed policy's resolvable host names (empty before the hook is installed)."""
-    return frozenset() if _policy is None else _policy.hosts | installed_worker_hosts()
+    return frozenset() if _policy is None else _policy.hosts | _policy.installed_hosts()

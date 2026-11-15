@@ -39,7 +39,13 @@ AF_UNIX: int = getattr(socket, "AF_UNIX", -1)  # Linux-only cases use it
 OUTSIDE = "example.invalid"
 DATABASE = "db.example.test"
 SMTP = "mailpit"
-EGRESS_HOST = {"web": "www.googleapis.com", "worker": "wbsapi.withings.net", "cli": DATABASE}
+EGRESS_HOST = {
+    "web": "www.googleapis.com",
+    "worker": "wbsapi.withings.net",
+    "cli": DATABASE,
+    "eval": "api.anthropic.com",
+}
+MODEL_URL = "https://api.anthropic.com/v1/messages"
 
 
 class Listener:
@@ -109,9 +115,12 @@ from pydantic import SecretStr  # noqa: E402
 from ownvitals.config import Settings  # noqa: E402
 from ownvitals.egress import (  # noqa: E402
     EgressRefused,
+    core,
     google_async_client,
     install_egress_hook,
+    install_eval_allowlist,
     install_worker_allowlist,
+    model_async_client,
     require_standard_event_loop,
     smtp_session,
     withings_async_client,
@@ -280,6 +289,17 @@ def second_install_keeps_the_policy() -> dict[str, Any]:
     return {"unchanged": sorted(resolvable_hosts()) == before}
 
 
+def worker_list_never_widens_eval() -> None:
+    """Even with the worker's list recorded behind ``install_*``'s back, the eval kind's set
+    stays its own (ADR 0014 §9: no Withings host)."""
+    saved = core._worker_list  # pyright: ignore[reportPrivateUsage]
+    core._worker_list = core.WORKER_ALLOWLIST  # pyright: ignore[reportPrivateUsage]
+    try:
+        socket.getaddrinfo("wbsapi.withings.net", 443)
+    finally:
+        core._worker_list = saved  # pyright: ignore[reportPrivateUsage]
+
+
 def fork(function: Callable[[], int]) -> None:
     pid = function()
     if pid == 0:  # only if the hook let it through: the child leaves at once
@@ -395,6 +415,21 @@ if KIND == "worker":
     )
     CASES["model_host_without_ai"] = lambda: socket.getaddrinfo("api.anthropic.com", 443)
     CASES["smtp"] = smtp_by_hand
+if KIND == "eval":  # ADR 0014 §9: the model host and the database, nothing else
+    CASES["egress_client"] = lambda: selector(fetch(model_async_client(), MODEL_URL))
+    CASES["egress_failure_then_connect"] = lambda: selector(
+        egress_failure_then_connect(model_async_client(), MODEL_URL)
+    )
+    CASES["urllib_opener"] = lambda: urllib.request.urlopen(MODEL_URL, timeout=2)
+    CASES["withings_host"] = lambda: socket.getaddrinfo("wbsapi.withings.net", 443)
+    CASES["withings_account_host"] = lambda: socket.getaddrinfo("account.withings.com", 443)
+    CASES["google_host"] = lambda: socket.getaddrinfo("oauth2.googleapis.com", 443)
+    CASES["turnstile_host"] = lambda: socket.getaddrinfo("challenges.cloudflare.com", 443)
+    CASES["smtp"] = smtp_by_hand
+    CASES["worker_list_never_widens"] = worker_list_never_widens_eval
+    CASES["withings_urllib"] = lambda: urllib.request.urlopen(
+        "https://wbsapi.withings.net/measure", timeout=2
+    )
 if KIND in ("web", "cli"):
     CASES["smtp"] = lambda: selector(deliver())
 if KIND == "cli":
@@ -463,6 +498,8 @@ def main() -> None:
     install_egress_hook(KIND, settings())  # type: ignore[arg-type]
     if KIND == "worker":
         install_worker_allowlist(ai_enabled=False)  # as the worker's entry point will (#77)
+    if KIND == "eval":
+        install_eval_allowlist()  # as ownvitals.ai.eval will, after its database checks
     for name, case in CASES.items():
         results[name] = run(name, case)
     print(json.dumps({"kind": KIND, "results": results, "log": LOG.getvalue()}))

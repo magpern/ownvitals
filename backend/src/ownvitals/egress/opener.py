@@ -6,7 +6,8 @@ that refuses every request, redirect hops included, that is not ``https`` to a h
 worker's list on port 443. It has no ``http``, ``ftp``, ``file`` or ``data`` handler, follows a
 redirect only to the same host, and verifies TLS without a key log. ownvitals' own calls go
 through the httpx clients (``ownvitals.egress.clients``); this opener catches any library that
-reaches for ``urllib.request.urlopen`` in the worker.
+reaches for ``urllib.request.urlopen`` in the worker. ``install_eval_allowlist()`` does the
+same in the model evals' process (ADR 0014 §9), with the model host as its only host.
 
 Every request has a total deadline: the network handler is ``DeadlineHTTPSHandler``
 (``ownvitals.egress.deadline``, re-exported here with the deadline helpers).
@@ -18,6 +19,7 @@ from urllib.parse import urlsplit
 
 from ownvitals.egress.core import (
     HTTPS_PORT,
+    MODEL_ALLOWLIST,
     WORKER_ALLOWLIST,
     Allowlist,
     OutboundBlocked,
@@ -35,7 +37,11 @@ from ownvitals.egress.deadline import (  # noqa: F401 (re-exported)
     call_deadline_until,
     request_deadline,
 )
-from ownvitals.egress.hook import _connection_scope  # the package's own
+from ownvitals.egress.hook import (
+    EVAL_HOOK_KIND,
+    _connection_scope,  # the package's own
+    installed_kind,
+)
 
 
 def _check_urllib_request(allowlist: Allowlist, req: urllib.request.Request) -> None:
@@ -154,7 +160,24 @@ def install_worker_allowlist(*, ai_enabled: bool = False) -> urllib.request.Open
     opener for every ``urllib.request.urlopen`` in the process. From now on the web-only call
     sites refuse (``refuse_in_worker``). Called first thing at worker start."""
     allowlist = worker_allowlist(ai_enabled=ai_enabled)
+    _install_worker_list(allowlist)  # first: refused in the eval role, its opener then stays
     opener = build_allowlist_opener(allowlist)
     urllib.request.install_opener(opener)
-    _install_worker_list(allowlist)
+    return opener
+
+
+def install_eval_allowlist() -> urllib.request.OpenerDirector:
+    """Give this process the model evals' role (ADR 0014 §9): its list is exactly
+    ``api.anthropic.com`` (``MODEL_ALLOWLIST``), recorded for the worker-only clients and
+    installed as the opener of every ``urllib.request.urlopen``. From now on only the model
+    client builds; the Withings client refuses (not on the list) and so does every web-only
+    call site (``refuse_in_worker``: Google sign-in, the code exchange, Turnstile, mail). Only
+    ``ownvitals.ai.eval`` calls it, after its database checks. It raises ``RuntimeError`` unless
+    the egress hook of kind ``eval`` is installed (ADR 0014 §9's order: the hook first), and in
+    a process that is already the worker; the worker's list refuses it afterwards."""
+    if installed_kind() != EVAL_HOOK_KIND:
+        raise RuntimeError("the eval role needs the eval egress hook installed first")
+    _install_worker_list(MODEL_ALLOWLIST)  # first: refused in the worker, its opener then stays
+    opener = build_allowlist_opener(MODEL_ALLOWLIST)
+    urllib.request.install_opener(opener)
     return opener

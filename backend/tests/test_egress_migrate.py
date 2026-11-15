@@ -27,7 +27,7 @@ from sqlalchemy.engine import make_url
 from egress_scan import HOOK_INSTALLERS, MIGRATIONS_ENV, scan_source, sources
 from ownvitals.config import Settings
 from ownvitals.egress import installed_kind
-from ownvitals.egress.hook import _policy_for  # pyright: ignore[reportPrivateUsage]
+from ownvitals.egress.hook_hosts import _policy_for  # pyright: ignore[reportPrivateUsage]
 
 BACKEND = Path(__file__).resolve().parent.parent
 SRC = BACKEND / "src"

@@ -6,7 +6,8 @@ reach the network is computed from the locked environment, and outside this pack
 may use one only as the reviewed table ``tests/egress_classified.py`` classifies it (inbound and
 driver code by design, a few allowed names, ``smtplib``'s two clients only in ``ownvitals.mail``).
 Nothing outside uses a private name of the package or of ``ownvitals.mail``, assigns to either,
-or calls ``install_worker_allowlist`` (the worker's entry point and the probe CLI excepted).
+or calls ``install_worker_allowlist`` (the worker's entry point and the probe CLI excepted) or
+``install_eval_allowlist`` (``ownvitals.ai.eval`` excepted).
 The lists are code; nothing in the environment widens one. Callers catch the
 package's own exceptions (``OutboundBlocked``, ``RequestDeadline``, ``RequestBudgetExhausted``);
 a network library's exception class a caller needs is re-exported here, never imported from the
@@ -18,6 +19,9 @@ library (``TRANSPORT_ERRORS`` and ``TIMEOUT_ERRORS``, for the Withings client, #
 - **worker**: ``wbsapi.withings.net`` and ``account.withings.com`` (``withings_async_client`` and
   the process-wide urllib opener), and ``api.anthropic.com`` only when AI is enabled
   (``install_worker_allowlist(ai_enabled=...)``, ``model_async_client``);
+- **eval** (the model evals, ``python -m ownvitals.ai.eval``, ADR 0014 §9): ``api.anthropic.com``
+  only (``install_eval_allowlist``, ``model_async_client``); the Withings client and every
+  web-only site refuse there as in the worker;
 - **web**: Google's sign-in hosts (``google_oauth_client``, ``google_async_client``), the one
   Withings authorization-code exchange (``exchange_withings_code``), Cloudflare Turnstile's
   verification when the operator turns it on (``verify_turnstile_token``, roadmap Amendment 12)
@@ -37,7 +41,7 @@ Modules: ``core`` (lists, refusal, process roles, request budget, TLS context), 
 worker's urllib opener), ``deadline`` (the total deadline of a urllib request), ``clients`` (the
 httpx clients), ``transport`` (their allowlist transport), ``code_exchange`` (the web
 process's one Withings call), ``turnstile`` (web's Turnstile verification), ``hook`` (the
-audit hook).
+audit hook) and ``hook_hosts`` (what each process kind may resolve and connect to).
 
 The hook sees only Python's ``socket`` module (not C extensions such as libpq, nor ``ctypes``);
 a network-level egress rule stays the deployment's.
@@ -110,6 +114,7 @@ from ownvitals.egress.deadline import (
     request_deadline,
 )
 from ownvitals.egress.hook import (
+    EVAL_HOOK_KIND,
     EgressRefused,
     install_egress_hook,
     installed_kind,
@@ -119,6 +124,7 @@ from ownvitals.egress.hook import (
 from ownvitals.egress.opener import (
     WEB_URLLIB_ALLOWLIST,
     build_allowlist_opener,
+    install_eval_allowlist,
     install_web_opener,
     install_worker_allowlist,
 )
@@ -136,6 +142,7 @@ __all__ = [
     "CODE_EXCHANGE_HEADERS",
     "CODE_EXCHANGE_TOTAL_SECONDS",
     "CONNECT_ERRORS",
+    "EVAL_HOOK_KIND",
     "GOOGLE_JWKS_HOST",
     "GOOGLE_SIGNIN_ALLOWLIST",
     "GOOGLE_SIGNIN_HOSTS",
@@ -185,6 +192,7 @@ __all__ = [
     "google_async_client",
     "google_oauth_client",
     "install_egress_hook",
+    "install_eval_allowlist",
     "install_web_opener",
     "install_worker_allowlist",
     "installed_kind",
