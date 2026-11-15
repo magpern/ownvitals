@@ -41,7 +41,6 @@ from ownvitals.withings.oauth import SessionProof, StateStore, callback, start
 from ownvitals.withings.webhooks import PREFIX
 from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport
-from withingsstreams import START
 from withingswire import Request
 
 pytestmark = pytest.mark.usefixtures("auth_schema", "clean_auth")
@@ -142,7 +141,10 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     app_id = await create_app(owner_engine, env.factory, ring, CLIENT, BASE, SECRET)
     fake = FakeWithings(seed=30, rate_limit=None)
     fake.add_app(CLIENT, SECRET, (REDIRECT,))
-    user = fake.add_user(days=30, ecg_count=0, sleep_series_nights=0, intraday_days=0)
+    # The history ends today, not at the fake's fixed START: the backfill floor below is relative
+    # to the wall clock, so data anchored to START would fall out of it as time passes (#522).
+    today = int(datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    user = fake.add_user(days=30, end=today, ecg_count=0, sleep_series_nights=0, intraday_days=0)
     expected = {g["grpid"] for g in user.data.measuregrps if g.get("category") in (1, 2)}
     assert expected
     ctx = make_context(await env.user("m1-flow@example.com"))
@@ -162,9 +164,7 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     # parallel streams' refused claims are waited out within the attempt, not failed. The flow
     # makes about 180 calls, so it takes about 50 s: the app's budget of 100 a minute, not a lane
     # (a lane whose job stopped asking no longer holds the turn, #370).
-    # The floor is anchored to the fake's clock (START), not today: the data lies before START,
-    # so a wall-clock floor cuts it off once START is far enough in the past (#522).
-    monkeypatch.setattr(streams, "FLOOR", datetime.fromtimestamp(START, UTC) - timedelta(days=45))
+    monkeypatch.setattr(streams, "FLOOR", datetime.now(UTC) - timedelta(days=45))
 
     def measure_count() -> int:
         return int(
