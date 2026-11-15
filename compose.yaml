@@ -142,7 +142,7 @@ services:
   # A local mail catcher for the account mails (#10): SMTP on 1025 inside the stack only, its
   # web inbox on 127.0.0.1. Nothing leaves the machine; it keeps the mails in memory.
   mailpit:
-    image: axllent/mailpit:v1.33.0@sha256:9b3a463be15354c0f0eba91697d80e3e0d8a5623ef0e627cacc836bc17fd5231
+    image: axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
     restart: unless-stopped
     ports:
       - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
