@@ -407,6 +407,9 @@ CODE_STRINGS: frozenset[tuple[str, str]] = frozenset(
         # The ECG record's key for its module versions (``ecg/pipeline.py`` writes it), read
         # with ``Mapping.get`` by the overlay's gate check (#190): a JSON key, never evaluated.
         ("ownvitals.ecg.overlay", "modules"),
+        # The kind of the model evaluation's ``ai_audit`` rows (migration 0023's check value):
+        # a database value, never evaluated (#527).
+        ("ownvitals.ai.audit", "eval"),
     }
 )
 # Docstring or comment lines refused by the prose rules and reviewed as harmless: exact stripped

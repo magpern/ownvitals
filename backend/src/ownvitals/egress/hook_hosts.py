@@ -58,12 +58,18 @@ def _normalise(host: object) -> str | None:
     return host.strip().rstrip(".").lower()
 
 
-def _database_endpoints(settings: Settings) -> tuple[set[str], set[str]]:
+def _database_endpoints(settings: Settings, kind: Kind) -> tuple[set[str], set[str]]:
     """The host names and Unix socket paths of every configured database URL (only the host,
     the port and the query's ``host`` are read)."""
     hosts: set[str] = set()
     paths: set[str] = set()
-    urls = [settings.database_url, settings.migrations_database_url, settings.maint_database_url]
+    urls = [
+        settings.database_url,
+        settings.migrations_database_url,
+        settings.maint_database_url,
+    ]
+    if kind == EVAL_HOOK_KIND:  # the model evals' own database (ADR 0014 section 9), theirs only
+        urls += [settings.ai_eval_database_url, settings.ai_eval_migrations_database_url]
     for secret in urls:
         if secret is None:
             continue
@@ -80,7 +86,7 @@ def _database_endpoints(settings: Settings) -> tuple[set[str], set[str]]:
 
 
 def _policy_for(kind: Kind, settings: Settings) -> _Policy:
-    hosts, paths = _database_endpoints(settings)
+    hosts, paths = _database_endpoints(settings, kind)
     if kind == "web":
         hosts |= WEB_HOSTS
         if settings.turnstile_enabled is True:  # roadmap Amendment 12: only when it is on

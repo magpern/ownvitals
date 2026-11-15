@@ -387,6 +387,27 @@ Two layers, both on **synthetic accounts only**:
   for the owner's reading, not graded by another model. A failed category means `ai_eval_ref`
   stays unset (lock 3) until the prompt or mapping is fixed and the category passes.
 
+  **Note (2026-11-15, #527: the runner as built).** Three points where the build is exact where the
+  text above is loose:
+
+  1. **The owner prepares the `_ai_eval` database; the runner does not create the schema** (the
+     "creates the schema there" of the database bullet). The process holds no superuser, so it
+     cannot run the `db-functions` step; the owner runs the existing `migrate` and `db-functions`
+     steps against the `_ai_eval` database (`docs/dev/ai.md`, "Preparing the `_ai_eval`
+     database"; the function-owner roles may own objects in one database of a cluster only, so
+     it is a separate throwaway cluster). The runner refuses to start unless the schema is at head
+     (`alembic_version` against the single head of the image's migrations), the app role is not
+     privileged and the queue's and the AI functions' digests are the image's.
+  2. **`turn.Turn` gains `results`** (the tools' results of the turn, in order), for the grounding
+     grader. Only the evaluation reads it; the production path stores and sends nothing new
+     (`ai_chat_turn` and the digest ignore it).
+  3. **`client.call_model` takes optional `CallHooks`** (`ai/call_hooks.py`): the audit kind, an
+     `allowed` check awaited before the reservation and before every retry, and an `observe`
+     callback for the actual-to-bounded ratio. Without hooks the call is unchanged. The
+     evaluation passes `allowed` = "the database name ends `_ai_eval` and every account is marked
+     synthetic", which is how "before every call" of the database bullet is enforced. Every call
+     runs in an `ai_eval` job (a leased running job, as a user's call is) in that database.
+
 ## Alternatives
 
 - **Send a weekly data summary in the prompt** instead of tools. Simpler, but it sends everything

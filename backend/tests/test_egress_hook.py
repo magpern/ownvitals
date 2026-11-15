@@ -324,6 +324,21 @@ def test_the_eval_hook_kind_constant_is_the_eval_kind() -> None:
     assert _policy_for(EVAL_HOOK_KIND, _settings()).kind == "eval"
 
 
+def test_the_eval_kind_resolves_the_eval_database_host_too() -> None:
+    """The eval database (#527) may be on another host than the app's: its two URLs are the
+    eval's own, and only the eval kind resolves them."""
+    values = {
+        "ai_eval_database_url": SecretStr("postgresql+psycopg://a@evaldb.example.test/x_ai_eval"),
+        "ai_eval_migrations_database_url": SecretStr(
+            "postgresql+psycopg://o@evaldb.example.test/x_ai_eval"
+        ),
+    }
+    settings = _settings(**values)
+    assert "evaldb.example.test" in _policy_for("eval", settings).hosts
+    assert "evaldb.example.test" not in _policy_for("worker", settings).hosts
+    assert "evaldb.example.test" not in _policy_for("web", settings).hosts
+
+
 def test_an_installed_worker_list_widens_every_kind_but_eval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
