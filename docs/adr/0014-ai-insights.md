@@ -438,7 +438,9 @@ Two layers, both on **synthetic accounts only**:
 2. **The monthly cost caps**: the per-user amount (D11) and the global amount. Default meanwhile:
    **0 and 0**, no call. Safe-off: 0.
 3. **The model** (`ai_model`) and with it the pricing table's first entry. Default meanwhile:
-   **empty**, no call.
+   **empty**, no call. The Architect proposed `claude-sonnet-5-5` on 2026-11-15 and the table
+   prices it (a reviewed PR); the owner may choose another model, and `ai_model` stays unset
+   until the owner sets it.
 4. **Experimental findings and ECG estimates to the model for flagged household accounts** (§4
    allows it, as PLAN §7.4 only forbids it for non-household users). Default meanwhile: **not
    sent**: `ai_include_experimental` defaults to false, so the owner opts in explicitly; the HIS

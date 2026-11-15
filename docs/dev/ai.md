@@ -13,7 +13,7 @@ and tools are [below](#consent-and-withdrawal), the client
 |---|---|
 | `backend/migrations/versions/0013_ai_budget.py` | `ai_reservations` and `ai_spend` (owned, forced RLS, the app role `SELECT` only) and `ai_spend_global` (system, no app privilege) |
 | `docker/postgres/ai/50-ai.sql` | the role `ownvitals_ai` and the definer functions `ai_reserve`, `ai_settle`, `ai_release`, `ai_settle_lost`; idempotent, run as the superuser by `db-functions` after `rate.sql` |
-| `backend/src/ownvitals/ai/pricing.py` | the pricing table (empty until the owner picks the model) and the per-request bound |
+| `backend/src/ownvitals/ai/pricing.py` | the pricing table (`claude-sonnet-5-5` only; pricing a model does not enable it) and the per-request bound |
 | `backend/src/ownvitals/ai/budget.py` | reserve, settle and release in a job's fenced transaction, the release rule, the reaper call, the month and the paused message |
 | `backend/src/ownvitals/worker/loop.py` | `maintain` runs `ai_settle_lost` after the queue reaper while `ai_insights` is on |
 
@@ -85,7 +85,7 @@ jobs only, no model call:
 | `test_ai_cost_cap.py` | 50 concurrent reservations admit exactly 10 (and a sampler sees no moment over a cap); the global cap across users; every function at once without deadlock; double settle, sequential and racing (settle, release or the reaper); release then settle; settle then crash; a crash after reserve; the reaper's rules and limit; January settled in February; overrun; the CHECKs; the app role's privileges; RLS; account deletion |
 | `test_ai_functions.py` | each function callable by the app role only (every other role refused); signatures without an owner; guard 2, guard 9, digests and the startup check; the script plain SQL, idempotent, superuser only; drift found, refused and repaired |
 | `test_ai_budget.py` | the Python layer through the fence; a lost lease; the release rule; the month and the paused message; the cap settings; the worker's maintenance |
-| `test_ai_pricing.py` | no model priced; the bound never below a cost within it |
+| `test_ai_pricing.py` | only `claude-sonnet-5-5` priced, at the list prices; any other model unpriced; the bound never below a cost within it (real and synthetic tables) |
 | `test_ai_migration.py` | migration 0013 alone (no script) leaves the app role read-only |
 
 ## Known gaps
@@ -235,7 +235,13 @@ All empty by default, so **no call is made** until the owner sets every one (ADR
 questions 1, 3 and 6). Agents never set them.
 
 - `OWNVITALS_AI_MODEL`: the pinned model id (lower case, digits, `.` and `-`). It must also be in
-  `ai.pricing.PRICES`, which is empty until the owner picks the model (`ai_model_unpriced`).
+  `ai.pricing.PRICES` (`ai_model_unpriced` otherwise). The table prices `claude-sonnet-5-5`
+  (list prices of 2026-11-15, 5-minute cache write; the Architect's proposal of 2026-11-15, the
+  owner may choose another model, and each price change is a reviewed PR). Pricing it sets
+  nothing: `OWNVITALS_AI_MODEL` stays empty until the owner sets it. The prices are 1x only
+  with global inference: the request carries no `inference_geo`, so the API key's workspace
+  `default_inference_geo` decides, and it must be `"global"` (US-only is billed 1.1x on every
+  category). See "Known gaps (client)".
 - `OWNVITALS_AI_PROVIDER_REVIEW_REF`: the reference of the recorded provider review (lock 2).
 - `OWNVITALS_AI_EVAL_REF`: exactly `<model>/<PROMPT_VERSION>/<TOOLSET_VERSION>` as the owner's
   evaluation run passed it (lock 3). Changing the model, the prompt or the tool set makes it stale,
@@ -349,6 +355,14 @@ Without `50-ai.sql` nothing is called; withdrawal and account deletion still rem
 
 ### Known gaps (client)
 
+- The 1x prices in `ai.pricing.PRICES` and the request bound assume global inference. The
+  request sends no `inference_geo`, so the API key's workspace `default_inference_geo` applies;
+  a workspace set to `"us"` (legacy US-only workspaces were migrated to it) is billed 1.1x on
+  every category, so `request_bound` can be below the real cost and `usage_cost` settles 10%
+  low against the D11 caps. Agents cannot see or set it: the owner confirms
+  `default_inference_geo: "global"` (and re-confirms the table's prices) at the provider review
+  (ADR 0014 §2). Not yet hardened in code (sending `inference_geo` explicitly or checking
+  `usage.inference_geo` is a follow-up).
 - `compose.yaml` mounts `anthropic_api_key` and `app_secret_key` into the worker, the key there
   only (`test_compose_ai_key.py`, [stack.md](stack.md#secrets)); `scripts/worktree.sh init`
   leaves the key file empty, so the local stack is `ai_not_configured`. With the defaults AI is

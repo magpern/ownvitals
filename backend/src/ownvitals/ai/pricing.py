@@ -2,8 +2,8 @@
 
 Prices are integer **micro-USD per million tokens**, per model id, with the date and source of
 the price. A model that is not in the table cannot be called (``ModelUnpriced``,
-``ai_model_unpriced``); a price change is a reviewed PR. The table is empty until the owner
-chooses the model (ADR 0014 open question 3), so no request can be bounded and none is made.
+``ai_model_unpriced``); a price change is a reviewed PR. A priced model is still not called
+until the owner sets ``ai_model`` and the other locks (ADR 0014 section 1, open question 3).
 
 The bound of one request (each step of a tool loop), before it is sent:
 
@@ -45,8 +45,28 @@ class Price:
                 raise ValueError("a price is a non-negative integer of micro-USD per MTok")
 
 
-# Model id -> price. Empty until the owner picks the model (ADR 0014 open question 3).
-PRICES: Mapping[str, Price] = MappingProxyType({})
+PRICING_SOURCE: Final = "https://platform.claude.com/docs/en/about-claude/pricing"
+
+# Model id -> price. Pricing a model does not enable it: the owner still sets ``ai_model`` and
+# the other locks (ADR 0014 open question 3). The cache-write price is the 5-minute write; the
+# client sends no ``cache_control`` (a 1-hour write, $4/MTok, would exceed the bound). These
+# 1x prices also need global inference: the client sends no ``inference_geo``, so the API key's
+# workspace ``default_inference_geo`` applies, and it must be ``"global"`` (US-only is billed
+# 1.1x on every category, which this table and the bound do not cover). Agents cannot see that
+# setting; the owner confirms it at the provider review (docs/dev/ai.md, "Known gaps (client)").
+# No long-context price for this model.
+PRICES: Mapping[str, Price] = MappingProxyType(
+    {
+        "claude-sonnet-5-5": Price(
+            input=2_000_000,
+            output=10_000_000,
+            cache_write=2_500_000,
+            cache_read=100_000,
+            as_of=date(2026, 11, 15),
+            source=PRICING_SOURCE,
+        ),
+    }
+)
 
 
 class ModelUnpriced(LookupError):

@@ -98,6 +98,18 @@ def _tool_turn(name: str, arguments: dict[str, Any], result: dict[str, Any]) -> 
     ]
 
 
+@pytest.mark.parametrize("kind", ["chat", "digest"])
+def test_no_cache_control_anywhere_in_the_serialized_body(kind: r.Kind) -> None:
+    # The pricing bound prices the 5-minute cache write only; a cache_control block anywhere
+    # (top level, a tool definition, a content block) could ask for a dearer write.
+    history = _tool_turn(
+        "daily_values", {"metric": "weight", "period": 30}, {"error": "not_enabled"}
+    )
+    for messages in ([_user()], history):
+        raw = r.serialize(r.build_request(MODEL, kind, messages))
+        assert b"cache_control" not in raw
+
+
 def test_tool_calls_are_echoed_with_our_ids_and_closed_arguments_only() -> None:
     body = r.build_request(
         MODEL,
