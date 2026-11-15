@@ -3,18 +3,18 @@ import { getOAuthProviders, startOAuth } from '../api/auth'
 import { providerName } from '../api/messages'
 import { useT } from '../i18n'
 import { goToProvider } from '../lib/navigation'
-import { Field, Notice, useAction } from './forms'
+import { Notice, useAction } from './forms'
 import { GoogleLogo } from './GoogleLogo'
 
 /**
- * "Continue with Google" when Google sign-in is enabled (the only provider), plus the invite field
- * a first sign-in with Google needs while sign-up is by invite. The button follows Google's
- * branding guidelines: its "G" mark (GoogleLogo, from this origin) and an approved label.
+ * "Continue with Google" when Google sign-in is enabled (the only provider). `inviteCode` is the
+ * code a first sign-in with Google needs while sign-up is by invite: the sign-up page passes the
+ * one it already has, the sign-in page passes none. The button follows Google's branding
+ * guidelines: its "G" mark (GoogleLogo, from this origin) and an approved label.
  */
-export function ProviderButtons({ returnTo }: { returnTo: string | null }) {
+export function ProviderButtons({ returnTo, inviteCode }: { returnTo: string | null; inviteCode?: string }) {
   const t = useT()
   const [providers, setProviders] = useState<string[]>([])
-  const [invite, setInvite] = useState('')
   const action = useAction()
 
   useEffect(() => {
@@ -30,7 +30,7 @@ export function ProviderButtons({ returnTo }: { returnTo: string | null }) {
   const start = (provider: string) => {
     void action.run(async () => {
       const url = await startOAuth(provider, {
-        inviteCode: invite.trim(),
+        inviteCode: inviteCode?.trim(),
         returnTo: returnTo ?? undefined,
       })
       goToProvider(url)
@@ -41,14 +41,6 @@ export function ProviderButtons({ returnTo }: { returnTo: string | null }) {
     <div className="providers">
       <p className="divider">{t('auth.providers.or')}</p>
       {action.error ? <Notice kind="error">{action.error}</Notice> : null}
-      <Field
-        label={t('auth.providers.invite')}
-        autoComplete="off"
-        value={invite}
-        onChange={(e) => {
-          setInvite(e.target.value)
-        }}
-      />
       {providers.map((provider) => (
         <button
           key={provider}

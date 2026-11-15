@@ -55,7 +55,6 @@ export const auth = {
   'provider.yourProvider': 'your provider',
   'provider.submit': 'Send confirmation link',
   'providers.or': 'or',
-  'providers.invite': 'Invite code (only for your first sign-in with Google)',
   'providers.continue': 'Continue with {provider}',
   'challenge.step': 'Step 2 of 2',
   'challenge.title': 'Enter your code',

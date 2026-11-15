@@ -41,9 +41,9 @@ export const errors = {
   'oauth.session_mismatch':
     'Du blev utloggad eller bytte konto under inloggningen. Logga in igen.',
   'oauth.account_exists':
-    'Det finns redan ett konto med den e-postadressen. Logga in på det med ditt lösenord i stället.',
+    'Det finns redan ett konto med den e-postadressen. Logga in med ditt lösenord och koppla sedan Google under Säkerhet.',
   'oauth.invite_required':
-    'Du behöver en inbjudan för att skapa ett konto. Ange din inbjudningskod nedan och försök igen.',
+    'Du behöver en inbjudan för att skapa ett konto. Ange din inbjudningskod under Skapa konto och fortsätt med Google där.',
   'oauth.invite_invalid': 'Den inbjudan är inte längre giltig. Be om en ny.',
   'oauth.identity_taken': 'Det Google-kontot är redan kopplat till ett annat ownvitals-konto.',
   'oauth.identity_mismatch': 'Det var ett annat Google-konto än det som är kopplat här.',

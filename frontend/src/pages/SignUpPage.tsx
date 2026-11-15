@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { signUp } from '../api/auth'
+import { ProviderButtons } from '../components/ProviderButtons'
 import { Card, Field, Notice, useAction } from '../components/forms'
 import { useTurnstile } from '../components/Turnstile'
 import { useT } from '../i18n'
@@ -76,6 +77,7 @@ export function SignUpPage() {
           {t('auth.signUp.submit')}
         </button>
       </form>
+      <ProviderButtons returnTo={null} inviteCode={invite} />
       <p className="card__links">
         <Link to="/signin">{t('auth.signUp.haveAccount')}</Link>
       </p>

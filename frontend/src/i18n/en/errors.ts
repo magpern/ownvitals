@@ -37,9 +37,9 @@ export const errors = {
   'oauth.denied': 'The sign-in was cancelled at Google.',
   'oauth.session_mismatch': 'You were signed out or switched account while signing in. Sign in again.',
   'oauth.account_exists':
-    'An account with that email already exists. Sign in to it with your password instead.',
+    'An account with that email already exists. Sign in with your password, then link Google under Security.',
   'oauth.invite_required':
-    'You need an invite to create an account. Enter your invite code below and try again.',
+    'You need an invite to create an account. Enter your invite code on Create an account and continue with Google there.',
   'oauth.invite_invalid': 'That invite is no longer valid. Ask for a new one.',
   'oauth.identity_taken': 'That Google account is already linked to another ownvitals account.',
   'oauth.identity_mismatch': 'That was a different Google account than the one linked here.',

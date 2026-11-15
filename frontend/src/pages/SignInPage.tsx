@@ -76,7 +76,15 @@ export function SignInPage() {
   return (
     <Card title={t('common.signIn')}>
       {outcome && outcome !== 'email_needed' ? (
-        <Notice kind="error">{oauthOutcomeMessage(outcome)}</Notice>
+        <Notice kind="error">
+          {oauthOutcomeMessage(outcome)}
+          {outcome === 'invite_required' ? (
+            <>
+              {' '}
+              <Link to="/signup">{t('auth.signIn.create')}</Link>
+            </>
+          ) : null}
+        </Notice>
       ) : null}
       {action.error ? <Notice kind="error">{action.error}</Notice> : null}
       <form onSubmit={submit}>

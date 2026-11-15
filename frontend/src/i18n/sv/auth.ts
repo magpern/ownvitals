@@ -57,7 +57,6 @@ export const auth = {
   'provider.yourProvider': 'din leverantör',
   'provider.submit': 'Skicka bekräftelselänk',
   'providers.or': 'eller',
-  'providers.invite': 'Inbjudningskod (bara för din första inloggning med Google)',
   'providers.continue': 'Fortsätt med {provider}',
   'challenge.step': 'Steg 2 av 2',
   'challenge.title': 'Ange din kod',

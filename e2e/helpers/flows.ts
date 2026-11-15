@@ -128,9 +128,9 @@ export async function answerGoogleAs(page: Page, identity: GoogleIdentity): Prom
   })
 }
 
-/** "Continue with Google" on the sign-in page; `invite` only for the first sign-in. */
+/** "Continue with Google": on Create an account with the invite for a first sign-in, else on sign-in. */
 export async function continueWithGoogle(page: Page, invite?: string): Promise<void> {
-  await page.goto('/signin')
-  if (invite) await page.getByLabel('Invite code (only for your first sign-in with Google)').fill(invite)
+  await page.goto(invite ? '/signup' : '/signin')
+  if (invite) await page.getByLabel('Invite code').fill(invite)
   await page.getByRole('button', { name: 'Continue with Google' }).click()
 }

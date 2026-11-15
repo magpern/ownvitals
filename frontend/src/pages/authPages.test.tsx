@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { goToProvider } from '../lib/navigation'
 import {
@@ -114,24 +114,59 @@ describe('sign-in with a password', () => {
 })
 
 describe('Continue with Google', () => {
-  it('is offered when Google is enabled, and starts a sign-in with the invite and return address', async () => {
+  it('is offered on sign-in without an invite field, and starts a sign-in with the return address', async () => {
     const api = fakeApi({
       'GET /api/auth/oauth/providers': { providers: ['google'] },
       'POST /api/auth/oauth/google/start': { authorization_url: 'https://accounts.example.test/auth?state=x' },
     })
     renderAt('/signin?return_to=%2Fmetrics')
     const google = await screen.findByRole('button', { name: 'Continue with Google' })
-    type('Invite code (only for your first sign-in with Google)', ' abc ')
+    expect(screen.queryByLabelText(/invite/i)).toBeNull()
     fireEvent.click(google)
     await waitFor(() => {
       expect(goToProvider).toHaveBeenCalledWith('https://accounts.example.test/auth?state=x')
     })
     expect(api.to('POST', '/api/auth/oauth/google/start')[0]?.body).toEqual({
       purpose: 'sign_in',
-      invite_code: 'abc',
+      invite_code: null,
       return_to: '/metrics',
-      locale: 'en', // the language in effect, kept on the flow (#249)
+      locale: 'en', // the language in effect, kept on the flow
     })
+  })
+
+  it('is offered on sign-up and sends the invite code the page already has', async () => {
+    const api = fakeApi({
+      'GET /api/auth/oauth/providers': { providers: ['google'] },
+      'POST /api/auth/oauth/google/start': { authorization_url: 'https://accounts.example.test/auth?state=y' },
+    })
+    renderAt('/signup')
+    const google = await screen.findByRole('button', { name: 'Continue with Google' })
+    expect(screen.getAllByLabelText(/invite code/i)).toHaveLength(1)
+    type(/invite code/i, ' abc ')
+    fireEvent.click(google)
+    await waitFor(() => {
+      expect(goToProvider).toHaveBeenCalledWith('https://accounts.example.test/auth?state=y')
+    })
+    expect(api.to('POST', '/api/auth/oauth/google/start')[0]?.body).toMatchObject({
+      purpose: 'sign_in',
+      invite_code: 'abc',
+    })
+  })
+
+  it('links the invite-required error on sign-in to Create an account', async () => {
+    fakeApi({})
+    renderAt('/signin?oauth=invite_required')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Enter your invite code on Create an account and continue with Google there.')
+    expect(within(alert).getByRole('link', { name: 'Create an account' })).toHaveAttribute('href', '/signup')
+  })
+
+  it('tells an existing account to sign in with its password and link Google under Security', async () => {
+    fakeApi({})
+    renderAt('/signin?oauth=account_exists')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Sign in with your password, then link Google under Security.',
+    )
   })
 
   it("follows Google's branding: the G mark from this origin and an approved label", async () => {
