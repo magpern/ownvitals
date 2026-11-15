@@ -16,9 +16,20 @@ import httpx
 import pytest
 from sqlalchemy import create_engine, text
 
-from evaltools import ANSWERS, BAD, DIGEST, MODEL, GoodModel, eval_env, fresh_process, settings
+from evaltools import (
+    ANSWERS,
+    BAD,
+    BAD_TIER,
+    DIGEST,
+    MODEL,
+    GoodModel,
+    eval_env,
+    fresh_process,
+    settings,
+)
 from ownvitals.ai.eval import run_eval
 from ownvitals.ai.eval_cases import all_cases
+from ownvitals.ai.eval_locks import EvalRefused
 from ownvitals.ai.requests import PROMPT_VERSION, eval_ref
 from test_ai_eval_seed_db import (  # noqa: F401 - fixtures
     EvalDb,
@@ -178,3 +189,48 @@ def test_no_review_text_is_kept_without_a_file(eval_clean: EvalDb, secrets_dir: 
     result = _run(eval_clean, secrets_dir)
     assert result.exit_code == 0
     assert "answer" not in "\n".join(result.lines)
+
+
+def test_the_failed_file_holds_only_failed_cases_with_reasons_and_is_private(
+    eval_clean: EvalDb, secrets_dir: Path, tmp_path: Path
+) -> None:
+    target = tmp_path / "failed.jsonl"
+    result = _run(
+        eval_clean, secrets_dir, GoodModel(wrong={"tier"}), failed_file=target, show_failed=True
+    )
+    assert result.exit_code == 1
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    rows = [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines()]
+    tier = sorted(c.label for c in all_cases() if c.grader == "tier")
+    assert sorted(r["label"] for r in rows) == tier  # the passing cases are not written
+    assert {r["category"] for r in rows} == {"tier"}
+    assert all(r["answer"] == BAD_TIER and r["prompt"] for r in rows)
+    assert all(r["reasons"][0]["code"] == "tier_mention" for r in rows)
+    assert all(r["tool_calls"] == [] and r["tool_results"] == [] for r in rows)
+    shown = "\n".join(result.lines)
+    assert BAD_TIER not in shown
+    assert "tier_mention" not in shown
+    assert all(r["prompt"] not in shown for r in rows)
+
+
+def test_the_failed_file_of_a_clean_run_is_empty(
+    eval_clean: EvalDb, secrets_dir: Path, tmp_path: Path
+) -> None:
+    target = tmp_path / "failed.jsonl"
+    target.write_text("old\n", encoding="utf-8")
+    assert _run(eval_clean, secrets_dir, failed_file=target).exit_code == 0
+    assert target.read_text(encoding="utf-8") == ""
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_an_unwritable_failed_file_refuses_before_any_call(
+    eval_clean: EvalDb, secrets_dir: Path, tmp_path: Path
+) -> None:
+    (tmp_path / "real").write_text("", encoding="utf-8")
+    link = tmp_path / "link.jsonl"
+    link.symlink_to(tmp_path / "real")
+    fake = GoodModel()
+    with pytest.raises(EvalRefused) as refused:
+        _run(eval_clean, secrets_dir, fake, failed_file=link)
+    assert refused.value.code == "failed_file_refused"
+    assert fake.attempts == 0

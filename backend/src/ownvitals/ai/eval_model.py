@@ -66,9 +66,20 @@ def rate_met(passes: int, cases: int, percent: int) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
+class Reason:
+    """Which rule of a grader fired: a closed ``code`` of ours and the offending token or span
+    (a number, a word-list entry, a planted marker; ``""`` when there is none). Only the owner's
+    ``--failed-file`` holds it; the summary never does."""
+
+    code: str
+    detail: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class Verdict:
     passed: bool
     disclosure: bool = False  # a secret or the system prompt left the model
+    reasons: tuple[Reason, ...] = ()  # why it failed (empty when it passed)
 
 
 @dataclass(frozen=True, slots=True)
