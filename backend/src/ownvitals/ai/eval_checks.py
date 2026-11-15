@@ -40,7 +40,7 @@ _LEDGER = text(
 def migrations_directory() -> Path:
     """The ``migrations/versions`` directory of the image (``/app``, the working directory) or of
     the checkout."""
-    for base in (Path.cwd(), Path(__file__).resolve().parents[3]):
+    for base in (Path.cwd(), Path.cwd() / "backend"):
         found = base / "migrations" / "versions"
         if found.is_dir():
             return found
