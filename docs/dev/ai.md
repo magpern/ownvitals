@@ -13,7 +13,7 @@ and tools are [below](#consent-and-withdrawal), the client
 |---|---|
 | `backend/migrations/versions/0013_ai_budget.py` | `ai_reservations` and `ai_spend` (owned, forced RLS, the app role `SELECT` only) and `ai_spend_global` (system, no app privilege) |
 | `docker/postgres/ai/50-ai.sql` | the role `ownvitals_ai` and the definer functions `ai_reserve`, `ai_settle`, `ai_release`, `ai_settle_lost`; idempotent, run as the superuser by `db-functions` after `rate.sql` |
-| `backend/src/ownvitals/ai/pricing.py` | the pricing table (empty until the owner picks the model) and the per-request bound |
+| `backend/src/ownvitals/ai/pricing.py` | the pricing table (`claude-sonnet-5-5` only; pricing a model does not enable it) and the per-request bound |
 | `backend/src/ownvitals/ai/budget.py` | reserve, settle and release in a job's fenced transaction, the release rule, the reaper call, the month and the paused message |
 | `backend/src/ownvitals/worker/loop.py` | `maintain` runs `ai_settle_lost` after the queue reaper while `ai_insights` is on |
 
@@ -85,7 +85,7 @@ jobs only, no model call:
 | `test_ai_cost_cap.py` | 50 concurrent reservations admit exactly 10 (and a sampler sees no moment over a cap); the global cap across users; every function at once without deadlock; double settle, sequential and racing (settle, release or the reaper); release then settle; settle then crash; a crash after reserve; the reaper's rules and limit; January settled in February; overrun; the CHECKs; the app role's privileges; RLS; account deletion |
 | `test_ai_functions.py` | each function callable by the app role only (every other role refused); signatures without an owner; guard 2, guard 9, digests and the startup check; the script plain SQL, idempotent, superuser only; drift found, refused and repaired |
 | `test_ai_budget.py` | the Python layer through the fence; a lost lease; the release rule; the month and the paused message; the cap settings; the worker's maintenance |
-| `test_ai_pricing.py` | no model priced; the bound never below a cost within it |
+| `test_ai_pricing.py` | only `claude-sonnet-5-5` priced, at the list prices; any other model unpriced; the bound never below a cost within it (real and synthetic tables) |
 | `test_ai_migration.py` | migration 0013 alone (no script) leaves the app role read-only |
 
 ## Known gaps
@@ -235,7 +235,10 @@ All empty by default, so **no call is made** until the owner sets every one (ADR
 questions 1, 3 and 6). Agents never set them.
 
 - `OWNVITALS_AI_MODEL`: the pinned model id (lower case, digits, `.` and `-`). It must also be in
-  `ai.pricing.PRICES`, which is empty until the owner picks the model (`ai_model_unpriced`).
+  `ai.pricing.PRICES` (`ai_model_unpriced` otherwise). The table prices `claude-sonnet-5-5`
+  (list prices of 2026-11-15, 5-minute cache write; the Architect's proposal of 2026-11-15, the
+  owner may choose another model, and each price change is a reviewed PR). Pricing it sets
+  nothing: `OWNVITALS_AI_MODEL` stays empty until the owner sets it.
 - `OWNVITALS_AI_PROVIDER_REVIEW_REF`: the reference of the recorded provider review (lock 2).
 - `OWNVITALS_AI_EVAL_REF`: exactly `<model>/<PROMPT_VERSION>/<TOOLSET_VERSION>` as the owner's
   evaluation run passed it (lock 3). Changing the model, the prompt or the tool set makes it stale,
