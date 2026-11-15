@@ -141,7 +141,10 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     app_id = await create_app(owner_engine, env.factory, ring, CLIENT, BASE, SECRET)
     fake = FakeWithings(seed=30, rate_limit=None)
     fake.add_app(CLIENT, SECRET, (REDIRECT,))
-    user = fake.add_user(days=30, ecg_count=0, sleep_series_nights=0, intraday_days=0)
+    # The history ends today, not at the fake's fixed START: the backfill floor below is relative
+    # to the wall clock, so data anchored to START would fall out of it as time passes (#522).
+    today = int(datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    user = fake.add_user(days=30, end=today, ecg_count=0, sleep_series_nights=0, intraday_days=0)
     expected = {g["grpid"] for g in user.data.measuregrps if g.get("category") in (1, 2)}
     assert expected
     ctx = make_context(await env.user("m1-flow@example.com"))
