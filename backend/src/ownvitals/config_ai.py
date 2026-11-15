@@ -39,3 +39,9 @@ class AiSettings(BaseSettings):
     ai_model: str = Field(default="", max_length=100, pattern=r"^([a-z0-9][a-z0-9.\-]*)?$")
     ai_provider_review_ref: str = Field(default="", max_length=500)
     ai_eval_ref: str = Field(default="", max_length=200)
+    # The owner's evaluation run (ADR 0014 section 9, ``ownvitals.ai.eval_job``): its own lock,
+    # ``OWNVITALS_AI_EVAL=on``, off by default and set only by the owner for a run, and its own
+    # small cap in integer micro-USD (default 0: no call can be reserved). Neither affects the
+    # app: the worker and web never read them.
+    ai_eval: bool = False
+    ai_eval_cap_microusd: int = Field(default=0, ge=0, le=100_000_000)

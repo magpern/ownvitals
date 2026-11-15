@@ -2,7 +2,8 @@
 1, 5, 6 and 7; PLAN sections 2 and 7.4; #207).
 
 ``call_model(job, settings, kind=..., messages=...)`` is the only code that sends a model request.
-It runs in the worker only, inside a job run, and in this order:
+It runs inside a job run, in the worker or in the owner's evaluation run (ADR 0014 section 9,
+``ownvitals.ai.eval_job``: its own egress role, its own settings copy), in this order:
 
 1. **The process**: the client is built first by ``egress.model_async_client``, which refuses
    outside a worker whose list holds the model host (web, or a worker with AI off) before any
@@ -15,13 +16,15 @@ It runs in the worker only, inside a job run, and in this order:
    are scanned (no UUID, email, key or app secret) and bounded (``pricing.request_bound``).
 4. **Consent, flag and budget, together**: one fenced transaction re-checks the stored flag and
    the live consent (``consent.require_enabled``, ``FOR SHARE NOWAIT`` after the fence), the
-   job's cancel and reserves the bound (``budget.reserve``); it commits before the call.
+   job's cancel, then the caller's ``precheck`` if it passed one, and reserves the bound
+   (``budget.reserve``); it commits before the call.
 5. **The call**, inside ``job.provider_call`` (the lease outlasts the total deadline): up to
    ``MAX_ATTEMPTS`` attempts under the **same reservation**, but only after an attempt that
    provably was not processed (not sent, 429, 529), and each later attempt re-checks consent,
    flag and cancel first. Every other failure ends the call.
 6. **Settle or release** (``budget.may_release``) and write the ``ai_audit`` row in one new
    fenced transaction, with one log line (``ai.audit``); with the lease lost, the log line only.
+   The row's kind is ``audit_kind`` when given (the evaluation's), else the request's kind.
 
 The key goes only into the ``x-api-key`` header (the body is checked); the answer is a proposal.
 """
@@ -30,13 +33,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ownvitals import egress
 from ownvitals.ai import audit, budget, consent
-from ownvitals.ai.audit import AuditEntry, Settlement
+from ownvitals.ai.audit import AuditEntry, AuditKind, Settlement
 from ownvitals.ai.client_call import (
     BACKOFF_SECONDS,
     MAX_ATTEMPTS,
@@ -65,12 +68,21 @@ if TYPE_CHECKING:
     import httpx
 
 
-async def _reserve(job: JobRun, settings: Settings, amount: int) -> budget.Reservation:
+# A caller's own check in the reservation's fenced transaction, before anything is reserved: it
+# raises ``ModelRefused`` to refuse the call (the owner's evaluation run: every account marked).
+PreCheck = Callable[[FencedSession], Awaitable[None]]
+
+
+async def _reserve(
+    job: JobRun, settings: Settings, amount: int, precheck: PreCheck | None
+) -> budget.Reservation:
     try:
         async with job.fenced() as fs:
             if fs.cancel_requested:
                 raise ModelRefused("cancelled")
             await consent.require_enabled(fs.db, job.ctx.user_id, settings, nowait=True)
+            if precheck is not None:
+                await precheck(fs)
             held = await budget.reserve(fs, amount, settings)
     except consent.AiNotEnabled:
         raise ModelRefused("ai_not_enabled") from None
@@ -110,9 +122,12 @@ async def call_model(
     inner: httpx.AsyncBaseTransport | None = None,
     secrets_directory: Path | None = None,
     sleep: Sleep = asyncio.sleep,
+    audit_kind: AuditKind | None = None,
+    precheck: PreCheck | None = None,
 ) -> Reply:
     """One model request for ``job``'s user; the parsed answer. ``ModelRefused`` when no
-    request was sent (nothing stays reserved); ``ModelFailed`` when one failed."""
+    request was sent (nothing stays reserved); ``ModelFailed`` when one failed. ``audit_kind``
+    is the ``ai_audit`` kind (default: ``kind``); ``precheck`` runs before the reservation."""
     try:
         client = egress.model_async_client(inner=inner)
     except egress.OutboundBlocked:
@@ -131,7 +146,7 @@ async def call_model(
         except RequestRefused as refused:
             raise ModelRefused(refused.code) from None
         held = await _reserve(
-            job, settings, request_bound(model, len(raw), MAX_TOKENS[kind], prices)
+            job, settings, request_bound(model, len(raw), MAX_TOKENS[kind], prices), precheck
         )
         headers = {
             "x-api-key": api_key,
@@ -139,7 +154,7 @@ async def call_model(
             "content-type": "application/json",
             "accept": "application/json",
         }
-        call = ModelCall(job, settings, kind, model)
+        call = ModelCall(job, settings, kind, model, audit_kind or kind)
         started = time.monotonic()
         reply: Reply | None = None
         failure: ModelFailed | None = None
@@ -201,7 +216,7 @@ async def _settle_and_audit(
     def entry(settlement: Settlement, cost: int) -> AuditEntry:
         return AuditEntry(
             job_id=call.job.lease.job_id,
-            kind=call.kind,
+            kind=call.audit_kind,
             model=call.model,
             prompt_version=PROMPT_VERSION,
             toolset_version=TOOLSET_VERSION,

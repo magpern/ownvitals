@@ -78,6 +78,8 @@ ADDED = frozenset(
         "turnstile_enabled",  # issue 460: Cloudflare Turnstile, off by default (ADR 0018)
         "turnstile_site_key",
         "turnstile_secret_key",
+        "ai_eval",  # issue 527: the owner's evaluation run's lock and cap (ADR 0014 §9)
+        "ai_eval_cap_microusd",
     }
 )
 

@@ -176,24 +176,39 @@ async def give(
     the flag is off (checked first, whatever the text); ``ConsentMismatch`` for any other
     text."""
     async with user_session(factory, ctx) as db:
-        if not await effective.ai_insights(db, settings):
-            raise AiNotEnabled("feature_off")
-        if not consent_text.matches(version, locale, digest):
-            raise ConsentMismatch
-        params = {"o": ctx.user_id}
-        live = (await db.execute(_LIVE_FOR_UPDATE, params)).first()
-        same = live is not None and (
-            int(live.consent_version),
-            str(live.locale),
-            bytes(live.text_sha256),
-        ) == (version, locale, digest)
-        if live is not None and not same:  # an older text or another language: replaced
-            await db.execute(_CLOSE, params)
-        if not same:
-            # A concurrent give may have taken the live slot first: then it stays, and the
-            # state below is that row's.
-            await db.execute(_INSERT, {**params, "v": version, "l": locale, "d": digest})
-        row = (await db.execute(_LIVE, params)).one()
+        return await give_in(db, ctx, settings, version=version, locale=locale, digest=digest)
+
+
+async def give_in(
+    db: AsyncSession,
+    ctx: UserContext,
+    settings: Settings,
+    *,
+    version: int,
+    locale: str,
+    digest: bytes,
+) -> ConsentState:
+    """``give`` in the caller's transaction as ``ctx``'s user (the evaluation seeder's job fence,
+    ADR 0014 section 9)."""
+    require_context(ctx)
+    if not await effective.ai_insights(db, settings):
+        raise AiNotEnabled("feature_off")
+    if not consent_text.matches(version, locale, digest):
+        raise ConsentMismatch
+    params = {"o": ctx.user_id}
+    live = (await db.execute(_LIVE_FOR_UPDATE, params)).first()
+    same = live is not None and (
+        int(live.consent_version),
+        str(live.locale),
+        bytes(live.text_sha256),
+    ) == (version, locale, digest)
+    if live is not None and not same:  # an older text or another language: replaced
+        await db.execute(_CLOSE, params)
+    if not same:
+        # A concurrent give may have taken the live slot first: then it stays, and the
+        # state below is that row's.
+        await db.execute(_INSERT, {**params, "v": version, "l": locale, "d": digest})
+    row = (await db.execute(_LIVE, params)).one()
     current = consent_text.matches(
         int(row.consent_version), str(row.locale), bytes(row.text_sha256)
     )

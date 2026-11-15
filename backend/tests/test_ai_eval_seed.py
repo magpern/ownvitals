@@ -29,7 +29,7 @@ from ownvitals.auth.synthetic import (
 from ownvitals.config import Settings
 from ownvitals.connections.synthetic import create_synthetic_connection
 from ownvitals.db import create_engine as create_app_engine
-from ownvitals.db import create_session_factory
+from ownvitals.db import create_session_factory, user_session
 
 SYNTHETIC = True
 NOW = datetime(2026, 11, 3, 12, 0, tzinfo=UTC)
@@ -193,8 +193,10 @@ async def test_no_data_is_seeded_outside_an_eval_database(
         engine.dispose()
     app = create_app_engine(Settings(database_url=app_database_url))  # pyright: ignore[reportArgumentType]
     try:
+        ctx = make_context(user)
         with pytest.raises(SyntheticRefused):
-            await create_synthetic_connection(create_session_factory(app), make_context(user))
+            async with user_session(create_session_factory(app), ctx) as db:
+                await create_synthetic_connection(db, ctx)
     finally:
         await app.dispose()
     assert _scalar(owner_database_url, "SELECT count(*) FROM connections") == 0

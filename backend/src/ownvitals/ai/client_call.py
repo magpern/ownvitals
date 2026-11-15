@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Final
 
 from ownvitals import egress
 from ownvitals.ai import consent
+from ownvitals.ai.audit import AuditKind
 from ownvitals.ai.gates import ModelFailed, category_of, retry_after_of
 from ownvitals.ai.requests import MESSAGES_PATH, Kind
 from ownvitals.ai.responses import Reply, parse_reply
@@ -31,9 +32,12 @@ Sleep = Callable[[float], Awaitable[None]]
 class ModelCall:
     """One model call's state: the attempts, the answer, the settlement."""
 
-    def __init__(self, job: JobRun, settings: Settings, kind: Kind, model: str) -> None:
+    def __init__(
+        self, job: JobRun, settings: Settings, kind: Kind, model: str, audit_kind: AuditKind
+    ) -> None:
         self.job, self.settings, self.model = job, settings, model
         self.kind: Kind = kind
+        self.audit_kind: AuditKind = audit_kind
         self.attempts = 0
         self.status: int | None = None
         self.answer: bytes | None = None

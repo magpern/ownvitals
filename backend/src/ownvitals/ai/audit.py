@@ -34,6 +34,7 @@ from ownvitals.ai.responses import ToolRequest
 from ownvitals.ai.tools_model import TOOLS
 from ownvitals.auth.keys import derive_key
 from ownvitals.config import MIN_APP_SECRET_BYTES, Settings
+from ownvitals.egress import EVAL_HOOK_KIND
 from ownvitals.jobs.fence import FencedSession
 
 logger = logging.getLogger(__name__)
@@ -42,9 +43,12 @@ AI_AUDIT_OWNED: Final = ("ai_audit",)
 AUDIT_LABEL: Final = "ai-audit"
 AUDIT_TOOLS_MAX: Final = 16
 
-# ``ai_audit.kind`` also admits the owner's evaluation run (ADR 0014 section 9), which that
-# issue adds here with its own guard entry.
-AuditKind = Literal["chat", "digest"]
+# ``ai_audit.kind``: a chat turn, a digest, or a call of the owner's evaluation run (ADR 0014
+# section 9). The evaluation's kind is the egress role's own constant (``EVAL_HOOK_KIND``): outside
+# ``ownvitals.egress`` the guard refuses the evaluator's name as a string literal.
+AuditKind = str
+EVAL_AUDIT_KIND: Final[AuditKind] = EVAL_HOOK_KIND
+AUDIT_KINDS: Final = frozenset({"chat", "digest", EVAL_AUDIT_KIND})
 Status = Literal["completed", "failed"]
 ErrorCategory = Literal[
     "refused",
@@ -122,6 +126,10 @@ class AuditEntry:
     error: ErrorCategory | None = None
     http_status: int | None = None
     response_hmac: bytes | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in AUDIT_KINDS:  # the table's ``ai_audit_kind`` check, before a write
+            raise ValueError("an audit kind is chat, digest or the evaluation's")
 
     def log_fields(self) -> Mapping[str, Any]:
         """What the log line carries: the row's fields without the cost and the fingerprints."""

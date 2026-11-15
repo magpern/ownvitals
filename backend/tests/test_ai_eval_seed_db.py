@@ -269,8 +269,8 @@ async def test_the_data_seed_plants_each_plan(
     assert settings.ai_insights is False  # the seeder needs no switch (ADR 0014 section 9)
     for plan in PLANS:
         ctx = make_context(accounts[plan.name])
-        await seed_account_data(factory, ctx, _open_tx(factory, ctx), settings, plan, now=NOW)  # pyright: ignore[reportArgumentType]
-        await seed_account_data(factory, ctx, _open_tx(factory, ctx), settings, plan, now=NOW)  # pyright: ignore[reportArgumentType]
+        await seed_account_data(ctx, _open_tx(factory, ctx), settings, plan, now=NOW)  # pyright: ignore[reportArgumentType]
+        await seed_account_data(ctx, _open_tx(factory, ctx), settings, plan, now=NOW)  # pyright: ignore[reportArgumentType]
     su = eval_clean.superuser
     for plan in PLANS:
         owner = accounts[plan.name]
@@ -317,7 +317,7 @@ async def test_the_data_seed_refuses_an_unmarked_account(
     settings = Settings(database_url=eval_clean.app)  # pyright: ignore[reportArgumentType]
     ctx = make_context(person)
     with pytest.raises(SyntheticRefused):
-        await seed_account_data(factory, ctx, _open_tx(factory, ctx), settings, STEADY, now=NOW)  # pyright: ignore[reportArgumentType]
+        await seed_account_data(ctx, _open_tx(factory, ctx), settings, STEADY, now=NOW)  # pyright: ignore[reportArgumentType]
     assert _scalar(eval_clean.superuser, "SELECT count(*) FROM connections") == 0
     assert _scalar(eval_clean.superuser, "SELECT count(*) FROM measure_groups") == 0
 
