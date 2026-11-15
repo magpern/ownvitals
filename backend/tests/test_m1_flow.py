@@ -41,6 +41,7 @@ from ownvitals.withings.oauth import SessionProof, StateStore, callback, start
 from ownvitals.withings.webhooks import PREFIX
 from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport
+from withingsstreams import START
 from withingswire import Request
 
 pytestmark = pytest.mark.usefixtures("auth_schema", "clean_auth")
@@ -161,7 +162,9 @@ async def test_connect_backfill_webhook_poll_reconcile_disconnect_and_delete(
     # parallel streams' refused claims are waited out within the attempt, not failed. The flow
     # makes about 180 calls, so it takes about 50 s: the app's budget of 100 a minute, not a lane
     # (a lane whose job stopped asking no longer holds the turn, #370).
-    monkeypatch.setattr(streams, "FLOOR", datetime.now(UTC) - timedelta(days=45))
+    # The floor is anchored to the fake's clock (START), not today: the data lies before START,
+    # so a wall-clock floor cuts it off once START is far enough in the past (#522).
+    monkeypatch.setattr(streams, "FLOOR", datetime.fromtimestamp(START, UTC) - timedelta(days=45))
 
     def measure_count() -> int:
         return int(
