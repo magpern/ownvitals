@@ -8,6 +8,12 @@ export const codes = {
     'Din Withings-plan omfattar inte de här data. Det är inget fel på din anslutning.',
   'code.daily_summary':
     'Varje dags värde är den första avläsningen mellan {start} och {end} lokal tid, annars medianen av dagens avläsningar. Avläsningar som är markerade som obekräftade, orimliga eller dubbletter visas men används inte. Det vanliga intervallet är medianen plus eller minus {k} gånger den skalade absoluta medianavvikelsen (MAD) för de senaste {days} dagarna, aldrig smalare än en lägsta halvbredd. Trenden är en Theil-Sen-lutning med ett Mann-Kendall-test som är korrigerat för autokorrelation. Brytpunkter söks med PELT, och bara i en serie med tillräckligt med data. En dag utan avläsning är en lucka, inte noll.',
+  'code.conflict': 'En annan ändring av anslutningen pågick. Försök igen.',
+  'code.exchange_failed': 'Withings godtog inte inloggningen. Försök igen.',
+  'code.linked_elsewhere': 'Det Withings-kontot är redan anslutet till ett annat ownvitals-konto.',
+  'code.other_withings_account':
+    'Det här ownvitals-kontot är kopplat till ett annat Withings-konto. Koppla från det först.',
+  'code.state_rejected': 'Länken för inloggning hos Withings gick ut eller har redan använts. Börja om.',
   'code.decrypt_failed': 'Din anslutning kunde inte läsas. Anslut ditt Withings-konto igen.',
   'code.email_taken': 'Den e-postadressen används redan.',
   'code.idempotency_key_invalid': 'Begäran kunde inte skickas på ett säkert sätt två gånger. Försök igen.',

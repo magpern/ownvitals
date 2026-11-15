@@ -18,7 +18,9 @@ from types import MappingProxyType
 from typing import Final
 
 # Answers any family may give.
-COMMON: Final = frozenset({"not_found", "not_authenticated", "forbidden", "invalid_input", "busy"})
+COMMON: Final = frozenset(
+    {"not_found", "not_authenticated", "forbidden", "invalid_input", "busy", "internal"}
+)
 
 # ``detail.reason`` of /api/auth/*. The OAuth outcomes of ``?oauth=`` are a separate word list
 # worded by the frontend's errors area.
@@ -57,6 +59,7 @@ AUTH: Final = frozenset(
         "too_many_streams",
         "totp_changed",
         "totp_not_enabled",
+        "turnstile_failed",
         "two_factor_required",
         "wrong_browser",
         "wrong_password",
@@ -77,6 +80,9 @@ JOB_FAILURES: Final = frozenset(
         "account_disabled",
         "outbound_blocked",
         "internal",
+        "ai_not_enabled",
+        "ai_budget_exhausted",
+        "ai_unavailable",
     }
 )
 
@@ -99,9 +105,14 @@ CONNECTIONS: Final = (
     | JOB_FAILURES
     | {
         "blocked_by_provider_plan",
+        "conflict",
+        "exchange_failed",
         "invalid_body",
+        "linked_elsewhere",
+        "other_withings_account",
         "revoke_failed",
         "revoke_incomplete",
+        "state_rejected",
         "step_up_required",
         "unknown_provider",
     }
@@ -110,6 +121,32 @@ CONNECTIONS: Final = (
 # The ``method.code`` of a metric detail; its numbers are in ``method.parameters``.
 VIEWS: Final = COMMON | {"daily_summary"}
 
+# ``detail.reason`` of /api/ai/* (#206): AI is not enabled (the flag is off), and a consent that
+# names another text than the current one. The assistant (#208): the month's budget is used up, a
+# turn of the conversation is still running, the chat limit, and a malformed idempotency key.
+AI: Final = COMMON | {
+    "ai_not_enabled",
+    "ai_consent_outdated",
+    "step_up_required",
+    "ai_budget_exhausted",
+    "ai_turn_in_progress",
+    "rate_limited",
+    "idempotency_mismatch",
+}
+
+# ``detail.reason`` of /api/exports (#211, ADR 0013 section 4); the download's cross-site refusal
+# is a page that names its code in ``X-Ownvitals-Reason``.
+EXPORTS: Final = COMMON | {
+    "export_in_progress",
+    "export_not_ready",
+    "export_expired",
+    "export_download_spent",
+    "download_same_origin_required",
+    "rate_limited",
+    "reauth_required",
+    "step_up_required",
+}
+
 FAMILIES: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
     {
         "auth": AUTH,
@@ -117,6 +154,8 @@ FAMILIES: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
         "job_failures": JOB_FAILURES,
         "connections": CONNECTIONS,
         "views": VIEWS,
+        "ai": AI,
+        "exports": EXPORTS,
     }
 )
 

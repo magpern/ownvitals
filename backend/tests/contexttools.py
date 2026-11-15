@@ -136,9 +136,44 @@ ROWS: Final[Mapping[str, str]] = {
     # The AI cost cap (#205): one month row per planting (n) and a settled reservation.
     "ai_spend": "INSERT INTO public.ai_spend (owner_id, month) VALUES "
     "(:owner, CAST(DATE '2000-01-01' + make_interval(months => :n) AS date)) RETURNING id",
+    # The notification holds (#195): an ended hold of a synthetic finding id.
+    "notify_holds": "INSERT INTO public.notify_holds (owner_id, finding_id, rule_id, started_at, "
+    "revision_at, revision_seen, ended_at, reason, outcome) VALUES (:owner, gen_random_uuid(), "
+    "'E4', :ts, :ts, :ts, :ts, 'timeout', 'sent_not_evaluated') RETURNING id",
+    # AI consent and history (#206): a withdrawn consent (so the one-live-per-owner index never
+    # collides), a conversation, and a message in the owner's own conversation.
+    "ai_consents": "INSERT INTO public.ai_consents (owner_id, consent_version, locale, "
+    "text_sha256, given_at, withdrawn_at) VALUES (:owner, 1, 'en', :hash, :ts, :ts) RETURNING id",
+    "ai_conversations": "INSERT INTO public.ai_conversations (owner_id, created_at, updated_at) "
+    "VALUES (:owner, :ts, :ts) RETURNING id",
+    "ai_messages": "INSERT INTO public.ai_messages (owner_id, conversation_id, role, content) "
+    "VALUES (:owner, (SELECT c.id FROM public.ai_conversations c WHERE c.owner_id = :owner "
+    "ORDER BY c.created_at, c.id LIMIT 1), 'user', 'synthetic_ctx_message') RETURNING id",
+    # The weekly digest (issue 209): the opt-in (one per owner) and an unavailable week (no
+    # text), a week after the owner's other digests so the own insert never meets the key.
+    "ai_digest_prefs": "INSERT INTO public.ai_digest_prefs (owner_id) VALUES (:owner) RETURNING id",
+    "ai_digests": "INSERT INTO public.ai_digests (owner_id, week_start, status) VALUES (:owner, "
+    "DATE '2026-01-05' + 7 * (SELECT count(*) FROM public.ai_digests d "
+    "WHERE d.owner_id = :owner)::integer, 'unavailable') RETURNING id",
+    # The export (#211): an expired export record and a chunk of the owner's first export.
+    "exports": "INSERT INTO public.exports (owner_id, kind, state) VALUES (:owner, 'data', "
+    "'expired') RETURNING id",
+    "export_chunks": "INSERT INTO public.export_chunks (owner_id, export_id, seq, bytes) VALUES "
+    "(:owner, (SELECT e.id FROM public.exports e WHERE e.owner_id = :owner ORDER BY e.created_at, "
+    "e.id LIMIT 1), :n, :hash) RETURNING id",
     "ai_reservations": "INSERT INTO public.ai_reservations (owner_id, month, amount, actual, "
     "state, job_id, lease_version, ended_at) VALUES (:owner, DATE '2026-01-01', :n, :n, "
     "'settled', :job, 0, :ts) RETURNING id",
+    # The AI audit log (#207): a failed call's redacted row (codes, counts, fingerprints).
+    "ai_audit": "INSERT INTO public.ai_audit (owner_id, job_id, kind, model, prompt_version, "
+    "toolset_version, cost_microusd, reservation_id, latency_ms, attempts, status, error, "
+    "settlement, request_hmac) VALUES (:owner, :job, 'chat', 'synthetic-model', '1', '1', :n, "
+    "gen_random_uuid(), 0, 1, 'failed', 'not_sent', 'released', :hash) RETURNING id",
+    # Email preferences (#459): one row per owner and kind, so the kind follows the planting
+    # (1, own insert 2, foreign 3 are three different kinds).
+    "email_prefs": "INSERT INTO public.email_prefs (owner_id, kind, enabled, generation) VALUES "
+    "(:owner, (ARRAY['findings_waiting', 'connection_attention', 'ai_digest_ready'])[1 + :n % 3], "
+    "false, 1) RETURNING id",
 }
 # Tables with one row per owner (a unique key on ``owner_id`` alone): the own-insert control
 # first removes the context's own row, in the same rolled-back savepoint, or the planted row
@@ -147,6 +182,7 @@ ROWS: Final[Mapping[str, str]] = {
 # it reaches the key (23505) or goes through, and either is not ``REFUSED``.
 CLEAR_BEFORE_OWN_INSERT: Final[Mapping[str, str]] = {
     "user_profiles": "DELETE FROM public.user_profiles WHERE owner_id = :owner",
+    "ai_digest_prefs": "DELETE FROM public.ai_digest_prefs WHERE owner_id = :owner",
 }
 _PARAM = re.compile(r"(?<![:\w]):([a-z_]+)")
 _WITHINGS_CONNECTION = text(

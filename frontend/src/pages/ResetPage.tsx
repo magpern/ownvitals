@@ -8,6 +8,7 @@ import {
 import { errorMessage, providerName } from '../api/messages'
 import { useSession } from '../auth/SessionContext'
 import { Card, Field, Notice, useAction } from '../components/forms'
+import { useTurnstile } from '../components/Turnstile'
 import { useT } from '../i18n'
 import { Link, useMailToken } from '../router/Router'
 
@@ -22,11 +23,16 @@ function RequestReset() {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
   const action = useAction()
+  const turnstile = useTurnstile('reset')
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
     void action.run(async () => {
-      await requestPasswordReset(email.trim())
+      try {
+        await requestPasswordReset(email.trim(), turnstile.token)
+      } finally {
+        turnstile.reset() // a token is single-use
+      }
       setSent(true)
     })
   }
@@ -57,7 +63,8 @@ function RequestReset() {
           }}
           required
         />
-        <button className="button" type="submit" disabled={action.busy}>
+        {turnstile.widget}
+        <button className="button" type="submit" disabled={action.busy || (turnstile.required && !turnstile.token)}>
           {t('auth.reset.submit')}
         </button>
       </form>

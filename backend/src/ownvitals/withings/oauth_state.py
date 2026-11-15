@@ -66,8 +66,5 @@ class StateStore:
             return None
         now = self._clock()
         async with self._lock:
-            self._purge(now)
-            row = self._rows.pop(hashlib.sha256(state.encode()).digest(), None)
-        if row is None or row.expires_at <= now:
-            return None
-        return row
+            self._purge(now)  # the only expiry check, so the pop below never sees a dead state
+            return self._rows.pop(hashlib.sha256(state.encode()).digest(), None)

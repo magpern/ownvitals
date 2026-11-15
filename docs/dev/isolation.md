@@ -146,7 +146,7 @@ re-grant), so a re-run of the script keeps the narrower grants (`test_roles_reru
 
 | Session | Packages | Exact modules |
 |---|---|---|
-| `user_session` | `ownvitals.db`, `ownvitals.auth`, `ownvitals.connections` | `ownvitals.jobs.fence` (every write a worker makes for a job), `ownvitals.jobs.service` and `ownvitals.jobs.progress` (the jobs API's own writes and reads for the signed-in user, web only), `ownvitals.ecg_validate` (#47), `ownvitals.views.findings_read` (#190: the one findings read function, ADR 0006 §11), `ownvitals.views.reads` (#189: the read API's reader) |
+| `user_session` | `ownvitals.db`, `ownvitals.auth`, `ownvitals.connections` | `ownvitals.jobs.fence` (every write a worker makes for a job), `ownvitals.jobs.service` and `ownvitals.jobs.progress` (the jobs API's own writes and reads for the signed-in user, web only), `ownvitals.ecg_validate` (#47), `ownvitals.views.findings_read` (#190: the one findings read function, ADR 0006 §11), `ownvitals.views.reads` (#189: the read API's reader), `ownvitals.views.ecg_read` (#192: the ECG list, signal and PDF reader; never the estimates) |
 | `system_session` | `ownvitals.db`, `ownvitals.auth` | `ownvitals.jobs.queue` (the calls of the queue's `SECURITY DEFINER` functions), `ownvitals.crypto.keks` (the key ring's startup check) |
 
 Everything else fails `test_session_guard.py`: the rest of `ownvitals.jobs` (the runner, the job
@@ -422,8 +422,10 @@ synthetic row per owned table (`ROWS`) for two users, and one module per context
 runs the same probe the way that context reaches owned rows: `test_isolation_contexts_web.py`
 (a route behind `require_user`), `_worker.py` (a user's job through `runner.execute` and the job
 issuer), `_scheduler.py` (`queue_enqueue`, then the claimed job), `_webhook.py` (the receiver and
-`webhook_event_insert`, then the claimed job), `_maintenance.py` (the reaper and
-`webhook_events_purge_owner`) and `_admin.py` (admin routes on `ownvitals_maint`).
+`webhook_event_insert`, then the claimed job), `_maintenance.py` (the reaper,
+`webhook_events_purge_owner`, and `webhook_events_purge_account`, the admin delete's purge that
+refuses inside a user session, #362, called as its one caller's role `ownvitals_admin_accounts`
+since #314) and `_admin.py` (admin routes on `ownvitals_maint`).
 
 The probe tries every write in its **minimal shape**: no `WHERE` and no `RETURNING`, because
 either makes Postgres apply the read policy too and would hide a hole in a write policy. Per

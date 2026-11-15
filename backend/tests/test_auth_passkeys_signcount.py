@@ -16,7 +16,7 @@ from authtools import (  # noqa: F401 - fixtures
     smtp_fixture,
 )
 from flows import Browser, signed_in
-from passkeytools import BASE, SoftAuthenticator, failed, register, sign_in, signin_options
+from passkeytools import BASE, SoftAuthenticator, failed, reauth, register, sign_in, signin_options
 from smtpfake import SmtpFake
 
 
@@ -99,3 +99,19 @@ async def test_two_assertions_with_the_same_count_exactly_one_passes(env: Env) -
     assert sorted(r.status_code for r in answers) == [200, 401]
     assert await env.scalar("SELECT count(*) FROM sessions") == 1
     assert await count(env) == 7
+
+
+async def test_a_regression_at_re_auth_mails_a_notice_that_fits_it(
+    menv: Env, smtp: SmtpFake
+) -> None:
+    """The notice is sent from the sign-in and the re-auth alike, so it does not say "a sign-in"
+    (#282, from the #267 review; classbeat #797)."""
+    browser = await signed_in(menv)
+    auth = SoftAuthenticator()
+    assert (await register(browser, auth)).status_code == 201
+    assert (await reauth(browser, auth, sign_count=5)).status_code == 200
+    assert failed(await reauth(browser, auth, sign_count=3))
+    assert await suspended(menv)
+    [mail] = [m for m in smtp.messages if "suspended" in m.subject]
+    assert "A sign-in with" not in mail.text
+    assert "to sign in or to confirm it's you" in mail.text

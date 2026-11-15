@@ -13,7 +13,7 @@ from typing import Any, Final
 
 from ownvitals.analysis.daily import DailyValue
 from ownvitals.analysis.quality import Reading
-from ownvitals.analysis.rules import body, nerve
+from ownvitals.analysis.rules import body, ecg, nerve
 from ownvitals.analysis.rules.core import ALGO_VERSION, SPECS, Finding, Provenance, Tier
 from ownvitals.analysis.rules.system import ConnectionState, DeviceState, StreamState
 
@@ -23,7 +23,8 @@ EXPERIMENTAL_RULES: Final = frozenset(
 )
 Q1_RULES: Final = tuple(sorted(rule for rule in SPECS if rule.startswith("Q1:")))
 REPLAYED_RULES: Final = tuple(sorted(rule for rule in SPECS if rule not in Q1_RULES))
-# Every rule this writer stores; another writer's rules (E1 to E6, M5) are never touched.
+# Every rule this writer stores (E1 to E4 and E6 included, #191); any other rule id (E5 is
+# deferred, ADR 0006 section 12) is never touched.
 OWNED_RULES: Final = tuple(sorted(SPECS))
 
 NERVE_KEYS: Final = nerve.NERVE_KEYS
@@ -35,7 +36,7 @@ FOOT_PAIRS: Final[Mapping[nerve.FootPair, tuple[str, str]]] = {
 SEGMENT_TYPE: Final = 175  # segmental muscle mass: B6 reads it by position
 SEGMENT_KEY: Final = "segmental_muscle_mass"
 # The reading-level inputs besides the daily values: B3's water, N2's nerve readings (guided is
-# attrib 15), N5's foot types, Q1's weigh-ins.
+# attrib 15), N5's foot types, Q1's weigh-ins, E4's reported intervals.
 READING_KEYS: Final = tuple(
     sorted(
         {
@@ -44,6 +45,7 @@ READING_KEYS: Final = tuple(
             "intracellular_water",
             *NERVE_KEYS,
             *(key for pair in FOOT_PAIRS.values() for key in pair),
+            *ecg.E4_KEYS,
         }
     )
 )
@@ -71,7 +73,8 @@ class Inputs:
     """One owner's evaluation inputs. ``daily`` and ``provenance`` are per metric key (the stored
     ``metric_daily`` rows and their source groups and ``jump`` flags); ``readings`` are the usable
     readings of ``READING_KEYS`` (one per group, the zone already the day zone); ``segments`` are
-    the usable segmental muscle readings with their positions."""
+    the usable segmental muscle readings with their positions; ``recordings`` the Withings fields
+    of the ECG recordings E1 to E3 read, and ``sex`` the profile's (E4's QTc band)."""
 
     today: date
     experimental: bool
@@ -80,6 +83,8 @@ class Inputs:
     readings: Mapping[str, tuple[Reading, ...]] = field(default_factory=dict)
     segments: tuple[body.Segment, ...] = ()
     q1: Q1State = field(default_factory=Q1State)
+    recordings: tuple[ecg.Recording, ...] = ()
+    sex: ecg.Sex | None = None
 
 
 @dataclass(frozen=True, slots=True)

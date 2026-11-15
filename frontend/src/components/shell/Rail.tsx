@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { useT } from '../../i18n'
+import { HOME_PATH } from '../../auth/access'
 import { Link } from '../../router/Router'
 import type { NavId } from '../../router/appRoutes'
 import { Icon, Logo } from '../ui/Icon'
@@ -51,7 +52,7 @@ export function Rail({ active, path, admin, status = {} }: RailProps) {
   const t = useT()
   return (
     <nav className="ov-rail" aria-label={t('shell.nav.main')}>
-      <Link className="ov-brand" to="/">
+      <Link className="ov-brand" to={HOME_PATH}>
         <Logo />
         ownvitals
       </Link>

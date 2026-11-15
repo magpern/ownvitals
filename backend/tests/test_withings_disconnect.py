@@ -209,6 +209,16 @@ async def test_disconnect_revokes_and_keeps_other_owners_rows(
         o=other.user_id,
         c=other_connection,
     )
+    revoked: list[tuple[int, str]] = []
+    answer = linked.fake.start
+
+    def start(request: Request) -> object:
+        form = parse_qs(request.body.decode())
+        if form.get("action") == ["revoke"] and "callbackurl" in form:
+            revoked.append((int(form["appli"][0]), form["callbackurl"][0]))
+        return answer(request)
+
+    linked.fake.start = start  # type: ignore[method-assign]
     caplog.clear()
     caplog.set_level(logging.DEBUG)
     result = await disconnect_withings(
@@ -227,6 +237,8 @@ async def test_disconnect_revokes_and_keeps_other_owners_rows(
     endpoints = [entry.endpoint for entry in linked.fake.log]
     assert endpoints.count("notify:revoke") == 2
     assert "v2/oauth2:revoke" in endpoints
+    # the two on our origin, each once with its own appli; never the foreign one
+    assert sorted(revoked) == sorted([(1, CURRENT), (44, OLD)])
     for entry in linked.fake.log:
         assert set(entry.query_names).isdisjoint(MASKED)
     assert "old-marker" not in caplog.text

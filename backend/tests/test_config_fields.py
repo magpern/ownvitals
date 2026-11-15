@@ -1,7 +1,5 @@
 """The settings keep one field (and one ``OWNVITALS_`` variable) per name after the group split."""
 
-from pydantic_settings import EnvSettingsSource
-
 from ownvitals.config import Settings
 
 # The field names before the settings groups moved into ``config_*.py`` modules (issue 245).
@@ -61,7 +59,27 @@ FIELDS = frozenset(
 )
 
 # Fields added after the split, each with its issue.
-ADDED = frozenset({"locales"})  # issue 249: OWNVITALS_LOCALES (ADR 0015 section 1)
+ADDED = frozenset(
+    {
+        "locales",  # issue 249: OWNVITALS_LOCALES (ADR 0015 section 1)
+        "metrics_bind",  # issue 167: the worker's /metrics listener
+        "metrics_port",
+        "metrics_refresh_seconds",
+        "ai_include_experimental",  # issue 206: experimental items to the model (ADR 0014 §4)
+        "export_max_bytes",  # issue 211: the export's size limit and expiry (ADR 0013 §4)
+        "export_ttl_hours",
+        "ai_model",  # issue 207: the pinned model id and the owner's locks 2 and 3 (ADR 0014 §1)
+        "ai_provider_review_ref",
+        "ai_eval_ref",
+        "ai_audit_retention_months",  # issue 331: the audit log's retention (ADR 0014 §6)
+        "ai_conversation_retention_days",  # issue 395: the conversation retention (ADR 0014 §5)
+        "webhook_cache_ttl_seconds",  # issue 322: web's webhook entry cache TTL (ADR 0008)
+        "public_dir",  # issue 418: the prerendered public site (ADR 0016)
+        "turnstile_enabled",  # issue 460: Cloudflare Turnstile, off by default (ADR 0018)
+        "turnstile_site_key",
+        "turnstile_secret_key",
+    }
+)
 
 
 def test_the_field_set_is_unchanged_by_the_split() -> None:
@@ -69,8 +87,9 @@ def test_the_field_set_is_unchanged_by_the_split() -> None:
 
 
 def test_every_field_reads_its_prefixed_environment_variable() -> None:
-    # Ask Settings' own environment source which variable each field reads.
-    source = EnvSettingsSource(Settings)
+    # Public API only (#282, the G1 review): with the prefix and no alias on any field, each field
+    # reads ``OWNVITALS_<NAME>`` (case-insensitive).
+    assert Settings.model_config.get("env_prefix") == "OWNVITALS_"
+    assert Settings.model_config.get("case_sensitive", False) is False
     for name, field in Settings.model_fields.items():
-        env_names = [env_name for _, env_name, _ in source._extract_field_info(field, name)]  # pyright: ignore[reportPrivateUsage]
-        assert env_names == [f"ownvitals_{name}"], name
+        assert (field.alias, field.validation_alias) == (None, None), name

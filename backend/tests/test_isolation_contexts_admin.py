@@ -17,11 +17,11 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from admintools import (  # noqa: F401 - fixtures
-    MAINT_SCRIPT,
     AdminEnv,
     admin_schema_fixture,
     aenv_fixture,
     caller,
+    maint_scripts,
 )
 from contexttools import (
     Owner,
@@ -109,8 +109,8 @@ GRANT_MATRIX = [
 
 def restore_maint() -> None:
     """``30-maint.sql`` revokes everything maint holds and grants its allowlist again (it keeps
-    the password)."""
-    run_script(admin_url(), MAINT_SCRIPT.read_text(encoding="utf-8"))
+    the password); ``70-admin-accounts.sql`` grants maint its functions again (#314)."""
+    run_script(admin_url(), maint_scripts())
 
 
 @pytest.mark.parametrize(("table", "grant"), GRANT_MATRIX)

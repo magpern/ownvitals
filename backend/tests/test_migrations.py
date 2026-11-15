@@ -1,3 +1,4 @@
+import uuid
 from pathlib import Path
 
 import pytest
@@ -15,8 +16,10 @@ from dbtools import (
     public_tables,
     ready_to_downgrade,
 )
+from jobtools import ensure_user
+from ownvitals.derived.tables import user_profiles
 
-HEAD = "0019_auth_event_origin"
+HEAD = "0030_session_anomaly"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -25,6 +28,17 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0029_email_prefs",
+        "0028_chart_range_7d",
+        "0027_ai_conversation_retention",
+        "0026_ai_digest",
+        "0025_ai_job_failures",
+        "0024_outbox_export_ready",
+        "0023_ai_audit",
+        "0022_exports",
+        "0021_ai_consent",
+        "0020_notify_holds",
+        "0019_auth_event_origin",
         "0018_cross_device_session",
         "0017_account_locale",
         "0016_findings_rule_ids",
@@ -80,13 +94,19 @@ def test_the_migrations_create_exactly_their_tables(
     """Besides Alembic's own table, 0003's job tables (ADR 0005 section 1), 0004's key-ring
     check table (ADR 0004 section 3), 0005's account tables (ADR 0003, #10), 0006's stored
     flags and admin audit log (#12), 0007's connections table (#13), 0009's Withings tables,
-    0011's derived tables (#181), 0012's mail outbox (#194) and 0013's AI cost cap (#205).
+    0011's derived tables (#181), 0012's mail outbox (#194), 0013's AI cost cap (#205),
+    0020's notification holds (#195), 0021's AI consent and history (#206), 0022's exports
+    (#211), 0023's AI audit log (#207) and 0026's weekly digest (issue 209).
     """
+    from ownvitals.ai.audit import AI_AUDIT_OWNED
     from ownvitals.ai.budget import AI_OWNED
+    from ownvitals.ai.tables import AI_CONSENT_OWNED, AI_DIGEST_OWNED
     from ownvitals.auth.tables import metadata
     from ownvitals.derived.tables import DERIVED_OWNED
     from ownvitals.ingest.tables import INGEST_OWNED
     from ownvitals.notify.outbox import OUTBOX_TABLES
+    from ownvitals.notify.tables import NOTIFY_OWNED
+    from ownvitals.reports.tables import EXPORT_OWNED
     from ownvitals.withings.tables import WITHINGS_OWNED
 
     with migrated(owner_database_url):
@@ -110,6 +130,11 @@ def test_the_migrations_create_exactly_their_tables(
             *INGEST_OWNED,
             *DERIVED_OWNED,
             *OUTBOX_TABLES,
+            *NOTIFY_OWNED,
+            *AI_CONSENT_OWNED,
+            *EXPORT_OWNED,
+            *AI_AUDIT_OWNED,
+            *AI_DIGEST_OWNED,
         }
     assert applied_revisions(database_url) == []
     assert public_tables(database_url) == {"alembic_version"}  # downgraded: all of them gone
@@ -192,3 +217,109 @@ def test_the_migrations_use_the_migration_url_and_its_password_file(
     finally:
         ready_to_downgrade(owner_database_url)
         command.downgrade(config, "base")
+
+
+def _profile_rows(database_url: str, ranges: list[str | None]) -> list[uuid.UUID]:
+    """Synthetic owners with a profile each; ``None`` leaves ``chart_range`` to its default."""
+    owners = [uuid.uuid4() for _ in ranges]
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            for owner, chart_range in zip(owners, ranges, strict=True):
+                ensure_user(connection, owner)
+                if chart_range is None:
+                    connection.execute(
+                        text("INSERT INTO user_profiles (owner_id) VALUES (:o)"), {"o": owner}
+                    )
+                else:
+                    connection.execute(
+                        text("INSERT INTO user_profiles (owner_id, chart_range) VALUES (:o, :r)"),
+                        {"o": owner, "r": chart_range},
+                    )
+    finally:
+        engine.dispose()
+    return owners
+
+
+def _chart_ranges(database_url: str, owners: list[uuid.UUID]) -> list[str]:
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            found = dict(
+                connection.execute(
+                    text(
+                        "SELECT owner_id, chart_range FROM user_profiles WHERE owner_id = ANY(:o)"
+                    ),
+                    {"o": owners},
+                ).all()
+            )
+    finally:
+        engine.dispose()
+    return [found[owner] for owner in owners]
+
+
+def test_a_new_profile_row_defaults_to_7_days_and_a_saved_value_stays(
+    database_url: str, owner_database_url: str
+) -> None:
+    """The column default is ``7d`` (0028); an explicit ``90d`` is kept."""
+    with migrated(owner_database_url):
+        owners = _profile_rows(database_url, [None, "90d"])
+        assert _chart_ranges(database_url, owners) == ["7d", "90d"]
+
+
+def test_downgrading_0028_maps_7d_rows_to_30d_and_restores_the_narrow_check(
+    database_url: str, owner_database_url: str
+) -> None:
+    with migrated(owner_database_url):
+        owners = _profile_rows(database_url, ["7d", None, "90d", "1y"])
+        command.downgrade(alembic_config(), "0027_ai_conversation_retention")
+        assert applied_revisions(database_url) == ["0027_ai_conversation_retention"]
+        # The 7d rows (saved and defaulted) became 30d; the others are untouched.
+        assert _chart_ranges(database_url, owners) == ["30d", "30d", "90d", "1y"]
+        engine = create_engine(database_url)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("DELETE FROM user_profiles WHERE owner_id = ANY(:o)"), {"o": owners}
+                )
+            with pytest.raises(DBAPIError, match="user_profiles_chart_range"), engine.begin() as c:
+                c.execute(
+                    text("INSERT INTO user_profiles (owner_id, chart_range) VALUES (:o, '7d')"),
+                    {"o": owners[0]},
+                )
+            with engine.begin() as connection:
+                connection.execute(
+                    text("INSERT INTO user_profiles (owner_id) VALUES (:o)"), {"o": owners[0]}
+                )
+                default = connection.execute(
+                    text("SELECT chart_range FROM user_profiles WHERE owner_id = :o"),
+                    {"o": owners[0]},
+                ).scalar_one()
+            assert default == "90d"
+        finally:
+            engine.dispose()
+        command.upgrade(alembic_config(), "head")  # the revision is repeatable
+        assert applied_revisions(database_url) == [HEAD]
+
+
+def test_the_model_default_of_the_chart_range_is_the_migrated_default(
+    database_url: str, owner_database_url: str
+) -> None:
+    """``derived/tables.py`` and migration 0028 state the default twice; they must agree."""
+    declared = user_profiles.c.chart_range.server_default
+    assert declared is not None
+    with migrated(owner_database_url):
+        engine = create_engine(database_url)
+        try:
+            with engine.connect() as connection:
+                actual = connection.execute(
+                    text(
+                        "SELECT column_default FROM information_schema.columns WHERE "
+                        "table_schema = 'public' AND table_name = 'user_profiles' "
+                        "AND column_name = 'chart_range'"
+                    )
+                ).scalar_one()
+        finally:
+            engine.dispose()
+    assert str(declared.arg) == "'7d'"  # type: ignore[union-attr]
+    assert actual.split("::")[0] == str(declared.arg)  # type: ignore[union-attr]

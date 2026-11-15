@@ -3,7 +3,9 @@
 How ownvitals signs people in: [ADR 0003](../adr/0003-accounts-and-sessions.md). #10 ports
 classbeat's `auth/**` at `d806051`, with ownvitals' names, Google as the only provider and the
 changes of ADR 0003 §5 to §8. #11 adds mandatory TOTP, the second-factor gate, session
-protection and step-up (ADR 0003 §2 to §4; "Second factor and step-up" below).
+protection and step-up (ADR 0003 §2 to §4; "Second factor and step-up" below). #475 makes TOTP
+optional for users and keeps it mandatory for admins (roadmap Amendment 13, ADR 0003 amendment of
+2026-11-12).
 
 Section numbers in docstrings ("ADR 0003 section 5") are **classbeat's** ADR 0003, unless they
 say ownvitals. The "Ported unchanged" table of ownvitals' ADR 0003 §1 maps them.
@@ -20,9 +22,11 @@ say ownvitals. The "Ported unchanged" table of ownvitals' ADR 0003 §1 maps them
 | `backend/src/ownvitals/auth/owners.py` | `ACCOUNTS`: the jobs issuer's `owner_active` check, for the worker |
 | `backend/src/ownvitals/auth/purge.py` | `purge_expired`, which the worker runs every `purge_interval_seconds` |
 | `backend/src/ownvitals/auth/disconnect_job.py` | the `withings_disconnect` job kind and its step-up check; `purge` re-exports its names |
+| `backend/src/ownvitals/auth/admin_revoke_job.py` | the `withings_admin_revoke` job kind (#365): the admin delete's revoke, after re-checking the admin's live, stepped-up session (`admin_stepped_up`) |
 | `backend/src/ownvitals/auth/operator.py` | what the operator CLI calls (below) |
 | `backend/src/ownvitals/auth/events.py`, `event_origin.py` | `record_event`, the one writer of `auth_events`, and the request's coarse origin it stores ("Security activity" below) |
 | `backend/src/ownvitals/auth/activity_routes.py`, `activity_model.py` | `GET /api/auth/activity` and its pure allowlist of kinds and fields (#251) |
+| `backend/src/ownvitals/auth/session_anomaly_policy.py`, `session_anomaly.py` | the session anomaly signal (#461, ADR 0020): the pure policy and its hook in `deps.resolve_request` |
 | `backend/src/ownvitals/flags/` | the sign-up mode only (`invite` or `closed`); #12 adds the stored flags |
 
 ## Guard 8 and the public entry points
@@ -39,6 +43,8 @@ Only `ownvitals.auth` touches the account tables (`tests/auth_tables_scan.py`,
 | `owners` | `ACCOUNTS` | `ownvitals.worker` |
 | `purge` | `purge_expired` | `ownvitals.worker.loop` |
 | `operator` | `AccountError`, `create_invite`, `grant_admin`, `mfa_reset`, `revoke_admin` | `ownvitals.cli` |
+| `exports` | `export_account`, `record_event`, `ACCOUNT_COLUMNS` and the detail models | the export builder and routes (#211, [reports.md](reports.md)) |
+| `deps` | `reserve_export_request` | the export request's 3-per-24-hours limit (#211) |
 
 Classbeat re-exported these names lazily from the package (PEP 562). ownvitals cannot: the egress
 guard refuses dynamic imports, and an eager package would load the web's sign-in and mail
@@ -63,6 +69,15 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 - `locales` (`OWNVITALS_LOCALES`, default `en,sv`; `config_auth.py`): the languages the operator
   enables. `en` is always on; a code that is not in the manifest is dropped, so the setting can
   switch a supported language off and never add one ("Language" below).
+- `turnstile_enabled` (default `false`), `turnstile_site_key` and the secret file
+  `turnstile_secret_key` (`config_turnstile.py`, ADR 0018): Cloudflare Turnstile on sign-up,
+  password sign-in and the reset request. On, the settings refuse to load without both keys;
+  the three routes then need an `X-Turnstile-Token` header that passes Cloudflare's check, or
+  answer 400 `turnstile_failed` before anything else (fail closed). `GET /api/auth/session`
+  hands the page `turnstile: {site_key, script_url}` (null while off), and the CSP admits
+  `https://challenges.cloudflare.com` in `script-src` and `frame-src` only while on. Tests use
+  a fake verifier (`tests/test_auth_turnstile.py`) and a fake transport; nothing reaches
+  Cloudflare. To try the widget locally the owner uses Cloudflare's published test keys.
 - The secret file `app_secret_key` (at least 32 bytes). Web refuses to start without it; the
   keys of ADR 0003 §1 ("Derived keys") come from it.
 
@@ -86,19 +101,24 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 
 ## Second factor and step-up (#11)
 
-- **Full sessions.** A sign-in (password, Google, the first after a sign-up) gives a session
-  without its second factor. It becomes **full** when a TOTP or recovery code is verified in it
-  (`POST /api/auth/mfa/verify`) or its first enrolment is confirmed; both rotate it. Only a full
-  session yields a `UserContext` (`deps.current_context`); `require_user` answers 403
-  `two_factor_required` to any other session.
+- **Full sessions** (`SessionInfo.full`; the same rule in SQL is `session_full_sql`). An account
+  **with** a confirmed TOTP: a sign-in gives a session without its second factor, which becomes
+  full when a TOTP or recovery code is verified in it (`POST /api/auth/mfa/verify`) or an
+  enrolment is confirmed; both rotate it. An account **without** one is full after the first
+  factor, unless it must have one (`second_factor_policy.totp_required`: stored role `admin`, or
+  the address in `admin_emails`), which then owes `enrol`. Only a full session yields a
+  `UserContext` (`deps.current_context`); `require_user` answers 403 `two_factor_required` to any
+  other session.
 - **The gate** (`auth/gate.py`, run by the middleware after the CSRF check) answers 403
   `two_factor_required` to a session that is not full on every path under `/api` and `/oauth`,
   and every write elsewhere, except `GET /api/auth/session`, `POST /api/auth/logout`,
   `GET /api/health`, `GET /api/ready`, and either the enrolment (`mfa/totp/start`, `confirm`;
-  no TOTP yet) or `mfa/verify` (a confirmed TOTP). `test_auth_mandatory_totp.py` sends a request
-  to every route the app registers, so a new route can't skip it.
-- **The session answer** carries `totp_enabled` and `second_factor` (`enrol`, `verify` or
-  `null`); `mfa` means the session is full. The SPA routes from it alone.
+  an admin without TOTP) or `mfa/verify` (a confirmed TOTP). `test_auth_second_factor_gate.py`
+  sends a request to every route the app registers for both kinds, and checks that the gate
+  refuses nothing to a user without TOTP, so a new route can't skip it.
+- **The session answer** carries `totp_enabled`, `totp_required` and `second_factor` (`enrol`,
+  `verify` or `null`); `mfa` means the session is full. The SPA routes from it alone, and offers a
+  user without TOTP the enrolment once per browser session, with "Skip for now".
 - **Ten minutes.** A session that is not full ends ten minutes after its latest proof (the
   sign-in, or the step-up of a TOTP removal); `resolve_session` deletes it and the purge removes
   what is left.
@@ -108,7 +128,10 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   browser's old session. A QR approve-login (ADR 0011 section 5) is no exception: its session is
   full because a code was entered on the approving phone **for that sign-in**, not carried over
   from an earlier session of the desktop browser, and that code never counts for the admin role.
-- **Step-up.** `require_stepup` (a TOTP or recovery code within `stepup_window_minutes`), and
+- **Step-up.** `require_stepup` (a step-up within `stepup_window_minutes`: a TOTP or recovery
+  code; for an account without TOTP that is not required to have one, a fresh password, Google
+  re-authentication or passkey, which then sets `stepup_at` too and writes `step_up` with
+  `detail.method`, `stepup_first_factor.py`), and
   `require_sensitive` (recent authentication within 10 minutes, then the step-up) for the
   actions that need both; `require_admin_stepup` is `require_admin` with a 5-minute step-up for
   admin writes. Refusals are 403 `step_up_required` and `reauth_required`. The table:
@@ -117,6 +140,8 @@ The settings live in [backend.md](backend.md). The ones that matter here:
 |---|---|
 | Connect, reconnect, disconnect Withings (#13); delete the account; change or set the password; change the email; link or unlink Google; add or remove a passkey (ADR 0011) | `require_sensitive` |
 | Replace or remove (reset) the TOTP; new recovery codes; log out everywhere | `require_stepup` |
+| Request the JSON/CSV export (#211, ADR 0013 §4) | `require_sensitive` |
+| Download an export (#211) | `require_stepup`, checked in the route after `Sec-Fetch-Site` |
 | Admin writes (#12) | `require_admin_stepup` |
 | First enrolment | the sign-in itself (no factor to step up with) |
 
@@ -125,13 +150,16 @@ The settings live in [backend.md](backend.md). The ones that matter here:
   `totp_removed`, `logout_everywhere` (with the number of sessions), `sign_out` and
   `session_signed_out` (#251, "Security activity" below). Code attempts share the MFA
   rate-limit buckets.
-- **Removing the TOTP** (step-up) revokes every other session and rotates this one without its
-  second factor, so it goes straight to enrolment.
+- **Removing the TOTP** (step-up with it) deletes it and the recovery codes, revokes every other
+  session, writes `totp_removed`, mails the `totp_removed` notice and rotates this session without
+  its second factor: a user's stays full, an admin's goes straight to enrolment.
 - **Frontend.** `components/StepUp.tsx`: `useProtected()(purpose, action)` runs an action and,
   on `step_up_required` or `reauth_required`, opens the shared "Confirm it's you" dialog (the
-  password first when re-authentication is wanted, "Use Google instead" when Google is linked,
-  then the code), then tries again. `pages/SecurityPage.tsx` is the Security tab's "Where you're
-  signed in" with "Sign out everywhere…".
+  password first when re-authentication is wanted, "Use a passkey instead" when the account has
+  one, "Use Google instead" when Google is linked, then the code; without TOTP the first factor
+  alone), then tries again. `pages/SecurityPage.tsx` is the Security tab's "Second factor" card
+  (`components/security/SecondFactorCard.tsx`) and "Where you're signed in" with "Sign out
+  everywhere…".
 
 ## Language (#249)
 
@@ -203,7 +231,14 @@ The rules that make it hold:
   the row a rotation is replacing skips it when the rotation commits and never sees the new row
   (not in its snapshot), so without the lock the rotated session survives the reset.
 - **A Google sign-in re-checks its identity** under the lock: a reset that removed it, or a
-  disable, committed since it was read, and the sign-in fails (`invalid`).
+  disable, committed since it was read, and the sign-in fails (`invalid`; the log's `why` is
+  `identity_gone`, `account_gone` or `user_disabled`).
+- **Known gap: the email change's `UPDATE`.** `confirm_email_change` updates
+  `email_normalized`, a unique key, so that `UPDATE` takes `FOR UPDATE` on the user row, not
+  `NO KEY UPDATE`. A transaction that holds a session row and inserts an `auth_events` row can
+  still deadlock against an email confirm that is revoking sessions. Postgres detects it and
+  aborts one transaction (a 500, fail closed); no session survives. Not fixed (#261 review N4):
+  changing the key column needs that lock.
 - **A reset keeps only what its page could show.** Identities linked at or after the reset
   link's `created_at` are removed with the ones the user chose (`remove_methods`). A link stamps
   `created_at` with `clock_timestamp()` under the lock, and `reset_mail` takes the lock before
@@ -223,11 +258,13 @@ screen; the frontend words every code through the catalogue).
 - **Sign-outs are recorded** (`auth/routes.py`): `POST /logout` and ending this session from the
   list write `sign_out`; ending another of the user's sessions writes `session_signed_out`, which
   the user's remaining sessions see in the list; `/logout-all` writes `logout_everywhere` with
-  the number of sessions. No row holds a session id. Each path takes the user row first ("Lock
+  the number of sessions, only when it revoked at least one (always, in practice:
+  `require_stepup` needs a live session, so the count is at least 1). No row holds a session id. Each path takes the user row first ("Lock
   order" above): the event's foreign key takes `FOR KEY SHARE` on the user row after the session
   row is locked, which would otherwise deadlock with an account deletion
   (`tests/test_auth_signout_races.py`). The event is written in a savepoint after the revoke: a
-  failed insert is logged by class and SQLSTATE and the session still ends. A sign-out that finds
+  failed insert is logged by class and SQLSTATE and the session still ends. So the event is
+  not atomic with the revoke: a sign-out can commit without its event, never the reverse. A sign-out that finds
   its session already gone records nothing. No notice mail is defined for a sign-out, so none is
   sent (a new notice kind is a later issue; `auth/notices.py` is unchanged).
 - **Origin** (`auth/event_origin.py`, migration `0019_auth_event_origin`): every `auth_events`
@@ -246,9 +283,15 @@ screen; the frontend words every code through the catalogue).
   `sign_in_failed`, `reauth_failed` (a passkey re-auth failure too), `mfa_failed`, the three
   sign-outs, the TOTP and recovery-code changes, `mfa_reset`, the passkey changes
   (`passkey_added` for `passkey_registered`), `password_changed`, `password_reset`,
-  `email_changed`, `google_linked` and `google_unlinked`. Every other kind stays hidden until it
-  is named there. Nothing else of `detail` is read; `mfa_reset` (the operator's doing) shows no
-  origin.
+  `email_changed`, `google_linked` and `google_unlinked`, and the export's and doctor PDF's
+  events under their own names (`export_requested`, `export_ready`, `export_failed`,
+  `export_downloaded`, `export_expired`, `doctor_pdf_requested`, `doctor_pdf_downloaded`; #333).
+  Every other kind stays hidden until it is named there. The origin of a failed or refused
+  attempt (`sign_in_failed`, `reauth_failed`, `mfa_failed`, `passkey_suspended`) is the
+  requester's, which may be an attacker's, not the user's own device: that is intended, it is
+  what lets the user spot it. Nothing else of `detail` is read;
+  `mfa_reset` (the operator's doing) and `export_ready`, `export_failed` and `export_expired`
+  (the build's, the purge's or another request's tidy's doing) show no origin.
 - **Only the caller's rows** (guard 7): `auth_events` is a system table without RLS, so the
   route's `WHERE user_id = <ctx.user_id>` is the wall; no parameter names a user, and a cursor
   only bounds that same filter. `tests/test_auth_activity.py` proves it with two users; the
@@ -259,6 +302,20 @@ screen; the frontend words every code through the catalogue).
   Rows are purged after 30 days.
 - **Tests:** `test_auth_activity.py`, `test_auth_activity_model.py`,
   `test_auth_signout_races.py`, `test_log_redaction_auth_events.py`.
+
+## Session anomaly signal (#461)
+
+[ADR 0020](../adr/0020-session-anomaly.md). Every request whose cookie resolves to a valid
+session is scored against that session's history (`session_anomaly_policy`, pure): a new network
+**and** another browser or OS family (`new_ip_and_agent`), more than 300 requests in one 60 s
+window (`request_rate`), or another country than its first one (`country_change`, only with
+`geo_source = cloudflare`). The first signal in a session sets `sessions.anomaly_at` and writes
+one `session_anomaly` event (`detail.signals`), which the user's activity list shows, and one
+WARNING line on `ownvitals.auth.anomaly` (codes and ids only). **Nothing is signed out.** The
+per-session state (`seen_window_at`, `seen_count`, `seen_country`, `anomaly_at`; migration
+`0030_session_anomaly`) goes with the session row. A test session issued to another address
+than the test client's (`127.0.0.1`) that sends a real browser's agent string records an event,
+as a replay would. Tests: `test_session_anomaly_policy.py`, `test_session_anomaly.py`.
 
 ## Passkeys
 

@@ -1,5 +1,5 @@
 Content-Language: sv
 Subject: En passkey på ditt ownvitals-konto nekades och har spärrats
 
-En inloggning med din passkey "Synthetic key" nekades och passkeyn har spärrats: dess räknare gick bakåt, vilket kan betyda att den har kopierats.
-Den kan inte användas längre. Ta bort den på säkerhetssidan och lägg till den igen. Om du inte just försökte logga in med den, byt ditt lösenord.
+Din passkey "Synthetic key" nekades och har spärrats när den användes nyss: dess räknare gick bakåt, vilket kan betyda att den har kopierats.
+Den kan inte användas längre. Ta bort den på säkerhetssidan och lägg till den igen. Om du inte just använde den för att logga in eller bekräfta att det är du, byt ditt lösenord.

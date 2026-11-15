@@ -248,6 +248,11 @@ def test_v4_needs_enough_strips_and_the_owners_counts() -> None:
     assert "V4 pass" in evaluate(rows, (), good).lines
     beats = OwnerAnswers(v4_wrong_beats=2, v4_inspected_beats=100, v4_justified=8)
     assert "V4 fail" in evaluate(rows, (), beats).lines
+    # 1.5 % wrong would round to 2 % either way; 1.4 % rounds down to 1 % and must still fail.
+    just_over = OwnerAnswers(v4_wrong_beats=14, v4_inspected_beats=1000, v4_justified=8)
+    assert "V4 fail" in evaluate(rows, (), just_over).lines
+    exact = OwnerAnswers(v4_wrong_beats=10, v4_inspected_beats=1000, v4_justified=8)
+    assert "V4 pass" in evaluate(rows, (), exact).lines
     justified = OwnerAnswers(v4_wrong_beats=0, v4_inspected_beats=100, v4_justified=7)
     assert "V4 fail" in evaluate(rows, (), justified).lines
     short = OwnerAnswers(v4_wrong_beats=0, v4_inspected_beats=100, v4_justified=8)
@@ -340,3 +345,53 @@ def test_the_command_is_installed() -> None:
     assert args.command == "ecg"
     assert args.action == "validate"
     assert COMMANDS["ecg"] is not None
+
+
+def test_oc3_is_not_applicable_when_the_rate_leaves_no_band_above_40_hz() -> None:
+    # SYNTHETIC. At 80 Hz the Nyquist is 40 Hz, so there is no high band to compare with.
+    slow = _rec(sampling_hz=80, leads=(_sine((10.0, 1000), fs=80),))
+    lines = evaluate((slow,), (), OwnerAnswers()).lines
+    assert "OC3 lowpass not-applicable" in lines
+    assert "OC3 mains not-applicable" in lines
+
+
+def test_v1_and_v3_compare_the_exact_ratio_not_the_rounded_percent() -> None:
+    # SYNTHETIC. 159 of 200 is 79.5 %, under the 80 % floor; rounding half up read it as 80.
+    recordings = tuple(
+        _rec(signalid=i, estimated=_gate("pass" if i < 159 else "fail")) for i in range(200)
+    )
+    v1 = evaluate(recordings, (), OwnerAnswers()).lines
+    assert "V1 fail" in v1
+    assert "V1 rate 79%" in v1
+    # 189 of 200 within 5 bpm is 94.5 %, under the 95 % floor.
+    close = tuple(
+        _rec(signalid=i, heart_rate=60, estimated=_gate("pass", hr=60.0 if i < 189 else 70.0))
+        for i in range(200)
+    )
+    v3 = evaluate(close, (), OwnerAnswers()).lines
+    assert "V3 fail" in v3
+    assert "V3 within-5 94%" in v3
+
+
+def test_oc3_mains_is_not_observable_when_a_mains_line_is_above_nyquist() -> None:
+    # SYNTHETIC. At 110 Hz a 60 Hz line is above Nyquist (55 Hz) and 50 Hz is the only one seen.
+    quiet = _rec(sampling_hz=110, leads=(_sine((10.0, 1000), fs=110),))
+    assert "OC3 mains not-observable" in evaluate((quiet,), (), OwnerAnswers()).lines
+    line = _rec(sampling_hz=110, leads=(_sine((10.0, 1000), (50.0, 800), fs=110),))
+    assert "OC3 mains yes" in evaluate((line,), (), OwnerAnswers()).lines
+    # Above 120 Hz both lines are observable, so an absent line is a plain "no".
+    wide = _rec(sampling_hz=300, leads=(_sine((10.0, 1000)),))
+    assert "OC3 mains no" in evaluate((wide,), (), OwnerAnswers()).lines
+
+
+def test_oc3_mains_cut_off_is_exactly_120_hz_and_one_blind_strip_decides() -> None:
+    # SYNTHETIC. At exactly 120 Hz a 60 Hz line sits at Nyquist, so it is still not observable.
+    edge = _rec(sampling_hz=120, leads=(_sine((10.0, 1000), fs=120),))
+    assert "OC3 mains not-observable" in evaluate((edge,), (), OwnerAnswers()).lines
+    # A wide strip with no line does not make a blind strip observable: one blind strip decides.
+    blind = _rec(sampling_hz=110, leads=(_sine((10.0, 1000), fs=110),))
+    wide = _rec(sampling_hz=300, leads=(_sine((10.0, 1000)),))
+    assert "OC3 mains not-observable" in evaluate((blind, wide), (), OwnerAnswers()).lines
+    # A line found on any strip still reads "yes".
+    seen = _rec(sampling_hz=300, leads=(_sine((10.0, 1000), (50.0, 800)),))
+    assert "OC3 mains yes" in evaluate((blind, seen), (), OwnerAnswers()).lines

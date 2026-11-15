@@ -4,21 +4,27 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ownvitals import __version__
 from ownvitals.admin.db import AdminDb
 from ownvitals.admin.routes import install as install_admin
 from ownvitals.admin.routes import router as admin_router
+from ownvitals.ai.assistant_routes import router as ai_assistant_router
+from ownvitals.ai.consent_routes import router as ai_consent_router
+from ownvitals.ai.digest_routes import router as ai_digest_router
 from ownvitals.auth.setup import attach_state, detach_state
 from ownvitals.auth.setup import install as install_auth
 from ownvitals.config import Settings
 from ownvitals.connections.routes import router as connections_router
+from ownvitals.connections.withings_routes import router as withings_connect_router
 from ownvitals.crypto.keks import load_keyring
 from ownvitals.db import (
     check_ready,
@@ -31,12 +37,27 @@ from ownvitals.flags.routes import router as flags_router
 from ownvitals.headers import SecurityHeaders
 from ownvitals.jobs.routes import router as jobs_router
 from ownvitals.notify import sender as outbox_sender
+from ownvitals.notify import unsubscribe_routes
+from ownvitals.notify.email_prefs_routes import router as email_prefs_router
+from ownvitals.public_site import (
+    PUBLIC_CACHE_CONTROL,
+    RobotsHeaders,
+    find_public_file,
+    mark_public_served,
+)
+from ownvitals.reports.doctor_routes import router as doctor_router
+from ownvitals.reports.export_routes import router as exports_router
 from ownvitals.views.days_routes import router as days_router
+from ownvitals.views.ecg_routes import router as ecg_router
 from ownvitals.views.findings_routes import router as findings_router
 from ownvitals.views.metrics_routes import router as metrics_router
 from ownvitals.views.nerve_routes import router as nerve_router
+from ownvitals.views.notifications_routes import router as notifications_router
+from ownvitals.views.profile_routes import router as profile_router
+from ownvitals.views.scores_routes import router as scores_router
 from ownvitals.views.status_routes import router as status_router
-from ownvitals.withings.webhooks import WebhookMiddleware, load_cache
+from ownvitals.withings import webhook_refresh
+from ownvitals.withings.webhooks import WebhookMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +81,7 @@ api = APIRouter(prefix="/api")
 # middleware and the error handlers.
 FEATURE_ROUTERS = (
     connections_router,
+    withings_connect_router,
     flags_router,
     jobs_router,
     admin_router,
@@ -68,6 +90,16 @@ FEATURE_ROUTERS = (
     metrics_router,
     days_router,
     nerve_router,
+    ecg_router,
+    profile_router,
+    scores_router,
+    notifications_router,
+    ai_consent_router,
+    ai_assistant_router,
+    ai_digest_router,
+    exports_router,
+    doctor_router,
+    email_prefs_router,
 )
 
 
@@ -100,14 +132,24 @@ async def ready(request: Request, response: Response) -> ReadyResponse:
     return ReadyResponse(status="ready")
 
 
-def _add_single_page_app(app: FastAPI, static_dir: Path) -> None:
-    """Serve ``static_dir``; any other GET outside ``/api`` gets ``index.html``."""
-    root = static_dir.resolve()
+def _add_single_page_app(app: FastAPI, static_dir: Path, public_dir: Path | None) -> None:
+    """Serve ``static_dir``; any other GET outside ``/api`` gets ``index.html``.
 
-    @app.get("/{path:path}", include_in_schema=False)
-    async def single_page_app(path: str) -> FileResponse:
+    Before the app's own files, an exact path of the public set is answered from the prerendered
+    ``public_dir`` when the file exists (ADR 0016); otherwise it falls through like any path.
+    """
+    root = static_dir.resolve()
+    public_root = public_dir.resolve() if public_dir is not None else None
+
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    async def single_page_app(path: str, request: Request) -> FileResponse:
         if path == "api" or path.startswith("api/"):
-            raise HTTPException(status_code=404)
+            raise HTTPException(status_code=404, detail={"reason": "not_found"})
+        if public_root is not None:
+            public_file = find_public_file(public_root, path)
+            if public_file is not None:
+                mark_public_served(request.scope)
+                return FileResponse(public_file, headers={"Cache-Control": PUBLIC_CACHE_CONTROL})
         try:
             candidate = (root / path).resolve()
             if candidate.is_relative_to(root) and candidate.is_file():
@@ -116,7 +158,7 @@ def _add_single_page_app(app: FastAPI, static_dir: Path) -> None:
             pass
         index = root / "index.html"
         if not index.is_file():
-            raise HTTPException(status_code=404)
+            raise HTTPException(status_code=404, detail={"reason": "not_found"})
         return FileResponse(index)
 
 
@@ -144,6 +186,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         install_queue_check(engine)  # every new connection, before the first one is opened
         admin_db: AdminDb | None = None
         outbox_task = None
+        refresh_task = None
         try:
             await verify_database_role(engine)
             session_factory = create_session_factory(engine)
@@ -152,24 +195,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.engine = engine
             app.state.session_factory = session_factory
             attach_state(app, settings, session_factory)
+            unsubscribe_routes.install(app, settings)  # the unsubscribe token key (ADR 0019)
             # The outbox sender (ADR 0007 section 2): web sends what the worker queued.
             outbox_task = outbox_sender.start(
                 session_factory,
                 app.state.mailer,
                 settings.public_base_url,
+                app.state.unsubscribe_key,
                 settings.enabled_locales,  # intersected with the manifest when used
             )
             admin_db = AdminDb.from_settings(settings)
             if admin_db is not None:
                 await admin_db.verify()
             app.state.admin_db = admin_db
-            # A failed read leaves the cache empty: POST answers 503 until one succeeds.
-            try:
-                await load_cache(app)
-            except Exception as exc:
-                logger.warning("webhook cache not loaded", extra={"error_type": type(exc).__name__})
+            # Web's copy of the webhook-secret HMACs (ADR 0008), re-read every quarter of its
+            # TTL. A failed read leaves the previous copy, or none: once the copy is older than
+            # the TTL, POST answers 503 until a read succeeds.
+            ttl = timedelta(seconds=settings.webhook_cache_ttl_seconds)
+            refresh_task = webhook_refresh.start(app, ttl)
+            await webhook_refresh.refresh_once(app, webhook_refresh.interval_for(ttl))
             yield
         finally:
+            await webhook_refresh.stop(refresh_task)
             await outbox_sender.stop(outbox_task)
             app.state.admin_db = None
             if admin_db is not None:
@@ -187,6 +234,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/api/openapi.json" if docs_enabled else None,
     )
     app.state.settings = settings
+
+    @app.exception_handler(StarletteHTTPException)
+    async def not_found_code(_: Request, exc: Exception) -> Response:
+        # The router's own 404 carries an English sentence; answer with the code (ADR 0015 s6).
+        if not isinstance(exc, StarletteHTTPException):
+            raise exc
+        if (exc.status_code, exc.detail) == (404, "Not Found"):
+            return JSONResponse({"detail": {"reason": "not_found"}}, status_code=404)
+        return JSONResponse(
+            {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
+        )
+
     app.include_router(api)
     # Before the SPA catch-all: Google's callback (``/oauth/google/callback``) is not under /api.
     install_auth(app)
@@ -196,12 +255,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     if settings.static_dir is not None:
         if settings.static_dir.is_dir():
-            _add_single_page_app(app, settings.static_dir)
+            _add_single_page_app(app, settings.static_dir, settings.public_dir)
         else:
             logger.warning("static_dir does not exist; not serving static files")
     # Outside the auth middleware (added earlier, so inner): Withings sends no Origin or CSRF
     # token. The secret in the path is the check. SecurityHeaders stays the outermost layer.
     app.add_middleware(WebhookMiddleware)
+    # The one-click unsubscribe (RFC 8058, ADR 0019) likewise: a mail client sends no Origin,
+    # cookie or CSRF token; the signed token in the query string is the check.
+    app.add_middleware(unsubscribe_routes.UnsubscribeMiddleware)
+    app.add_middleware(RobotsHeaders)  # noindex on all but a served public file (ADR 0016)
     # Added last, so it is the outermost middleware: the CSP and Referrer-Policy go on every
     # response, the answers of the feature routers' middleware included.
     app.add_middleware(SecurityHeaders)

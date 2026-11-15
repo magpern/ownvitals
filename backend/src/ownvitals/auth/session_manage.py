@@ -12,6 +12,7 @@ from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.auth.session_cross_device import idle_cutoff
+from ownvitals.auth.session_full_sql import owes_no_second_factor
 from ownvitals.auth.session_model import PENDING_WINDOW
 from ownvitals.auth.tables import sessions
 from ownvitals.config import Settings
@@ -74,9 +75,9 @@ def _live_filters(settings: Settings) -> tuple[Any, ...]:
     return (
         sessions.c.expires_at > now,
         sessions.c.last_seen_at > idle_cutoff(settings),  # shorter for a cross-device one
-        # a session that never passed its second factor ends ten minutes after its proof
+        # a session that owes its second factor ends ten minutes after its proof
         or_(
-            sessions.c.mfa_at.is_not(None),
+            owes_no_second_factor(settings.admin_email_set),
             # both proofs missing, or only after now, counts from the creation
             func.coalesce(_proof_at_or_before(now), sessions.c.created_at) > now - PENDING_WINDOW,
         ),

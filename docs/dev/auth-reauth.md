@@ -25,13 +25,16 @@ recovery code within 10 minutes. `prompt=login` is not sent and changes nothing.
 
 Where it lives:
 
-- `oauth_routes.start`: the 403 for an account with a password (`oauth_outcomes.has_password`).
-- `oauth_routes.callback`: reads the flow's age (`now() - created_at`) in the transaction that takes
-  the flow, before the code exchange, and passes it on as `Request.flow_age`. (It reads the row
-  itself because `oauth_store.py` belonged to #248 in the same wave; `take_flow` can return the age
-  once that settles.)
-- `oauth_outcomes._reauth`: locks the user row (`has_password(..., lock=True)`), checks the
-  identity, applies the rule, records `reauth_failed` with `{"why", "provider"}` or `reauth`.
+- `oauth_routes.start`: the 403 for an account with a password (`oauth_outcomes.has_password`);
+  401 `not_authenticated` if the account is gone (unreachable behind a live full session).
+- `oauth_store.take_flow`: returns the flow with its age (`now() - created_at`, `Flow.age`) from
+  the same `DELETE ... RETURNING` that takes it, before the code exchange; the callback passes it
+  on as `Request.flow_age` (#282).
+- `oauth_outcomes._reauth`: locks the user row first (`has_password(..., lock=True)`, `FOR NO KEY
+  UPDATE`), then reads the identity, applies the rule, records `reauth_failed` with
+  `{"why", "provider"}` or `reauth`. A password set or an identity unlinked while the callback
+  runs is seen (the writer holds the user row, so the read waits for it), and the lock still lets
+  a foreign-key check (`FOR KEY SHARE`) through: `tests/test_auth_oauth_reauth_races.py`.
 
 ## Logging
 
@@ -46,8 +49,10 @@ oauth callback refused: provider=google purpose=reauth outcome=reauth_use_passwo
 name, anything else `unrecognized`), `no_code`, `no_session`, `other_user`, `provider: <check>`
 (the `ProviderError` text, a fixed check name such as `nonce mismatch`), the rule's words above,
 `not_the_flows_user`, `account_gone`, `not_linked_to_this_user`, `session_gone`,
-`linked_to_another_user`, `user_disabled`, `email_taken`, `no_invite`, `signup_closed`,
-`invite_gone`. Never a code, state, nonce, token, email or claim value.
+`linked_to_another_user`, `identity_gone` (a Google sign-in whose identity was removed or moved
+by the time it held the user row; `account_gone` there means the account went), `user_disabled`,
+`email_taken`, `no_invite`, `signup_closed`, `invite_gone`. A link whose session was revoked
+meanwhile logs `session_gone`. Never a code, state, nonce, token, email or claim value.
 
 ## Tests and fakes
 

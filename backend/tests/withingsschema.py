@@ -4,6 +4,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 
+from dbtools import drop_admin_accounts_functions
 from jobtools import engine_for, run_script
 
 SCRIPT = (
@@ -24,6 +25,10 @@ DROP FUNCTION IF EXISTS public.webhook_secrets_apply(
 DROP FUNCTION IF EXISTS public.webhook_event_insert(
     integer, bigint, integer, bigint, bigint, text, uuid);
 DROP FUNCTION IF EXISTS public.webhook_events_purge_owner();
+DROP FUNCTION IF EXISTS public.webhook_events_purge_account(uuid);
+DROP FUNCTION IF EXISTS public.metrics_withings_aggregates();
+DROP FUNCTION IF EXISTS public.metrics_webhook_ages(timestamptz);
+DROP FUNCTION IF EXISTS public.metrics_webhook_ages(timestamptz, uuid);
 """
 
 
@@ -32,9 +37,13 @@ def install(url: str) -> None:
 
 
 def uninstall(url: str) -> None:
+    """Drop the Withings functions and roles, and the admin account family (#314), whose delete
+    calls ``webhook_events_purge_account``: the queue check pins that function's ACL to the
+    family while the family exists."""
+    drop_admin_accounts_functions(url)
     with engine_for(url, isolation_level="AUTOCOMMIT") as engine, engine.connect() as conn:
         conn.execute(text(_DROP))
-        for role in ("ownvitals_webhook_secrets", "ownvitals_webhook_events"):
+        for role in ("ownvitals_webhook_secrets", "ownvitals_webhook_events", "ownvitals_metrics"):
             exists = conn.execute(
                 text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": role}
             ).first()

@@ -17,6 +17,7 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "pyotp==2.10.0",
+    "reportlab==5.1.0",  # the ECG PDF (ADR 0006 section 3); BSD-3-Clause
     "scipy>=1.18.1",
     "segno==1.6.6",
     "sqlalchemy[asyncio]>=2.0.36",
@@ -50,7 +51,9 @@ packages = ["src/ownvitals"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-addopts = "-ra"
+# The full load harness (tests/load, docs/dev/load.md) runs only with ``-m load``.
+addopts = "-ra -m 'not load'"
+markers = ["load: the full rate limiter load test (docs/dev/load.md); deselected by default"]
 filterwarnings = ["error"]
 
 [tool.ruff]

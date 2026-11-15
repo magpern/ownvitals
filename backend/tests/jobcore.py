@@ -40,12 +40,16 @@ class FakeAccounts:
     """The account directory a test controls (``ownvitals.jobs.issuer.Accounts``)."""
 
     disabled: set[UUID] = field(default_factory=set[UUID])
+    missing: set[UUID] = field(default_factory=set[UUID])  # gone: not even ``owner_exists``
     refs: frozenset[tuple[str, UUID]] = frozenset()
     asked: list[UUID] = field(default_factory=list[UUID])
 
     async def owner_active(self, factory: Factory, owner_id: UUID) -> bool:
         self.asked.append(owner_id)
-        return owner_id not in self.disabled
+        return owner_id not in self.disabled and owner_id not in self.missing
+
+    async def owner_exists(self, factory: Factory, owner_id: UUID) -> bool:
+        return owner_id not in self.missing
 
     async def connection_refs(
         self, factory: Factory, ctx: UserContext
@@ -105,9 +109,11 @@ async def jenv_fixture(admin: Connection, app_database_url: str) -> AsyncIterato
         await engine.dispose()
 
 
-def registry_for(run: Callable[[JobRun], Awaitable[Outcome]]) -> KindRegistry:
+def registry_for(
+    run: Callable[[JobRun], Awaitable[Outcome]], *, disabled_owner: bool = False
+) -> KindRegistry:
     registry = KindRegistry()
-    registry.register(JobKind(KIND, KindInput, run))
+    registry.register(JobKind(KIND, KindInput, run, disabled_owner=disabled_owner))
     return registry
 
 

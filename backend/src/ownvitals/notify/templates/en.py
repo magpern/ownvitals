@@ -4,7 +4,7 @@ section 7). Each says only that something is waiting and links to the app (T59, 
 from types import MappingProxyType
 from typing import Final
 
-from ownvitals.notify.templates.base import LINK, Template
+from ownvitals.notify.templates.base import LINK, UNSUBSCRIBE_LINK, Template
 
 _FOOTER: Final = (
     "\n\nThis email says no more than that on purpose: what is waiting is shown only after you "
@@ -25,10 +25,30 @@ TABLE: Final = MappingProxyType(
             + LINK
             + _FOOTER,
         ),
+        "export_ready": Template(
+            subject="ownvitals: something you asked for is waiting",
+            body="Something you asked for is waiting for you in ownvitals. It is kept only for "
+            "a short time.\n\nOpen it here: " + LINK + _FOOTER,
+        ),
+        # Issue 209: the weekly AI digest is ready; the mail never carries it (ADR 0014).
+        "ai_digest_ready": Template(
+            subject="ownvitals: your weekly summary is waiting",
+            body="Your weekly summary is waiting for you in ownvitals.\n\nOpen it here: "
+            + LINK
+            + _FOOTER,
+        ),
         "connection_needs_reconnect": Template(
             subject="ownvitals: something is waiting on the admin page",
             body="Something is waiting for an administrator in ownvitals.\n\nOpen the admin page "
             "here: " + LINK + _FOOTER,
         ),
     }
+)
+
+# The unsubscribe footer of a suppressible kind's mail (ADR 0019; #459), after the sign-off:
+# ``UNSUBSCRIBE_LINK`` is the signed one-click link, exactly once.
+UNSUBSCRIBE: Final = (
+    "\nDon't want emails like this one? Switch them off: "
+    + UNSUBSCRIBE_LINK
+    + "\nYou can switch them on again in ownvitals under Settings, Notifications.\n"
 )

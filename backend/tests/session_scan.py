@@ -17,8 +17,26 @@ Each has its own allowlist, of packages (the package and everything under it) an
   through it, so none of them opens a session of its own for those rows. The exact module
   ``ownvitals.views.reads`` (#189) is the read API's one other reader (status, metrics, days,
   readings, nerve summary): it never reads those tables. The exact module
+  ``ownvitals.views.ecg_read`` (#192) reads the signed-in user's stored ECG recordings (Withings'
+  own values and the signal) for the ECG list, viewer and PDF, never the estimates, which come
+  only through ``findings_read``. The exact module ``ownvitals.views.profile_store`` (#203)
+  reads and writes the caller's own
+  ``user_profiles`` row. The exact module
   ``ownvitals.derived.check_cli`` (#187) reads one named owner's daily values and findings for
-  ``ownvitals analysis check`` (read only, counts and versions out). **The rest of
+  ``ownvitals analysis check`` (read only, counts and versions out). The exact module
+  ``ownvitals.ai.consent`` (#206) reads and writes the caller's own AI consent rows, cancels the
+  caller's AI jobs and deletes their conversation history on withdrawal; the AI tools read only
+  through ``views.reads``, ``views.findings_read`` and (``ecg_summary``, #401)
+  ``views.ecg_read``. The exact module ``ownvitals.ai.chat_store``
+  (#208) reads and writes the caller's own conversations and messages, queues their
+  ``ai_chat_turn`` jobs and cancels them on a delete; the turn itself is a job kind
+  (``ownvitals.ai.assistant``) and reads and writes through the fence. The exact module
+  ``ownvitals.ai.digest_store`` (issue 209) reads the caller's own digests and sets their digest
+  opt-in; the digest job (``ownvitals.ai.digest``) reads and writes through the fence. The
+  exact module ``ownvitals.reports.export_store`` (#211) reads and writes the caller's own
+  export rows and chunks for the export's request, list and download; the export builder is a
+  job kind and writes through the fence. The exact module ``ownvitals.notify.email_prefs_store``
+  (#459) reads and writes the caller's own email preferences for the settings. **The rest of
   ``ownvitals.jobs``, the worker and every job kind live outside the allowlist** and write
   through the fence.
 - ``system_session`` (system tables, no user): ``ownvitals.db`` and ``ownvitals.auth`` (the
@@ -31,8 +49,15 @@ Each has its own allowlist, of packages (the package and everything under it) an
   and sign-up mode, a system table, without a user), the exact module
   ``ownvitals.notify.outbox`` (#194: web's outbox sender claims and marks rows only through the
   outbox's ``SECURITY DEFINER`` functions and holds no ``UserContext``, ADR 0007 section 3; the
-  session itself reaches no owned row), and the exact module ``ownvitals.ai.budget`` (#205: the
-  reaper's ``ai_settle_lost``, a definer function returning a count). The admin area opens
+  session itself reaches no owned row), the exact modules ``ownvitals.ai.budget`` (#205: the
+  reaper's ``ai_settle_lost``), ``ownvitals.ai.audit_retention`` (#331: the audit retention's
+  ``ai_audit_purge``) and ``ownvitals.ai.conversation_retention`` (#395: the conversation
+  retention's ``ai_purge_expired``), definer functions returning a count, the exact module
+  ``ownvitals.reports.export_purge`` (#333: the export purge's ``exports_purge_expired``, a
+  definer function returning three counts), and the exact module
+  ``ownvitals.worker.metrics`` (#167: the metrics refresh calls ``queue_stats()`` and the two
+  metrics aggregates, definer functions returning counts and ages that refuse a user session;
+  the session itself reaches no owned row). The admin area opens
   neither: it runs on its own audited maint session (``ownvitals.admin.db``).
 
 A later package joins a list in its own PR, with its reason, and the tests in
@@ -69,11 +94,29 @@ JOBS_USER_SESSION = ("ownvitals.jobs.fence", "ownvitals.jobs.service", "ownvital
 # The owner ECG report (#47): one module, not the pure ECG library.
 ECG_USER_SESSION = ("ownvitals.ecg_validate",)
 # The one findings read function (#190, ADR 0006 section 11): not the routes, not the package.
-VIEWS_USER_SESSION = ("ownvitals.views.findings_read", "ownvitals.views.reads")
+VIEWS_USER_SESSION = (
+    "ownvitals.views.findings_read",
+    "ownvitals.views.ecg_read",
+    "ownvitals.views.reads",
+    "ownvitals.views.profile_store",
+)
 # ``analysis check`` (#187): the owner's reproducibility check reads one named owner's daily
 # values and findings for the operator command; the rest of ``ownvitals.derived`` writes only
 # through the fence.
 DERIVED_USER_SESSION = ("ownvitals.derived.check_cli",)
+# AI consent (#206): the caller's own consent rows, the withdrawal's job cancels and history
+# delete, and the enabled check every AI entry point makes. The tools read only through
+# ``views.reads`` and ``views.findings_read``. The assistant's web side (#208): the caller's own
+# conversations, a message stored with its job, a conversation's delete.
+# The weekly digest's web side (issue 209): the caller's own digests and opt-in.
+AI_USER_SESSION = ("ownvitals.ai.consent", "ownvitals.ai.chat_store", "ownvitals.ai.digest_store")
+# The export (#211): the web side's own export rows (request, list, download, the tidy of the
+# user's expired and failed rows). The builder runs in the worker and writes through the fence.
+REPORTS_USER_SESSION = ("ownvitals.reports.export_store",)
+# Email preferences (#459, ADR 0019): the settings' read and write of the caller's own
+# ``email_prefs`` rows. The unsubscribe endpoint opens none: it calls the outbox family's
+# ``email_unsubscribe`` through ``ownvitals.notify.outbox``.
+NOTIFY_USER_SESSION = ("ownvitals.notify.email_prefs_store",)
 JOBS_SYSTEM_SESSION = ("ownvitals.jobs.queue",)
 # The key ring's startup check (#8), the one module of ``ownvitals.crypto`` that may.
 KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
@@ -81,9 +124,20 @@ KEYS_SYSTEM_SESSION = ("ownvitals.crypto.keks",)
 FLAGS_SYSTEM_SESSION = ("ownvitals.flags.routes",)
 # The outbox's claim and mark (#194): calls of its definer functions, without a user.
 NOTIFY_SYSTEM_SESSION = ("ownvitals.notify.outbox",)
-# The AI reaper (#205): ``ai_settle_lost``, a definer function that returns a count; the session
-# itself reaches no owned row.
-AI_SYSTEM_SESSION = ("ownvitals.ai.budget",)
+# The AI reaper (#205): ``ai_settle_lost``, the audit retention (#331): ``ai_audit_purge``, and
+# the conversation retention (#395): ``ai_purge_expired``, definer functions that return a count;
+# the session itself reaches no owned row.
+AI_SYSTEM_SESSION = (
+    "ownvitals.ai.budget",
+    "ownvitals.ai.audit_retention",
+    "ownvitals.ai.conversation_retention",
+)
+# The worker's metrics refresh (#167): the metrics aggregates and ``queue_stats()``, definer
+# functions returning counts and ages; the session itself reaches no owned row.
+METRICS_SYSTEM_SESSION = ("ownvitals.worker.metrics",)
+# The export purge (#333): ``exports_purge_expired``, a definer function returning counts; the
+# session itself reaches no owned row.
+REPORTS_SYSTEM_SESSION = ("ownvitals.reports.export_purge",)
 
 USER_SESSION = Allowlist(
     prefixes=("ownvitals.db", "ownvitals.auth", "ownvitals.connections"),
@@ -92,6 +146,9 @@ USER_SESSION = Allowlist(
         *ECG_USER_SESSION,
         *VIEWS_USER_SESSION,
         *DERIVED_USER_SESSION,
+        *AI_USER_SESSION,
+        *REPORTS_USER_SESSION,
+        *NOTIFY_USER_SESSION,
     ),
 )
 SYSTEM_SESSION = Allowlist(
@@ -102,6 +159,8 @@ SYSTEM_SESSION = Allowlist(
         *FLAGS_SYSTEM_SESSION,
         *NOTIFY_SYSTEM_SESSION,
         *AI_SYSTEM_SESSION,
+        *METRICS_SYSTEM_SESSION,
+        *REPORTS_SYSTEM_SESSION,
     ),
 )
 # Each guarded name and who may use it; the private helper behind both is the session module's

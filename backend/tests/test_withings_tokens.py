@@ -2,8 +2,10 @@
 
 import asyncio
 import urllib.request
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
+import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -11,16 +13,22 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture  # noqa: F401
 from ctx import make_context
 from ownvitals import egress
+from ownvitals.connections.errors import ConnectionFailure
+from ownvitals.connections.providers import withings as withings_provider
 from ownvitals.connections.providers.withings import commit_refresh, open_withings, store_grant
+from ownvitals.connections.repository import disconnect
 from ownvitals.context import UserContext
+from ownvitals.crypto.envelope import DecryptFailed
 from ownvitals.db import user_session
 from ownvitals.egress import core
 from ownvitals.withings import client as client_module
+from ownvitals.withings import metrics as wm
 from ownvitals.withings.apps import create_app
 from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.tokens import recover_refresh, refresh_tokens
 from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport
+from withingswire import STATUS_BAD_REFRESH_TOKEN
 
 pytestmark = pytest.mark.usefixtures("auth_schema", "clean_auth")
 CLIENT = "synthetic-client"
@@ -182,6 +190,8 @@ async def test_an_oversized_refresh_body_stays_recoverable(
     ctx, connection_id, fake, userid = await _grant(env, owner, "oversized-refresh@example.com")
     cap = client_module.MAX_RESPONSE_BYTES
     monkeypatch.setattr(client_module, "MAX_RESPONSE_BYTES", 64)
+    failures = wm.token_refresh.get(result="failure")
+    recoveries = wm.token_refresh.get(result="recovered")
     async with WithingsClient.open(
         WithingsApp(CLIENT, SECRET), inner=FakeWithingsTransport(fake)
     ) as client:
@@ -190,6 +200,9 @@ async def test_an_oversized_refresh_body_stays_recoverable(
         )
         assert _calls(fake) == 1
         assert result.outcome == "recover"
+        # #167: the refresh metrics move through the real refresh and recovery.
+        assert wm.token_refresh.get(result="failure") == failures + 1
+        assert wm.token_refresh.get(result="recovered") == recoveries
         assert result.access_token == ""
         assert result.access_token != fake.grant(CLIENT, userid).access
         opened = await open_withings(env.factory, env.app.state.keyring, ctx, connection_id)
@@ -200,6 +213,8 @@ async def test_an_oversized_refresh_body_stays_recoverable(
         )
     assert recovered.outcome == "refreshed"
     assert recovered.access_token == fake.grant(CLIENT, userid).access
+    assert wm.token_refresh.get(result="recovered") == recoveries + 1
+    assert wm.token_refresh.get(result="failure") == failures + 1
     assert _calls(fake) == 2
     stored = await open_withings(env.factory, env.app.state.keyring, ctx, connection_id)
     assert stored.intent is None
@@ -248,3 +263,164 @@ async def test_an_older_generation_cannot_overwrite(env: Env, owner: object) -> 
     opened = await open_withings(env.factory, ring, ctx, connection_id)
     assert opened.generation == 2
     assert opened.access_token == "synthetic-access-token-newer-aaaa"
+
+
+# ------------------------------------------------- a disconnect or a reconnect during the call
+# The refresh lock does not cover a disconnect or a reconnect (``store_grant``), and neither one
+# raises the generation in a way the refresh can see before its compare-and-swap. These run the
+# other write while ``requesttoken`` is out (#279).
+
+WINNER_ACCESS = "synthetic-access-token-winner-aaaa"
+WINNER_REFRESH = "synthetic-refresh-token-winner-bbb"
+
+
+class _During(FakeWithingsTransport):
+    """Runs ``hook`` once, when the ``requesttoken`` request arrives, before the fake answers."""
+
+    def __init__(self, fake: FakeWithings, hook: Callable[[], Awaitable[None]]) -> None:
+        super().__init__(fake)
+        self._hook: Callable[[], Awaitable[None]] | None = hook
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if self._hook is not None and b"action=requesttoken" in await request.aread():
+            hook, self._hook = self._hook, None
+            await hook()
+        return await super().handle_async_request(request)
+
+
+async def _row(env: Env, ctx: UserContext, connection_id: UUID) -> tuple[str, bool, str | None]:
+    async with user_session(env.factory, ctx) as db:
+        row = (
+            await db.execute(
+                text("SELECT status, secret IS NULL, last_error FROM connections WHERE id = :i"),
+                {"i": connection_id},
+            )
+        ).one()
+    return str(row[0]), bool(row[1]), row[2]
+
+
+async def test_a_disconnect_during_the_refresh_is_not_undone(env: Env, owner: object) -> None:
+    ctx, connection_id, fake, _userid = await _grant(env, owner, "race-disconnect@example.com")
+
+    async def hook() -> None:
+        assert await disconnect(env.factory, ctx, "withings", connection_id=connection_id)
+
+    async with WithingsClient.open(
+        WithingsApp(CLIENT, SECRET), inner=_During(fake, hook)
+    ) as client:
+        result = await refresh_tokens(
+            env.factory, env.app.state.keyring, ctx, connection_id, client
+        )
+    assert _calls(fake) == 1
+    assert result.outcome == "not_connected"
+    assert result.access_token == ""
+    assert await _row(env, ctx, connection_id) == ("disconnected", True, None)
+
+
+async def test_a_revoke_during_the_refresh_does_not_flag_the_disconnected_row(
+    env: Env, owner: object
+) -> None:
+    ctx, connection_id, fake, userid = await _grant(env, owner, "race-revoke@example.com")
+
+    async def hook() -> None:
+        # disconnect_withings revokes the grant upstream, then clears the row
+        fake._drop_tokens(fake._grants.pop((CLIENT, userid)))
+        assert await disconnect(env.factory, ctx, "withings", connection_id=connection_id)
+
+    async with WithingsClient.open(
+        WithingsApp(CLIENT, SECRET), inner=_During(fake, hook)
+    ) as client:
+        result = await refresh_tokens(
+            env.factory, env.app.state.keyring, ctx, connection_id, client
+        )
+    assert result.outcome == "not_connected"
+    assert await _row(env, ctx, connection_id) == ("disconnected", True, None)
+    refused = [e for e in fake.log if e.endpoint == "v2/oauth2:requesttoken"]
+    assert [e.api_status for e in refused] == [STATUS_BAD_REFRESH_TOKEN]  # TokenInvalid: give-up
+
+
+async def test_a_reconnect_during_the_refresh_wins_and_its_token_is_returned(
+    env: Env, owner: object
+) -> None:
+    ctx, connection_id, fake, userid = await _grant(env, owner, "race-reconnect@example.com")
+    ring = env.app.state.keyring
+    before = await open_withings(env.factory, ring, ctx, connection_id)
+
+    async def hook() -> None:
+        stored = await store_grant(
+            env.factory,
+            ring,
+            ctx,
+            int(before.public["app_id"]),
+            userid,
+            "user.metrics",
+            WINNER_ACCESS,
+            WINNER_REFRESH,
+            expires_in=10800,
+        )
+        assert (stored.id, stored.generation) == (connection_id, 2)
+
+    async with WithingsClient.open(
+        WithingsApp(CLIENT, SECRET), inner=_During(fake, hook)
+    ) as client:
+        result = await refresh_tokens(env.factory, ring, ctx, connection_id, client)
+    assert _calls(fake) == 1
+    assert result.outcome == "current"
+    assert result.generation == 2
+    assert result.access_token == WINNER_ACCESS
+    opened = await open_withings(env.factory, ring, ctx, connection_id)
+    assert (opened.generation, opened.access_token) == (2, WINNER_ACCESS)
+    assert opened.refresh_token == WINNER_REFRESH
+    assert opened.intent is None
+
+
+# ------------------------------------------------- a disconnect during a failed decrypt (#311)
+# ``open_withings`` reads the row without a lock, then flags a ciphertext that will not open.
+# A disconnect keeps the generation, so only the status guard stops that flag from turning a
+# disconnected row into ``needs_reconnect``. The GCM failure is injected; the tokens are synthetic.
+
+
+class _RaceRing:
+    """The real ring, but ``hook`` runs once before the key is handed out."""
+
+    def __init__(self, ring: object, hook: Callable[[], Awaitable[None]] | None) -> None:
+        self._ring, self._hook = ring, hook
+
+    async def kek_for(self, db: object, key_id: object) -> object:
+        if self._hook is not None:
+            hook, self._hook = self._hook, None
+            await hook()
+        return await self._ring.kek_for(db, key_id)  # type: ignore[attr-defined]
+
+
+def _fail_decrypt(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*_args: object, **_kwargs: object) -> bytes:
+        raise DecryptFailed
+
+    monkeypatch.setattr(withings_provider, "open_sealed", refuse)
+
+
+async def test_a_failed_decrypt_flags_a_connected_row(
+    env: Env, owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx, connection_id, _fake, _userid = await _grant(env, owner, "decrypt-flag@example.com")
+    _fail_decrypt(monkeypatch)
+    ring = _RaceRing(env.app.state.keyring, None)
+    with pytest.raises(ConnectionFailure, match="decrypt_failed"):
+        await open_withings(env.factory, ring, ctx, connection_id)  # type: ignore[arg-type]
+    assert await _row(env, ctx, connection_id) == ("needs_reconnect", False, "decrypt_failed")
+
+
+async def test_a_disconnect_during_a_failed_decrypt_stays_disconnected(
+    env: Env, owner: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx, connection_id, _fake, _userid = await _grant(env, owner, "decrypt-race@example.com")
+    _fail_decrypt(monkeypatch)
+
+    async def hook() -> None:
+        assert await disconnect(env.factory, ctx, "withings", connection_id=connection_id)
+
+    ring = _RaceRing(env.app.state.keyring, hook)
+    with pytest.raises(ConnectionFailure, match="decrypt_failed"):
+        await open_withings(env.factory, ring, ctx, connection_id)  # type: ignore[arg-type]
+    assert await _row(env, ctx, connection_id) == ("disconnected", True, None)

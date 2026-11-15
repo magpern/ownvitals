@@ -92,12 +92,17 @@ async def test_totp_is_open_to_a_plain_user_and_does_not_make_them_admin(
 
 
 async def test_enrollment_needs_recent_auth(env: Env, make_actor: Any) -> None:
-    """#11: a session that has not enrolled within ten minutes of its sign-in is ended, so a
-    first enrolment always follows a fresh sign-in."""
-    actor = await make_actor(await env.user())
+    """#11: an admin's session that has not enrolled within ten minutes of its sign-in is ended,
+    so its first enrolment always follows a fresh sign-in. #475: a user's session without TOTP is
+    full and stays, but a first enrolment still needs a recent authentication."""
+    actor = await make_actor(await env.user("admin@example.com", role="admin"))
     await env.run("UPDATE sessions SET reauth_at = now() - interval '11 minutes'")
     assert (await actor.get("/api/auth/session")).json()["authenticated"] is False
     assert await env.scalar("SELECT count(*) FROM sessions") == 0
+    user = await make_actor(await env.user())
+    await env.run("UPDATE sessions SET reauth_at = now() - interval '11 minutes'")
+    assert (await user.get("/api/auth/session")).json()["session"]["mfa"] is True
+    assert reason(await user.post("/api/auth/mfa/totp/start")) == "reauth_required"
     assert await env.scalar("SELECT count(*) FROM mfa_totp") == 0
 
 
@@ -225,8 +230,9 @@ async def test_every_recent_auth_action_also_needs_stepup_once_totp_is_confirmed
         return {"ok": True}
 
     plain = await make_actor(await env.user("plain@example.com"))
-    # #11: before enrolment the session is gated; enrolling makes it full with a step-up.
-    assert reason(await plain.post("/api/test/sensitive")) == "two_factor_required"
+    # #475: before enrolment the session is full (no TOTP) but has no step-up yet; enrolling
+    # gives it one.
+    assert reason(await plain.post("/api/test/sensitive")) == "step_up_required"
     await plain.enroll()
     assert (await plain.post("/api/test/sensitive")).status_code == 200
     await env.run("UPDATE sessions SET stepup_at = NULL")

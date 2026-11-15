@@ -1,14 +1,15 @@
 -- The AI cost cap's role and SECURITY DEFINER functions (ADR 0014 section 7, ADR 0005 section 3,
--- ADR 0002 sections 3 and 5; #205).
+-- ADR 0002 sections 3 and 5; #205), the audit log's retention purge (ADR 0014 section 6;
+-- #331) and the conversation retention purge (ADR 0014 section 5; #395).
 --
 -- Run as the superuser, after `alembic upgrade head` and after 20-queue.sql, in ONE transaction.
 -- Plain SQL: no psql meta-commands and no transaction control. Migrations never create these
 -- functions (handing a function to another role needs the superuser).
 --
 -- Idempotent: running it again repairs the NOLOGIN role ownvitals_ai (attributes, memberships,
--- settings), revokes and re-grants exactly its privileges, replaces the four functions with their
+-- settings), revokes and re-grants exactly its privileges, replaces the six functions with their
 -- owner, ACL and version comment, and revokes the app role's write privileges on the AI tables
--- again.
+-- again (ai_audit: SELECT and INSERT only).
 --
 -- Units: integer micro-USD. Month: the calendar month in UTC, stored as its first day.
 -- The family (ADR 0014 section 7):
@@ -20,7 +21,16 @@
 --       processed);
 --   ai_settle_lost(p_limit) -> count: the reaper settles, at their full amount, open
 --       reservations whose job attempt is over (job gone, not running, a newer lease, or the lease
---       expired). The only cross-user path.
+--       expired). A cross-user path;
+--   ai_audit_purge(p_months, p_limit) -> count: deletes, at most p_limit, the ai_audit rows
+--       older than p_months months (the worker's ai_audit_retention_months; never below the
+--       12 months of ADR 0014 section 6, so no caller can shorten the retention). A cross-user
+--       path; it reads and deletes nothing but ai_audit rows past retention;
+--   ai_purge_expired(p_days, p_limit) -> count: deletes, at most p_limit, the ai_conversations
+--       (their ai_messages by the foreign key's cascade) last updated more than p_days days ago
+--       (the worker's ai_conversation_retention_days, 30 to 90: never kept past ADR 0014 section
+--       5's 90 days, and no caller can wipe newer history). The other cross-user path; it reads
+--       and deletes nothing but conversations past retention.
 -- None takes an owner id: the owner is the transaction's app.user_id, the UserContext user that
 -- row-level security reads. No user context: refused. A reservation can be settled or released
 -- once; a second call, or one after the reaper, finds no open row and changes nothing.
@@ -31,11 +41,13 @@
 --
 -- One lock order in every function: the month's global row, then the user's row of that month,
 -- then the reservation row. A function that starts from a reservation id reads its month without
--- a lock first, then locks in that order, so the four functions cannot deadlock one another.
+-- a lock first, then locks in that order, so the four budget functions cannot deadlock one another
+-- (ai_audit_purge and ai_purge_expired lock no budget row).
 --
 -- The role has BYPASSRLS (the reaper reads every user's reservations and jobs) and only the
--- column privileges the four functions need on the three AI tables and on jobs: no account table,
--- no health table. 20-queue.sql admits these four functions by name; their bodies are pinned by
+-- column privileges the four budget functions need on the three AI tables and on jobs, and the
+-- id and age columns of ai_audit and ai_conversations with DELETE on each for the two purges: no
+-- account table, no health table. 20-queue.sql admits these six functions by name; their bodies are pinned by
 -- digest (ownvitals/db/queue_digests.py) and checked by web and the worker at startup.
 
 DO $$
@@ -47,8 +59,10 @@ BEGIN
   IF pg_catalog.to_regclass('public.ai_reservations') IS NULL
      OR pg_catalog.to_regclass('public.ai_spend') IS NULL
      OR pg_catalog.to_regclass('public.ai_spend_global') IS NULL
+     OR pg_catalog.to_regclass('public.ai_audit') IS NULL
+     OR pg_catalog.to_regclass('public.ai_conversations') IS NULL
      OR pg_catalog.to_regclass('public.jobs') IS NULL THEN
-    RAISE EXCEPTION 'migrate to head first: an AI budget table or jobs is missing';
+    RAISE EXCEPTION 'migrate to head first: an AI table or jobs is missing';
   END IF;
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_app') THEN
     RAISE EXCEPTION 'ownvitals_app does not exist; run docker/postgres/init/10-roles.sql first';
@@ -102,7 +116,8 @@ BEGIN
                         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
                        WHERE p.oid = r.objid AND n.nspname = 'public'
                          AND p.proname IN ('ai_reserve', 'ai_settle', 'ai_release',
-                                           'ai_settle_lost')) THEN
+                                           'ai_settle_lost', 'ai_audit_purge',
+                                           'ai_purge_expired')) THEN
       RAISE EXCEPTION 'ownvitals_ai owns % (catalog %, object %); it may own only the '
         'AI budget functions: drop or reassign it by hand',
         coalesce(r.what, '?'), r.catalog, r.objid;
@@ -193,8 +208,11 @@ BEGIN
 END $$;
 
 -- Exactly these privileges (ADR 0014 section 7): USAGE on public; on the three AI tables the
--- columns the four functions read, insert and update; on jobs the columns that tell whether the
--- attempt that reserved is still running. No DELETE anywhere. Everything else was revoked above.
+-- columns the four budget functions read, insert and update; on jobs the columns that tell whether
+-- the attempt that reserved is still running; on ai_audit its id and created_at, and on
+-- ai_conversations its id and updated_at, each with DELETE, for the two retention purges (the
+-- only DELETEs; ai_messages go by the foreign key's cascade, which runs as the table owner).
+-- Everything else was revoked above.
 GRANT USAGE ON SCHEMA public TO ownvitals_ai;
 
 GRANT SELECT (id, owner_id, state, lease_version, lease_expires_at)
@@ -214,6 +232,11 @@ GRANT INSERT (owner_id, month, amount, job_id, lease_version)
   ON TABLE public.ai_reservations TO ownvitals_ai;
 GRANT UPDATE (state, actual, ended_at) ON TABLE public.ai_reservations TO ownvitals_ai;
 
+GRANT SELECT (id, created_at) ON TABLE public.ai_audit TO ownvitals_ai;
+GRANT DELETE ON TABLE public.ai_audit TO ownvitals_ai;
+GRANT SELECT (id, updated_at) ON TABLE public.ai_conversations TO ownvitals_ai;
+GRANT DELETE ON TABLE public.ai_conversations TO ownvitals_ai;
+
 -- The app role reads its own reservations and spend (forced RLS) and writes neither; it has no
 -- privilege on the global row (ADR 0014 section 7). The migration grants the same, and so does
 -- 10-roles.sql's restore list.
@@ -222,8 +245,12 @@ REVOKE ALL ON TABLE public.ai_spend FROM ownvitals_app, PUBLIC;
 REVOKE ALL ON TABLE public.ai_reservations FROM ownvitals_app, PUBLIC;
 GRANT SELECT ON TABLE public.ai_spend TO ownvitals_app;
 GRANT SELECT ON TABLE public.ai_reservations TO ownvitals_app;
+-- The audit log stays append-only for the app role (migration 0023, ADR 0014 section 6): only
+-- ai_audit_purge deletes, past retention.
+REVOKE ALL ON TABLE public.ai_audit FROM ownvitals_app, PUBLIC;
+GRANT SELECT, INSERT ON TABLE public.ai_audit TO ownvitals_app;
 
--- Any other function under one of the four names (an overload) goes: each must exist once.
+-- Any other function under one of the six names (an overload) goes: each must exist once.
 DO $$
 DECLARE
   r record;
@@ -231,10 +258,12 @@ BEGIN
   FOR r IN SELECT p.oid::regprocedure::text AS signature
              FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'public'
-              AND p.proname IN ('ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost')
+              AND p.proname IN ('ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost',
+                                'ai_audit_purge', 'ai_purge_expired')
               AND p.oid::regprocedure::text NOT IN (
                 'ai_reserve(bigint,uuid,bigint,bigint)', 'ai_settle(uuid,bigint)',
-                'ai_release(uuid)', 'ai_settle_lost(integer)') LOOP
+                'ai_release(uuid)', 'ai_settle_lost(integer)',
+                'ai_audit_purge(integer,integer)', 'ai_purge_expired(integer,integer)') LOOP
     EXECUTE format('DROP ROUTINE public.%s', r.signature);
   END LOOP;
 END $$;
@@ -450,10 +479,80 @@ BEGIN
 END
 $fn$;
 
+-- The audit retention (ADR 0014 section 6): delete, at most p_limit, the ai_audit rows whose
+-- created_at is more than p_months months old, oldest first. p_months is the worker's setting
+-- (ai_audit_retention_months), from 12 to 120: a caller may keep rows longer, never shorter
+-- than the 12 months the ADR states. Every owner's rows (account deletion cascades separately);
+-- nothing else is read or deleted. Returns only a count.
+CREATE OR REPLACE FUNCTION public.ai_audit_purge(p_months integer, p_limit integer)
+  RETURNS integer
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+  v_cutoff timestamp with time zone;
+  v_count integer;
+BEGIN
+  IF p_months IS NULL OR p_months < 12 OR p_months > 120 THEN
+    RAISE EXCEPTION 'invalid ai audit retention' USING ERRCODE = '22023';
+  END IF;
+  IF p_limit IS NULL OR p_limit < 1 OR p_limit > 10000 THEN
+    RAISE EXCEPTION 'invalid ai audit purge limit' USING ERRCODE = '22023';
+  END IF;
+  v_cutoff := pg_catalog.clock_timestamp() - pg_catalog.make_interval(months => p_months);
+  DELETE FROM public.ai_audit a
+   WHERE a.id IN (SELECT b.id FROM public.ai_audit b
+                   WHERE b.created_at < v_cutoff
+                   ORDER BY b.created_at, b.id
+                   LIMIT p_limit);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END
+$fn$;
+
+-- The conversation retention (ADR 0014 section 5): delete, at most p_limit, the
+-- ai_conversations whose updated_at (the last message) is more than p_days days old, oldest
+-- first; their ai_messages go by the foreign key's cascade. p_days is the worker's setting
+-- (ai_conversation_retention_days), from 30 to 90: no conversation is kept past the 90 days the
+-- ADR states, and no caller can wipe every user's recent history. Every owner's rows; nothing
+-- else is read or deleted. The age is checked again on the row DELETE locks, so a conversation a
+-- reply touched meanwhile (it holds the row lock, ownvitals.ai.assistant) stays. Returns only a
+-- count.
+CREATE OR REPLACE FUNCTION public.ai_purge_expired(p_days integer, p_limit integer)
+  RETURNS integer
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+  v_cutoff timestamp with time zone;
+  v_count integer;
+BEGIN
+  IF p_days IS NULL OR p_days < 30 OR p_days > 90 THEN
+    RAISE EXCEPTION 'invalid ai conversation retention' USING ERRCODE = '22023';
+  END IF;
+  IF p_limit IS NULL OR p_limit < 1 OR p_limit > 10000 THEN
+    RAISE EXCEPTION 'invalid ai conversation purge limit' USING ERRCODE = '22023';
+  END IF;
+  v_cutoff := pg_catalog.clock_timestamp() - pg_catalog.make_interval(days => p_days);
+  DELETE FROM public.ai_conversations a
+   WHERE a.updated_at < v_cutoff
+     AND a.id IN (SELECT b.id FROM public.ai_conversations b
+                   WHERE b.updated_at < v_cutoff
+                   ORDER BY b.updated_at, b.id
+                   LIMIT p_limit);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END
+$fn$;
+
 ALTER FUNCTION public.ai_reserve(bigint, uuid, bigint, bigint) OWNER TO ownvitals_ai;
 ALTER FUNCTION public.ai_settle(uuid, bigint) OWNER TO ownvitals_ai;
 ALTER FUNCTION public.ai_release(uuid) OWNER TO ownvitals_ai;
 ALTER FUNCTION public.ai_settle_lost(integer) OWNER TO ownvitals_ai;
+ALTER FUNCTION public.ai_audit_purge(integer, integer) OWNER TO ownvitals_ai;
+ALTER FUNCTION public.ai_purge_expired(integer, integer) OWNER TO ownvitals_ai;
 
 -- Every EXECUTE but the owner's goes (PUBLIC's default, and any grant to another role), then
 -- the app role gets it again.
@@ -461,6 +560,8 @@ REVOKE ALL ON FUNCTION public.ai_reserve(bigint, uuid, bigint, bigint) FROM PUBL
 REVOKE ALL ON FUNCTION public.ai_settle(uuid, bigint) FROM PUBLIC, ownvitals_app;
 REVOKE ALL ON FUNCTION public.ai_release(uuid) FROM PUBLIC, ownvitals_app;
 REVOKE ALL ON FUNCTION public.ai_settle_lost(integer) FROM PUBLIC, ownvitals_app;
+REVOKE ALL ON FUNCTION public.ai_audit_purge(integer, integer) FROM PUBLIC, ownvitals_app;
+REVOKE ALL ON FUNCTION public.ai_purge_expired(integer, integer) FROM PUBLIC, ownvitals_app;
 DO $$
 DECLARE
   r record;
@@ -470,7 +571,8 @@ BEGIN
              FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace,
                   aclexplode(p.proacl) a
             WHERE n.nspname = 'public'
-              AND p.proname IN ('ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost')
+              AND p.proname IN ('ai_reserve', 'ai_settle', 'ai_release', 'ai_settle_lost',
+                                'ai_audit_purge', 'ai_purge_expired')
               AND a.grantee <> 0 AND a.grantee <> p.proowner LOOP
     EXECUTE format('SET LOCAL ROLE %s', r.grantor);
     EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM %s CASCADE', r.signature, r.grantee);
@@ -483,8 +585,12 @@ GRANT EXECUTE ON FUNCTION public.ai_reserve(bigint, uuid, bigint, bigint) TO own
 GRANT EXECUTE ON FUNCTION public.ai_settle(uuid, bigint) TO ownvitals_app;
 GRANT EXECUTE ON FUNCTION public.ai_release(uuid) TO ownvitals_app;
 GRANT EXECUTE ON FUNCTION public.ai_settle_lost(integer) TO ownvitals_app;
+GRANT EXECUTE ON FUNCTION public.ai_audit_purge(integer, integer) TO ownvitals_app;
+GRANT EXECUTE ON FUNCTION public.ai_purge_expired(integer, integer) TO ownvitals_app;
 
 COMMENT ON FUNCTION public.ai_reserve(bigint, uuid, bigint, bigint) IS 'ownvitals-ai v1';
 COMMENT ON FUNCTION public.ai_settle(uuid, bigint) IS 'ownvitals-ai v1';
 COMMENT ON FUNCTION public.ai_release(uuid) IS 'ownvitals-ai v1';
 COMMENT ON FUNCTION public.ai_settle_lost(integer) IS 'ownvitals-ai v1';
+COMMENT ON FUNCTION public.ai_audit_purge(integer, integer) IS 'ownvitals-ai v1';
+COMMENT ON FUNCTION public.ai_purge_expired(integer, integer) IS 'ownvitals-ai v1';

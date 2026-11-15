@@ -6,7 +6,9 @@ table.
 value: each action declares a pydantic model (``extra="forbid"``, bounded fields), and
 ``admin_session`` refuses an action that is not listed, or params its model rejects, before it
 opens a connection. The Users view (#127) adds ``user.list``, ``user.read``, ``user.disable``,
-``user.enable`` and ``user.delete``.
+``user.enable`` and ``user.delete``; the delete's Withings revoke (#365) adds ``user.revoke``
+(the job queued) and ``user.revoke_wait`` (the wait for it), and ``user.delete`` records how
+the revoke ended.
 """
 
 import json
@@ -119,6 +121,13 @@ class UserListParams(Params):
     limit: Annotated[int, Field(ge=1, le=100)]
 
 
+class UserDeleteParams(Params):
+    """How the delete's Withings revoke ended (#365): ``none`` (no live connection), ``revoked``
+    or ``failed`` (the job did not finish in time or did not revoke)."""
+
+    revoke: Literal["none", "revoked", "failed"]
+
+
 class SettingSetParams(Params):
     """A flag write: the key and what the value means, never free text. A banner's text stays in
     ``app_settings`` (only its level and length are logged); a refused value logs the key
@@ -130,11 +139,20 @@ class SettingSetParams(Params):
     text_length: Annotated[int, Field(ge=0, le=100_000)] | None = None
 
 
+class AnomalyListParams(Params):
+    """The abuse view's page (#461): its size, and whether it is the first one. Never the
+    cursor's time or id."""
+
+    limit: Annotated[int, Field(ge=1, le=100)]
+    page: Literal["first", "next"]
+
+
 # Action code -> its params model. ``admin.request`` is the gate's own (``mfa_required``,
 # ``stepup_required`` and ``rate_limited`` of an admin) and that of a request refused for its
 # input after the gate.
 ACTIONS: Final[dict[str, type[Params]]] = {
     "admin.request": RequestParams,
+    "anomaly.list": AnomalyListParams,
     "audit.list": AuditListParams,
     "job.list": JobsParams,
     "job.replay": JobReplayParams,
@@ -145,7 +163,9 @@ ACTIONS: Final[dict[str, type[Params]]] = {
     "user.read": NoParams,
     "user.disable": NoParams,
     "user.enable": NoParams,
-    "user.delete": NoParams,
+    "user.delete": UserDeleteParams,
+    "user.revoke": NoParams,
+    "user.revoke_wait": NoParams,
 }
 
 

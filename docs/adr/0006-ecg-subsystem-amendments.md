@@ -199,3 +199,31 @@ synthetic, from `backend/tests/ecg/calibrate.py`; the full tables are in `docs/d
     matching); pipeline `ecg-5.0.0`. The ledger of the golden file holds this version only: 3.0.0
     and 4.0.0 never reached `main`. `record()` refuses to replace the current version's entry
     with other values.
+
+### 2026-11-09 (#281): validation edges (§14)
+
+15. **Floors are compared exactly.** V1 (80 %) and V3 (95 %) compare `100 * part >= floor * whole`,
+    not a half-up rounded percentage (79.5 % had read as 80 % and passed). The printed rate is
+    rounded **down**, so a line never shows the floor for a ratio under it.
+16. **OC3 needs a band above 40 Hz.** At a sampling rate of 80 Hz or less the Nyquist limit is
+    40 Hz, the high band is empty and the low-pass check had passed by default. Such a recording
+    is not judged (`not-applicable` when none is).
+17. **V5 and `input_revision` (§15).** V5 recomputes with the stored `input_revision`, so it checks
+    the rest of `estimated`, not that revision. §15 makes the fingerprint and `algo_version`, not
+    the stream-wide revision, the staleness test, so V5 is left as it is. Making it compare the
+    revision too needs the Architect to reopen §15.
+18. **Owner thresholds (the owner may change them before the run, §14).** These constants are
+    our choices, not measured values: OC3 mains line (`MAINS_DB` 10 dB over the sides of the
+    line, `MAINS_SHARE` 1 % of the 5 to 15 Hz power, 50 or 60 Hz), OC3 low-pass (`LOWPASS_DB`
+    30 dB), OC4 (two leads coincide within 20 ms for ≥ 95 % of the beats), V3 (±5 bpm for ≥ 95 %
+    of the pairs; Bland-Altman limits at 1.96 SD). The owner confirms or changes each before the
+    run; nothing here is a clinical claim.
+### 2026-11-10 (#315, merged as #367): V4 and OC3 edges (§14)
+
+19. **V4 compares exactly** (#315, #367). The wrong-beat share is checked as
+    `100 * wrong <= 1 * inspected` without rounding, as V1 and V3 are (amendment 15); the
+    printed percentage stays rounded.
+20. **OC3 mains can be "not observable"** (#315). A 60 Hz line needs a sampling rate above 120 Hz
+    and a 50 Hz line one above 100 Hz. When no line is found and the rate is 120 Hz or less on
+    some judged strip, `OC3 mains` reads `not-observable` instead of `no`; a found line is still
+    `yes`.

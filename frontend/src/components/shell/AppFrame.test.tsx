@@ -1,8 +1,9 @@
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { t } from '../../i18n'
 import { APP_ROUTES } from '../../router/appRoutes'
 import { SIGNED_IN, SIGNED_IN_NO_TOTP, fakeApi } from '../../test/fakeApi'
+import { syntheticMetric } from '../../test/metricFixtures'
 import { renderAt } from '../../test/render'
 
 // The app frame, end to end: what a signed-in user gets around every screen (the rail, the top
@@ -24,14 +25,14 @@ describe('the app frame', () => {
     const rail = screen.getByRole('navigation', { name: 'Main' })
     expect(within(rail).getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('navigation', { name: 'Main tabs' })).toBeInTheDocument()
-    expect(within(screen.getByRole('main')).getByText('Coming later')).toBeInTheDocument()
+    expect(await within(screen.getByRole('main')).findByText('Needs a look')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /ann@example\.test/ })).toBeInTheDocument()
     // The top bar's logo (the phone's brand) goes home, too.
-    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/')
+    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/overview')
   })
 
   // The screens built so far (src/pages/appPages.tsx) have their own tests.
-  const BUILT_SCREENS = new Set(['security'])
+  const BUILT_SCREENS = new Set(['security', 'overview', 'heart', 'sleep', 'activity', 'metric', 'day', 'settings', 'notifications', 'data', 'connections', 'ecg-list', 'ecg', 'findings', 'body', 'nerve', 'assistant'])
 
   it.each(APP_ROUTES.filter((route) => !BUILT_SCREENS.has(route.id)).map((route) => [route.id, route] as const))(
     'shows the page header and "Coming later" on the %s screen',
@@ -48,7 +49,7 @@ describe('the app frame', () => {
   )
 
   it('marks the rail item of the screen, also for a screen inside an area', async () => {
-    fakeApi({ 'GET /api/auth/session': SIGNED_IN })
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN, 'GET /api/metrics/weight?range=90d': syntheticMetric() })
     renderAt('/m/weight')
     await screen.findByRole('heading', { level: 1, name: 'Metric' })
     const rail = screen.getByRole('navigation', { name: 'Main' })
@@ -99,10 +100,11 @@ describe('the app frame', () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/connections')
     await screen.findByRole('heading', { level: 1, name: 'Connections' })
-    expect(document.title).toBe('Connections · ownvitals')
+    // The title is set in an effect, which can run just after the heading is in the document.
+    await waitFor(() => expect(document.title).toBe('Connections · ownvitals'))
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'Sleep' }))
     await screen.findByRole('heading', { level: 1, name: 'Sleep' })
-    expect(document.title).toBe('Sleep · ownvitals')
+    await waitFor(() => expect(document.title).toBe('Sleep · ownvitals'))
   })
 
   it('does not take a trailing slash for another page', async () => {

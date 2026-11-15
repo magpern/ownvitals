@@ -32,6 +32,13 @@ name under ``ownvitals``) may not do outside the egress package:
 Type-only imports pass when their names appear only in annotations (``egress_typeonly``). The
 rest of deliberate indirection (``vars(sys)``, a computed ``getattr``, ``exec``) is review's (N9).
 
+**Bounded** (#395): a module over ``MAX_SOURCE_BYTES``, or one with an attribute chain, an
+imported name or a dotted string over ``MAX_CHAIN_PARTS`` parts, is refused as a whole before
+anything else is judged, and ``classify`` refuses any longer name it is still handed (an alias
+head with its chain, a ``getattr``): the chain rule judges every prefix of a chain at every node
+of it, so an unbounded chain made the scan cost grow with its cube (3,200 parts: about 40 s).
+Refusing fails closed; ``src/`` stays far below both limits (a test pins the margin).
+
 A worker module never imports ``ownvitals.mail`` (``egress_worker``: ``WORKER_PACKAGES``,
 ``WORKER_ENTRYPOINTS``, checked by the tests), and every web-only site calls
 ``refuse_in_worker`` itself (``test_egress_runtime.py``).
@@ -45,6 +52,9 @@ from pathlib import Path
 
 from egress_classified import (
     EDGE_CUTS,
+    LISTENER_ATTRIBUTES,
+    LISTENER_MODULE,
+    LISTENER_NAMES,
     LOOP_METHODS,
     NATIVE_MODULES,
     PROCESS_MODULES,
@@ -75,6 +85,10 @@ _EGRESS_DIR = Path(__file__).resolve().parent.parent / "src" / "ownvitals" / "eg
 # The package's submodules: ``ownvitals.egress.core.Allowlist`` is ``ownvitals.egress.Allowlist``.
 EGRESS_SUBMODULES = frozenset(p.stem for p in _EGRESS_DIR.glob("*.py") if p.stem != "__init__")
 CLOSURE = Closure(cuts=EDGE_CUTS)  # the run's closure: parses and capability are cached
+# The scan's bounds (#395). The longest chain src/ writes has 5 steps and its largest module is
+# under 20 KB; past these the module (or the name) is refused, never truncated.
+MAX_CHAIN_PARTS = 16
+MAX_SOURCE_BYTES = 256 * 1024
 
 # The lists and what applies them are built inside the package only (a call or a subclass).
 _EGRESS_CONSTRUCTORS = frozenset(
@@ -96,6 +110,7 @@ _NO_ALLOWLIST_ARGUMENT = frozenset(
         "google_async_client",
         "google_oauth_client",
         "exchange_withings_code",
+        "verify_turnstile_token",
     )
 )
 INSTALL_WORKER = f"{EGRESS}.install_worker_allowlist"
@@ -104,10 +119,14 @@ WORKER_ROLE_MODULES: dict[str, str] = {
     "ownvitals.worker.__main__": "the worker process's entry point (#9)",
     "ownvitals.withings.probe": "the probe CLI, a worker-side one-off (#29, never the model host)",
 }
-# The runtime egress hook (ADR 0009): installed only by the process entry points (web's: #77), and
-# the SMTP session's connection scope opened only by the mail module.
+# The runtime egress hook (ADR 0009): installed only by the process entry points (web's: #77;
+# migrate's: alembic's env.py, #284), and the SMTP session's connection scope opened only by the
+# mail module.
 INSTALL_HOOK = f"{EGRESS}.install_egress_hook"
-HOOK_INSTALLERS = frozenset({"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web"})
+MIGRATIONS_ENV = "migrations.env"  # backend/migrations/env.py, scanned with src (#284)
+HOOK_INSTALLERS = frozenset(
+    {"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web", MIGRATIONS_ENV}
+)
 SMTP_SESSION = f"{EGRESS}.smtp_session"
 # Builtins resolved where nothing rebinds them: ``__import__`` (an importer), the evaluators.
 _BUILTIN_NAMES = {
@@ -163,8 +182,13 @@ def exception_classes(module: str) -> frozenset[str]:
     return frozenset(found)
 
 
-def allowed_names(module: str, entry: Entry) -> frozenset[str]:
-    return entry.names | (exception_classes(module) if entry.exceptions else frozenset())
+def allowed_names(module: str, entry: Entry, scanning: str = "") -> frozenset[str]:
+    """The entry's names, its exception classes when it says so, and in ``LISTENER_MODULE``
+    the listener's own names of ``module``."""
+    names = entry.names | (exception_classes(module) if entry.exceptions else frozenset())
+    if scanning == LISTENER_MODULE:
+        names |= LISTENER_NAMES.get(module, frozenset())
+    return names
 
 
 def _functions(body: list[ast.stmt]) -> list[str]:
@@ -203,6 +227,8 @@ def visits(dotted: str, depth: int = 0) -> list[tuple[str, tuple[str, ...]]]:
     """``(module, the rest of the chain)`` for each module a reference reaches: the longest
     module prefix, then wherever a name of it leads when the module bound that name by an import
     (always for a bound module; for a bound name only in an ``ownvitals`` module)."""
+    if over_limit(dotted):
+        return []  # ``classify`` refuses it; nothing is resolved past the bound
     parts = dotted.split(".")
     if not CLOSURE.is_module(parts[0]):
         return []
@@ -219,6 +245,8 @@ def visits(dotted: str, depth: int = 0) -> list[tuple[str, tuple[str, ...]]]:
 
 def importable(name: str) -> bool:
     """A module, or a module its parent binds by an import (``os.path``)."""
+    if over_limit(name):
+        return False
     if CLOSURE.is_module(name):
         return True
     parent, _, last = name.rpartition(".")
@@ -226,8 +254,15 @@ def importable(name: str) -> bool:
     return target is not None and CLOSURE.is_module(target)
 
 
+def over_limit(dotted: str) -> bool:
+    """More than ``MAX_CHAIN_PARTS`` parts: counted without splitting, so it costs one pass."""
+    return dotted.count(".") >= MAX_CHAIN_PARTS
+
+
 def classify(dotted: str, scanning: str, verb: str, used: set[str] | None = None) -> list[str]:
     """What is wrong with ``scanning`` importing or referencing ``dotted``."""
+    if over_limit(dotted):
+        return [f"{verb} {dotted[:80]}...: over {MAX_CHAIN_PARTS} parts, the scan's limit"]
     for module, rest in visits(dotted):
         if under(module, (OWN,)) or not CLOSURE.capable(module):
             continue
@@ -241,10 +276,19 @@ def classify(dotted: str, scanning: str, verb: str, used: set[str] | None = None
         if entry.kind == "denied":
             return [f"{verb} {dotted}: {module} is denied ({entry.reason})"]
         if entry.kind == "allowed" and rest:
-            if rest[0] not in allowed_names(module, entry):
+            names = allowed_names(module, entry, scanning)
+            if rest[0] not in names:
                 return [f"{verb} {dotted}: {rest[0]} is not an allowed name of {module}"]
+            # Past an allowed name (``psycopg.connect.cursor``) each step is a reviewed name of
+            # its own (``"SMTP._get_socket"``), else nothing judged it (#284).
+            chains = [".".join(rest[:depth]) for depth in range(2, len(rest) + 1)]
+            past = next((chain for chain in chains if chain not in names), None)
+            if past is not None:
+                return [f"{verb} {dotted}: {past} is past an allowed name of {module}"]
             if used is not None:
-                used.add(f"{key}:{rest[0]}")
+                listener = scanning == LISTENER_MODULE and rest[0] not in entry.names
+                used.add(f"listener:{module}:{rest[0]}" if listener else f"{key}:{rest[0]}")
+                used.update(f"{key}:{chain}" for chain in chains)
     return []
 
 
@@ -366,7 +410,12 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
     collects the table entries and names it relied on."""
     if in_egress(module):
         return []
+    if len(source.encode("utf-8", "surrogatepass")) > MAX_SOURCE_BYTES:
+        return [(1, f"the module is over {MAX_SOURCE_BYTES} bytes, the scan's limit")]
     tree = ast.parse(source)
+    deep = _over_limits(tree)
+    if deep is not None:
+        return [(deep, f"a chain or dotted name over {MAX_CHAIN_PARTS} parts, the scan's limit")]
     every = _aliases(tree, module)
     skip = type_only(tree, source)
     # In an annotation a name means what the run-time imports bind; anywhere else a name bound
@@ -397,7 +446,8 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
             continue
         found += [(line, w) for w in classify(name, module, "imports", used)]
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and node.attr in object_names:
+        listener = module == LISTENER_MODULE and getattr(node, "attr", None) in LISTENER_ATTRIBUTES
+        if isinstance(node, ast.Attribute) and node.attr in object_names and not listener:
             found.append((node.lineno, f"uses .{node.attr}: an asyncio network method"))
         if isinstance(node, ast.Attribute | ast.Name):
             name = _dotted(node, runtime if id(node) in typed else aliases)
@@ -423,6 +473,34 @@ def scan_source(source: str, module: str, used: set[str] | None = None) -> list[
         if name.split(".")[0] in ("__import__", "__builtins__") or importer(name, _landings):
             found.append((line, f"names {name} in an annotation: an importer"))
     return sorted(set(found))
+
+
+def _over_limits(tree: ast.AST) -> int | None:
+    """The line of the first attribute chain, imported name or dotted string over
+    ``MAX_CHAIN_PARTS`` parts, else None. One pass over the tree: a chain's depth is its inner
+    node's plus one (``ast.walk`` visits outer nodes first, so the depths are filled in from the
+    inside after the walk)."""
+    attributes: list[ast.Attribute] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            attributes.append(node)
+        elif isinstance(node, ast.Import | ast.ImportFrom):
+            imported = [a.name for a in node.names] + [getattr(node, "module", None) or ""]
+            if any(over_limit(name) for name in imported):
+                return node.lineno
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and _DOTTED.fullmatch(node.value)
+            and over_limit(node.value)
+        ):
+            return node.lineno
+    depth: dict[int, int] = {}
+    for node in reversed(attributes):
+        depth[id(node)] = depth.get(id(node.value), 1) + 1
+        if depth[id(node)] > MAX_CHAIN_PARTS:
+            return node.lineno
+    return None
 
 
 def _assigned(name: str, module: str) -> list[str]:
@@ -466,11 +544,17 @@ def module_name(path: Path, src: Path) -> str:
 
 
 def sources(src: Path) -> list[tuple[str, str]]:
-    """``(module, source)`` of every module of the ``ownvitals`` package under ``src``."""
-    return [
+    """``(module, source)`` of every module of the ``ownvitals`` package under ``src``, and of
+    alembic's ``env.py`` next to it (``migrations.env``: migrate's entry point, #284). The
+    revisions under ``migrations/versions`` are not scanned (``docs/dev/egress.md``)."""
+    found = [
         (module_name(p, src), p.read_text(encoding="utf-8"))
         for p in sorted((src / "ownvitals").rglob("*.py"))
     ]
+    env = src.parent / "migrations" / "env.py"
+    if env.is_file():
+        found.append((MIGRATIONS_ENV, env.read_text(encoding="utf-8")))
+    return found
 
 
 def scan_tree(src: Path, used: set[str] | None = None) -> list[tuple[str, int, str]]:

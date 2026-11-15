@@ -7,6 +7,8 @@ queue's `SECURITY DEFINER` functions as the superuser, from the application imag
 API as the app role, non-root user `ownvitals`, uid 10001) and **worker**. A later issue adds the
 mail service. The stack only ever
 holds synthetic data (the demo account and fakes): never connect a real Withings account to it.
+The one exception is the owner's own local stack on the owner's own computer
+([local-real-account.md](local-real-account.md), AGENTS.md "Health data").
 
 Ports bind `127.0.0.1` only and come from `.env`. Passwords and keys are files under `secrets/`
 mounted as Docker secrets (`/run/secrets/<name>`), never environment variables. `.env` and
@@ -51,6 +53,18 @@ ever touches the project `ownvitals-<n>` (whatever the worktree's `.env` says), 
 git does not see as merged (squash merges never are; delete it with `git branch -D` after the PR
 merged).
 
+**Rules for parallel agents** (2026-11-12, after two agents crossed work):
+
+- Start every issue with `scripts/worktree.sh new <issue> <slug>`, never a bare `git worktree add`,
+  so it gets its own compose project, volume and ports. A Reviewer uses a number of its own (for
+  example `9000 + PR`), and removes it with `scripts/worktree.sh rm` when done.
+- Run DB-backed tests only against your own project's Postgres, or a throwaway one you started.
+  Never against a database another agent started: a shared database also skews concurrency tests.
+- **Never use `git stash`.** All worktrees of one clone share a single stash list, so two agents
+  that stash and pop at the same moment swap each other's work. Commit to your branch, or keep a
+  patch file in your scratchpad.
+- Before pushing, check that `git diff --stat origin/main...HEAD` lists only your issue's files.
+
 A throwaway test Postgres for `pytest` (see [backend.md](backend.md)) may use any free port. If it
 uses the stack's own Postgres port (`30000 + n`), stop it before starting the stack.
 
@@ -61,6 +75,14 @@ uses the stack's own Postgres port (`30000 + n`), stop it before starting the st
 bytes, hex) and `connection_kek` (32 bytes, 64 lowercase hex characters). They are `0644` so the
 container user can read the bind mount; `secrets/` itself is `0700`. The image contains none of
 them; `docker inspect` shows only the file mounts.
+
+`init` also creates an **empty** `anthropic_api_key` (never a generated key): Compose needs the
+file to mount it, and an empty key is `ai_not_configured` ([ai.md](ai.md)). The worker alone
+mounts it, with `app_secret_key` (the AI audit key); `test_compose_ai_key.py` fails if any
+compose file at the root gives the key to another service (a secrets entry by source or target,
+an alias secret, an environment-backed secret or variable, or a bind mount that is or may hold
+`secrets/`). A checkout made before this needs `scripts/worktree.sh init` again, and the staging
+host needs the file too (empty keeps AI off).
 
 The database roles ([isolation.md](isolation.md)): `db` creates `ownvitals_owner`,
 `ownvitals_app` and the `ownvitals_maint` LOGIN role from `docker/postgres/init/10-roles.sql`

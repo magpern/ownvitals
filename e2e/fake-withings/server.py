@@ -149,7 +149,30 @@ class Service:
             return 200, {"injected": kind}
         if route == ("POST", "/send-webhook"):
             return 200, {"deliveries": self._send_webhook(body)}
+        if route == ("POST", "/authorize"):
+            return self._authorize(body)
         return 404, {"error": "no such control endpoint"}
+
+    def _authorize(self, body: dict[str, Any]) -> tuple[int, Any]:
+        """The browser's visit to the authorize page, which the spec intercepts and hands over
+        (the service publishes no port): the fake answers it, its synthetic user consenting (or
+        refusing with ``deny``), and the spec follows the redirect returned here. An https URL
+        without userinfo or fragment only; the fake itself checks the rest."""
+        url = body.get("url")
+        parts = urlsplit(url) if isinstance(url, str) else None
+        if parts is None or parts.scheme != "https" or "@" in parts.netloc or parts.fragment:
+            return 400, {"error": "url not accepted"}
+        with self.lock:
+            self.fake.deny_next_authorization = body.get("deny") is True
+            try:
+                step = self.fake.start(Request("GET", str(url), {}, b""))
+            except (Unroutable, ConnectionDropped):
+                step = None
+            finally:
+                self.fake.deny_next_authorization = False
+        if not isinstance(step, Response):
+            return 400, {"error": "not an authorize page"}
+        return 200, {"status": step.status_code, "location": step.headers.get("location")}
 
     def _state(self) -> dict[str, Any]:
         fake = self.fake

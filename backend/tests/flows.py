@@ -105,3 +105,14 @@ async def age_reauth(env: Env) -> None:
 async def only_user_id(env: Env) -> UUID:
     async with env.db() as db:
         return (await db.execute(text("SELECT id FROM users"))).scalar_one()
+
+
+async def signed_in_owing_code(env: Env, email: str = "user@example.com") -> Browser:
+    """An account with a confirmed TOTP, signed in by password without its code: the session
+    owes its second factor (``verify``) and is not full. Since #475 an account without TOTP is
+    full after the password, so this is how a test gets a session the gate refuses."""
+    browser = Browser(env)
+    user_id = await user_with_password(env, email)
+    await env.enrol(user_id)
+    assert (await browser.sign_in(email)).status_code == 200
+    return browser

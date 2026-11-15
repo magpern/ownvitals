@@ -46,11 +46,13 @@ from ownvitals.auth.ratelimit import (
     QR_START_IP,
     Bucket,
 )
+from ownvitals.auth.recipients import request_mail_locale
 from ownvitals.auth.sessions import SessionInfo
 from ownvitals.auth.useragent import describe
 from ownvitals.db import system_session
 from ownvitals.jobs.hub import EventHub
 from ownvitals.mail import send_logged
+from ownvitals.notify.locale_policy import DEFAULT_LOCALE
 
 UNAVAILABLE = "qr_unavailable"
 RETRY_AFTER_SECONDS = 5
@@ -180,6 +182,7 @@ async def complete(
 ) -> SignedIn:
     settings, ip = request.app.state.settings, request_ip(request)
     pre_token = presession.request_pre_token(request)
+    locale = DEFAULT_LOCALE  # the account's, else the request's, once it signed in
     async with system_session(factory(request)) as db:
         presession_id = await presession.find(db, pre_token)
         done = await qrlogin.complete(
@@ -193,6 +196,7 @@ async def complete(
         )
         if done is not None:
             await presession.end(db, pre_token)
+            locale = await request_mail_locale(db, request, done.user_id)
     if done is None:
         await _refused(request, "complete", None, qr_id)
     set_session_cookie(response, done.issued)
@@ -206,6 +210,7 @@ async def complete(
             done.desktop.browser,
             done.desktop.os,
             geo.shown(done.desktop.place),
+            locale=locale,
         ),
     )
     return SignedIn(id=done.user_id, email=done.email, role=done.role)

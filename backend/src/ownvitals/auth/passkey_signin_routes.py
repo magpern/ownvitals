@@ -65,6 +65,7 @@ from ownvitals.auth.ratelimit import (
     Bucket,
     password_buckets,
 )
+from ownvitals.auth.recipients import request_mail_locale
 from ownvitals.auth.session_cross_device import mark_cross_device
 from ownvitals.auth.sessions import (
     IssuedSession,
@@ -134,13 +135,14 @@ async def _refused(
         await record_event(
             db, kind, user_id=exc.user_id, ip=ip, detail={"reason": exc.reason, **(detail or {})}
         )
+        locale = None
         if exc.suspended is not None:
             await record_event(db, "passkey_suspended", user_id=exc.user_id, ip=ip)
-    if exc.suspended is not None:
+            locale = await request_mail_locale(db, request, exc.user_id)
+    if exc.suspended is not None and locale is not None:
         name, email = exc.suspended
-        background.add_task(
-            send_logged, mailer(request), mails.passkey_suspended_notice(email, name)
-        )
+        notice = mails.passkey_suspended_notice(email, name, locale=locale)
+        background.add_task(send_logged, mailer(request), notice)
     return JSONResponse({"detail": FAILED}, status_code=401, background=background)
 
 

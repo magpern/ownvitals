@@ -1,0 +1,36 @@
+// The chat assistant (issue 208; docs/design/README.md, "Assistant"). The `label` key is health
+// wording: listed in docs/dev/i18n.md for the owner's medical-claims review at M8.
+// sv/assistant.ts satisfies this shape.
+export const assistant = {
+  'list.label': 'Conversations',
+  'list.new': 'New conversation',
+  'list.empty': 'No conversations yet.',
+  'list.started': 'Started {date}',
+  'list.messages': 'Messages: {count}',
+  'choose': 'Choose a conversation or start a new one.',
+  'empty': 'Ask about your own data, for example how your weight has changed over the last months.',
+  'you': 'You',
+  'answer': 'Assistant',
+  'label': 'AI-generated from your data. It can be wrong, and it is not medical advice.',
+  'composer.label': 'Your message',
+  'composer.send': 'Send',
+  'preparing': 'Preparing an answer…',
+  'failed': "The assistant couldn't answer. Try again later.",
+  'paused': "This month's AI budget for your account is used up. It resets on {date}.",
+  'limit': 'You can send 20 messages an hour. Try again later.',
+  'loadFailed': "The conversation couldn't be loaded.",
+  'delete.button': 'Delete conversation…',
+  'delete.confirm': 'Delete this conversation and all its messages? This cannot be undone.',
+  'delete.yes': 'Delete conversation',
+  'delete.done': 'Conversation deleted.',
+  // Issue 209: the weekly digest, under the conversations.
+  'digest.title': 'Weekly summary',
+  'digest.toggle': 'Write a weekly summary',
+  'digest.help': "Once a week the assistant summarises the last week of your data. It is covered by your AI consent and counts toward this month's AI budget. You get an email when a summary is ready.",
+  'digest.empty': 'No weekly summary yet.',
+  'digest.week': 'Week of {date}',
+  'digest.skipped': "This week's summary was skipped: this month's AI budget for your account was used up.",
+  'digest.skippedUntil': "This week's summary was skipped: this month's AI budget for your account was used up. It resets on {date}.",
+  'digest.unavailable': "This week's summary couldn't be written.",
+  'digest.loadFailed': "The weekly summaries couldn't be loaded.",
+}

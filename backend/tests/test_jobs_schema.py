@@ -21,7 +21,15 @@ from jobcore import (
     jenv_fixture,  # noqa: F401 - fixtures
     registry_for,
 )
-from jobtools import admin_fixture, as_user, engine_for, new_job, new_user, queue_schema_fixture  # noqa: F401 - fixtures
+from jobtools import (
+    admin_fixture,  # noqa: F401 - fixtures
+    as_user,
+    engine_for,
+    ensure_user,
+    new_job,
+    new_user,
+    queue_schema_fixture,  # noqa: F401 - fixtures
+)
 from ownvitals.context import UserContext, issuer_token
 from ownvitals.db import SYSTEM_TABLES, system_session, user_session
 from ownvitals.jobs import Complete, JobRun
@@ -134,6 +142,11 @@ def test_job_events_are_append_only_for_every_role_but_go_with_their_job(
 def test_an_event_belongs_to_a_job_of_its_own_owner(admin: Connection) -> None:
     owner, other = new_user(), new_user()
     job_id = new_job(admin, owner)
+    # ``other`` has its account, so only the owner-inclusive key can refuse the event. Without it
+    # ``job_events_owner_id_fkey`` fails too, and which of the two Postgres reports depends on
+    # the names of their RI triggers (``RI_ConstraintTrigger_c_<oid>``, fired in name order), so
+    # on the OIDs the database happened to hand out.
+    ensure_user(admin, other)
     with pytest.raises(IntegrityError, match="job_events_job_fkey"):
         add_event(admin, other, job_id)  # the owner-inclusive key
     add_event(admin, owner, job_id)

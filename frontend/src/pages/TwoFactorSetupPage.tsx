@@ -1,19 +1,23 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { confirmTotp, startTotp, type Enrollment } from '../api/auth'
-import { SIGN_IN_PATH } from '../auth/access'
+import { HOME_PATH, SIGN_IN_PATH, mayAddTotp } from '../auth/access'
 import { RequireTwoFactorStep } from '../auth/guards'
 import { useSession } from '../auth/SessionContext'
+import { markTotpOffered } from '../auth/totpOffer'
 import { CODE_LENGTH, CodeInput } from '../components/CodeInput'
 import { Notice, useAction } from '../components/forms'
 import { QrCode } from '../components/QrCode'
+import { Cancelled, useProtected } from '../components/StepUp'
 import { Button } from '../components/ui/Button'
 import { useT } from '../i18n'
 import { safeReturnTo, useQuery, useRouter } from '../router/Router'
 
 // Enrolment (docs/design/mockups/src/Auth.dc.html, "Set up the authenticator" and "Recovery
-// codes"): mandatory for every account, before anything else (ADR 0003 section 2). The QR code
-// and key, the first code to confirm, then the recovery codes, shown once: the page stays up
-// (`hold`) until the user says they saved them.
+// codes"): the QR code and key, the first code to confirm, then the recovery codes, shown once:
+// the page stays up (`hold`) until the user says they saved them. Mandatory for an administrator,
+// before anything else; optional for a user (owner decision of 2026-11-12, issue 475), who is offered
+// it with "Skip for now" and can come back from the Security page. A first enrolment needs a
+// recent sign-in, so the start and the confirmation run through the "Confirm it's you" dialog.
 
 const CONNECT_PATH = '/connections'
 
@@ -50,30 +54,54 @@ function Setup({ onConfirmed }: { onConfirmed: (saved: Saved) => void }) {
   const t = useT()
   const titleId = useId()
   const codeId = useId()
-  const { refresh } = useSession()
+  const { session, refresh } = useSession()
+  const { navigate } = useRouter()
+  const protect = useProtected()
+  const returnTo = safeReturnTo(useQuery().get('return_to'))
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null)
   const [code, setCode] = useState('')
   const action = useAction()
   const started = useRef(false)
+  // Optional for this account: offered, with "Skip for now" (issue 475).
+  const optional = mayAddTotp(session)
+  const userId = session?.user?.id ?? null
+
+  useEffect(() => {
+    if (optional && userId !== null) markTotpOffered(userId)
+  }, [optional, userId])
 
   useEffect(() => {
     // Once, even under StrictMode's second mount: each start is a new secret.
     if (started.current) return
     started.current = true
     void action.run(async () => {
-      setEnrollment(await startTotp())
+      try {
+        setEnrollment(await protect(t('auth.setup.purpose'), startTotp))
+      } catch (error) {
+        if (!(error instanceof Cancelled)) throw error
+      }
     })
-  }, [action])
+  }, [action, protect, t])
 
   const confirm = (event: FormEvent) => {
     event.preventDefault()
     if (enrollment === null) return
     void action.run(async () => {
-      const result = await confirmTotp(enrollment.pending, code)
+      let result
+      try {
+        result = await protect(t('auth.setup.purpose'), () => confirmTotp(enrollment.pending, code))
+      } catch (error) {
+        if (error instanceof Cancelled) return
+        throw error
+      }
       onConfirmed({ codes: result.recoveryCodes, signedOut: result.signedOut })
       // The session now counts as having passed the second factor; the codes stay up meanwhile.
       await refresh()
     })
+  }
+
+  const skip = () => {
+    navigate(returnTo ?? HOME_PATH)
   }
 
   return (
@@ -83,6 +111,7 @@ function Setup({ onConfirmed }: { onConfirmed: (saved: Saved) => void }) {
         <h1 id={titleId} className="ov-auth__title">
           {t('auth.setup.title')}
         </h1>
+        {optional ? <p className="ov-small">{t('auth.setup.optional')}</p> : null}
         <p className="ov-small ov-muted">{t('auth.setup.scan')}</p>
         {action.error ? <Notice kind="error">{action.error}</Notice> : null}
         {enrollment === null ? (
@@ -109,6 +138,11 @@ function Setup({ onConfirmed }: { onConfirmed: (saved: Saved) => void }) {
         >
           {t('common.confirm')}
         </Button>
+        {optional ? (
+          <Button variant="ghost" wide onClick={skip}>
+            {t('auth.setup.skip')}
+          </Button>
+        ) : null}
       </form>
     </section>
   )

@@ -2,13 +2,15 @@
 
 The receiver checks the request before the secret, then ``webhook_event_insert`` stores the
 event and the singleton sync job in one transaction. The job names a connection and a stream;
-the sync fetches from the API. Unknown and retired secrets get the same 200 and create nothing.
+the sync fetches from the API. Unknown and retired secrets get the same 200 and create nothing;
+one over quota gets it with the event recorded and no job. A matched secret whose notification
+could not be stored gets a 500, never a 200 (durable before 200).
 """
 
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, Request, Response
@@ -16,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from ownvitals.withings.webhook_cache import Cache, CachedEntry, Factory
+from ownvitals.withings.webhook_cache import Cache, CachedEntry, Factory, app_now
 
 # The logger keeps the name it had before this module was split out of ``webhooks.py``.
 logger = logging.getLogger("ownvitals.withings.webhooks")
@@ -74,8 +76,7 @@ def _metrics(app: FastAPI) -> Metrics:
 
 
 def _now(app: FastAPI) -> datetime:
-    clock = getattr(app.state, "webhook_clock", None)
-    return clock() if clock is not None else datetime.now(UTC)
+    return app_now(app)
 
 
 def _media(header: str | None) -> str | None:
@@ -131,6 +132,25 @@ async def _body(request: Request) -> bytes | None:
             return None
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+# webhook_event_insert raises 'duplicate' with this SQLSTATE for a replayed dedupe key.
+DUPLICATE_SQLSTATE = "22023"
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    orig = exc.orig if isinstance(exc, DBAPIError) else None
+    state = getattr(orig, "sqlstate", None)
+    return state if isinstance(state, str) else None
+
+
+def _is_duplicate(exc: BaseException) -> bool:
+    """The replay error only: its SQLSTATE and its exact message, never a substring of
+    another error's text."""
+    if _sqlstate(exc) != DUPLICATE_SQLSTATE:
+        return False
+    diag = getattr(getattr(exc, "orig", None), "diag", None)
+    return getattr(diag, "message_primary", None) == "duplicate"
 
 
 def _log(request: Request, status: int) -> None:
@@ -192,14 +212,20 @@ async def handle(request: Request, presented: str) -> Response:
         return Response(status_code=200)
     try:
         outcome = await _ingest(request.app.state.session_factory, entry, fields)
-    except DBAPIError as exc:
-        if "duplicate" not in str(exc):
-            logger.warning("webhook not stored", extra={"error_type": type(exc).__name__})
+    except Exception as exc:
+        # A replay was stored before: the 200 stands. Anything else was not stored, so no 200
+        # (PLAN section 4.4, durable before 200): a 500 that Withings retries. Only a holder of
+        # a live 256-bit secret ever sees it, so it is no guessing oracle (ADR 0008, #280).
+        if not _is_duplicate(exc):
+            logger.warning(
+                "webhook not stored",
+                extra={"error_type": type(exc).__name__, "sqlstate": _sqlstate(exc)},
+            )
             _log(request, 500)
             return Response(status_code=500)
         outcome = "duplicate"
-    if outcome == "unknown_user":
-        _note_unknown(request, entry.app_id)
+    if outcome in ("unknown_user", "over_quota"):
+        _note(request, outcome, entry.app_id)
     if getattr(request.app.state, "webhook_crash_after_commit", False):
         request.app.state.webhook_crash_after_commit = False
         _log(request, 500)
@@ -208,15 +234,22 @@ async def handle(request: Request, presented: str) -> Response:
     return Response(status_code=200)
 
 
-def _note_unknown(request: Request, app_id: int) -> None:
-    seen: dict[int, datetime] = getattr(request.app.state, "webhook_unknown_at", {})
+_NOTES = {
+    "unknown_user": "webhook user is not linked",
+    "over_quota": "webhook over quota",
+}
+
+
+def _note(request: Request, outcome: str, app_id: int) -> None:
+    """At most one line a minute per outcome and app (PLAN section 4.4)."""
+    seen: dict[tuple[str, int], datetime] = getattr(request.app.state, "webhook_noted_at", {})
     now = _now(request.app)
-    previous = seen.get(app_id)
+    previous = seen.get((outcome, app_id))
     if previous is not None and now - previous < timedelta(minutes=1):
         return
-    seen[app_id] = now
-    request.app.state.webhook_unknown_at = seen
-    logger.info("webhook user is not linked", extra={"app_id": app_id})
+    seen[(outcome, app_id)] = now
+    request.app.state.webhook_noted_at = seen
+    logger.info(_NOTES[outcome], extra={"app_id": app_id})
 
 
 class WebhookMiddleware(BaseHTTPMiddleware):

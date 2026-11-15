@@ -3,11 +3,10 @@
 Reset: the request answers the same for any address and mails a 30-minute link (token in the URL
 fragment, posted to the API). Completing it signs the user out everywhere, deletes their known
 devices and every other outstanding token, and can remove linked sign-in methods in the same
-step: the reset is the proof, so that needs neither recent auth nor step-up. Change: recent
-authentication and a step-up, revoking every other session.
+step: the reset is the proof, so that needs neither recent auth nor step-up. Change:
+``password_change_routes``.
 """
 
-from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -18,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ownvitals.auth import mails
 from ownvitals.auth.accounts import find_user
 from ownvitals.auth.clientip import bucket_ip
-from ownvitals.auth.deps import current_session, request_ip, require_sensitive
+from ownvitals.auth.deps import request_ip
 from ownvitals.auth.devices import forget_devices
 from ownvitals.auth.events import record_event
 from ownvitals.auth.flowtools import EmailAddress, factory, mailer, reserve
@@ -29,12 +28,11 @@ from ownvitals.auth.ratelimit import (
     MAIL_ACCOUNT,
     MAIL_IP,
     MAIL_PAIR,
-    PASSWORD_CHANGE,
     SIGN_IN_IP,
     Bucket,
 )
 from ownvitals.auth.recipients import request_mail_locale, user_locale
-from ownvitals.auth.sessions import SessionInfo, revoke_user_sessions
+from ownvitals.auth.sessions import revoke_user_sessions
 from ownvitals.auth.signup_routes import Accepted, refuse
 from ownvitals.auth.tables import auth_tokens, identities, users
 from ownvitals.auth.tokens import (
@@ -44,9 +42,9 @@ from ownvitals.auth.tokens import (
     issue_token,
     peek_token,
 )
+from ownvitals.auth.turnstile import require_turnstile
 from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
-from ownvitals.context import UserContext
 from ownvitals.db import system_session
 from ownvitals.emailnorm import normalize_email
 from ownvitals.mail import Mailer, send_logged
@@ -81,10 +79,6 @@ class ResetCompleteIn(BaseModel):
     remove_methods: list[UUID] = Field(
         default_factory=lambda: list[UUID](), max_length=MAX_REMOVALS
     )
-
-
-class ChangePasswordIn(BaseModel):
-    new_password: str = Field(max_length=FIELD_MAX)
 
 
 class Done(BaseModel):
@@ -134,7 +128,11 @@ def make_reset_link_sender(
     return send
 
 
-@router.post("/password/reset/request", status_code=202)
+@router.post(
+    "/password/reset/request",
+    status_code=202,
+    dependencies=[Depends(require_turnstile("reset"))],
+)
 async def request_reset(
     body: ResetRequestIn, request: Request, background: BackgroundTasks
 ) -> Accepted:
@@ -270,31 +268,4 @@ async def complete_reset(body: ResetCompleteIn, request: Request) -> Done:
     if token is None:
         raise refuse(400, "invalid_token")  # a parallel request consumed it
     await attempt.succeed()
-    return Done()
-
-
-@router.post("/password/change")
-async def change_password(
-    body: ChangePasswordIn,
-    request: Request,
-    ctx: Annotated[UserContext, Depends(require_sensitive)],
-    info: Annotated[SessionInfo | None, Depends(current_session)],
-) -> Done:
-    """Set or change the password. Every other session is revoked; the caller's stays."""
-    if info is None:
-        raise HTTPException(status_code=401, detail={"reason": "not_authenticated"})
-    try:
-        password = normalize_password(body.new_password)
-    except PasswordRuleError:
-        raise refuse(400, "password_rule") from None
-    await reserve(request, [Bucket(PASSWORD_CHANGE, str(ctx.user_id))])
-    password_hash = await request.app.state.password_hasher.hash(password)
-    async with system_session(factory(request)) as db:
-        await lock_user_row(db, ctx.user_id)  # first (``userlock``)
-        await db.execute(
-            update(users).where(users.c.id == ctx.user_id).values(password_hash=password_hash)
-        )
-        await revoke_user_sessions(db, ctx.user_id, except_id=info.id)
-        await delete_outstanding_tokens(db, ctx.user_id)
-        await record_event(db, "password_changed", user_id=ctx.user_id, ip=request_ip(request))
     return Done()

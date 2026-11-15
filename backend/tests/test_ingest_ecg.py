@@ -1,5 +1,9 @@
 """ECG frame, NULL-signal fingerprint and how a stream is shown. Synthetic samples only."""
 
+import struct
+
+import pytest
+
 from ownvitals.ingest.codec import (
     decode_signal,
     estimate_current,
@@ -70,3 +74,32 @@ def test_only_this_issues_kinds_register_and_the_shipped_registry_stays_empty() 
         "withings_sync",
     ]
     assert KINDS.names() == []
+
+
+def test_a_signal_with_more_than_twelve_leads_is_refused() -> None:
+    from ownvitals.ingest.codec import MAX_LEADS, SignalRejected, parse_uncompressed, uncompressed
+
+    assert len(parse_uncompressed(uncompressed([[1, 2]] * MAX_LEADS))) == MAX_LEADS
+    with pytest.raises(SignalRejected):
+        uncompressed([[1, 2]] * (MAX_LEADS + 1))
+    # A forged header that claims many leads is refused before any count is read.
+    count = 60_000
+    forged = uncompressed([[1]])[:4]
+    forged += struct.pack("<HH", count, 0) + b"\x00" * (4 * count)
+    with pytest.raises(SignalRejected):
+        parse_uncompressed(forged)
+
+
+def test_parse_refuses_more_than_the_lead_cap_with_valid_counts() -> None:
+    """SYNTHETIC. A header of MAX_LEADS + 1 leads, each one sample long: only the cap refuses it."""
+    from ownvitals.ingest.codec import MAX_LEADS, SignalRejected, parse_uncompressed
+
+    count = MAX_LEADS + 1
+    payload = b"OVE1" + struct.pack("<HH", count, 0) + struct.pack("<" + "I" * count, *[1] * count)
+    payload += struct.pack("<" + "i" * count, *range(count))
+    with pytest.raises(SignalRejected):
+        parse_uncompressed(payload)
+    ok = MAX_LEADS
+    within = b"OVE1" + struct.pack("<HH", ok, 0) + struct.pack("<" + "I" * ok, *[1] * ok)
+    within += struct.pack("<" + "i" * ok, *range(ok))
+    assert len(parse_uncompressed(within)) == ok

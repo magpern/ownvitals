@@ -19,6 +19,7 @@ from ownvitals.auth.clientip import bucket_ip, client_ip
 from ownvitals.auth.deps import request_ip
 from ownvitals.auth.passwords import PasswordHashBusy, PasswordHasher
 from ownvitals.auth.ratelimit import Bucket, Limit, RateLimited, RateLimiter, password_buckets
+from windowtools import clear_of_window
 
 TEST_LIMIT = Limit("test", "pair", 5, 3600)
 
@@ -36,6 +37,7 @@ async def counts(env: Env) -> list[int]:
 
 
 async def test_parallel_attempts_do_not_overshoot_the_limit(env: Env) -> None:
+    await clear_of_window(3600)
     attempts = await asyncio.gather(
         *(limiter(env).begin([Bucket(TEST_LIMIT, "victim|1.2.3.4")]) for _ in range(40))
     )
@@ -46,6 +48,7 @@ async def test_parallel_attempts_do_not_overshoot_the_limit(env: Env) -> None:
 
 
 async def test_the_limit_trips_and_a_new_window_resets_it(env: Env) -> None:
+    await clear_of_window(3600)
     bucket = Bucket(TEST_LIMIT, "someone")
     for _ in range(5):
         assert (await limiter(env).begin([bucket])).allowed

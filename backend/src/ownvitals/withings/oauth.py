@@ -33,7 +33,12 @@ from ownvitals.connections.providers.withings import (
 )
 from ownvitals.context import UserContext
 from ownvitals.crypto.keks import KeyRing
-from ownvitals.egress import WITHINGS_ACCOUNT_HOST, exchange_withings_code
+from ownvitals.egress import (
+    TRANSPORT_ERRORS,
+    WITHINGS_ACCOUNT_HOST,
+    OutboundBlocked,
+    exchange_withings_code,
+)
 from ownvitals.withings.client import WithingsApp, WithingsClient
 from ownvitals.withings.errors import WithingsError, interpret
 from ownvitals.withings.models import TokenResponse
@@ -174,7 +179,9 @@ async def callback(
         issued = interpret(
             "v2/oauth2:requesttoken", response.status_code, response.content, TokenResponse
         )
-    except WithingsError:
+    except (WithingsError, OutboundBlocked, *TRANSPORT_ERRORS):
+        # A refusal, a blocked request or a transport failure (the 30 s deadline included):
+        # nothing is stored and the state is spent.
         raise ConnectRefused("exchange_failed") from None
     try:
         stored = await store_grant(

@@ -115,6 +115,10 @@ def totp_enrolled_notice(to: str, *, locale: str = DEFAULT_LOCALE) -> MailMessag
     return _mail(to, locale, "totp_enrolled")
 
 
+def totp_removed_notice(to: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
+    return _mail(to, locale, "totp_removed")
+
+
 def mfa_failures_notice(to: str, *, locale: str = DEFAULT_LOCALE) -> MailMessage:
     return _mail(to, locale, "mfa_failures")
 

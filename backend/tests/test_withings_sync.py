@@ -397,3 +397,83 @@ async def test_out_of_range_series_and_devices_move_the_skip_count(
     counts = {row.stream: row.backfill_state["skipped_out_of_range"] for row in rows}
     assert counts["sleep_series"] == 1
     assert counts["devices"] == 1
+
+
+async def _cursor_range(
+    factory: async_sessionmaker[AsyncSession], owner: uuid.UUID, stream: str
+) -> tuple[datetime | None, datetime | None]:
+    async with user_session(factory, make_context(owner)) as db:
+        row = (
+            await db.execute(
+                text(
+                    "SELECT covered_from, covered_to FROM sync_cursors "
+                    "WHERE owner_id = :owner AND stream = :stream"
+                ),
+                {"owner": owner, "stream": stream},
+            )
+        ).one()
+    return row.covered_from, row.covered_to
+
+
+async def test_a_write_without_a_range_keeps_the_covered_range_and_a_wider_one_extends_it(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    app_id = new_app(database_url)
+    owner, connection, _ = _plant(database_url, app_id)
+    first, last = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC)
+
+    async def put(start: datetime | None, end: datetime | None) -> None:
+        async with user_session(sessions, make_context(owner)) as db:
+            await write_cursor(
+                db,
+                owner,
+                connection,
+                "measures",
+                capability="supported",
+                state={"status": "complete"},
+                covered_from=start,
+                covered_to=end,
+            )
+
+    await put(first, last)
+    await put(None, None)  # an incremental pass: no range
+    assert await _cursor_range(sessions, owner, "measures") == (first, last)
+    earlier, later = datetime(2025, 12, 1, tzinfo=UTC), datetime(2026, 3, 1, tzinfo=UTC)
+    await put(earlier, later)
+    assert await _cursor_range(sessions, owner, "measures") == (earlier, later)
+    await put(first, last)  # a narrower one does not shrink it
+    assert await _cursor_range(sessions, owner, "measures") == (earlier, later)
+
+
+async def test_connect_makes_no_devices_or_goals_call_without_their_scope(
+    sessions: async_sessionmaker[AsyncSession], database_url: str
+) -> None:
+    from ownvitals.withings.sync_connect import execute_connect
+
+    app_id = new_app(database_url)
+    owner, connection, job_id = _plant(database_url, app_id)
+    fake = FakeWithings(seed=41)
+    app = fake.add_app()
+    user = fake.add_user(days=1, ecg_count=0, sleep_series_nights=0, intraday_days=0)
+    token = fake.tokens_for(app.client_id, user.userid, scope="user.activity")["access_token"]
+    account = Account(connection, app_id, ("user.activity",), "UTC", token)
+    job = _run(sessions, owner, connection, job_id)
+    async with WithingsClient.open(
+        WithingsApp(app.client_id, app.client_secret), inner=FakeWithingsTransport(fake)
+    ) as client:
+        await execute_connect(job, account, client, now=datetime(2026, 11, 2, tzinfo=UTC))
+    endpoints = {entry.endpoint for entry in fake.log}
+    assert not any("getdevice" in e or "getgoals" in e for e in endpoints), endpoints
+    async with user_session(sessions, make_context(owner)) as db:
+        caps = dict(
+            (
+                await db.execute(
+                    text(
+                        "SELECT stream, capability FROM sync_cursors "
+                        "WHERE owner_id = :owner AND stream IN ('devices', 'goals')"
+                    ),
+                    {"owner": owner},
+                )
+            ).all()
+        )
+    assert caps == {"devices": "not_authorized", "goals": "not_authorized"}

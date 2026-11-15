@@ -14,7 +14,7 @@ export const health = {
   'severity.info': 'För kännedom',
   'rule.E1.name': 'Förmaksflimmer rapporterat av enheten',
   'rule.E1.text': 'Din enhet rapporterade förmaksflimmer i en EKG-inspelning.',
-  'rule.E2.name': 'Flera senaste EKG ej avgörande eller brusiga',
+  'rule.E2.name': 'Flera av de senaste EKG:na ej avgörande eller brusiga',
   'rule.E2.text': 'Withings markerade {count} av dina senaste {total} EKG som ej avgörande eller brusiga.',
   'rule.E3.name': 'Låg eller hög puls under ett EKG',
   'rule.E3.text': 'Withings markerade en EKG-inspelning med låg eller hög puls.',
@@ -44,7 +44,7 @@ export const health = {
   'rule.C2.name': 'Kärlåldern stiger',
   'rule.C2.text': 'Din kärlålder har stigit snabbare än din ålder under de senaste {windowDays} dagarna.',
   'rule.N2:guided.name': 'Nervhälsoavläsning under ditt vanliga intervall',
-  'rule.N2:guided.text': 'En guidad nervhälsoavläsning låg under ditt vanliga intervall.',
+  'rule.N2:guided.text': 'En vägledd nervhälsoavläsning låg under ditt vanliga intervall.',
   'rule.N2:routine.name': 'Nervhälsoavläsningar under ditt vanliga intervall',
   'rule.N2:routine.text':
     'Dina rutinmässiga nervhälsoavläsningar låg under ditt vanliga intervall {runDays} dagar i rad.',

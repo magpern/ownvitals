@@ -1,10 +1,15 @@
 Content-Language: sv
+List-Unsubscribe: <https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkAAAAAAAAAAAAAAAAAaaTTAI6W8brV7iNN7t-m5ZjVWLo>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
 Subject: ownvitals: något väntar på dig
 
 Något nytt väntar på dig i ownvitals.
 
-Öppna det här: https://ownvitals.example.test/
+Öppna det här: https://ownvitals.example.test/overview
 
 Det här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du har loggat in.
 
 - ownvitals
+
+Vill du inte få sådana här mejl? Stäng av dem: https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkAAAAAAAAAAAAAAAAAaaTTAI6W8brV7iNN7t-m5ZjVWLo
+Du kan slå på dem igen i ownvitals under Inställningar, Aviseringar.

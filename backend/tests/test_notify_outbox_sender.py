@@ -38,10 +38,12 @@ from ownvitals.egress import OutboundBlocked, core, install_worker_allowlist
 from ownvitals.mail import Mailer
 from ownvitals.notify import sender as sender_module
 from ownvitals.notify.sender import OutboxSender, Report
-from ownvitals.notify.templates import LINK, TABLES
+from ownvitals.notify.templates import FOOTERS, LINK, TABLES, UNSUBSCRIBE_LINK
+from ownvitals.notify.unsubscribe import unsubscribe_key
 from smtpfake import SmtpFake
 
 BASE = "https://ownvitals.example.test"
+KEY = unsubscribe_key(b"synthetic-app-secret-for-the-sender-tests-only")
 Factory = async_sessionmaker[AsyncSession]
 
 
@@ -136,7 +138,7 @@ async def test_a_user_mail_goes_to_the_account_with_the_fixed_text(
     alice, address = _account(su)
     row = _mail_for(su, alice)
     async with SmtpFake() as smtp:
-        report = await OutboxSender(factory, _mailer(smtp.port), BASE).run_once()
+        report = await OutboxSender(factory, _mailer(smtp.port), BASE, KEY).run_once()
     assert report == Report(sent=1)
     [mail] = smtp.messages
     assert mail.to == address
@@ -156,7 +158,7 @@ async def test_an_owner_notice_goes_to_every_active_admin(su: Connection, factor
     _, user = _account(su)
     su.execute(text("SELECT owner_notice_queue('connection_needs_reconnect')"))
     async with SmtpFake() as smtp:
-        report = await OutboxSender(factory, _mailer(smtp.port), BASE).run_once()
+        report = await OutboxSender(factory, _mailer(smtp.port), BASE, KEY).run_once()
     assert report == Report(sent=1)
     assert sorted(m.to for m in smtp.messages) == sorted([first, second])
     assert smtp.to(user) == []
@@ -169,7 +171,7 @@ async def test_an_owner_notice_goes_to_every_active_admin(su: Connection, factor
 async def test_an_owner_notice_with_no_admin_is_failed(su: Connection, factory: Factory) -> None:
     su.execute(text("SELECT owner_notice_queue('connection_needs_reconnect')"))
     async with SmtpFake() as smtp:
-        report = await OutboxSender(factory, _mailer(smtp.port), BASE).run_once()
+        report = await OutboxSender(factory, _mailer(smtp.port), BASE, KEY).run_once()
     assert (report, smtp.messages) == (Report(failed=1), [])
     assert _states(su) == [("connection_needs_reconnect", "failed", 1)]
 
@@ -180,7 +182,7 @@ async def test_a_disabled_account_s_mail_is_failed_not_sent(
     gone, _ = _account(su, disabled=True)
     _mail_for(su, gone)
     async with SmtpFake() as smtp:
-        report = await OutboxSender(factory, _mailer(smtp.port), BASE).run_once()
+        report = await OutboxSender(factory, _mailer(smtp.port), BASE, KEY).run_once()
     assert (report, smtp.messages) == (Report(failed=1), [])
     assert _states(su) == [("findings_waiting", "failed", 1)]
 
@@ -190,7 +192,7 @@ async def test_a_failed_delivery_is_retried(
 ) -> None:
     alice, address = _account(su)
     _mail_for(su, alice)
-    sender = OutboxSender(factory, _mailer(_closed_port(), total_seconds=2), BASE)
+    sender = OutboxSender(factory, _mailer(_closed_port(), total_seconds=2), BASE, KEY)
     assert await sender.run_once() == Report(retried=1)
     assert _states(su) == [("findings_waiting", "pending", 1)]
     assert await sender.run_once() == Report()  # held before the next attempt
@@ -201,7 +203,7 @@ async def test_the_batch_is_bounded(su: Connection, factory: Factory) -> None:
     for _ in range(3):
         _mail_for(su, _account(su)[0])
     async with SmtpFake() as smtp:
-        sender = OutboxSender(factory, _mailer(smtp.port), BASE, batch=2)
+        sender = OutboxSender(factory, _mailer(smtp.port), BASE, KEY, batch=2)
         assert await sender.run_once() == Report(sent=2)
         assert await sender.run_once() == Report(sent=1)
     assert len(smtp.messages) == 3
@@ -217,7 +219,7 @@ async def test_the_sender_refuses_in_the_worker_before_claiming(
         mailer = _mailer(smtp.port)
         install_worker_allowlist()
         with pytest.raises(OutboundBlocked):
-            await OutboxSender(factory, mailer, BASE).run_once()
+            await OutboxSender(factory, mailer, BASE, KEY).run_once()
     assert (smtp.connections, smtp.messages) == (0, [])
     # Nothing was claimed: both rows wait for web, untouched.
     assert _states(su) == [
@@ -228,12 +230,12 @@ async def test_the_sender_refuses_in_the_worker_before_claiming(
 
 async def test_start_without_an_smtp_host_leaves_mail_queued(factory: Factory) -> None:
     unconfigured = Mailer(Settings())  # pyright: ignore[reportCallIssue]
-    assert sender_module.start(factory, unconfigured, BASE) is None
+    assert sender_module.start(factory, unconfigured, BASE, KEY) is None
     await sender_module.stop(None)
 
 
 async def test_start_runs_a_task_that_stop_ends(factory: Factory) -> None:
-    task = sender_module.start(factory, _mailer(_closed_port()), BASE)
+    task = sender_module.start(factory, _mailer(_closed_port()), BASE, KEY)
     assert task is not None
     assert not task.done()
     await sender_module.stop(task)
@@ -276,13 +278,16 @@ async def test_a_user_mail_is_in_the_account_s_language(
     alice, address = _account(su, locale=stored)
     _mail_for(su, alice)
     async with SmtpFake() as smtp:
-        sender = OutboxSender(factory, _mailer(smtp.port), BASE, enabled_locales=enabled)
+        sender = OutboxSender(factory, _mailer(smtp.port), BASE, KEY, enabled_locales=enabled)
         assert await sender.run_once() == Report(sent=1)
     [mail] = smtp.to(address)
     assert mail.message["Content-Language"] == expected
     template = TABLES[expected]["findings_waiting"]
     assert mail.subject == template.subject
-    expected_body = template.body.replace(LINK, f"{BASE}/findings")
+    # The locale's own unsubscribe footer too (ADR 0019), with the link of the headers.
+    link = str(mail.message["List-Unsubscribe"]).strip("<>")
+    footer = FOOTERS[expected].replace(UNSUBSCRIBE_LINK, link)
+    expected_body = template.body.replace(LINK, f"{BASE}/findings") + footer
     assert mail.text.replace("\r\n", "\n").rstrip("\n") == expected_body.rstrip("\n")
 
 
@@ -293,7 +298,9 @@ async def test_owner_notices_are_english_whatever_the_admins_languages(
     _, second = _account(su, role="admin", locale="sv")
     su.execute(text("SELECT owner_notice_queue('connection_needs_reconnect')"))
     async with SmtpFake() as smtp:
-        assert await OutboxSender(factory, _mailer(smtp.port), BASE).run_once() == Report(sent=1)
+        assert await OutboxSender(factory, _mailer(smtp.port), BASE, KEY).run_once() == Report(
+            sent=1
+        )
     assert sorted(m.to for m in smtp.messages) == sorted([first, second])
     for mail in smtp.messages:
         assert mail.message["Content-Language"] == "en"
@@ -328,5 +335,7 @@ async def test_the_sender_passes_render_only_the_code(
 
     monkeypatch.setattr(sender_module, "render", spy)
     async with SmtpFake() as smtp:
-        assert await OutboxSender(factory, _mailer(smtp.port), BASE).run_once() == Report(sent=1)
+        assert await OutboxSender(factory, _mailer(smtp.port), BASE, KEY).run_once() == Report(
+            sent=1
+        )
     assert seen == [("findings_waiting", "findings", BASE, "sv")]

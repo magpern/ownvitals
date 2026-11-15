@@ -15,6 +15,7 @@ change in `egress/core.py` and a security-critical review.
 | worker, AI enabled | `model_async_client()` | `api.anthropic.com` (M7) |
 | web | `google_oauth_client()`, `google_async_client()` | `oauth2.googleapis.com` (token), `www.googleapis.com` (JWKS) |
 | web | `exchange_withings_code()` (`egress/code_exchange.py`) | one request it builds itself: `POST https://wbsapi.withings.net/v2/oauth2`, `action=requesttoken`, `grant_type=authorization_code` |
+| web, `turnstile_enabled` | `verify_turnstile_token()` (`egress/turnstile.py`) | one request it builds itself: `POST https://challenges.cloudflare.com/turnstile/v0/siteverify` with exactly `secret` and `response`; the hook resolves the host only while Turnstile is on (roadmap Amendment 12, ADR 0018) |
 | web | `ownvitals.mail.Mailer` | the configured SMTP server (`smtp_host`, a setting, not a list entry) |
 
 `tests/test_egress_runtime.py` enumerates it: every entry point against every candidate request,
@@ -116,14 +117,18 @@ Only `ownvitals.mail` may open it (the guard).
 ## The runtime hook (ADR 0009)
 
 The authoritative control. `install_egress_hook(kind, settings)` (`kind`: `web`, `worker`,
-`cli`) adds a PEP 578 audit hook, once per process; it cannot be removed. Installed by
-`ownvitals/worker/__main__.py` (`main`) and the CLI (`run_command`); web's install and its
-startup loop check are acceptance criteria of #77. The guard allows the call only in those three
-modules.
+`cli`, `migrate`) adds a PEP 578 audit hook, once per process; it cannot be removed. Installed by
+`ownvitals/worker/__main__.py` (`main`), the CLI (`run_command`) and, for `migrate`
+(`alembic upgrade head`), `backend/migrations/env.py` when alembic's command line runs it
+(`context.config.cmd_opts` is set; an in-process `alembic.command` caller, such as the tests,
+keeps its own process's hook), with the standard-loop check as the online run's first statement
+(#284); web's install and its startup loop check are acceptance criteria of #77. The guard
+allows the call only in those modules (`env.py` is scanned as `migrations.env`). `db-functions`
+installs none (ADR 0009 item 1).
 
 | Audit event | Rule |
 |---|---|
-| `socket.getaddrinfo`, `socket.gethostbyname` (and `_ex`) | only a host in the process's set: web: Google sign-in's hosts and `wbsapi.withings.net`; worker (and the CLI once its probe installs it): the installed worker list; every kind: the database URLs' hosts; web and CLI: `smtp_host`. No context needed: asyncio resolves in an executor thread |
+| `socket.getaddrinfo`, `socket.gethostbyname` (and `_ex`) | only a host in the process's set: web: Google sign-in's hosts and `wbsapi.withings.net`; worker (and the CLI once its probe installs it): the installed worker list; every kind: the database URLs' hosts (all `migrate` gets); web and CLI: `smtp_host`. No context needed: asyncio resolves in an executor thread |
 | `socket.gethostbyaddr`, `socket.getnameinfo` | always refused |
 | `socket.connect` (and `connect_ex`), `sendto`, `sendmsg` | `AF_INET`/`AF_INET6`: only inside a connection scope, set by `AllowlistTransport` and the urllib opener around a send (after their allowlist check) and by `mail` around one SMTP session. `AF_UNIX`: only a configured database socket (`<host dir>/.s.PGSQL.<port>`). Any other family: refused. A send without an address is allowed |
 | `socket.__new__` | only `AF_INET`, `AF_INET6` and `AF_UNIX`: a raw or packet socket is refused before it exists, and so is `socket.socket(fileno=fd)` without a family (family `-1` on Linux) |
@@ -205,11 +210,23 @@ specific key wins, `only_in` scopes an entry):
 |---|---|
 | denied | `starlette.testclient` |
 | by design (inbound or driver code) | `fastapi`, `fastapi.responses`, `starlette.*`, `uvicorn`, `sqlalchemy.*` |
-| allowed names | `asyncio`: `AbstractEventLoop`, `CancelledError`, `Event`, `FIRST_COMPLETED`, `Lock`, `SelectorEventLoop`, `Task`, `ensure_future`, `gather`, `get_running_loop`, `run`, `sleep`, `timeout`, `to_thread`, `wait`, `wait_for`; `socket`, only in `ownvitals.worker.loop`: `gethostname` (a local call); `email.message`: `EmailMessage`; `importlib.metadata`: `PackageNotFoundError`, `version`; `pydantic.fields`: `FieldInfo`; `pydantic_settings`: `BaseSettings`, `PydanticBaseSettingsSource`, `SettingsConfigDict`; `smtplib`, only in `ownvitals.mail`: `SMTP`, `SMTP_SSL` and its exception classes; `uuid`: `UUID`, `uuid4`; `scipy.stats`: `rankdata`, `scipy.signal`: `butter`, `find_peaks`, `get_window`, `iirnotch`, `sosfiltfilt`, `sosfreqz`, `tf2sos`, `scipy.ndimage`: `maximum_filter1d`, `uniform_filter1d` (capable only through scipy's docstring tooling and `pydoc`); `alembic`: none (imported for `alembic.op`); `alembic.op`: `execute`; `psycopg`, only in `ownvitals.db.install_functions`: `connect`, `Error`, `ProgrammingError`; `psycopg.conninfo`, only in `ownvitals.db.install_functions`: `conninfo_to_dict`, `make_conninfo`; `webauthn`, `webauthn.helpers.options_to_json`, `webauthn.helpers.parse_attestation_object`, `webauthn.helpers.cose` and `webauthn.helpers.structs`, only in `ownvitals.auth.passkey_ceremonies`: the option builders, the two verifiers, `options_to_json`, `parse_attestation_object`, `COSEAlgorithmIdentifier` and the option and response enums (#178; capable only through pyOpenSSL's `OpenSSL.SSL`, which py_webauthn imports to validate attestation certificate chains in memory; it opens no connection, and ownvitals refuses every attestation format but `none` before calling it, so no chain is processed) |
+| allowed names | `asyncio`: `AbstractEventLoop`, `CancelledError`, `Event`, `FIRST_COMPLETED`, `Lock`, `SelectorEventLoop`, `Task`, `ensure_future`, `gather`, `get_running_loop`, `run`, `sleep`, `timeout`, `to_thread`, `wait`, `wait_for`; `socket`, only in `ownvitals.worker.loop`: `gethostname` (a local call); `email.message`: `EmailMessage`; `importlib.metadata`: `PackageNotFoundError`, `version`; `pydantic.fields`: `FieldInfo`; `pydantic_settings`: `BaseSettings`, `PydanticBaseSettingsSource`, `SettingsConfigDict`; `smtplib`, only in `ownvitals.mail`: `SMTP`, `SMTP._get_socket`, `SMTP_SSL` and its exception classes; `uuid`: `UUID`, `uuid4`; `scipy.stats`: `rankdata`, `scipy.signal`: `butter`, `find_peaks`, `get_window`, `iirnotch`, `sosfiltfilt`, `sosfreqz`, `tf2sos`, `scipy.ndimage`: `maximum_filter1d`, `uniform_filter1d` (capable only through scipy's docstring tooling and `pydoc`); `alembic`: none (imported for `alembic.op`); `alembic.op`: `execute`; `alembic.context`, only in `migrations.env`: `begin_transaction`, `config`, `config.cmd_opts`, `configure`, `is_offline_mode`, `run_migrations`; `psycopg`, only in `ownvitals.db.install_functions`: `connect`, `Error`, `ProgrammingError`; `psycopg.conninfo`, only in `ownvitals.db.install_functions`: `conninfo_to_dict`, `make_conninfo`; `reportlab.pdfgen.canvas`, only in `ownvitals.reports.ecg_pdf`: `Canvas` (#192; capable only through `reportlab.lib.utils`, whose URL opener serves images; the PDF draws lines and built-in-font text into memory, never an image or link); `webauthn`, `webauthn.helpers.options_to_json`, `webauthn.helpers.parse_attestation_object`, `webauthn.helpers.cose` and `webauthn.helpers.structs`, only in `ownvitals.auth.passkey_ceremonies`: the option builders, the two verifiers, `options_to_json`, `parse_attestation_object`, `COSEAlgorithmIdentifier` and the option and response enums, with the members used (#178; capable only through pyOpenSSL's `OpenSSL.SSL`, which py_webauthn imports to validate attestation certificate chains in memory; it opens no connection, and ownvitals refuses every attestation format but `none` before calling it, so no chain is processed) |
 
 Any other name of an allowed module is refused wherever it is referenced: an import, a call, a
-bare reference, an attribute value, a `partial` argument, an alias or a chain. A submodule is a
+bare reference, an attribute value, a `partial` argument, an alias or a chain. A chain past an
+allowed name is judged step by step: each step needs a dotted name of its own in the entry
+(`SMTP._get_socket`, `ClientDataType.WEBAUTHN_GET.value`), so `psycopg.connect.cursor` and
+`psycopg.connect.__self__` are refused (#284; `tests/test_egress_chains.py`). A call ends a
+chain: `psycopg.connect(...).cursor()` is a method of the returned value. A submodule is a
 module of its own and is classified on its own (`alembic.op`, `asyncio.base_events`).
+
+The scan is bounded (#395; `tests/test_egress_scan_limits.py`): a module over
+`MAX_SOURCE_BYTES` (256 KiB), or one with an attribute chain, an imported name or a dotted string
+over `MAX_CHAIN_PARTS` (16) parts, is refused as a whole before anything else is judged, and
+`classify` refuses any longer name it is still handed (an alias head with its chain). Judging
+every prefix at every node made an unbounded chain cost grow with its cube (3,200 parts took
+about 40 s). Refusing fails closed; `src/` stays far inside both (its longest chain has 5 parts,
+its largest module is under 20 KB), and the test pins that margin.
 
 What else the guard refuses outside the package:
 
@@ -221,6 +238,11 @@ What else the guard refuses outside the package:
   `asyncio.AbstractEventLoop` outside `LOOP_METHODS` (`create_connection`, `sock_connect`,
   `getaddrinfo` ...) and the functions of `asyncio.streams`, read from the locked stdlib. A loop
   object cannot be told apart statically, so `retry(loop.sock_connect)` is refused too;
+- **server sockets**, except in the worker's `/metrics` listener (#167, ADR 0009 note of
+  2026-11-09): `ownvitals.metrics_server` alone may use `asyncio.start_server` and the stream
+  types `Server`, `StreamReader` and `StreamWriter` (`LISTENER_MODULE`, `LISTENER_NAMES`,
+  `LISTENER_ATTRIBUTES`); every other loop network method stays refused there too, and a test
+  pins the exemption to exactly that module;
 - **strings** that name a dotted path to a capable module or to a name outside its allowed names
   (`ext://` stripped; `"handlers.X"` is also read as `logging.handlers.X`, the `fileConfig`
   form), as `dictConfig` would import it;
@@ -333,7 +355,7 @@ What else the guard refuses outside the package:
   point a list;
 - calling `install_worker_allowlist` (only `WORKER_ROLE_MODULES`, above);
 - calling `install_egress_hook` outside the entry points (`ownvitals.worker.__main__`,
-  `ownvitals.cli`, `ownvitals.web`), or `smtp_session` outside `ownvitals.mail`;
+  `ownvitals.cli`, `ownvitals.web`, `migrations.env`), or `smtp_session` outside `ownvitals.mail`;
 - star-importing anything.
 
 An import inside `if TYPE_CHECKING:` passes every rule, `ctypes` and the process routes
@@ -420,11 +442,16 @@ uvx uv@0.13.6 run pytest -q tests/test_egress.py tests/test_egress_guard.py \
 ## Known limits
 
 - The hook sees only Python's `socket` module. It cannot see C extensions that open sockets
-  themselves (libpq, the database driver, by design: it connects only to the configured
-  database; a new dependency with native networking is caught by dependency review), `ctypes`
+  themselves (libpq's TCP connect, by design: it connects only to the configured database; a
+  new dependency with native networking is caught by dependency review), `ctypes`
   (refused statically in `src/`; a dependency's use is trusted code), or code that already runs
   in the process: it is a control on our code and our libraries, not
-  a sandbox. A network-level egress rule stays the deployment's (M2).
+  a sandbox. A network-level egress rule stays the deployment's (M2). libpq's lookup is not
+  among the unseen: psycopg (3.3) resolves a host name in Python first (`socket.getaddrinfo`,
+  sync and async) and hands libpq the address, so the hook checks the host.
+- The guard scans `src/ownvitals` and `migrations/env.py`, not the revisions under
+  `migrations/versions` (SQL through `alembic.op` on migrate's connection); the `migrate`
+  hook covers them at run time.
 - The hook refuses the process-creation routes that raise audit events. `_posixsubprocess.fork_exec`
   raises none: the `multiprocessing` `spawn` and `forkserver` methods (and uvicorn's
   `workers > 1` and `reload`) use it, and `ctypes` can start a process too. The guard refuses

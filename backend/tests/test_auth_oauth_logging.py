@@ -54,7 +54,7 @@ async def _complete(
 async def _google_only(env: Env, fake: FakeProviders, planted: list[str]) -> Browser:
     browser = Browser(env)
     url = await _flow(browser, "sign_in", planted, invite_code=await make_invite(env))
-    assert await _complete(browser, fake, url, planted) == "/"
+    assert await _complete(browser, fake, url, planted) == "/overview"
     await pass_second_factor(env, browser, UUID(str(await env.scalar("SELECT id FROM users"))))
     await age_reauth(env)
     return browser

@@ -1,5 +1,6 @@
 """The database reads of the read API (PLAN section 8): ``/api/status``, ``/api/metrics``,
-``/api/days`` and ``/api/readings``, ``/api/nerve/summary``.
+``/api/days`` and ``/api/readings``, ``/api/nerve/summary``, and the AI tools' per-day sleep and
+activity values (``views.stream_days_read``, #401).
 
 ``reading()`` opens one ``user_session`` (forced RLS) and hands out a ``Reader``; every statement
 also filters ``owner_id`` itself (ADR 0002). This is the one module of ``ownvitals.views`` besides
@@ -20,12 +21,23 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.config import Settings
 from ownvitals.connections.repository import list_connections
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
+from ownvitals.derived.daily_db import read_day_tz
 from ownvitals.views.catalog import STATUS_STREAMS
-from ownvitals.views.read_records import DailyRecord, DayReading, ReadingDetail, StatusFacts
+from ownvitals.views.read_records import (
+    DailyRecord,
+    DayReading,
+    ReadingDetail,
+    SegmentalRecord,
+    StatusFacts,
+)
+from ownvitals.views.scores_read import latest_scores
+from ownvitals.views.segmental_read import latest_segmental
 from ownvitals.views.states import ConnectionFacts, StreamFacts
+from ownvitals.views.stream_days_read import DayValues, stream_days
 from ownvitals.withings.streams import stream_named, windows
 
 REVISION_STREAM = "measures"  # the counter every metric_daily row is stamped with
@@ -41,6 +53,12 @@ _ACTIVE_IMPORTS = text(
 )
 _LAST_READING = text(
     "SELECT max(measured_at) FROM measure_groups WHERE owner_id = :o AND deleted_at IS NULL"
+)
+ZONE_LOOKBACK = timedelta(days=90)
+_NEWEST_ZONE = text(
+    "SELECT source_tz FROM observations WHERE owner_id = :o AND ts <= :now AND ts > :floor "
+    "AND NOT (quality_flags && ARRAY['unconfirmed','implausible','duplicate']) "
+    "ORDER BY ts DESC LIMIT 1"
 )
 _REVISION = text("SELECT revision FROM data_revisions WHERE owner_id = :o AND stream = :s")
 _DAILY = text(
@@ -185,6 +203,9 @@ class Reader:
             )
         return found
 
+    async def segmental_latest(self, key: str) -> list[SegmentalRecord]:
+        return await latest_segmental(self._db, self._owner, key)
+
     async def unconfirmed_days(self, key: str, first: date, last: date) -> dict[date, int]:
         lo, _ = _around(first)
         _, hi = _around(last)
@@ -239,6 +260,26 @@ class Reader:
             device_type=r.device_type,
             device_firmware=r.fw,
         )
+
+    async def latest_scores(self, *, settings: Settings) -> list[tuple[Any, bool]]:
+        return await latest_scores(self._db, self._owner, settings)
+
+    async def home_zone(self, now: datetime) -> str | None:
+        """The zone of the user's day: the profile's fixed zone, else the zone of the newest
+        confirmed reading in the last ``ZONE_LOOKBACK`` up to ``now`` (a bounded scan: the table
+        has only a BRIN index on ``ts``), else ``None``."""
+        fixed = await read_day_tz(self._db, self._owner)
+        if fixed is not None:
+            return fixed
+        newest = (
+            await self._db.execute(
+                _NEWEST_ZONE, {"o": self._owner, "now": now, "floor": now - ZONE_LOOKBACK}
+            )
+        ).scalar_one_or_none()
+        return None if newest is None else str(newest)
+
+    async def stream_days(self, keys: tuple[str, ...], first: date, last: date) -> DayValues:
+        return await stream_days(self._db, self._owner, keys, first, last)
 
 
 @asynccontextmanager

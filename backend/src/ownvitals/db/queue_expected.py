@@ -4,6 +4,17 @@ queue role's attributes, dependencies and privileges, and the one catalogue quer
 all. ``ownvitals.db.queue_check`` re-exports every public name here.
 """
 
+from ownvitals.db.queue_expected_extra import (
+    ADMIN_ACCOUNTS_FUNCTION_NAMES,
+    ADMIN_REVOKE_ENQUEUE,
+    ADMIN_REVOKE_ENQUEUE_ARGS,
+    AI_FUNCTION_NAMES,
+    EXPORTS_FUNCTION_NAMES,
+    OUTBOX_FUNCTION_NAMES,
+    PURGE_ACCOUNT_ACL,
+    RATE_FUNCTION_NAMES,
+)
+
 QUEUE_ROLE = "ownvitals_queue"
 QUEUE_VERSION = "ownvitals-queue v2"
 SEARCH_PATH = "search_path=pg_catalog, pg_temp"
@@ -27,6 +38,11 @@ WITHINGS_FUNCTION_NAMES = (
     "webhook_secrets_apply",
     "webhook_event_insert",
     "webhook_events_purge_owner",
+    # #362: the admin delete's purge, system session only (the owner is an argument).
+    "webhook_events_purge_account",
+    # #167: the metrics aggregates, owned by the read-only ownvitals_metrics.
+    "metrics_withings_aggregates",
+    "metrics_webhook_ages",
 )
 WITHINGS_VERSION = "ownvitals-withings v1"
 # name -> (identity arguments, owner, proconfig joined by ';', ACL joined by ',')
@@ -59,92 +75,38 @@ WITHINGS_PINS: dict[str, tuple[str, str, str, str]] = {
         "search_path=pg_catalog, pg_temp",
         "ownvitals_app=X/ownvitals_webhook_events,ownvitals_webhook_events=X/ownvitals_webhook_events",
     ),
-}
-# Admitted with the Withings functions (20-queue.sql, rate.sql). Absent until the migration
-# and rate.sql have run; once present, pinned the same way.
-RATE_FUNCTION_NAMES = (
-    "withings_rate_claim",
-    "withings_rate_release",
-    "withings_rate_pause",
-)
-RATE_VERSION = "ownvitals-rate v1"
-_RATE_CONFIG = "search_path=pg_catalog, pg_temp;TimeZone=UTC"
-_RATE_ACL = "ownvitals_app=X/ownvitals_owner,ownvitals_owner=X/ownvitals_owner"
-RATE_PINS: dict[str, tuple[str, str, str, str]] = {
-    "withings_rate_claim": (
-        "p_app_id integer, p_account_id uuid, p_lane integer, p_lease_seconds integer",
-        "ownvitals_owner",
-        _RATE_CONFIG,
-        _RATE_ACL,
-    ),
-    "withings_rate_release": ("p_lease_id uuid", "ownvitals_owner", _RATE_CONFIG, _RATE_ACL),
-    "withings_rate_pause": (
-        "p_app_id integer, p_wait_seconds double precision",
-        "ownvitals_owner",
-        _RATE_CONFIG,
-        _RATE_ACL,
-    ),
-}
-# The mail outbox's family (docker/postgres/notify/50-outbox.sql, ADR 0007 section 3; #194),
-# owned by its own NOLOGIN role. Absent until db-functions has run that script; once present,
-# pinned the same way.
-OUTBOX_ROLE = "ownvitals_mail_outbox"
-OUTBOX_FUNCTION_NAMES = (
-    "mail_outbox_claim",
-    "mail_outbox_mark",
-    "owner_notice_queue",
-)
-OUTBOX_VERSION = "ownvitals-outbox v1"
-_OUTBOX_ACL = f"ownvitals_app=X/{OUTBOX_ROLE},{OUTBOX_ROLE}=X/{OUTBOX_ROLE}"
-OUTBOX_PINS: dict[str, tuple[str, str, str, str]] = {
-    "mail_outbox_claim": (
-        "p_limit integer, p_lease_seconds integer",
-        OUTBOX_ROLE,
+    # The ACL depends on the admin account family (#314): queue_check picks PURGE_ACCOUNT_ACL or
+    # PURGE_ACCOUNT_ADMIN_ACL (queue_expected_extra); this entry is the one without it.
+    "webhook_events_purge_account": (
+        "p_owner uuid",
+        "ownvitals_webhook_events",
         "search_path=pg_catalog, pg_temp",
-        _OUTBOX_ACL,
+        PURGE_ACCOUNT_ACL,
     ),
-    "mail_outbox_mark": (
-        "p_id uuid, p_outcome text",
-        OUTBOX_ROLE,
+    "metrics_withings_aggregates": (
+        "",
+        "ownvitals_metrics",
         "search_path=pg_catalog, pg_temp",
-        _OUTBOX_ACL,
+        "ownvitals_app=X/ownvitals_metrics,ownvitals_metrics=X/ownvitals_metrics",
     ),
-    "owner_notice_queue": (
-        "p_kind text",
-        OUTBOX_ROLE,
+    "metrics_webhook_ages": (
+        "p_after timestamp with time zone, p_after_id uuid",
+        "ownvitals_metrics",
         "search_path=pg_catalog, pg_temp",
-        _OUTBOX_ACL,
+        "ownvitals_app=X/ownvitals_metrics,ownvitals_metrics=X/ownvitals_metrics",
     ),
-}
-# The AI cost cap's family (docker/postgres/ai/50-ai.sql, ADR 0014 section 7; #205), owned by
-# its own NOLOGIN role. Absent until db-functions has run that script; once one is present, all
-# four must be, each pinned (its digest in queue_digests.py with the others).
-AI_ROLE = "ownvitals_ai"
-AI_FUNCTION_NAMES = ("ai_reserve", "ai_settle", "ai_release", "ai_settle_lost")
-AI_VERSION = "ownvitals-ai v1"
-# Sorted as the query sorts the entries: "ownvitals_ai" comes before "ownvitals_app".
-_AI_ACL = f"{AI_ROLE}=X/{AI_ROLE},ownvitals_app=X/{AI_ROLE}"
-AI_PINS: dict[str, tuple[str, str, str, str]] = {
-    "ai_reserve": (
-        "p_amount bigint, p_job_id uuid, p_user_cap bigint, p_global_cap bigint",
-        AI_ROLE,
-        SEARCH_PATH,
-        _AI_ACL,
-    ),
-    "ai_settle": ("p_id uuid, p_actual bigint", AI_ROLE, SEARCH_PATH, _AI_ACL),
-    "ai_release": ("p_id uuid", AI_ROLE, SEARCH_PATH, _AI_ACL),
-    "ai_settle_lost": ("p_limit integer", AI_ROLE, SEARCH_PATH, _AI_ACL),
 }
 EXPECTED_ACL = "ownvitals_app=X/ownvitals_queue,ownvitals_queue=X/ownvitals_queue"
 # 40-withings.sql grants the ingest role EXECUTE on queue_enqueue so the notification and the
-# job commit together. 20-queue.sql revokes that grant when it is re-run on its own, so both
-# ACLs are the shipped ones: with the ingest role, and without it.
+# job commit together, and 20-queue.sql keeps that grant when it is re-run on its own. The ACL
+# is this one exactly when webhook_event_insert exists, and EXPECTED_ACL before it does (#280).
 ENQUEUE_INGEST_ACL = EXPECTED_ACL + ",ownvitals_webhook_events=X/ownvitals_queue"
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 EXPECTED_ATTRIBUTES = [False, False, False, False, False, True, False]
 # What ownvitals_queue may hold: ACL entries ("a") and ownership ("o"), as pg_shdepend lists them.
 EXPECTED_DEPENDENCIES = frozenset(
     {f"pg_proc:public.{name}({args}):0:o" for name, args in QUEUE_FUNCTIONS.items()}
+    | {f"pg_proc:public.{ADMIN_REVOKE_ENQUEUE}({ADMIN_REVOKE_ENQUEUE_ARGS}):0:o"}  # #365
     | {
         "pg_class:public.jobs:0:a",
         "pg_class:public.job_events:0:a",
@@ -194,10 +156,13 @@ _NAMES = ", ".join(
     f"'{name}'"
     for name in (
         *QUEUE_FUNCTIONS,
+        ADMIN_REVOKE_ENQUEUE,
         *WITHINGS_FUNCTION_NAMES,
         *RATE_FUNCTION_NAMES,
         *OUTBOX_FUNCTION_NAMES,
         *AI_FUNCTION_NAMES,
+        *EXPORTS_FUNCTION_NAMES,
+        *ADMIN_ACCOUNTS_FUNCTION_NAMES,
     )
 )
 

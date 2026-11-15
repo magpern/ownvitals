@@ -6,7 +6,7 @@ This module may open a ``system_session`` (``tests/session_scan.py``): the defin
 the maintenance context of ADR 0002 section 4, and the session reaches no owned row itself.
 """
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from uuid import UUID
 
 from sqlalchemy import text
@@ -126,17 +126,25 @@ async def schedule(factory: Factory, kind: str, interval_seconds: int) -> int:
         ).scalar_one()
 
 
-async def replay(factory: Factory, job_id: UUID) -> Replayed:
-    """``queue_replay``: a new queued job. The dead-lettered row is left as it is."""
-    try:
-        async with system_session(factory) as db:
+async def replay(
+    factory: Factory, job_id: UUID, *, audit: Callable[[Replayed], Awaitable[None]]
+) -> Replayed:
+    """``queue_replay``: a new queued job. The dead-lettered row is left as it is.
+
+    ``audit`` runs before the new job commits (#278): if it raises, the replay rolls back and
+    nothing is queued. If the commit fails after it, the audit row names a job that never ran,
+    never the other way round."""
+    async with system_session(factory) as db:
+        try:
             row = (await db.execute(_REPLAY, {"job_id": job_id})).one()
-    except DBAPIError as exc:
-        reason = _refused(exc)
-        if reason is None:
-            raise
-        raise ReplayRefused(reason) from None
-    return Replayed(row.job_id, row.owner_id)
+        except DBAPIError as exc:
+            reason = _refused(exc)
+            if reason is None:
+                raise
+            raise ReplayRefused(reason) from None
+        created = Replayed(row.job_id, row.owner_id)
+        await audit(created)
+    return created
 
 
 async def stats(factory: Factory) -> list[tuple[str, int]]:

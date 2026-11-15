@@ -33,9 +33,7 @@ from ownvitals.connections.providers.withings_payload import PROVIDER as PROVIDE
 from ownvitals.connections.providers.withings_refresh import clear_intent as clear_intent
 from ownvitals.connections.providers.withings_refresh import commit_refresh as commit_refresh
 from ownvitals.connections.providers.withings_refresh import give_up as give_up
-from ownvitals.connections.providers.withings_refresh import (
-    hold_refresh_lock as hold_refresh_lock,
-)
+from ownvitals.connections.providers.withings_refresh import hold_refresh_lock as hold_refresh_lock
 from ownvitals.connections.providers.withings_refresh import mark_intent as mark_intent
 from ownvitals.connections.repository import write_tokens
 from ownvitals.connections.tables import DISCONNECTED, connections
@@ -112,7 +110,7 @@ def _matches(public: dict[str, Any], app_id: int, userid: int) -> bool:
 async def open_withings(
     factory: Factory, ring: KeyRing, ctx: UserContext, connection_id: UUID
 ) -> OpenWithings:
-    """Decrypt one Withings row. A GCM failure sets ``needs_reconnect``."""
+    """Decrypt one Withings row. A GCM failure sets ``needs_reconnect`` on a connected row."""
     failure: str | None = None
     opened: OpenWithings | None = None
     async with user_session(factory, ctx) as db:
@@ -190,6 +188,7 @@ async def open_withings(
                         _C.id == row.id,
                         _C.owner_id == ctx.user_id,
                         _C.token_generation == row.token_generation,
+                        _C.status == "connected",  # a disconnect keeps the generation
                     )
                     .values(
                         status="needs_reconnect", last_error="decrypt_failed", updated_at=func.now()
@@ -255,6 +254,7 @@ async def store_grant(
                 sealed,
                 public=public,
                 expires_at=datetime.now(UTC) + _REFRESH_TTL,
+                reconnect=True,
             ):
                 stored = StoredGrant(target.id, int(target.token_generation) + 1, "connected")
             else:

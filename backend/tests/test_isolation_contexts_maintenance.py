@@ -121,3 +121,52 @@ async def test_the_owner_purge_removes_only_the_session_users_notifications(
         await db.execute(purge)
     assert _events(database_url) == {USERIDS[1]}
     assert snapshot(database_url, (a, b)) == before
+
+
+def _purge_as_admin_accounts(url: str, owner: object, session_user: object = None) -> None:
+    """The account purge as its one caller's role (``admin_account_delete``'s owner, #314), in
+    a system session or, with ``session_user``, inside that user's session."""
+    with superuser(url) as conn:
+        conn.execute(text("SET LOCAL ROLE ownvitals_admin_accounts"))
+        if session_user is not None:
+            conn.execute(
+                text("SELECT set_config('app.user_id', :u, true)"), {"u": str(session_user)}
+            )
+        conn.execute(text("SELECT public.webhook_events_purge_account(:o)"), {"o": owner})
+
+
+@pytest.mark.usefixtures("clean_withings")
+async def test_the_account_purge_runs_only_in_a_system_session_and_only_for_its_owner(
+    factory: Factory, database_url: str
+) -> None:
+    """#362: the admin delete's ``webhook_events_purge_account(p_owner)``. The owner is an
+    argument, so it refuses inside any user session (even the owner's own) and deletes nothing
+    there; in a system session it removes only ``p_owner``'s notifications. Since #314 only
+    ``ownvitals_admin_accounts`` may call it: the app role is refused in any session."""
+    app_id = new_app(database_url)
+    a = plant(database_url, new_user(), app_id=app_id, withings_userid=USERIDS[0])
+    b = plant(database_url, new_user(), app_id=app_id, withings_userid=USERIDS[1])
+    with superuser(database_url) as conn:
+        for userid in USERIDS:
+            conn.execute(
+                text(
+                    "INSERT INTO webhook_events (app_id, withings_userid, appli, startdate, "
+                    "enddate, dedupe_key) VALUES (:a, :u, 1, 1, 2, :k)"
+                ),
+                {"a": app_id, "u": userid, "k": f"synthetic-ctx-account-{userid}"},
+            )
+    before = snapshot(database_url, (a, b))
+    purge = text("SELECT public.webhook_events_purge_account(:o)")
+    with pytest.raises(DBAPIError, match="permission denied"):
+        async with system_session(factory) as db:
+            await db.execute(purge, {"o": a.user})
+    for session_user in (a.user, b.user):
+        with pytest.raises(DBAPIError, match="bad_context"):
+            _purge_as_admin_accounts(database_url, a.user, session_user)
+    assert _events(database_url) == set(USERIDS)
+    with pytest.raises(DBAPIError, match="bad_owner"):
+        _purge_as_admin_accounts(database_url, None)
+    assert _events(database_url) == set(USERIDS)
+    _purge_as_admin_accounts(database_url, a.user)
+    assert _events(database_url) == {USERIDS[1]}
+    assert snapshot(database_url, (a, b)) == before

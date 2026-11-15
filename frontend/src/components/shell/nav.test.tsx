@@ -61,7 +61,7 @@ describe('the rail', () => {
 
   it('leads each item to its page', () => {
     expect(railGroups(true).flatMap((group) => group.items.map((item) => [item.id, item.to]))).toEqual([
-      ['overview', '/'],
+      ['overview', '/overview'],
       ['body', '/body'],
       ['heart', '/heart'],
       ['nerve', '/nerve'],
@@ -88,7 +88,7 @@ describe('the phone tabs', () => {
   })
 
   it('lead to the overview, the findings, the connections ("Data") and the settings', () => {
-    expect(PHONE_TABS.map((tab) => tab.to)).toEqual(['/', '/findings', '/connections', '/settings'])
+    expect(PHONE_TABS.map((tab) => tab.to)).toEqual(['/overview', '/findings', '/connections', '/settings'])
   })
 
   it('belong to the tab the page is reached from, and Admin has none', () => {

@@ -8,19 +8,37 @@ a privilege of a kind nobody thought of still fails.
 ``docker/postgres/queue/20-queue.sql`` grants, and ``ownvitals_app`` may ``EXECUTE`` the queue
 functions. When ``docker/postgres/withings/40-withings.sql`` has run, the webhook NOLOGIN roles
 and ``ensure_month_partitions`` hold exactly the grants that script creates, and the app role
-may ``EXECUTE`` those three functions as well and no other function. The admin role
+may ``EXECUTE`` those functions as well and no other function; the metrics role
+``ownvitals_metrics`` (#167) has exactly its attributes and column grants and owns the two
+metrics aggregates. The admin role
 ``ownvitals_maint`` (#12) is an allowed grantee; guard 11 (``tests/test_maint_privileges.py``)
 checks that it holds exactly its allowlist, so its column privileges are left out of the column
 check here. Maint is not granted the client secret or ``webhook_secrets``. When
 ``docker/postgres/notify/50-outbox.sql`` has run (#194, ADR 0007 section 3), the NOLOGIN role
 ``ownvitals_mail_outbox`` has exactly its attributes and the grants that script creates, owns the
-three outbox functions, and the app role may ``EXECUTE`` them; the app role holds nothing on
+five outbox functions (#459), and the app role may ``EXECUTE`` them; the app role holds nothing on
 ``owner_notices``. When ``docker/postgres/ai/50-ai.sql`` has run (#205, ADR 0014 section 7),
 the NOLOGIN role ``ownvitals_ai`` has exactly its attributes and the column grants that script
-creates, owns the four AI budget functions, and the app role may ``EXECUTE`` them. The app role
-holds ``SELECT`` only on ``ai_spend`` and ``ai_reservations`` and nothing on ``ai_spend_global``.
-Any other grantee fails.
+creates, with ``DELETE`` on ``ai_audit`` and ``ai_conversations`` for the two retention purges
+(#331, #395) as its only table privileges, owns the six AI functions, and the app role may
+``EXECUTE`` them. The app role holds ``SELECT`` only on ``ai_spend`` and ``ai_reservations``
+and nothing on ``ai_spend_global``.
+When ``docker/postgres/exports/60-exports.sql`` has run (#333, ADR 0013 section 4), the NOLOGIN
+role ``ownvitals_exports`` has exactly its attributes, the column grants that script creates (no
+account table, no jobs) and
+``DELETE`` on ``exports`` and ``export_chunks`` as its only table privileges, owns
+``exports_purge_expired``, and the app role may ``EXECUTE`` it. When
+``docker/postgres/maint/70-admin-accounts.sql`` has run (#314, ADR 0002 section 3), the NOLOGIN
+role ``ownvitals_admin_accounts`` (no ``BYPASSRLS``) has exactly its attributes, the column grants
+and the two ``DELETE`` privileges that script creates (no health table, no secret column), owns
+the five admin account functions (#461: the abuse view's read among them), which only
+``ownvitals_maint`` may ``EXECUTE``, and is the only grantee of ``webhook_events_purge_account``
+and of the queue's ``queue_enqueue_admin_revoke`` (#365; owned by ``ownvitals_queue``, executable
+by nobody else, and by nobody at all before the family is installed). The app role may execute
+none of those seven. Any other grantee fails.
 """
+
+from collections.abc import Callable
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -52,6 +70,8 @@ RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
     # nothing; every write is a definer function of 50-ai.sql. ai_spend_global is NO_APP_ACCESS.
     "ai_spend": {"SELECT"},
     "ai_reservations": {"SELECT"},
+    # Migration 0023 (#207, ADR 0014 section 6): the AI audit log is append-only for the app.
+    "ai_audit": {"SELECT", "INSERT"},
 }
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
 # Maint's columns are guard 11's. The queue role reads three columns of ``connections`` and
@@ -81,17 +101,32 @@ QUEUE_EXECUTE = {
 # 40-withings.sql: two NOLOGIN roles, table grants, and the owner of each function.
 SECRETS = "ownvitals_webhook_secrets"
 EVENTS = "ownvitals_webhook_events"
-WITHINGS_ROLES = {SECRETS, EVENTS}
+# #167: the metrics aggregates' owner. Read-only: column SELECT, BYPASSRLS, NOLOGIN.
+METRICS = "ownvitals_metrics"
+WITHINGS_ROLES = {SECRETS, EVENTS, METRICS}
+# rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
+METRICS_ATTRIBUTES = (False, False, False, False, False, True, False)
+# The webhook roles (#280): the secrets role has no BYPASSRLS (ADR 0002 section 3); the ingest
+# role has it for the cross-owner connection lookup (ADR 0002 section 4). Both are NOLOGIN.
+WEBHOOK_ATTRIBUTES = {
+    SECRETS: ((False, False, False, False, False, False, False), "NOBYPASSRLS"),
+    EVENTS: ((False, False, False, False, False, True, False), "BYPASSRLS"),
+}
 WITHINGS_RELATIONS: dict[str, dict[str, set[str]]] = {
     "admin_audit:r": {SECRETS: {"INSERT"}},
     "admin_audit_id_seq:S": {SECRETS: {"USAGE"}},
     "webhook_events:r": {EVENTS: {"INSERT", "DELETE"}},
 }
+# The tables ensure_month_partitions may partition (its p_table allowlist in 40-withings.sql).
+MONTH_PARTITIONED = frozenset({"sleep_series", "intraday", "observations"})
 WITHINGS_FUNCTIONS = {
     "ensure_month_partitions": OWNER,
     "webhook_secrets_apply": SECRETS,
     "webhook_event_insert": EVENTS,
     "webhook_events_purge_owner": EVENTS,
+    "webhook_events_purge_account": EVENTS,
+    "metrics_withings_aggregates": METRICS,
+    "metrics_webhook_ages": METRICS,
 }
 # rate.sql (#23): the app role may EXECUTE these and no other new function. Same owner.
 RATE_FUNCTIONS = {
@@ -105,6 +140,9 @@ OUTBOX_FUNCTIONS = {
     "mail_outbox_claim": OUTBOX,
     "mail_outbox_mark": OUTBOX,
     "owner_notice_queue": OUTBOX,
+    # ADR 0019 (#459): the email preference's read and the one-click unsubscribe.
+    "mail_outbox_email_pref": OUTBOX,
+    "email_unsubscribe": OUTBOX,
 }
 # Table-level privileges of the outbox role (its reads and writes are column grants, below).
 OUTBOX_RELATIONS = {
@@ -133,6 +171,15 @@ OUTBOX_COLUMNS[("mail_outbox", "owner_id")] = {(OUTBOX, "SELECT")}
 # The owner-notice write inserts a kind and its route, nothing else.
 OUTBOX_COLUMNS[("owner_notices", "kind")] |= {(OUTBOX, "INSERT")}
 OUTBOX_COLUMNS[("owner_notices", "route")] |= {(OUTBOX, "INSERT")}
+# ADR 0019 (#459): on ``email_prefs`` the read and the unsubscribe's insert-or-update; no DELETE.
+for _column, _privs in {
+    "owner_id": {"SELECT", "INSERT"},
+    "kind": {"SELECT", "INSERT"},
+    "enabled": {"SELECT", "INSERT", "UPDATE"},
+    "generation": {"SELECT", "INSERT", "UPDATE"},
+    "updated_at": {"INSERT", "UPDATE"},
+}.items():
+    OUTBOX_COLUMNS[("email_prefs", _column)] = {(OUTBOX, p) for p in _privs}
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 OUTBOX_ATTRIBUTES = (False, False, False, False, False, True, False)
 # 50-ai.sql (#205): the AI cost cap's family, owned by its own NOLOGIN role.
@@ -142,8 +189,14 @@ AI_FUNCTIONS = {
     "ai_settle": AI,
     "ai_release": AI,
     "ai_settle_lost": AI,
+    "ai_audit_purge": AI,
+    "ai_purge_expired": AI,
 }
-# Its privileges are all column grants (ADR 0014 section 7): no table-level privilege, no DELETE.
+# Its table-level privileges: DELETE on ai_audit, for the 12-month retention purge (ADR 0014
+# section 6; #331), and on ai_conversations, for the conversation retention purge (ADR 0014
+# section 5; #395). Everything else is a column grant (ADR 0014 section 7).
+AI_RELATIONS = {"ai_audit:r": {"DELETE"}, "ai_conversations:r": {"DELETE"}}
+# Its column grants: the budget functions' reads and writes, and the purges' id and age reads.
 AI_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("jobs", "id"): {(AI, "SELECT")},
     ("jobs", "owner_id"): {(AI, "SELECT")},
@@ -168,10 +221,79 @@ AI_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("ai_reservations", "lease_version"): {(AI, "SELECT"), (AI, "INSERT")},
     ("ai_reservations", "actual"): {(AI, "UPDATE")},
     ("ai_reservations", "ended_at"): {(AI, "UPDATE")},
+    ("ai_audit", "id"): {(AI, "SELECT")},
+    ("ai_audit", "created_at"): {(AI, "SELECT")},
+    ("ai_conversations", "id"): {(AI, "SELECT")},
+    ("ai_conversations", "updated_at"): {(AI, "SELECT")},
 }
 # rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit
 AI_ATTRIBUTES = (False, False, False, False, False, True, False)
-_CALLABLE = {**WITHINGS_FUNCTIONS, **RATE_FUNCTIONS, **OUTBOX_FUNCTIONS, **AI_FUNCTIONS}
+# 60-exports.sql (#333): the export purge, owned by its own NOLOGIN role.
+EXPORTS = "ownvitals_exports"
+EXPORTS_FUNCTIONS = {"exports_purge_expired": EXPORTS}
+# Its table-level privileges: DELETE of exports past their 90 days and of spent chunks.
+EXPORTS_RELATIONS = {"exports:r": {"DELETE"}, "export_chunks:r": {"DELETE"}}
+# Its column grants: what the purge reads and changes of exports and the join of a chunk to its
+# export (ADR 0013 section 4: counts only, no audit row, no account table, no jobs).
+EXPORTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
+    ("exports", "id"): {(EXPORTS, "SELECT")},
+    ("exports", "owner_id"): {(EXPORTS, "SELECT")},
+    ("exports", "state"): {(EXPORTS, "SELECT"), (EXPORTS, "UPDATE")},
+    ("exports", "created_at"): {(EXPORTS, "SELECT")},
+    ("exports", "expires_at"): {(EXPORTS, "SELECT")},
+    ("export_chunks", "id"): {(EXPORTS, "SELECT")},
+    ("export_chunks", "owner_id"): {(EXPORTS, "SELECT")},
+    ("export_chunks", "export_id"): {(EXPORTS, "SELECT")},
+    ("export_chunks", "seq"): {(EXPORTS, "SELECT")},
+}
+EXPORTS_ATTRIBUTES = (False, False, False, False, False, True, False)
+# 70-admin-accounts.sql (#314): the admin account family, owned by its own NOLOGIN role and
+# executable by maint alone. No BYPASSRLS: it touches system tables only.
+ADMIN_ACCOUNTS = "ownvitals_admin_accounts"
+ADMIN_ACCOUNTS_FUNCTIONS = {
+    "admin_account_disable": ADMIN_ACCOUNTS,
+    "admin_account_enable": ADMIN_ACCOUNTS,
+    "admin_account_delete": ADMIN_ACCOUNTS,
+    "admin_account_revoke": ADMIN_ACCOUNTS,  # #365
+    "admin_session_anomalies": ADMIN_ACCOUNTS,  # #461: the abuse view's read
+}
+ADMIN_ACCOUNTS_ATTRIBUTES = (False, False, False, False, False, False, False)
+# Its table-level privileges: the account delete and the disable's sign-out everywhere.
+ADMIN_ACCOUNTS_RELATIONS = {"users:r": {"DELETE"}, "sessions:r": {"DELETE"}}
+# Its column grants (ADR 0002 section 3): never password_hash, a session token, or the audit
+# row's IP HMAC, and no write to the audit log.
+ADMIN_ACCOUNTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
+    ("users", "id"): {(ADMIN_ACCOUNTS, "SELECT")},
+    ("users", "role"): {(ADMIN_ACCOUNTS, "SELECT")},
+    ("users", "email_normalized"): {(ADMIN_ACCOUNTS, "SELECT")},
+    ("users", "disabled_at"): {(ADMIN_ACCOUNTS, "SELECT"), (ADMIN_ACCOUNTS, "UPDATE")},
+    ("sessions", "user_id"): {(ADMIN_ACCOUNTS, "SELECT")},
+    **{
+        ("auth_events", c): {(ADMIN_ACCOUNTS, "INSERT")}
+        for c in ("kind", "ip", "browser", "os", "place")
+    },
+    # #461: the abuse view reads the anomaly rows, never the address (ip).
+    **{("auth_events", c): {(ADMIN_ACCOUNTS, "SELECT")} for c in ("id", "user_id", "at", "detail")},
+    **{
+        ("auth_events", c): {(ADMIN_ACCOUNTS, "INSERT"), (ADMIN_ACCOUNTS, "SELECT")}
+        for c in ("kind", "browser", "os", "place")
+    },
+    **{
+        ("admin_audit", c): {(ADMIN_ACCOUNTS, "SELECT")}
+        for c in ("xmin", "created_at", "actor_id", "action", "target_user_id", "outcome")
+    },
+}
+# The admin delete's purge (#362): its owner and, once the family is installed, that role alone.
+PURGE_ACCOUNT = "webhook_events_purge_account"
+# The admin delete's revoke enqueue (#365): a queue function the admin family's role alone runs.
+ADMIN_REVOKE_ENQUEUE = "queue_enqueue_admin_revoke(uuid,uuid,uuid)"
+_CALLABLE = {
+    **WITHINGS_FUNCTIONS,
+    **RATE_FUNCTIONS,
+    **OUTBOX_FUNCTIONS,
+    **AI_FUNCTIONS,
+    **EXPORTS_FUNCTIONS,
+}
 # Column grants of ownvitals_webhook_secrets. Not maint, and not the client secret.
 WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("withings_apps", "id"): {(SECRETS, "SELECT")},
@@ -186,9 +308,26 @@ WITHINGS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
     ("connections", "status"): {(EVENTS, "SELECT")},
     # Account deletion matches notification rows to this owner (ADR 0002 section 3).
     ("connections", "owner_id"): {(EVENTS, "SELECT")},
-    ("webhook_events", "app_id"): {(EVENTS, "SELECT")},
-    ("webhook_events", "withings_userid"): {(EVENTS, "SELECT")},
+    ("webhook_events", "app_id"): {(EVENTS, "SELECT"), (METRICS, "SELECT")},
+    ("webhook_events", "withings_userid"): {(EVENTS, "SELECT"), (METRICS, "SELECT")},
+    # The webhook quotas count the job-bearing events of the last hour (#280).
+    ("webhook_events", "job_id"): {(EVENTS, "SELECT")},
+    # The metrics aggregates (#167): counts and ages. No credential, owner or payload column.
+    ("connections", "public"): {(METRICS, "SELECT")},
+    ("sync_cursors", "connection_id"): {(METRICS, "SELECT")},
+    ("sync_cursors", "stream"): {(METRICS, "SELECT")},
+    ("sync_cursors", "capability"): {(METRICS, "SELECT")},
+    ("sync_cursors", "backfill_state"): {(METRICS, "SELECT")},
+    ("sync_cursors", "last_ok_at"): {(METRICS, "SELECT")},
+    ("webhook_events", "enddate"): {(METRICS, "SELECT")},
+    # The tie-break of the delivery-age watermark (received_at, id) (#303).
+    ("webhook_events", "id"): {(METRICS, "SELECT")},
+    ("webhook_events", "received_at"): {(EVENTS, "SELECT"), (METRICS, "SELECT")},
+    ("jobs", "state"): {(METRICS, "SELECT")},
+    ("jobs", "available_at"): {(METRICS, "SELECT")},
 }
+for _column in ("id", "app_id", "withings_userid", "status"):
+    WITHINGS_COLUMNS[("connections", _column)] |= {(METRICS, "SELECT")}
 SEQUENCE_PRIVILEGES = {"USAGE", "SELECT"}
 # Built-in languages that PUBLIC may use (Postgres' own default).
 BUILTIN_LANGUAGES = {"plpgsql", "sql", "internal", "c"}
@@ -219,6 +358,132 @@ def _bare_signature(obj: str) -> str:
     signature = obj.split(":", 1)[0]
     name, sep, args = signature.partition("(")
     return name.rsplit(".", 1)[-1] + sep + args
+
+
+def _check_webhook_roles(conn: Connection, need: Callable[[bool, str], None]) -> None:
+    """40-withings.sql's two webhook roles: exactly their attributes, a member of nothing and
+    with no members, no settings and no default privileges (#280)."""
+    for name, (attributes, bypass) in WEBHOOK_ATTRIBUTES.items():
+        row = conn.execute(
+            text(
+                "SELECT r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, "
+                "r.rolreplication, r.rolbypassrls, r.rolinherit, r.oid "
+                "FROM pg_roles r WHERE r.rolname = :r"
+            ),
+            {"r": name},
+        ).first()
+        if row is None:
+            continue  # reported as "must exist together"
+        need(
+            tuple(row[:7]) == attributes,
+            f"{name} must be NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
+            f"{bypass} NOINHERIT",
+        )
+        others = conn.execute(
+            text(
+                "SELECT (SELECT count(*) FROM pg_auth_members WHERE :oid IN (member, roleid)) "
+                "+ (SELECT count(*) FROM pg_db_role_setting WHERE setrole = :oid) "
+                "+ (SELECT count(*) FROM pg_default_acl WHERE defaclrole = :oid)"
+            ),
+            {"oid": row.oid},
+        ).scalar_one()
+        need(others == 0, f"{name}: no memberships, settings or default privileges")
+
+
+def _check_metrics_role(conn: Connection, need: Callable[[bool, str], None]) -> None:
+    """40-withings.sql's ownvitals_metrics (#167): exactly its attributes, a member of nothing,
+    no settings or default privileges, and the owner of exactly the two aggregates."""
+    row = conn.execute(
+        text(
+            "SELECT r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, "
+            "r.rolbypassrls, r.rolinherit, r.oid FROM pg_roles r WHERE r.rolname = :m"
+        ),
+        {"m": METRICS},
+    ).one()
+    need(
+        tuple(row[:7]) == METRICS_ATTRIBUTES,
+        f"{METRICS} must be NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
+        "BYPASSRLS NOINHERIT",
+    )
+    others = conn.execute(
+        text(
+            "SELECT (SELECT count(*) FROM pg_auth_members WHERE :oid IN (member, roleid)) "
+            "+ (SELECT count(*) FROM pg_db_role_setting WHERE setrole = :oid) "
+            "+ (SELECT count(*) FROM pg_default_acl WHERE defaclrole = :oid)"
+        ),
+        {"oid": row.oid},
+    ).scalar_one()
+    need(others == 0, f"{METRICS}: no memberships, settings or default privileges")
+    owned = conn.execute(
+        text(
+            "SELECT coalesce(p.proname, s.classid::regclass::text) FROM pg_shdepend s "
+            "LEFT JOIN pg_proc p ON p.oid = s.objid AND s.classid = CAST('pg_proc' AS regclass) "
+            "WHERE s.refobjid = :oid AND s.deptype = 'o'"
+        ),
+        {"oid": row.oid},
+    ).scalars()
+    expected = sorted(n for n, owner in WITHINGS_FUNCTIONS.items() if owner == METRICS)
+    found = sorted(str(name) for name in owned)
+    need(found == expected, f"{METRICS} must own exactly {expected}, owns {found}")
+
+
+def _definer_role(
+    need: Callable[[bool, str], None],
+    conn: Connection,
+    role: str,
+    attributes: tuple[bool, ...],
+    functions: dict[str, str],
+) -> bool:
+    """Whether the NOLOGIN definer ``role`` exists; if it does, that it has exactly
+    ``attributes``, no memberships either way, no settings, no default privileges, and owns
+    exactly ``functions`` (the pattern of the AI role's checks above, for the export purge)."""
+    row = conn.execute(
+        text(
+            "SELECT r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, "
+            "r.rolbypassrls, r.rolinherit, r.oid FROM pg_roles r WHERE r.rolname = :a"
+        ),
+        {"a": role},
+    ).first()
+    if row is None:
+        return False
+    need(
+        tuple(row[:7]) == attributes,
+        f"{role} must be NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
+        "BYPASSRLS NOINHERIT",
+    )
+    memberships = conn.execute(
+        text("SELECT count(*) FROM pg_auth_members WHERE :oid IN (member, roleid)"),
+        {"oid": row.oid},
+    ).scalar_one()
+    need(memberships == 0, f"{role} must be a member of no role and have no members")
+    settings = conn.execute(
+        text(
+            "SELECT (SELECT count(*) FROM pg_db_role_setting WHERE setrole = :oid) "
+            "+ (SELECT count(*) FROM pg_default_acl WHERE defaclrole = :oid)"
+        ),
+        {"oid": row.oid},
+    ).scalar_one()
+    need(settings == 0, f"{role} must have no settings and no default privileges")
+    owned = (
+        conn.execute(
+            text(
+                "SELECT p.proname FROM pg_shdepend s JOIN pg_proc p ON p.oid = s.objid "
+                "WHERE s.refobjid = :oid AND s.deptype = 'o' "
+                "AND s.classid = CAST('pg_proc' AS regclass) "
+                "UNION ALL SELECT s.classid::regclass::text FROM pg_shdepend s "
+                "WHERE s.refobjid = :oid AND s.deptype = 'o' "
+                "AND s.classid <> CAST('pg_proc' AS regclass)"
+            ),
+            {"oid": row.oid},
+        )
+        .scalars()
+        .all()
+    )
+    need(
+        sorted(owned) == sorted(functions),
+        f"{role} must own exactly {sorted(functions)}, owns {sorted(owned)}",
+    )
+    return True
 
 
 def check_roles(conn: Connection) -> list[str]:
@@ -330,6 +595,11 @@ def check_roles(conn: Connection) -> list[str]:
     need(QUEUE not in _grantees(databases), "ownvitals_queue must hold nothing on the database")
     need(OUTBOX not in _grantees(databases), f"{OUTBOX} must hold nothing on the database")
     need(AI not in _grantees(databases), f"{AI} must hold nothing on the database")
+    need(EXPORTS not in _grantees(databases), f"{EXPORTS} must hold nothing on the database")
+    need(
+        ADMIN_ACCOUNTS not in _grantees(databases),
+        f"{ADMIN_ACCOUNTS} must hold nothing on the database",
+    )
     need(
         not (WITHINGS_ROLES & _grantees(databases)),
         "webhook roles must hold nothing on the database",
@@ -348,16 +618,18 @@ def check_roles(conn: Connection) -> list[str]:
     present_webhook_roles = {
         str(name)
         for (name,) in conn.execute(
-            text("SELECT rolname FROM pg_roles WHERE rolname IN (:secrets, :events)"),
-            {"secrets": SECRETS, "events": EVENTS},
+            text("SELECT rolname FROM pg_roles WHERE rolname IN (:secrets, :events, :metrics)"),
+            {"secrets": SECRETS, "events": EVENTS, "metrics": METRICS},
         )
     }
     withings_installed = bool(present_webhook_roles)
     if withings_installed:
         need(
             present_webhook_roles == WITHINGS_ROLES,
-            "ownvitals_webhook_secrets and ownvitals_webhook_events must exist together",
+            f"{SECRETS}, {EVENTS} and {METRICS} must exist together",
         )
+        _check_metrics_role(conn, need)
+        _check_webhook_roles(conn, need)
     # 50-outbox.sql: absent until that script runs, then exactly its role and grants.
     outbox_role = conn.execute(
         text(
@@ -450,8 +722,14 @@ def check_roles(conn: Connection) -> list[str]:
         )
         need(
             sorted(ai_owned) == sorted(AI_FUNCTIONS),
-            f"{AI} must own exactly the AI budget functions, owns {sorted(ai_owned)}",
+            f"{AI} must own exactly the AI functions, owns {sorted(ai_owned)}",
         )
+    # 60-exports.sql: absent until that script runs, then exactly its role and grants.
+    exports_installed = _definer_role(need, conn, EXPORTS, EXPORTS_ATTRIBUTES, EXPORTS_FUNCTIONS)
+    # 70-admin-accounts.sql: absent until that script runs, then exactly its role and grants.
+    admin_installed = _definer_role(
+        need, conn, ADMIN_ACCOUNTS, ADMIN_ACCOUNTS_ATTRIBUTES, ADMIN_ACCOUNTS_FUNCTIONS
+    )
 
     # Schemas.
     schemas = _acl(
@@ -487,6 +765,23 @@ def check_roles(conn: Connection) -> list[str]:
         need(_privileges(schemas, AI, "public") == {"USAGE"}, f"{AI}: USAGE only on public")
     else:
         need(AI not in _grantees(schemas), f"{AI} must not be a schema grantee")
+    if exports_installed:
+        need(
+            _privileges(schemas, EXPORTS, "public") == {"USAGE"},
+            f"{EXPORTS}: USAGE only on public",
+        )
+    else:
+        need(EXPORTS not in _grantees(schemas), f"{EXPORTS} must not be a schema grantee")
+    if admin_installed:
+        need(
+            _privileges(schemas, ADMIN_ACCOUNTS, "public") == {"USAGE"},
+            f"{ADMIN_ACCOUNTS}: USAGE only on public",
+        )
+    else:
+        need(
+            ADMIN_ACCOUNTS not in _grantees(schemas),
+            f"{ADMIN_ACCOUNTS} must not be a schema grantee",
+        )
     need(not _privileges(schemas, "PUBLIC", "public"), "PUBLIC must have no privilege on public")
     need(
         {"USAGE", "CREATE"} <= _privileges(schemas, OWNER, "public"),
@@ -499,8 +794,12 @@ def check_roles(conn: Connection) -> list[str]:
         schema_grantees |= {OUTBOX}
     if ai_installed:
         schema_grantees |= {AI}
+    if exports_installed:
+        schema_grantees |= {EXPORTS}
+    if admin_installed:
+        schema_grantees |= {ADMIN_ACCOUNTS}
     need(_grantees(schemas) <= schema_grantees, "unexpected grantee on a schema")
-    elsewhere = {APP, "PUBLIC", QUEUE, OUTBOX, AI} | WITHINGS_ROLES
+    elsewhere = {APP, "PUBLIC", QUEUE, OUTBOX, AI, EXPORTS, ADMIN_ACCOUNTS} | WITHINGS_ROLES
     need(
         not [1 for o, g, _, _ in schemas if o != "public" and g in elsewhere],
         "no privilege for the app, PUBLIC, the queue or a webhook role on another schema",
@@ -520,10 +819,26 @@ def check_roles(conn: Connection) -> list[str]:
         "ELSE CAST('r' AS \"char\") END, c.relowner))) a "
         "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')",
     )
+    # Month partitions of ensure_month_partitions' tables (40-withings.sql): that function
+    # revokes every privilege of the app role and PUBLIC on each one, so the app role reaches
+    # the rows only through the parent, under its policy (#280).
+    month_partitions = {
+        f"{name}:r"
+        for (name,) in conn.execute(
+            text(
+                "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "JOIN pg_inherits i ON i.inhrelid = c.oid "
+                "JOIN pg_class p ON p.oid = i.inhparent "
+                "WHERE n.nspname = 'public' AND c.relispartition AND c.relkind = 'r' "
+                "AND p.relname = ANY(:parents) AND p.relkind = 'p'"
+            ),
+            {"parents": sorted(MONTH_PARTITIONED)},
+        )
+    }
     for obj in sorted({o for o, *_ in relations}):
         expected = SEQUENCE_PRIVILEGES if obj.endswith(":S") else TABLE_PRIVILEGES
         expected = RESTRICTED_APP_PRIVILEGES.get(obj.split(":")[0], expected)
-        if obj.split(":")[0] in NO_APP_ACCESS:
+        if obj.split(":")[0] in NO_APP_ACCESS or obj in month_partitions:
             expected = set()
         need(
             _privileges(relations, APP, obj) == expected,
@@ -559,8 +874,40 @@ def check_roles(conn: Connection) -> list[str]:
             )
         else:
             need(OUTBOX not in _grantees(relations, obj), f"{obj}: {OUTBOX} must hold nothing")
-        # The AI role holds column grants only (checked below), never a table privilege.
-        need(AI not in _grantees(relations, obj), f"{obj}: {AI} must hold no table privilege")
+        # The AI role holds column grants (checked below) and DELETE on ai_audit, nothing else.
+        if ai_installed and obj in AI_RELATIONS:
+            allowed.add(AI)
+            need(
+                _privileges(relations, AI, obj) == AI_RELATIONS[obj],
+                f"{obj}: {AI} privileges must be exactly {sorted(AI_RELATIONS[obj])}",
+            )
+        else:
+            need(AI not in _grantees(relations, obj), f"{obj}: {AI} must hold no table privilege")
+        # The export purge's role: column grants (below) and DELETE on its two tables.
+        if exports_installed and obj in EXPORTS_RELATIONS:
+            allowed.add(EXPORTS)
+            need(
+                _privileges(relations, EXPORTS, obj) == EXPORTS_RELATIONS[obj],
+                f"{obj}: {EXPORTS} privileges must be exactly {sorted(EXPORTS_RELATIONS[obj])}",
+            )
+        else:
+            need(
+                EXPORTS not in _grantees(relations, obj),
+                f"{obj}: {EXPORTS} must hold no table privilege",
+            )
+        # The admin account role: column grants (below) and DELETE on users and sessions.
+        if admin_installed and obj in ADMIN_ACCOUNTS_RELATIONS:
+            allowed.add(ADMIN_ACCOUNTS)
+            need(
+                _privileges(relations, ADMIN_ACCOUNTS, obj) == ADMIN_ACCOUNTS_RELATIONS[obj],
+                f"{obj}: {ADMIN_ACCOUNTS} privileges must be exactly "
+                f"{sorted(ADMIN_ACCOUNTS_RELATIONS[obj])}",
+            )
+        else:
+            need(
+                ADMIN_ACCOUNTS not in _grantees(relations, obj),
+                f"{obj}: {ADMIN_ACCOUNTS} must hold no table privilege",
+            )
         need(_grantees(relations, obj) <= allowed, f"{obj}: unexpected grantee")
     need(
         not [1 for *_, grantable in relations if grantable], "no grantable privilege on a relation"
@@ -610,6 +957,14 @@ def check_roles(conn: Connection) -> list[str]:
         for key, extra in AI_COLUMNS.items():
             if key[0] in present:
                 expected_columns[key] = set(expected_columns.get(key, ())) | extra
+    if exports_installed:
+        for key, extra in EXPORTS_COLUMNS.items():
+            if key[0] in present:
+                expected_columns[key] = set(expected_columns.get(key, ())) | extra
+    if admin_installed:
+        for key, extra in ADMIN_ACCOUNTS_COLUMNS.items():
+            if key[0] in present:
+                expected_columns[key] = set(expected_columns.get(key, ())) | extra
     need(
         found_columns == expected_columns,
         f"column-level privileges in public must be exactly {expected_columns}, "
@@ -650,6 +1005,14 @@ def check_roles(conn: Connection) -> list[str]:
         found_names = {signature.partition("(")[0] for signature in signatures}
         missing = set(AI_FUNCTIONS) - found_names
         need(not missing, f"AI budget functions missing: {sorted(missing)}")
+    if exports_installed:
+        found_names = {signature.partition("(")[0] for signature in signatures}
+        missing = set(EXPORTS_FUNCTIONS) - found_names
+        need(not missing, f"export purge missing: {sorted(missing)}")
+    if admin_installed:
+        found_names = {signature.partition("(")[0] for signature in signatures}
+        missing = set(ADMIN_ACCOUNTS_FUNCTIONS) - found_names
+        need(not missing, f"admin account functions missing: {sorted(missing)}")
     for obj in sorted({o for o, *_ in functions}):
         signature = _bare_signature(obj)
         if queue_installed and signature in QUEUE_EXECUTE:
@@ -665,15 +1028,77 @@ def check_roles(conn: Connection) -> list[str]:
                 _privileges(functions, QUEUE, obj) == {"EXECUTE"},
                 f"{obj}: ownvitals_queue EXECUTE only",
             )
-            if EVENTS in _grantees(functions, obj):
+            if signature.startswith("queue_enqueue(") and withings_installed:
+                # Required, not just allowed: without it every notification fails (#280).
                 need(
                     _privileges(functions, EVENTS, obj) == {"EXECUTE"},
-                    f"{obj}: {EVENTS} EXECUTE only",
+                    f"{obj}: {EVENTS} must have EXECUTE and nothing else",
                 )
+            else:
+                need(EVENTS not in _grantees(functions, obj), f"{obj}: {EVENTS} must hold nothing")
             need(_grantees(functions, obj) <= allowed_execute, f"{obj}: unexpected grantee")
             need(
                 obj.endswith(f":{QUEUE}:true"),
                 f"{obj}: must be owned by ownvitals_queue and be SECURITY DEFINER",
+            )
+            need(
+                not any(grantable for o, _, _, grantable in functions if o == obj),
+                f"{obj}: no grantable privilege",
+            )
+        elif queue_installed and signature == ADMIN_REVOKE_ENQUEUE:
+            # #365: no runtime role calls it; admin_account_revoke, once installed, alone.
+            callers = {QUEUE, ADMIN_ACCOUNTS} if admin_installed else {QUEUE}
+            need(_grantees(functions, obj) == callers, f"{obj}: grantees must be {sorted(callers)}")
+            need(_privileges(functions, QUEUE, obj) == {"EXECUTE"}, f"{obj}: {QUEUE} EXECUTE only")
+            if admin_installed:
+                need(
+                    _privileges(functions, ADMIN_ACCOUNTS, obj) == {"EXECUTE"},
+                    f"{obj}: {ADMIN_ACCOUNTS} must have EXECUTE and nothing else",
+                )
+            need(
+                obj.endswith(f":{QUEUE}:true"),
+                f"{obj}: must be owned by ownvitals_queue and be SECURITY DEFINER",
+            )
+            need(
+                not any(grantable for o, _, _, grantable in functions if o == obj),
+                f"{obj}: no grantable privilege",
+            )
+        elif signature.partition("(")[0] in ADMIN_ACCOUNTS_FUNCTIONS and admin_installed:
+            # Maint's alone (#314); guard 11 checks that maint holds exactly these.
+            need(not _privileges(functions, APP, obj), f"{obj}: ownvitals_app may not execute it")
+            need(
+                _privileges(functions, ADMIN_ACCOUNTS, obj) == {"EXECUTE"},
+                f"{obj}: {ADMIN_ACCOUNTS} EXECUTE only",
+            )
+            need(
+                _privileges(functions, MAINT, obj) == {"EXECUTE"},
+                f"{obj}: {MAINT} must have EXECUTE and nothing else",
+            )
+            need(_grantees(functions, obj) <= {ADMIN_ACCOUNTS, MAINT}, f"{obj}: unexpected grantee")
+            need(
+                obj.endswith(f":{ADMIN_ACCOUNTS}:true"),
+                f"{obj}: must be owned by {ADMIN_ACCOUNTS} and be SECURITY DEFINER",
+            )
+            need(
+                not any(grantable for o, _, _, grantable in functions if o == obj),
+                f"{obj}: no grantable privilege",
+            )
+        elif signature.partition("(")[0] == PURGE_ACCOUNT and withings_installed:
+            # No runtime role calls it (#314): the admin account delete, once installed, alone.
+            need(not _privileges(functions, APP, obj), f"{obj}: ownvitals_app may not execute it")
+            need(
+                _privileges(functions, EVENTS, obj) == {"EXECUTE"}, f"{obj}: {EVENTS} EXECUTE only"
+            )
+            callers = {EVENTS, ADMIN_ACCOUNTS} if admin_installed else {EVENTS}
+            need(_grantees(functions, obj) == callers, f"{obj}: grantees must be {sorted(callers)}")
+            if admin_installed:
+                need(
+                    _privileges(functions, ADMIN_ACCOUNTS, obj) == {"EXECUTE"},
+                    f"{obj}: {ADMIN_ACCOUNTS} must have EXECUTE and nothing else",
+                )
+            need(
+                obj.endswith(f":{EVENTS}:true"),
+                f"{obj}: must be owned by {EVENTS} and be SECURITY DEFINER",
             )
             need(
                 not any(grantable for o, _, _, grantable in functions if o == obj),
@@ -684,6 +1109,7 @@ def check_roles(conn: Connection) -> list[str]:
             or (signature.partition("(")[0] in WITHINGS_FUNCTIONS and withings_installed)
             or (signature.partition("(")[0] in OUTBOX_FUNCTIONS and outbox_installed)
             or (signature.partition("(")[0] in AI_FUNCTIONS and ai_installed)
+            or (signature.partition("(")[0] in EXPORTS_FUNCTIONS and exports_installed)
         ):
             owner = _CALLABLE[signature.partition("(")[0]]
             need(

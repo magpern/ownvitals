@@ -111,6 +111,21 @@ pre-session's is the same 404 `qr_unavailable`. A wrong code is 400 `invalid_cod
 | §9: the list of `auth_events` kinds | adds `qr_login_started` (no user; the desktop's IP and the row id) and `qr_login_refused` (`detail.action`) | the issue asks for an event on start; §8 asks for a row on every refusal. Neither holds a secret |
 | §5 to §7 "Proved by": `test_qr_login*.py`, `test_geo_source.py` | `test_auth_qrlogin*.py` (table under "Tests") | the auth suites' naming |
 
+## Frontend (#180)
+
+- **Desktop** (`components/QrLoginPanel.tsx`, "Sign in with your phone" on the sign-in page): the
+  server's SVG through `QrCode`, then the stream (`api/qrlogin.ts` `watchQrLogin`, an
+  `EventSource`). After `approved` it posts `complete` and shows "Signed in as <email>" with
+  "Continue", which only then reads the session. An unscanned code also expires on the page's
+  clock after `expires_in`; "Show a new code" starts a new request.
+- **Phone** (`pages/ApproveLoginPage.tsx`, `/qr`): the fragment is read once and removed with
+  `history.replaceState` before anything else; without a full session the page says "Sign in on
+  this phone first" and never scans. The first scan is the only one the page sends. "Approve…"
+  opens a dialog with the look and wording of "Confirm it's you", whose code goes in the approve
+  call's body (section 8: a step-up does not count). The server's "Place unknown" is shown in the
+  page's language.
+- e2e: `e2e/specs/qr-login.spec.ts`.
+
 ## Settings
 
 | Setting | Default | |

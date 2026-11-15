@@ -73,6 +73,10 @@ export const auth = {
   'setup.cantScan': 'Går det inte att skanna? Ange den här nyckeln:',
   'setup.timeBased': 'Tidsbaserad, 6 siffror',
   'setup.codeLabel': 'Kod från appen',
+  'setup.optional':
+    'Rekommenderas, men krävs inte. Med den kan den som får reda på ditt lösenord ändå inte logga in. Du kan ställa in den senare under Inloggning och säkerhet.',
+  'setup.skip': 'Hoppa över för nu',
+  'setup.purpose': 'Att ställa in autentiseringsappen',
   'recovery.title': 'Spara dina återställningskoder',
   'recovery.intro':
     'Om du tappar bort din telefon loggar varje kod in dig en gång. Förvara dem någon annanstans än på telefonen.',

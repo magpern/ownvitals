@@ -43,6 +43,8 @@ export const shell = {
   'route.ecg.later': 'The ECG viewer comes in M6.',
   'route.findings.title': 'Findings',
   'route.findings.later': 'The findings page comes in M6.',
+  'route.assistant.title': 'Assistant',
+  'route.assistant.later': 'The assistant comes in M7.',
   'route.connections.title': 'Connections',
   'route.connections.later': 'The connections page comes in M6.',
   'route.settings.title': 'Settings',
@@ -59,4 +61,9 @@ export const shell = {
   'route.data.later': 'Export and delete come in M6.',
   'route.admin.title': 'Admin',
   'route.admin.later': 'The admin pages come later.',
+  'cookies.title': 'Cookies and local storage',
+  'cookies.text':
+    'ownvitals uses only what is needed to keep you signed in and to remember your theme and language. There is no tracking and no advertising, so there is nothing to accept.',
+  'cookies.link': 'Read the cookie statement',
+  'cookies.ok': 'Got it',
 } satisfies Record<string, string>

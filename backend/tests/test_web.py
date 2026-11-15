@@ -165,7 +165,7 @@ async def test_unknown_api_path_is_a_json_404(down_client: httpx.AsyncClient) ->
     response = await down_client.get("/api/does-not-exist")
     assert response.status_code == 404
     assert response.headers["content-type"] == "application/json"
-    assert response.json() == {"detail": "Not Found"}
+    assert response.json() == {"detail": {"reason": "not_found"}}
 
 
 async def test_api_docs_live_under_api_and_are_off_in_prod(
@@ -256,17 +256,49 @@ async def test_static_dir_without_index_html_is_a_404_not_an_error(
 
 def test_every_feature_package_has_a_router_that_the_app_includes() -> None:
     from ownvitals.admin.routes import router as admin
+    from ownvitals.ai.assistant_routes import router as ai_assistant
+    from ownvitals.ai.consent_routes import router as ai_consent
+    from ownvitals.ai.digest_routes import router as ai_digest
     from ownvitals.auth.routes import router as auth
     from ownvitals.connections.routes import router as connections
+    from ownvitals.connections.withings_routes import router as withings_connect
     from ownvitals.flags.routes import router as flags
     from ownvitals.jobs.routes import router as jobs
+    from ownvitals.notify.email_prefs_routes import router as email_prefs
+    from ownvitals.reports.doctor_routes import router as doctor
+    from ownvitals.reports.export_routes import router as exports
     from ownvitals.views.days_routes import router as days
+    from ownvitals.views.ecg_routes import router as ecg
     from ownvitals.views.findings_routes import router as findings
     from ownvitals.views.metrics_routes import router as metrics
     from ownvitals.views.nerve_routes import router as nerve
+    from ownvitals.views.notifications_routes import router as notifications
+    from ownvitals.views.profile_routes import router as profile
+    from ownvitals.views.scores_routes import router as scores
     from ownvitals.views.status_routes import router as status
 
-    routers = (connections, flags, jobs, admin, findings, status, metrics, days, nerve)
+    routers = (
+        connections,
+        withings_connect,
+        flags,
+        jobs,
+        admin,
+        findings,
+        status,
+        metrics,
+        days,
+        nerve,
+        ecg,
+        profile,
+        scores,
+        notifications,
+        ai_consent,
+        ai_assistant,  # #208: the chat assistant's conversations and budget
+        ai_digest,  # issue 209: the weekly digest
+        exports,
+        doctor,
+        email_prefs,  # #459: the email preference per mail kind
+    )
     assert all(isinstance(router, APIRouter) for router in routers)
     assert {id(router) for router in routers} == {id(router) for router in FEATURE_ROUTERS}
     # #10: accounts and sign-in are installed by ``ownvitals.auth.setup.install`` (their routers,

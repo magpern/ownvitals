@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check:bundle": "node scripts/bundle-budget.mjs",
+    "build:public": "node scripts/build-public.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc -b",

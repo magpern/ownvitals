@@ -32,7 +32,9 @@ from ownvitals.auth.sessions import (
     rotate_session,
     start_session,
 )
+from ownvitals.auth.stepup_first_factor import record_stepup, steps_up
 from ownvitals.auth.tables import users
+from ownvitals.auth.turnstile import require_turnstile
 from ownvitals.auth.userlock import lock_user_row
 from ownvitals.context import UserContext
 from ownvitals.db import system_session
@@ -77,7 +79,7 @@ async def _check_password(
     return False, typed
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(require_turnstile("signin"))])
 async def sign_in(body: LoginIn, request: Request, response: Response) -> SignedIn:
     settings, keys = request.app.state.settings, request.app.state.keys
     hasher: PasswordHasher = request.app.state.password_hasher
@@ -149,7 +151,8 @@ async def reauthenticate(
     info: Annotated[SessionInfo | None, Depends(current_session)],
 ) -> Done:
     """Re-authentication with the password (section 6): sets ``reauth_at`` and rotates the
-    session. Failures count like sign-in failures."""
+    session. Failures count like sign-in failures. For an account without TOTP that is not
+    required to have one it is the step-up too (``stepup_first_factor``, #475)."""
     if info is None:
         raise HTTPException(status_code=401, detail={"reason": "not_authenticated"})
     keys = request.app.state.keys
@@ -172,10 +175,13 @@ async def reauthenticate(
             if locked is None or locked.password_hash != stored:
                 # a reset or change committed after the check above: what was proved is gone
                 raise HTTPException(status_code=401, detail=INVALID)
+            stepup = await steps_up(db, request.app.state.settings, ctx.user_id)
             issued = await rotate_session(
-                db, info, reauth=True, user_agent=user_agent(request), ip=ip
+                db, info, reauth=True, stepup=stepup, user_agent=user_agent(request), ip=ip
             )
             await record_event(db, "reauth", user_id=ctx.user_id, ip=ip)
+            if stepup:
+                await record_stepup(db, ctx.user_id, ip, "password")
     except SessionGone:
         clear_session_cookie(response)
         raise HTTPException(status_code=401, detail={"reason": "not_authenticated"}) from None

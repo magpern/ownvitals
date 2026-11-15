@@ -436,3 +436,5 @@ async def test_a_total_deadline_is_positive_and_finite(worker: None, seconds: An
             builder(total_seconds=seconds)
     with pytest.raises(ValueError, match="positive, finite"):
         await egress.exchange_withings_code(**values, code="c", total_seconds=seconds)
+    with pytest.raises(ValueError, match="positive, finite"):
+        await egress.verify_turnstile_token(secret="s", token="t", total_seconds=seconds)

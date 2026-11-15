@@ -30,12 +30,14 @@ from ownvitals.config_net import (  # noqa: F401 (re-exported)
     parse_networks,
     public_origin,
 )
+from ownvitals.config_rpid import check_rp_id, rp_id_in_use
 from ownvitals.config_secrets import (  # noqa: F401 (re-exported)
     DEFAULT_SECRETS_DIR,
     SECRET_FILE_FIELDS,
     read_secret_files,
     secrets_dir,
 )
+from ownvitals.config_webhooks import WebhookSettings
 from ownvitals.emailnorm import normalize_email
 
 DATABASE_DRIVER = "postgresql+psycopg"
@@ -96,7 +98,7 @@ class WithoutSecretsSource(PydanticBaseSettingsSource):
         return {k: v for k, v in self._inner().items() if k not in SECRET_FILE_FIELDS}
 
 
-class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings):
+class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, WebhookSettings, BaseSettings):
     """All configuration of the web app and the worker.
 
     Everything that can carry a credential is a ``SecretStr``: it is masked in ``repr``,
@@ -134,6 +136,8 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings
     database_maint_password: SecretStr | None = None
     # The built single-page app (the image sets it); unset: the API only.
     static_dir: Path | None = None
+    # The prerendered public site (ADR 0016), served only with ``static_dir``; unset: none.
+    public_dir: Path | None = None
 
     # Accounts and sessions.
     # From the file ``app_secret_key`` (at least 32 bytes); the web app refuses to start without
@@ -146,12 +150,6 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings
     # ``connection_kek`` (read by the crypto package, never the environment); retired keys are
     # ``connection_kek_<id>``.
     connection_kek_id: str = "kek-1"
-    # The ids of the current webhook-secret seed (worker only) and pepper (web and worker). The
-    # keys are the secret files ``webhook_seed`` and ``webhook_pepper`` (read by the crypto
-    # package, never the environment); retired ones are ``webhook_seed_<id>`` and
-    # ``webhook_pepper_<id>``. Optional in M0, required from M1 (ADR 0004 section 4).
-    webhook_seed_id: str = "seed-1"
-    webhook_pepper_id: str = "pep-1"
 
     # From the file ``smtp_password`` (never the environment).
     smtp_password: SecretStr | None = None
@@ -259,18 +257,7 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings
 
     @model_validator(mode="after")
     def _check_webauthn_rp_id(self) -> "Settings":
-        host = urlsplit(self.public_base_url).hostname or ""
-        rp_id = self.webauthn_rp_id
-        if rp_id is None:
-            return self
-        if _is_ip(host) or rp_id != rp_id.strip().lower() or not rp_id or _is_ip(rp_id):
-            raise ValueError("webauthn_rp_id must be a lower-case domain name")
-        if not (host == rp_id or host.endswith("." + rp_id)) or (
-            "." not in rp_id and rp_id != "localhost"
-        ):
-            raise ValueError(
-                "webauthn_rp_id must be the host of public_base_url or a parent domain of it"
-            )
+        check_rp_id(self.public_base_url, self.webauthn_rp_id, self.environment)
         return self
 
     @model_validator(mode="after")
@@ -370,10 +357,7 @@ class Settings(AuthSettings, MailSettings, JobSettings, AiSettings, BaseSettings
     def passkey_rp_id(self) -> str | None:
         """The WebAuthn relying-party id (ADR 0011 section 1), or ``None`` when the public host
         is an IP address and passkeys are therefore off."""
-        if self.webauthn_rp_id is not None:
-            return self.webauthn_rp_id
-        host = urlsplit(self.public_base_url).hostname or ""
-        return None if not host or _is_ip(host) else host
+        return rp_id_in_use(self.public_base_url, self.webauthn_rp_id)
 
     @property
     def admin_email_set(self) -> frozenset[str]:

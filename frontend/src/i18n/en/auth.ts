@@ -71,6 +71,10 @@ export const auth = {
   'setup.cantScan': "Can't scan it? Enter this key:",
   'setup.timeBased': 'Time-based, 6 digits',
   'setup.codeLabel': 'Code from the app',
+  'setup.optional':
+    "Recommended, not required. With it, someone who learns your password still can't sign in. You can set it up later under Sign-in and security.",
+  'setup.skip': 'Skip for now',
+  'setup.purpose': 'Setting up the authenticator app',
   'recovery.title': 'Save your recovery codes',
   'recovery.intro':
     'If you lose your phone, each code signs you in once. Keep them somewhere other than your phone.',

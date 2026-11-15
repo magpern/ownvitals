@@ -172,13 +172,16 @@ ALLOWED: dict[str, Allowed] = {
     ),
     "__dict__": Allowed("a log record's extra fields", _forms("read"), LOG),
     "__version__": Allowed(
-        "the package version", _forms("define", "import", "name"), _modules("__init__.py", "web.py")
+        # web.py: /api/health; reports/export.py: the export manifest's app_version (#211).
+        "the package version",
+        _forms("define", "import", "name"),
+        _modules("__init__.py", "web.py", "reports/export.py"),
     ),
     "__file__": Allowed(
         "the locale manifest's path, found from the package's own location (ADR 0015 section 1, "
-        "issue 249)",
+        "issue 249); the shipped HIS band table's default path (issue 488)",
         _forms("name"),
-        _modules("locales.py"),
+        _modules("locales.py", "config_scores.py"),
     ),
     "__code__": Allowed(
         "the egress hook recognises `socket.socketpair`'s own code",

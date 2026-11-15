@@ -18,3 +18,11 @@ def optional_instant(epoch: int | None, now: datetime) -> datetime | None:
 
 def changed(found: Any) -> bool:
     return found is not None
+
+
+def written(found: Any) -> str:
+    """``inserted`` for a fresh row, ``updated`` when the upsert changed an existing one.
+
+    The upserts return ``(xmax = 0) AS inserted``: true only for a row the statement created.
+    """
+    return "inserted" if found.inserted else "updated"

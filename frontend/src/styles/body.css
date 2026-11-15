@@ -1,0 +1,28 @@
+/* The body composition page (docs/design/README.md, "Body composition"; issue 201). Tokens only. */
+
+.ov-segments {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ov-space-3) var(--ov-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov-segment {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-1);
+  min-width: 0;
+}
+
+.ov-segment__name {
+  color: var(--ov-muted);
+  font-size: var(--ov-text-sm);
+}
+
+@media (max-width: 40rem) {
+  .ov-segments {
+    grid-template-columns: 1fr;
+  }
+}

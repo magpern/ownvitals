@@ -29,6 +29,7 @@ from ownvitals.auth.oauth_signup import (  # noqa: F401 - re-exported
     invite_valid,
 )
 from ownvitals.auth.oauth_store import Flow, add_identity, identity_owner
+from ownvitals.auth.recipients import account_mail_locale
 from ownvitals.auth.sessions import (
     IssuedSession,
     SessionGone,
@@ -36,6 +37,7 @@ from ownvitals.auth.sessions import (
     rotate_session,
     start_session,
 )
+from ownvitals.auth.stepup_first_factor import record_stepup, steps_up
 from ownvitals.auth.tables import pending_signups, users
 from ownvitals.auth.userlock import lock_user_row
 from ownvitals.config import Settings
@@ -61,6 +63,7 @@ class Request:
     user_agent: str | None
     now: float | None = None
     flow_age: float | None = None  # seconds since the flow's start, by the database clock
+    locale: str | None = None  # the request's language (ADR 0015 section 2), a notice's fallback
 
 
 @dataclass(slots=True)
@@ -110,7 +113,7 @@ async def _link(db: AsyncSession, req: Request) -> Outcome:
             session_id=info.id,
         )
     except SessionGone:  # a reset or revoke committed since the session was read (#248)
-        return _fail("session_mismatch")
+        return _fail("session_mismatch", "session_gone")
     if linked:
         await record_event(
             db,
@@ -119,7 +122,8 @@ async def _link(db: AsyncSession, req: Request) -> Outcome:
             ip=req.ip,
             detail={"provider": req.flow.provider},
         )
-        mail = mails.identity_linked_notice(info.email, req.flow.provider)
+        locale = await account_mail_locale(db, req.settings, user_id, req.locale)
+        mail = mails.identity_linked_notice(info.email, req.flow.provider, locale=locale)
         return Outcome("ok", mail=mail, next="linked")
     owner = await identity_owner(db, req.flow.provider, ident.subject)
     if owner is not None and owner[0] == user_id:
@@ -166,13 +170,20 @@ async def _reauth(db: AsyncSession, req: Request) -> Outcome:
             detail={"why": why, "provider": req.flow.provider},
         )
         return _fail(code, why)
+    # The user row is locked (``has_password`` above): an account without TOTP that is not
+    # required to have one steps up with this answer too (#475; the H1 rule above still holds).
+    stepup = await steps_up(db, req.settings, info.user_id)
     try:
-        issued = await rotate_session(db, info, reauth=True, user_agent=req.user_agent, ip=req.ip)
+        issued = await rotate_session(
+            db, info, reauth=True, stepup=stepup, user_agent=req.user_agent, ip=req.ip
+        )
     except SessionGone:
         return _fail("session_mismatch", "session_gone")
     await record_event(
         db, "reauth", user_id=info.user_id, ip=req.ip, detail={"provider": req.flow.provider}
     )
+    if stepup:
+        await record_stepup(db, info.user_id, req.ip, "google")
     return Outcome("ok", issued=issued, next="reauthed")
 
 
@@ -185,8 +196,10 @@ async def _sign_in(db: AsyncSession, req: Request) -> Outcome:
         # that removed the identity, or a disable or delete, committed since the read above.
         locked = await lock_user_row(db, user_id)
         again = await identity_owner(db, provider, ident.subject)
-        if locked is None or again is None or again[0] != user_id:
-            return _fail("invalid")
+        if locked is None:
+            return _fail("invalid", "account_gone")
+        if again is None or again[0] != user_id:
+            return _fail("invalid", "identity_gone")
         if locked.disabled:
             await record_event(db, "sign_in_failed", user_id=user_id, ip=req.ip)
             return _fail("invalid", "user_disabled")  # the generic failure
@@ -236,7 +249,8 @@ async def _create_account(db: AsyncSession, req: Request, email: str) -> Outcome
         return _fail(exc.code)
     await record_event(db, "signup_confirmed", user_id=user_id, ip=req.ip)
     outcome = await _session_for(db, req, user_id)
-    outcome.mail = mails.identity_linked_notice(email, req.flow.provider)
+    locale = await account_mail_locale(db, req.settings, user_id, req.locale)
+    outcome.mail = mails.identity_linked_notice(email, req.flow.provider, locale=locale)
     return outcome
 
 

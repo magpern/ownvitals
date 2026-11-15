@@ -46,6 +46,7 @@ def test_the_secret_files_are_exactly_the_documented_ones() -> None:
         "app_secret_key",
         "smtp_password",
         "oauth_google_client_secret",
+        "turnstile_secret_key",  # issue 460 (ADR 0018)
     }
     assert set(SECRET_FILE_FIELDS) <= set(Settings.model_fields)
 

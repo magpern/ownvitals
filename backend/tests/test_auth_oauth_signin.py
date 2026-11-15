@@ -96,7 +96,7 @@ async def test_new_google_user_with_a_verified_email_signs_up_and_in(
     browser = Browser(oenv)
     invite = await make_invite(oenv)
     response = await sign_in_with(browser, fake, "google", invite=invite)
-    assert location(response) == "/"
+    assert location(response) == "/overview"
     assert browser.signed_in
     assert await oenv.scalar("SELECT count(*) FROM users") == 1
     assert await oenv.scalar("SELECT email FROM users") == "g@example.com"
@@ -125,7 +125,7 @@ async def test_return_to_must_be_a_relative_path(oenv: Env, fake: FakeProviders)
     await sign_in_with(Browser(oenv), fake, "google", invite=await make_invite(oenv))
     for bad in ("https://evil.example/", "//evil.example", "/\\evil", "javascript:1"):
         browser = Browser(oenv)
-        assert location(await sign_in_with(browser, fake, "google", return_to=bad)) == "/"
+        assert location(await sign_in_with(browser, fake, "google", return_to=bad)) == "/overview"
 
 
 async def test_sign_in_to_a_disabled_user_gets_the_generic_failure(
@@ -215,7 +215,7 @@ async def test_an_invite_is_consumed_atomically_by_parallel_callbacks(
         *(browser.get(path) for browser, path in zip(browsers, callbacks, strict=True))
     )
     outcomes = sorted(location(r) for r in results)
-    assert outcomes.count("/") == 1
+    assert outcomes.count("/overview") == 1
     assert outcomes.count("/signin?oauth=invite_invalid") == 3
     assert await oenv.scalar("SELECT count(*) FROM users") == 1
     assert await identities(oenv) == 1
@@ -229,7 +229,7 @@ async def test_a_replayed_callback_finds_no_flow(oenv: Env, fake: FakeProviders)
     started = await start(browser, "google", invite_code=await make_invite(oenv))
     callback = fake.complete(started.json()["authorization_url"])
     flow_cookie = dict(browser.cookies)
-    assert location(await browser.get(callback)) == "/"
+    assert location(await browser.get(callback)) == "/overview"
     replay = Browser(oenv)
     replay.cookies = flow_cookie  # the attacker holds the flow cookie and the URL
     assert location(await replay.get(callback)) == "/signin?oauth=invalid"
@@ -247,7 +247,7 @@ async def test_parallel_callbacks_take_the_flow_once(oenv: Env, fake: FakeProvid
         twin.cookies = dict(browser.cookies)
         twins.append(twin)
     results = await asyncio.gather(*(twin.get(callback) for twin in twins))
-    assert sorted(location(r) for r in results) == ["/"] + ["/signin?oauth=invalid"] * 4
+    assert sorted(location(r) for r in results) == ["/overview"] + ["/signin?oauth=invalid"] * 4
     assert fake.token_requests == 1
 
 

@@ -8,4 +8,6 @@ OUTBOX_DIGESTS: dict[str, str] = {
     "mail_outbox_claim": "d9aa404f02b705056ea3779649d8c9d6",
     "mail_outbox_mark": "f75b98f2c485898329855d8151fabbad",
     "owner_notice_queue": "6335e9f45dbcdd2ec26720b096cb96ab",
+    "mail_outbox_email_pref": "fb1c04e5cc3cbaa0a30a72b7b7c11a1f",
+    "email_unsubscribe": "60dd83702d7409672762116d0a484839",
 }

@@ -1,6 +1,7 @@
 # ADR 0005: Jobs, leases, fencing and the worker
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88 (see "Amendments").
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72 and #88, 2026-11-10 by
+#370, #314 and #365, and 2026-11-11 by #383 (see "Amendments").
 Post-port review (#16, 2026-11-03): no decision changed; the queue hardening findings of the M1
 PRs are in #165.
 
@@ -186,6 +187,30 @@ queued ──claim──> running ──> completed | failed | cancelled
     `SELECT` of `owner_id`, `kind` and `route`, `DELETE` (30-day retention of sent and failed
     rows) and, on `owner_notices` only, `INSERT (kind, route)`; no account or health table.
     Their digests are in `ownvitals.db.outbox_digests`.
+  - from #314, the admin account family (ADR 0002 §3; amended 2026-11-10, #314):
+    `admin_account_disable(p_target uuid)`, `admin_account_enable(p_target uuid)` and
+    `admin_account_delete(p_target uuid, p_email_normalized text, p_ip text, p_browser text,
+    p_os text, p_place text)`, in `docker/postgres/maint/70-admin-accounts.sql`, owned by the
+    `NOLOGIN` role `ownvitals_admin_accounts` (`NOBYPASSRLS`, member of no role, no settings, no
+    default privileges) with the queue functions' `search_path` and the comment
+    `ownvitals-admin-accounts v1`; `ownvitals_maint` may execute them, `ownvitals_app` and
+    `PUBLIC` nothing. Each refuses unless its transaction already holds the matching `ok` admin
+    audit row. The role's privileges are exactly those ADR 0002 §3 lists (system tables only).
+    Their digests are in `ownvitals.db.queue_digests` with the others, and `20-queue.sql` admits
+    the three by name. `db-functions` runs the script last.
+  - from #365, the admin delete's Withings revoke (ADR 0002 §3; amended 2026-11-10, #365): a
+    fourth admin account function, `admin_account_revoke(p_target uuid, p_email_normalized
+    text, p_session uuid, OUT outcome text, OUT job_id uuid)`, with the family's owner, version
+    comment and ACL, and one more queue function, `queue_enqueue_admin_revoke(p_owner uuid,
+    p_admin uuid, p_session uuid)`, in `20-queue.sql`, owned by `ownvitals_queue` with the queue
+    functions' `search_path` and version comment, but **not** their ACL: `EXECUTE` to
+    `ownvitals_admin_accounts` only (granted by `70-admin-accounts.sql`, kept when `20-queue.sql`
+    runs again on its own), never `ownvitals_app`. It inserts one queued
+    `withings_admin_revoke` job (origin `operator`, lane 1, one attempt) and its `queued` event
+    for an owner with a live connection, and needs no privilege the queue role lacks
+    (`connections (id, owner_id, status)`, `jobs`, `job_events`). `ownvitals_admin_accounts`
+    gains `EXECUTE` on it and nothing else. Both digests are in `ownvitals.db.queue_digests`,
+    and `20-queue.sql` admits both by name.
 
   Each is pinned the same way: name, owner, `md5(pg_get_functiondef)`, ACL, and for the trigger
   its table, timing and events. M1 adds its function families (webhook ingest and the 30-day
@@ -216,7 +241,14 @@ queued ──claim──> running ──> completed | failed | cancelled
 
 - **The job issuer** (ADR 0002 §1) acts on the claimed row alone:
   1. it asks `ownvitals.auth` (guard 8) whether the owner exists and is not disabled; otherwise the
-     job fails with `account_disabled`;
+     job fails with `account_disabled`. **One exception** (amended 2026-11-11, #383): a job whose
+     row is `withings_admin_revoke` with origin `operator` (only `queue_enqueue_admin_revoke`
+     writes that pair, or the operator's `queue_replay` of such a job) is issued for an owner
+     that is disabled but still exists. The runner reads the row's `kind` and `origin` as the
+     bare owner, fenced, only after the owner was found not active, and the kind must be
+     registered with `disabled_owner=True`, which no other kind sets (a test pins it).
+     Every other kind, and any job of a deleted owner, still fails `account_disabled`. The handler
+     still re-checks the admin's stepped-up session first;
   2. it issues a context with `role="user"` (a job never carries admin authority) and the owner's
      connection refs, read through `ownvitals.connections` in that owner's `user_session`;
   3. the job's row and input are then read in a `user_session` with that context.
@@ -324,7 +356,9 @@ PLAN §3 and §4.4 name them; M1's issues and ADR detail them within these rules
   therefore never multiply work (PLAN §4.4).
 - **Priorities and fairness.** A lane per job (user "sync now" > webhook > poll > reconcile >
   backfill) and a per-owner fairness key in `queue_claim`'s order (round-robin, each user's backfill
-  share capped). That changes `queue_claim` and bumps its version.
+  share capped). That changes `queue_claim` and bumps its version. In the rate limiter a lane
+  competes only while its demand is live: asked within 10 s and not granted since, or the caller
+  itself; a served lane holds nothing (amended 2026-11-10, #370).
 - **Rate-limit hold.** A run that can't get a rate token, or meets a paused bucket (status 601 →
   `wait_seconds` or 60 s), goes back to `queued` with `available_at` at the bucket's resume time
   **without spending an attempt**, like a hand-back. Tokens count as consumed when claimed and are
@@ -393,6 +427,101 @@ A new advisory lock adds its row here in the PR that introduces it.
 - Threat model T44 to T51 cite this ADR.
 
 ## Amendments
+
+### 2026-11-11 (#383): the admin revoke runs for a disabled target
+
+Recorded in §4 and marked "amended 2026-11-11, #383". Follow-up of the #380 review (M8 human
+security review item).
+
+- Context: the issuer refused every job of a disabled owner, so an admin who disabled an account
+  and then deleted it (the common workflow) left the grant live at Withings and recorded
+  `revoke: failed` (ADR 0002's #365 amendment named the gap).
+- Decision: the issuer's one exception in §4. It is keyed on the job row (kind and origin, which
+  only `queue_enqueue_admin_revoke` and the operator's replay of its job write together;
+  `queue_enqueue` refuses origin `operator` and the user's create writes `user`) and on a registry flag only that kind sets; the owner
+  must still exist. The context is the same `role="user"` context as for any job, and the
+  handler's admin step-up check (ADR 0002 §3, #365) runs before any provider call. No definer
+  changes.
+- Alternatives: **revoking when an admin disables an account** makes disable irreversible for
+  the Withings connection (a product change for the owner), leaves accounts disabled before the
+  change unrevoked, and still fails when the worker is down at the disable; **clearing
+  `disabled_at` around the revoke** reopens sign-in for that window; **returning the kind from
+  `queue_claim`** changes a pinned queue function for what one fenced read gives.
+- Consequences: a disabled target's admin delete revokes as for an active one. A disabled
+  owner's job of this kind reads its own row once more (fenced, as the bare owner). A deleted
+  owner's job, or any other kind, is refused exactly as before.
+
+### 2026-11-10 (#365): the admin delete's revoke job
+
+Recorded in §3 and marked "amended 2026-11-10, #365": ADR 0002 §3 requires an amendment here
+for a new definer. The admin account delete first queues the target's Withings revoke through
+`admin_account_revoke` (admin account family) and `queue_enqueue_admin_revoke` (queue family,
+callable by that family's role alone); the job kind `withings_admin_revoke` is claimed and
+issued like any other (§4), and its handler re-checks the admin's stepped-up session before it
+revokes (ADR 0002's amendment of the same date gives the conditions).
+
+### 2026-11-11 (#333): the export purge family and the events the system causes
+
+Recorded here because ADR 0002 §3 requires an amendment per definer family (ADR 0013 §4
+describes the function). The cross-user export purge is one definer function,
+`exports_purge_expired()`, owned by its own `NOLOGIN` role `ownvitals_exports`
+(`BYPASSRLS`, no inherited role; function and role are shipped by #344), installed by the superuser script
+`docker/postgres/exports/60-exports.sql` (never a migration, run by `db-functions` after
+`50-ai.sql`) and pinned by digest in `queue_digests.py`, checked in `queue_check.py`, admitted by name in
+`20-queue.sql` and by guard 9, and its role is checked by guard 2 (`role_guard`). The role holds only column grants on `exports` (`SELECT` of the id,
+owner, state and age columns, `UPDATE (state)`, `DELETE`) and `export_chunks` (`SELECT` of the
+ids and order, `DELETE`); nothing on an account table or `jobs`. `EXECUTE` goes to the app
+role (the worker's hourly upkeep tick) only.
+
+The function writes no `auth_events` row: that table stays behind `ownvitals.auth` (ADR 0003
+§1) and widening the role to it was refused in the review of #344. The events a system action
+causes are therefore written by an owner-context path through `record_event`, each in its own
+transaction: the build writes `export_ready` (and `export_failed`) after its fenced transaction
+has committed (only the `export_ready` mail is queued inside that transaction), and
+`export_expired` and `export_failed` from the owner's tidy are written when that owner next
+opens Settings or requests or downloads. They
+carry no origin (`activity_model.NO_ORIGIN`). An owner who does not come back gets no event for
+the expiry; that gap is documented in `docs/dev/reports.md`.
+
+### 2026-11-10 (#314): the admin account family
+
+Recorded in §3 and marked "amended 2026-11-10, #314": ADR 0002 §3 requires an amendment here
+per new family. The admin area's disable, enable and delete run as three definer functions of a
+new family owned by `ownvitals_admin_accounts`, installed by the superuser script
+`docker/postgres/maint/70-admin-accounts.sql` (never a migration) and pinned like the others, so
+each change commits with its `ok` audit row (ADR 0002's amendment of the same date gives the
+conditions).
+
+### 2026-11-10 (#370): the rate limiter's lanes follow live demand
+
+Architect decision for §8 ("Priorities and fairness"), marked "amended 2026-11-10, #370", with
+roadmap Amendment 10. `withings_rate_claim` (`docker/postgres/withings/rate.sql`) let the
+highest lane that had asked **within 30 s** win every claim, so once a job of a higher lane
+(connect, webhook, poll) was served and stopped asking, every lower lane got `wait` for up to
+30 s with no grant at all; a higher lane asking every few seconds held lower lanes indefinitely,
+past the per-call wait bound of `ingest/calls.py` (60 s), so a backfill failed attempts as
+`rate_limited`. The synthetic M1 flow (#294, #369) showed two such ~30 s stalls.
+
+- **Live demand.** A demand row `(app, account, lane)` competes only while it asked within
+  10 s **and** has not been granted since (`granted_at IS NULL OR seen_at > granted_at`), plus
+  the caller's own row (its clock is read before it waits on the bucket row, so a parallel
+  stream of the same row may have been granted after it). 10 s is twice the longest re-ask of
+  `_take` (at most 5 s: the jitter is applied before the cap), so a waiting lane never drops
+  out between its asks. A claim never moves `seen_at` or `granted_at` backwards (`GREATEST`; it
+  reads its clock before waiting on the bucket row), so a delayed sibling cannot make a served
+  row look live. The highest live lane wins; the same lane stays round-robin by `granted_at`.
+- **The backfill share** uses the same liveness for the other account: one account's backfill is
+  held at a quarter of the budget only while another account's backfill is live and under its
+  share. The set of candidates is therefore never empty (the caller is in it, and a capped
+  caller is excluded only for a live, uncapped one), so no claim waits for a turn nobody takes.
+- **Unchanged:** tokens, slots, the 601 pause, the 2-minute demand cleanup and the 60 s window of
+  the share. No table, column or signature changes; the three functions' comment becomes
+  `ownvitals-rate v2` (`RATE_VERSION`) and the claim's digest is regenerated. (Now `v3`: since
+  #470 the claim reads the clock after it holds the bucket row, and `refilled_at` never moves back.)
+- **Consequence:** priority now applies between callers that are waiting at the same time. A
+  higher lane loses nothing it asks for, but between its calls (while it is making one) a lower
+  lane may be served. A waiting row that goes away (its attempt ended) holds the turn for at
+  most 10 s. Synthetic only: not verified against real Withings traffic.
 
 ### 2026-10-31 (#49): follow-ups of the #41 review
 

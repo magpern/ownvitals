@@ -447,3 +447,33 @@ def test_real_value_is_exact() -> None:
     for unit in (-31, 31, 10**6):
         with pytest.raises(ValueError, match="range"):
             real_value(1, unit)
+
+
+NONCE = "v2/signature:getnonce"
+REVOKE = "v2/oauth2:revoke"
+
+
+async def test_a_revoke_retries_the_nonce_fetch_within_the_budget(
+    s: tuple[Setup, WithingsClient],
+) -> None:
+    setup, client = s
+    setup.fake.inject("http", at=1, endpoint=NONCE, http_status=503)
+    budget = RetryBudget(retries=3, max_delay=10)
+    await client.revoke(setup.user.userid, budget=budget)
+    assert setup.requests(NONCE) == 2
+    assert setup.requests(REVOKE) == 1
+    assert budget.used == 1
+    assert (setup.app.client_id, setup.user.userid) not in setup.fake._grants
+
+
+async def test_the_signed_revoke_itself_is_never_retried(s: tuple[Setup, WithingsClient]) -> None:
+    """A nonce is single use: the revoke is sent once, whatever the budget (``client.revoke``)."""
+    setup, client = s
+    setup.fake.inject("http", at=1, endpoint=REVOKE, http_status=503)
+    budget = RetryBudget(retries=3, max_delay=10)
+    with pytest.raises(Transient):
+        await client.revoke(setup.user.userid, budget=budget)
+    assert setup.requests(NONCE) == 1
+    assert setup.requests(REVOKE) == 1
+    assert budget.used == 0
+    assert setup.sleeps == []

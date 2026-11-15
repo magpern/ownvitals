@@ -14,7 +14,7 @@ describe('Rail', () => {
   it('is the main navigation, with the brand, three groups and their items in order', () => {
     inRouter(<Rail active="overview" path="/" admin={false} />)
     const nav = screen.getByRole('navigation', { name: 'Main' })
-    expect(within(nav).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/')
+    expect(within(nav).getByRole('link', { name: 'ownvitals' })).toHaveAttribute('href', '/overview')
     const groups = within(nav).getAllByRole('group')
     expect(groups.map((group) => group.getAttribute('aria-labelledby')).every(Boolean)).toBe(true)
     expect(within(nav).getByRole('group', { name: 'Analyse' })).toBeInTheDocument()
@@ -43,7 +43,7 @@ describe('Rail', () => {
     inRouter(<Rail active={null} path="/" admin />)
     const hrefs = Object.fromEntries(screen.getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')]))
     expect(hrefs).toMatchObject({
-      Overview: '/',
+      Overview: '/overview',
       Body: '/body',
       'Heart & ECG': '/heart',
       'Nerve health': '/nerve',
@@ -135,7 +135,7 @@ describe('PhoneTabs', () => {
     inRouter(<PhoneTabs active="overview" path="/" />)
     const nav = screen.getByRole('navigation', { name: 'Main tabs' })
     expect(within(nav).getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
-      ['Overview', '/'],
+      ['Overview', '/overview'],
       ['Findings', '/findings'],
       ['Data', '/connections'],
       ['Settings', '/settings'],

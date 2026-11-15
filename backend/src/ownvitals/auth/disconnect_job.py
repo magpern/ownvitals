@@ -14,6 +14,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.auth.session_full_sql import owes_no_second_factor
 from ownvitals.auth.tables import sessions
 from ownvitals.config import Settings
 from ownvitals.context import UserContext
@@ -54,14 +55,17 @@ async def session_stepped_up(
 
     Narrower than ``sessions.resolve_session`` by design: it does not check the idle timeout
     or a disabled account (the issuer refuses a disabled owner before the handler runs), and
-    "full" is ``mfa_at`` being set. Within ``JOB_SLACK`` it only gates a revoke, which
-    protects the user's privacy rather than granting access."""
+    "full" is ``session_full_sql.owes_no_second_factor`` without ``OWNVITALS_ADMIN_EMAILS``
+    (#475: the stored role decides here; the route's ``require_sensitive`` already refused a
+    listed address without TOTP before the job existed).
+    Within ``JOB_SLACK`` it only gates a revoke, which protects the user's privacy rather than
+    granting access."""
     now = func.now()
     query = select(sessions.c.id).where(
         sessions.c.id == session_id,
         sessions.c.user_id == ctx.user_id,
         sessions.c.expires_at > now,
-        sessions.c.mfa_at.is_not(None),
+        owes_no_second_factor(()),
         sessions.c.reauth_at <= now,
         sessions.c.reauth_at >= now - (RECENT_AUTH_WINDOW + JOB_SLACK),
         sessions.c.stepup_at <= now,

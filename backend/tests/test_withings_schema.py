@@ -26,10 +26,9 @@ SRC = REPO / "backend" / "src" / "ownvitals"
 # The scheduler's maintenance step and every writer of a partitioned table are the callers.
 # None of those modules exist yet; each joins this set in the PR that calls the function.
 # db/queue_locks.py only records advisory-lock namespace 3. db/queue_expected.py and
-# db/queue_digests.py may name the function to pin it; db/queue_check.py names it in its docstring.
+# db/queue_digests.py may name the function to pin it.
 PARTITION_CALLERS = frozenset(
     {
-        "db/queue_check.py",
         "db/queue_digests.py",
         "db/queue_expected.py",
         "db/queue_locks.py",

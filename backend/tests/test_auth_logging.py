@@ -221,7 +221,7 @@ async def test_a_unique_violation_reaching_the_app_is_logged_as_class_and_sqlsta
 
     response = await env.client.get("/api/test/duplicate")
     assert response.status_code == 500
-    assert response.json() == {"detail": "Internal Server Error"}
+    assert response.json() == {"detail": {"reason": "internal"}}
     # A DBAPIError logged by anything else is scrubbed by the formatter too.
     with pytest.raises(Exception, match="duplicate key") as caught:
         await env.user(email)

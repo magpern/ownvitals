@@ -73,7 +73,8 @@ async def open_credentials(
 
     A missing key leaves the row unchanged (``key_unavailable``). A GCM failure sets
     ``needs_reconnect`` and ``decrypt_failed`` only when the generation is still the one
-    that was read, then raises. The failure is raised after the session commits.
+    that was read and the row is still connected (a disconnect keeps the generation, ADR
+    0004 section 6), then raises. The failure is raised after the session commits.
     """
     failure: str | None = None
     opened: OpenConnection | None = None
@@ -119,6 +120,7 @@ async def open_credentials(
                         _C.id == row.id,
                         _C.owner_id == ctx.user_id,
                         _C.token_generation == row.token_generation,
+                        _C.status == _CONNECTED,  # a disconnect keeps the generation
                     )
                     .values(
                         status="needs_reconnect",
@@ -139,16 +141,17 @@ async def open_credentials(
 async def clear_credentials(db: AsyncSession, ctx: UserContext) -> tuple[str, ...]:
     """Remove every credential and keep the rows (``keys wipe``).
 
-    One row per provider becomes ``needs_reconnect``; any older row of that provider stays
-    ``disconnected``. Both states allow empty credentials, and the live unique index allows
-    only one row that is not disconnected. The generation is not a token write, so it stays.
-    Returns the providers that had a row.
+    One row per provider becomes ``needs_reconnect``: the provider's live row when it has one,
+    otherwise its most recently updated row. Every other row of that provider stays (or
+    becomes) ``disconnected``. Both states allow empty credentials, and the live unique index
+    allows only one row that is not disconnected. The generation is not a token write, so it
+    stays. Returns the providers that had a row. Running it again picks the same row.
     """
     rows = (
         await db.execute(
             select(_C.id, _C.provider, _C.updated_at)
             .where(_C.owner_id == ctx.user_id)
-            .order_by(_C.provider, _C.updated_at.desc(), _C.id)
+            .order_by(_C.provider, (_C.status == DISCONNECTED).asc(), _C.updated_at.desc(), _C.id)
             .with_for_update()
         )
     ).all()

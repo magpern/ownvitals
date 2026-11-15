@@ -61,7 +61,7 @@ async def test_the_email_collision_path_sign_in_to_the_account_then_link(
     assert location(await link(owner, fake)) == LINKED
     assert await oenv.scalar("SELECT count(*) FROM identities") == 1
     again = Browser(oenv)  # and now the provider signs in to it
-    assert location(await sign_in_with(again, fake, "google")) == "/"
+    assert location(await sign_in_with(again, fake, "google")) == "/overview"
     assert again.signed_in
 
 

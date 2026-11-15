@@ -14,7 +14,8 @@ and on the standard library's selector loop (``require_standard_event_loop``).
 worker it refuses a privileged role and a drifted queue (exit 1).
 
 ``jobs replay <id>`` (#18) queues a new job from a dead-lettered one and writes an ``admin_audit``
-row (``job.replay``). It prints the new job id. The dead-lettered row is not changed.
+row (``job.replay``) before the new job commits, so there is never a replay without its row
+(#278). It prints the new job id. The dead-lettered row is not changed.
 
 ``ecg validate --user <uuid>`` (#47) prints ADR 0006's owner checks as counts, yes/no and whole
 percents. It reads that one account through a user session; the ECG library itself stays pure.
@@ -124,8 +125,31 @@ def add_subcommands(parser: argparse.ArgumentParser) -> None:
     add_probe_subcommand(sub)
 
 
+class _AuditNotWritten(Exception):
+    """The ``job.replay`` audit row failed; the replay is rolled back."""
+
+
+class _ReplayAudit:
+    """Writes ``job.replay`` before the replayed job commits (``queue.replay``, #278)."""
+
+    def __init__(self, maint: AdminDb, dead_letter_id: UUID) -> None:
+        self._maint = maint
+        self._dead_letter_id = dead_letter_id
+
+    async def __call__(self, created: queue.Replayed) -> None:
+        try:
+            await record_operator_action(
+                self._maint,
+                "job.replay",
+                {"dead_letter_id": self._dead_letter_id, "new_job_id": created.job_id},
+                Target(user_id=created.owner_id, kind="job", id=str(self._dead_letter_id)),
+            )
+        except (DBAPIError, UnknownAction, MaintRoleError):
+            raise _AuditNotWritten from None
+
+
 async def run_replay(args: argparse.Namespace, settings: Settings, out: TextIO, err: TextIO) -> int:
-    """``jobs replay``: a new queued job and one audit row. Exit 1 when it is refused."""
+    """``jobs replay``: a new queued job and its audit row, or neither. Exit 1 when refused."""
     try:
         job_id = UUID(args.job_id)
     except ValueError:
@@ -140,20 +164,14 @@ async def run_replay(args: argparse.Namespace, settings: Settings, out: TextIO, 
     try:
         await verify_database_role(engine)
         await verify_queue(engine)
-        created = await queue.replay(create_session_factory(engine), job_id)
-        try:
-            await record_operator_action(
-                maint,
-                "job.replay",
-                {"dead_letter_id": job_id, "new_job_id": created.job_id},
-                Target(user_id=created.owner_id, kind="job", id=str(job_id)),
-            )
-        except (DBAPIError, UnknownAction, MaintRoleError):
-            print(created.job_id, file=out)
-            print("error: the audit row was not written", file=err)
-            return 1
+        created = await queue.replay(
+            create_session_factory(engine), job_id, audit=_ReplayAudit(maint, job_id)
+        )
         print(created.job_id, file=out)
         return 0
+    except _AuditNotWritten:  # the replay rolled back: nothing was queued
+        print("error: the audit row was not written; nothing was queued", file=err)
+        return 1
     except ReplayRefused as refused:
         print(f"error: {refused.reason}", file=err)
         return 1

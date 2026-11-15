@@ -20,7 +20,12 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 from authtools import ORIGIN, Env, running_env, session_cookie, truncate_auth
-from dbtools import migrated, url_for
+from dbtools import (
+    ADMIN_ACCOUNTS_SCRIPT,
+    drop_admin_accounts_functions,
+    migrated,
+    url_for,
+)
 from jobtools import admin_url, engine_for, run_script
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -29,7 +34,9 @@ MAINT_ROLE = "ownvitals_maint"
 
 
 def drop_maint(url: str) -> None:
-    """Remove ``ownvitals_maint`` and every privilege it holds (a leftover too)."""
+    """Remove ``ownvitals_maint`` and every privilege it holds (a leftover too), and the admin
+    account family (#314), which exists only beside it."""
+    drop_admin_accounts_functions(url)
     with engine_for(url, isolation_level="AUTOCOMMIT") as engine, engine.connect() as connection:
         exists = connection.execute(
             text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": MAINT_ROLE}
@@ -40,12 +47,21 @@ def drop_maint(url: str) -> None:
 
 
 def install_maint(url: str) -> str:
-    """Run 30-maint.sql as the superuser and give the role a random password; its URL."""
-    run_script(url, MAINT_SCRIPT.read_text(encoding="utf-8"))
+    """Run 30-maint.sql, then 70-admin-accounts.sql (#314), as the superuser in one transaction,
+    as db-functions does (30-maint.sql alone revokes maint's ``EXECUTE`` on the admin account
+    functions), and give the role a random password; its URL."""
+    run_script(url, maint_scripts())
     password = secrets.token_hex(16)
     with engine_for(url, isolation_level="AUTOCOMMIT") as engine, engine.connect() as connection:
         connection.execute(text(f"ALTER ROLE {MAINT_ROLE} PASSWORD '{password}'"))  # hex only
     return url_for(url, MAINT_ROLE, password)
+
+
+def maint_scripts() -> str:
+    """30-maint.sql and 70-admin-accounts.sql, in the order db-functions runs them."""
+    return "\n".join(
+        script.read_text(encoding="utf-8") for script in (MAINT_SCRIPT, ADMIN_ACCOUNTS_SCRIPT)
+    )
 
 
 @pytest.fixture(name="admin_schema", scope="module")

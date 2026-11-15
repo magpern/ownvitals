@@ -99,14 +99,17 @@ def recompute_pending(records: Sequence[DailyRecord], revision: int) -> bool:
     return any(r.input_revision != revision for r in records)
 
 
-def sparkline(values: Sequence[DailyValue], anchor: date) -> list[SparkPoint]:
+def sparkline(
+    values: Sequence[DailyValue], anchor: date, days: int = SPARKLINE_DAYS
+) -> list[SparkPoint]:
+    """The last ``days`` days to the anchor, a gap as ``null``; none for a metric without data."""
     if not values:
         return []
     by_day = {v.day: float(v.value) for v in values}
-    first = anchor - timedelta(days=SPARKLINE_DAYS - 1)
+    first = anchor - timedelta(days=days - 1)
     return [
         SparkPoint(day=first + timedelta(days=i), value=by_day.get(first + timedelta(days=i)))
-        for i in range(SPARKLINE_DAYS)
+        for i in range(days)
     ]
 
 
@@ -135,11 +138,16 @@ def tile(
     *,
     today: date,
     revision: int,
+    window_days: int | None = None,
 ) -> MetricTileOut:
+    """One overview tile. The sparkline spans ``window_days`` (the metric detail's window length,
+    ``assemble_detail.window_for``; 30 days when absent); the typical-range band stays the fixed
+    display band."""
     values = to_daily(records)
     anchor = anchor_day(values, today)
     band = display_band(key, values, anchor)
     state, progress = metric_state(stream, band, pending=recompute_pending(records, revision))
+    spark_days = SPARKLINE_DAYS if window_days is None else window_days
     return MetricTileOut(
         key=key,
         area=area_of(key),
@@ -150,5 +158,5 @@ def tile(
         progress=progress,
         latest=latest_of(records),
         typical_range=None if isinstance(band, InsufficientData) else band_out(band, anchor),
-        sparkline=sparkline(values, anchor),
+        sparkline=sparkline(values, anchor, spark_days),
     )

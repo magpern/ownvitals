@@ -13,11 +13,15 @@ from uuid import UUID
 from sqlalchemy import Column, MetaData, Table, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ownvitals.ai.consent import cancel_ai_jobs
+from ownvitals.ai.tables import ai_conversations, ai_digests, ai_messages
 from ownvitals.connections.repository import delete_disconnected_row
 from ownvitals.context import UserContext
 from ownvitals.db import user_session
 from ownvitals.derived.tables import findings, metric_daily, observations, scores
 from ownvitals.ingest.tables import data_revisions, sync_cursors
+from ownvitals.notify.tables import notify_holds
+from ownvitals.reports.tables import export_chunks, exports
 from ownvitals.withings.tables import (
     activity_daily,
     devices,
@@ -56,7 +60,16 @@ IMPORTED = (
     observations,
     metric_daily,
     findings,
+    notify_holds,  # #195: the notification holds of those findings (rule ids and times only)
     scores,
+    # #206: the AI conversation history is text about this data, so it goes with it (messages
+    # before their conversations). The consent itself is kept (``KEPT``).
+    ai_messages,
+    ai_conversations,
+    ai_digests,  # issue 209: the weekly digests are text about this data too
+    # #211: an export archive is a copy of this data (chunks before their export rows).
+    export_chunks,
+    exports,
     _JOBS,
 )
 # Owned tables this option deliberately keeps, because they hold no imported or derived health
@@ -64,11 +77,26 @@ IMPORTED = (
 # route and its send state, ADR 0007; Architect decision on #225), and the AI cost cap's
 # ``ai_spend`` and ``ai_reservations`` (micro-USD accounting, ADR 0014 section 7; #205): spend
 # that was billed must stay counted, or deleting imported data would reset the month's budget.
+# ``ai_consents`` (#206): the record of the user's AI consent and its withdrawal, no content;
+# deleting data is not withdrawing consent (withdrawal is its own action, ``ai.consent``).
+# ``ai_audit`` (#207): one redacted row per model call (counts, codes, keyed fingerprints; no
+# content), kept like the spend it accounts for. ``ai_digest_prefs`` (issue 209): the digest
+# opt-in, a setting (withdrawal deletes it). ``email_prefs`` (#459): the email choice per mail
+# kind, a setting.
 # All go with the account through the ``owner_id`` cascade. The connection row is removed by
 # ``delete_disconnected_row`` and ``job_events`` follow their job, so neither is listed here or
 # in ``IMPORTED``. A test enumerates every owned table against these lists, so a new owned table
 # must be added to one of them.
-KEPT = ("user_profiles", "mail_outbox", "ai_spend", "ai_reservations")
+KEPT = (
+    "user_profiles",
+    "mail_outbox",
+    "ai_spend",
+    "ai_reservations",
+    "ai_consents",
+    "ai_audit",
+    "ai_digest_prefs",
+    "email_prefs",
+)
 
 
 async def purge_imported(factory: Factory, ctx: UserContext) -> None:
@@ -79,6 +107,9 @@ async def purge_imported(factory: Factory, ctx: UserContext) -> None:
     user's rows are left alone. The queue's events follow their job.
     """
     async with user_session(factory, ctx) as db:
+        # A running chat turn or digest would store text about the data being deleted: cancel
+        # them first (the job rows, then the history, the order withdrawal and the stores use).
+        await cancel_ai_jobs(db, ctx)
         for table in IMPORTED:
             await db.execute(delete(table).where(table.c.owner_id == ctx.user_id))
 

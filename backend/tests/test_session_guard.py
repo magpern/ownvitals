@@ -39,8 +39,15 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.jobs.progress",
             "ownvitals.ecg_validate",
             "ownvitals.views.findings_read",
+            "ownvitals.views.ecg_read",
             "ownvitals.views.reads",
+            "ownvitals.views.profile_store",
             "ownvitals.derived.check_cli",
+            "ownvitals.ai.consent",
+            "ownvitals.ai.chat_store",
+            "ownvitals.ai.digest_store",
+            "ownvitals.reports.export_store",
+            "ownvitals.notify.email_prefs_store",
         ),
     )
     system = Allowlist(
@@ -51,6 +58,10 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
             "ownvitals.flags.routes",
             "ownvitals.notify.outbox",
             "ownvitals.ai.budget",
+            "ownvitals.ai.audit_retention",
+            "ownvitals.ai.conversation_retention",
+            "ownvitals.worker.metrics",
+            "ownvitals.reports.export_purge",
         ),
     )
     private = Allowlist(prefixes=("ownvitals.db",))
@@ -93,10 +104,13 @@ def test_the_allowlists_are_exactly_the_reviewed_ones() -> None:
         "ownvitals.views.findings_routes",
         "ownvitals.views.findings_read.other",
         "ownvitals.views.reads.other",
+        "ownvitals.views.ecg_read.other",
+        "ownvitals.views.ecg_routes",
         "ownvitals.views.status_routes",
         "ownvitals.views.metrics_routes",
         "ownvitals.views.days_routes",
         "ownvitals.views.nerve_routes",
+        "ownvitals.views.profile_routes",
         "ownvitals.views.assemble",
     ],
 )
@@ -118,8 +132,12 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.ecg_validate", True, False),
         # The one findings read function (#190): that exact module, not its routes.
         ("ownvitals.views.findings_read", True, False),
+        # The ECG screen's recordings reader (#192): that exact module, not its routes.
+        ("ownvitals.views.ecg_read", True, False),
         # The read API's reader (#189): that exact module, not its routes.
         ("ownvitals.views.reads", True, False),
+        # The caller's own profile row (#203): that exact module, not its routes.
+        ("ownvitals.views.profile_store", True, False),
         # The owner's reproducibility check (#187): that exact module, not the writers.
         ("ownvitals.derived.check_cli", True, False),
         ("ownvitals.derived.findings_store", False, False),
@@ -138,10 +156,56 @@ def test_worker_kind_and_other_code_is_not_allowlisted(module: str) -> None:
         ("ownvitals.notify.outbox", False, True),
         ("ownvitals.notify.sender", False, False),
         ("ownvitals.notify", False, False),
+        # Email preferences (#459): the settings store opens the user's sessions; the
+        # unsubscribe endpoint writes only through the outbox module's definer call.
+        ("ownvitals.notify.email_prefs_store", True, False),
+        ("ownvitals.notify.email_prefs_routes", False, False),
+        ("ownvitals.notify.unsubscribe_routes", False, False),
+        ("ownvitals.notify.unsubscribe", False, False),
         # The AI reaper (#205): that exact module, never a user session, nothing else in ai.
         ("ownvitals.ai.budget", False, True),
+        # The audit retention (#331): that exact module, never a user session; not the log.
+        ("ownvitals.ai.audit_retention", False, True),
+        ("ownvitals.ai.audit", False, False),
+        # The conversation retention (#395): that exact module, never a user session.
+        ("ownvitals.ai.conversation_retention", False, True),
         ("ownvitals.ai", False, False),
         ("ownvitals.ai.pricing", False, False),
+        # AI consent (#206): that exact module; the tools read through the views, the routes
+        # through the consent module.
+        ("ownvitals.ai.consent", True, False),
+        ("ownvitals.ai.tools", False, False),
+        ("ownvitals.ai.consent_routes", False, False),
+        # The assistant (#208): the web store opens the user's sessions; the job kind writes
+        # through the fence and the routes and the pure rules open none.
+        ("ownvitals.ai.chat_store", True, False),
+        ("ownvitals.ai.assistant", False, False),
+        ("ownvitals.ai.assistant_routes", False, False),
+        ("ownvitals.ai.chat_model", False, False),
+        # The weekly digest (issue 209): the web store opens the user's sessions; the job kind
+        # writes through the fence and the routes and the pure rules open none.
+        ("ownvitals.ai.digest_store", True, False),
+        ("ownvitals.ai.digest", False, False),
+        ("ownvitals.ai.digest_routes", False, False),
+        ("ownvitals.ai.digest_model", False, False),
+        # The export (#211): the store opens the user's sessions; the builder, its readers and
+        # the routes open none.
+        ("ownvitals.reports.export_store", True, False),
+        # The export purge (#333): that exact module, never a user session.
+        ("ownvitals.reports.export_purge", False, True),
+        ("ownvitals.reports.export", False, False),
+        ("ownvitals.reports.export_read", False, False),
+        ("ownvitals.reports.export_ecg", False, False),
+        ("ownvitals.reports.export_routes", False, False),
+        ("ownvitals.reports.doctor", False, False),
+        ("ownvitals.reports.doctor_routes", False, False),
+        ("ownvitals.reports.doctor_read", False, False),
+        ("ownvitals.reports", False, False),
+        # The metrics refresh (#167): that exact module; the loop and the kinds open none.
+        ("ownvitals.worker.metrics", False, True),
+        ("ownvitals.worker.loop", False, False),
+        ("ownvitals.worker", False, False),
+        ("ownvitals.metrics_server", False, False),
     ],
 )
 def test_the_owning_modules_are_allowlisted(module: str, user: bool, system: bool) -> None:

@@ -83,6 +83,11 @@ jobs:
             docs/PLAN.md docs/PLAN-operations.md docs/withings-findings.md \
             || { echo "::error::the frozen specification changed; amend it in docs/roadmap.md instead"; exit 1; }
 
+      # The owner's local real-account work (docs/dev/local-real-account.md) stays on that machine:
+      # no .env, secrets/, local-real/, probe output or database dump is ever tracked (#450).
+      - name: No local real-account files tracked
+        run: scripts/local-real-guard.sh tracked
+
       # The cache holds the tarball; ci-install-release.sh checks its SHA-256 again after a restore
       # and fails the job on a mismatch. Bump the `v1` in the key to evict a bad entry.
       - name: Cache gitleaks download
@@ -119,12 +124,13 @@ jobs:
             "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 1 .
           fi
 
-      # The repository's shell: scripts/*.sh, the deploy's forced command and the database
-      # containers' scripts (docker/postgres/**/*.sh, POSIX sh: the images run them with dash).
+      # The repository's shell: scripts/*.sh, the deploy's forced command, the backup and
+      # restore-drill scripts (deploy/backup/*) and the database containers' scripts
+      # (docker/postgres/**/*.sh, POSIX sh: the images run them with dash).
       - name: bash -n
         run: |
           set -euo pipefail
-          for f in scripts/*.sh deploy/ownvitals-deploy; do bash -n "$f"; done
+          for f in scripts/*.sh deploy/ownvitals-deploy deploy/backup/*; do bash -n "$f"; done
           mapfile -t postgres_scripts < <(find docker/postgres -type f -name '*.sh' | sort)
           [ "${#postgres_scripts[@]}" -gt 0 ] || { echo "::error::no docker/postgres scripts"; exit 1; }
           for f in "${postgres_scripts[@]}"; do sh -n "$f"; done
@@ -138,7 +144,7 @@ jobs:
           [ "${#postgres_scripts[@]}" -gt 0 ] || { echo "::error::no docker/postgres scripts"; exit 1; }
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt \
             koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
-            scripts/*.sh deploy/ownvitals-deploy "${postgres_scripts[@]}"
+            scripts/*.sh deploy/ownvitals-deploy deploy/backup/* "${postgres_scripts[@]}"
 
       - name: CI gate and change-filter tests
         run: scripts/test-ci-gate.sh
@@ -332,6 +338,15 @@ jobs:
           login=$(psql -v ON_ERROR_STOP=1 -d ownvitals -tAc "SELECT rolcanlogin FROM pg_roles WHERE rolname = 'ownvitals_maint'")
           test "$login" = t
 
+      # age for the backup tests (test_backup_*.py, docs/dev/backup.md): Ubuntu's signed
+      # package, the one the owner installs on the server. The tests fail in CI without it.
+      - name: Install age
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends age
+          age --version
+
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: 0.13.6
@@ -344,8 +359,11 @@ jobs:
       # runner (python -m ownvitals.db.install_functions, the password in a PGPASSFILE only), in
       # one transaction, twice (the second run proves it is idempotent). 40-withings.sql is in
       # that same invocation, after 20-queue.sql, so the second run sees its three functions, and
-      # so is the AI cost cap's 50-ai.sql (ADR 0014 section 7), whose four functions are pinned
-      # in the same file.
+      # so are the AI cost cap's 50-ai.sql (ADR 0014 section 7) and the export purge's
+      # 60-exports.sql (ADR 0013 section 4) and the admin account family's 70-admin-accounts.sql
+      # (ADR 0002 section 3, #314), whose functions are pinned in the same file. The
+      # list and its order are those of docker/postgres/queue/db-functions.sh (rate.sql,
+      # 30-maint.sql and 50-outbox.sql included); test_db_functions_script.py fails if they differ.
       # The digests the worker checks must then match what this Postgres image renders (a stale
       # queue_digests.py fails here). The queue and those functions stay installed: guard 2 and
       # web startup see them through the migrated harness, which drops them only so a downgrade
@@ -370,8 +388,13 @@ jobs:
               uv run python -m ownvitals.db.install_functions \
               "host=127.0.0.1 port=5432 dbname=ownvitals user=postgres" \
               ../docker/postgres/queue/20-queue.sql \
+              ../docker/postgres/maint/30-maint.sql \
               ../docker/postgres/withings/40-withings.sql \
-              ../docker/postgres/ai/50-ai.sql
+              ../docker/postgres/withings/rate.sql \
+              ../docker/postgres/notify/50-outbox.sql \
+              ../docker/postgres/ai/50-ai.sql \
+              ../docker/postgres/exports/60-exports.sql \
+              ../docker/postgres/maint/70-admin-accounts.sql
           done
           uv run python tests/queue_digests.py --check
 
@@ -414,6 +437,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Gzip budget for the built JS and CSS (scripts/bundle-budget.mjs).
+      - run: npm run check:bundle
 
   # The compose stack with fakes only (Google's back channel, mail), the image scan, then the
   # Playwright specs against it (docs/dev/e2e.md). Runs when the stack changed (filter `stack`);

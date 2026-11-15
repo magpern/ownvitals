@@ -8,7 +8,8 @@ No address and no language is ever stored in the outbox.
   that is not disabled. It is always English (``notify.locale_policy``).
 - The language comes from ``users.locale`` and is only ever returned as a code of the locale
   manifest that is also offered: any other stored value gives ``en``. Its one use is to pick a
-  fixed template table.
+  fixed template table. Auth mail and the security notices sent inside a request use the stored
+  language, else the request's, else ``en`` (ADR 0015 section 7, amended 2026-11-10).
 
 The addresses are returned to the caller and never logged.
 """
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ownvitals import locale_policy, locales
 from ownvitals.auth.locale import offered
 from ownvitals.auth.tables import users
+from ownvitals.config import Settings
 from ownvitals.db import system_session
 from ownvitals.notify import locale_policy as mail_locale
 
@@ -86,12 +88,21 @@ def request_locale(request: Request, field: object = None) -> str:
     return locale_policy.request_locale(codes, field, request.headers.get("accept-language"))
 
 
+async def account_mail_locale(
+    db: AsyncSession, settings: Settings, user_id: UUID | None, requested: object
+) -> str:
+    """The account's stored language if ``user_id`` names one that has a usable code, else
+    ``requested`` (the request's language, already resolved) if usable, else ``en``."""
+    stored = None if user_id is None else await _stored_locale(db, user_id)
+    usable = usable_locales(offered(settings))
+    return mail_locale.request_mail_locale(usable, stored, requested)
+
+
 async def request_mail_locale(
     db: AsyncSession, request: Request, user_id: UUID | None, field: object = None
 ) -> str:
-    """The language of auth mail sent inside ``request``: the account's stored language if
-    ``user_id`` names one that has a usable code, else the request's (always so before an
-    account exists, ``user_id`` ``None``)."""
-    stored = None if user_id is None else await _stored_locale(db, user_id)
-    usable = usable_locales(offered(request.app.state.settings))
-    return mail_locale.request_mail_locale(usable, stored, request_locale(request, field))
+    """The language of auth mail and security notices sent inside ``request``: the account's
+    stored language if ``user_id`` names one that has a usable code, else the request's (always
+    so before an account exists, ``user_id`` ``None``)."""
+    settings = request.app.state.settings
+    return await account_mail_locale(db, settings, user_id, request_locale(request, field))

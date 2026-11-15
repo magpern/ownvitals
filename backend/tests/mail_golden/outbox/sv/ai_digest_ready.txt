@@ -1,0 +1,15 @@
+Content-Language: sv
+List-Unsubscribe: <https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkCAAAAAAAAAAAAAAAAaaTTAK9uuoVZxZbIGco3Yy5rvNw>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+Subject: ownvitals: din veckosammanfattning väntar
+
+Din veckosammanfattning väntar på dig i ownvitals.
+
+Öppna den här: https://ownvitals.example.test/overview
+
+Det här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du har loggat in.
+
+- ownvitals
+
+Vill du inte få sådana här mejl? Stäng av dem: https://ownvitals.example.test/api/unsubscribe?t=AQAAAAAAAEAAgAAAAAAABFkCAAAAAAAAAAAAAAAAaaTTAK9uuoVZxZbIGco3Yy5rvNw
+Du kan slå på dem igen i ownvitals under Inställningar, Aviseringar.

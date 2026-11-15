@@ -40,6 +40,7 @@ from ownvitals.auth.passkeys import (
     remove_passkey,
     rename_passkey,
 )
+from ownvitals.auth.recipients import request_mail_locale
 from ownvitals.auth.sessions import (
     SessionInfo,
 )
@@ -269,7 +270,7 @@ async def register(
             ip=ip,
             detail={"passkey": str(passkey.id)},
         )
-    background.add_task(
-        send_logged, mailer(request), mails.passkey_added_notice(session.email, passkey.name)
-    )
+        locale = await request_mail_locale(db, request, ctx.user_id)
+    notice = mails.passkey_added_notice(session.email, passkey.name, locale=locale)
+    background.add_task(send_logged, mailer(request), notice)
     return _out(passkey)

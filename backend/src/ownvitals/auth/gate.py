@@ -1,6 +1,8 @@
-"""The second-factor gate (ownvitals ADR 0003 section 2).
+"""The second-factor gate (ownvitals ADR 0003 section 2, amended 2026-11-12, #475).
 
-A session that has not passed its second factor reaches only the routes below; every other
+A session that owes its second factor (``SessionInfo.full`` is false: an account with a
+confirmed TOTP whose session has not passed it, or an admin without one) reaches only the routes
+below; every other
 request that carries one is answered 403 ``two_factor_required`` by the middleware, before any
 route runs, so a new route can't skip the gate. The dependencies refuse it a ``UserContext`` as
 well (``deps.require_user``): two independent checks.
@@ -22,7 +24,7 @@ SECOND_FACTOR_ROUTES: dict[tuple[str, str], Need] = {
     ("GET", "/api/health"): "any",
     ("GET", "/api/ready"): "any",
     ("POST", "/api/auth/mfa/verify"): "verify",  # a confirmed TOTP: the code of this sign-in
-    ("POST", "/api/auth/mfa/totp/start"): "enrol",  # no TOTP yet: the first enrolment
+    ("POST", "/api/auth/mfa/totp/start"): "enrol",  # an admin without TOTP: the first enrolment
     ("POST", "/api/auth/mfa/totp/confirm"): "enrol",
 }
 

@@ -1,12 +1,13 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { post } from '../api/client'
 import { RouterProvider, useRouter } from '../router/Router'
-import { SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, fakeApi, reason } from '../test/fakeApi'
+import { SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, SIGNED_IN_OPTIONAL_TOTP, fakeApi, reason } from '../test/fakeApi'
 import { renderAt } from '../test/render'
 import { RequireReady, RequireSignedOut } from './guards'
 import { SessionProvider } from './SessionContext'
+import { markTotpOffered } from './totpOffer'
 
 const here = () => window.location.pathname + window.location.search
 
@@ -39,7 +40,7 @@ describe('signed-out visitors', () => {
     renderAt('/')
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
     expect(here()).toBe('/signin')
-    expect(screen.queryByText('The dashboard comes in M6.')).toBeNull()
+    expect(screen.queryByText('Needs a look')).toBeNull()
   })
 
   it('go to sign-in, with the page to come back to, from any guarded page', async () => {
@@ -75,16 +76,29 @@ describe('a session without TOTP', () => {
     renderAt('/')
     expect(await screen.findByRole('heading', { name: 'Set up your authenticator app' })).toBeInTheDocument()
     expect(here()).toBe('/two-factor/setup')
-    expect(screen.queryByText('The dashboard comes in M6.')).toBeNull()
+    expect(screen.queryByText('Needs a look')).toBeNull()
   })
 
-  it('goes to enrolment from a guarded page, even when the session says it passed the code', async () => {
-    fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, session: { ...SIGNED_IN.session, totp_enabled: false } } })
+  it('goes to enrolment from a guarded page when the account must have an authenticator app', async () => {
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN_NO_TOTP })
     guarded('/metrics', 'ready')
     await waitFor(() => {
       expect(here()).toBe('/two-factor/setup?return_to=%2Fmetrics')
     })
     expect(screen.queryByText('inside the guard')).toBeNull()
+  })
+
+  it('offers a user without an authenticator app the enrolment once, then lets them in (issue 475)', async () => {
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN_OPTIONAL_TOTP })
+    guarded('/metrics', 'ready')
+    await waitFor(() => {
+      expect(here()).toBe('/two-factor/setup?return_to=%2Fmetrics')
+    })
+    cleanup()
+    markTotpOffered('u1')
+    guarded('/metrics', 'ready')
+    expect(await screen.findByText('inside the guard')).toBeInTheDocument()
+    expect(here()).toBe('/metrics')
   })
 
   it('is kept off sign-in and sent to enrolment, with the return_to kept', async () => {
@@ -126,8 +140,8 @@ describe('a session through its second factor', () => {
   it('sees the guarded page', async () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/')
-    expect(await screen.findByText('The dashboard comes in M6.')).toBeInTheDocument()
-    expect(here()).toBe('/')
+    expect(await screen.findByText('Needs a look')).toBeInTheDocument()
+    expect(here()).toBe('/overview')
   })
 
   it.each(['/signin', '/signup', '/two-factor', '/two-factor/setup'])(
@@ -136,7 +150,7 @@ describe('a session through its second factor', () => {
       fakeApi({ 'GET /api/auth/session': SIGNED_IN })
       renderAt(path)
       await waitFor(() => {
-        expect(here()).toBe('/')
+        expect(here()).toBe('/overview')
       })
     },
   )
@@ -153,7 +167,7 @@ describe('a session through its second factor', () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     renderAt('/signin?return_to=https%3A%2F%2Fevil.example%2F')
     await waitFor(() => {
-      expect(here()).toBe('/')
+      expect(here()).toBe('/overview')
     })
   })
 
@@ -161,7 +175,7 @@ describe('a session through its second factor', () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN })
     guarded('/anywhere', 'signed-out')
     await waitFor(() => {
-      expect(here()).toBe('/')
+      expect(here()).toBe('/overview')
     })
     expect(screen.queryByText('inside the guard')).toBeNull()
   })
@@ -198,7 +212,7 @@ describe('an API refusal with two_factor_required', () => {
       },
     })
     renderAt('/')
-    expect(await screen.findByText('The dashboard comes in M6.')).toBeInTheDocument()
+    expect(await screen.findByText('Needs a look')).toBeInTheDocument()
     const reads = api.to('GET', '/api/auth/session').length
 
     await expect(post('/api/x')).rejects.toMatchObject({ status: 403, reason: 'two_factor_required' })

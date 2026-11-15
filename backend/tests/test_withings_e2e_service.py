@@ -9,7 +9,7 @@ only.
 import ast
 import importlib.util
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 import yaml
@@ -205,6 +205,74 @@ def test_inject_refuses_what_it_cannot_do(service: Any, body: dict[str, Any]) ->
 def test_an_unknown_control_path_is_a_404(service: Any) -> None:
     assert service.control("GET", "/__e2e/nope", {})[0] == 404
     assert service.control("GET", "/other", {})[0] == 404
+
+
+E2E_REDIRECT = "https://localhost:8000/api/oauth/withings/callback"
+
+
+def _authorize_url(service: Any, state: str = "synthetic-state") -> str:
+    from ownvitals.withings.oauth import authorize_url
+
+    return authorize_url(client_id=service.client_id, redirect=E2E_REDIRECT, state=state)
+
+
+@pytest.fixture
+def consenting(server: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(server.Service, "send", staticmethod(lambda *a, **k: 200), raising=False)
+    return server.Service({"FAKE_WITHINGS_REDIRECT_URI": E2E_REDIRECT})
+
+
+def test_authorize_answers_the_page_as_the_fake_does_with_a_usable_code(consenting: Any) -> None:
+    status, page = consenting.control(
+        "POST", "/__e2e/authorize", {"url": _authorize_url(consenting)}
+    )
+    assert (status, page["status"]) == (200, 302)
+    back = urlsplit(page["location"])
+    assert f"{back.scheme}://{back.netloc}{back.path}" == E2E_REDIRECT
+    query = parse_qs(back.query)
+    assert query["state"] == ["synthetic-state"]
+    body = urlencode(
+        {
+            "action": "requesttoken",
+            "grant_type": "authorization_code",
+            "client_id": consenting.client_id,
+            "client_secret": consenting.client_secret,
+            "code": query["code"][0],
+            "redirect_uri": E2E_REDIRECT,
+        }
+    ).encode()
+    answer = consenting.respond(Request("POST", f"https://{API_HOST}/v2/oauth2", FORM, body))
+    assert answer.json()["status"] == 0
+
+
+def test_authorize_can_deny_once(consenting: Any) -> None:
+    _, page = consenting.control(
+        "POST", "/__e2e/authorize", {"url": _authorize_url(consenting), "deny": True}
+    )
+    assert parse_qs(urlsplit(page["location"]).query) == {
+        "error": ["access_denied"],
+        "state": ["synthetic-state"],
+    }
+    _, again = consenting.control("POST", "/__e2e/authorize", {"url": _authorize_url(consenting)})
+    assert "code" in parse_qs(urlsplit(again["location"]).query)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [None, 3, "http://account.example.test/x", "https://u@account.example.test/x", "https://a/#f"],
+)
+def test_authorize_refuses_what_is_not_an_https_page(consenting: Any, url: object) -> None:
+    assert consenting.control("POST", "/__e2e/authorize", {"url": url})[0] == 400
+
+
+def test_authorize_with_a_wrong_redirect_is_the_fakes_400(consenting: Any) -> None:
+    from ownvitals.withings.oauth import authorize_url
+
+    url = authorize_url(
+        client_id=consenting.client_id, redirect="https://evil.example/cb", state="synthetic"
+    )
+    status, page = consenting.control("POST", "/__e2e/authorize", {"url": url})
+    assert (status, page["status"], page["location"]) == (200, 400, None)
 
 
 def test_subscribe_then_send_webhook_reaches_the_rewritten_receiver(

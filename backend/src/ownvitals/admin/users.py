@@ -3,31 +3,33 @@
 Every route has ``admin_gate``. A write also depends on ``require_admin_stepup`` (the same
 five-minute window the gate already applies; the gate runs first, so a missing step-up is
 still the audited ``step_up_required``). Account rows are read and changed through
-``ownvitals.auth`` (guard 8). ``ownvitals_maint`` has no grant on those tables, so the change
-commits on the app role and the audit row is written afterwards, in its own ``admin_session``.
-A refusal is that session raising ``AdminRefused``: one ``refused`` row, and the account
-transaction already rolled back.
-
-The account change is not done inside ``admin_session``. The audit insert's foreign key takes
-a key-share lock on the user row until that transaction ends, and disable's ``FOR UPDATE``
-would wait for it.
+``ownvitals.auth`` (guard 8). A change runs inside its ``admin_session`` (#314): the ``ok``
+audit row is that transaction's first statement, then the account definer of
+``70-admin-accounts.sql``, which refuses without that row (ADR 0002 section 3). The change and
+the row commit together or not at all. A refusal is that session raising ``AdminRefused``:
+the ``ok`` row rolls back with it and one ``refused`` row is written.
 
 - ``GET /users?q=&offset=&limit=`` (``user.list``): email, role, whether the authenticator is
   on, live sessions and the latest ``sign_in``. The prefix is not stored, only its length.
 - ``GET /users/{user_id}`` (``user.read``): the same for one account. 404 ``not_found``.
-- ``POST /users/{user_id}/disable`` and ``.../enable``. Disable refuses an admin
-  (409 ``target_is_admin``), revokes every session and keeps an earlier ``disabled_at``.
+- ``POST /users/{user_id}/disable`` and ``.../enable``. Both refuse an admin (409
+  ``target_is_admin``); disable revokes every session and keeps an earlier ``disabled_at``.
 - ``DELETE /users/{user_id}`` with ``{"email": ...}`` (``user.delete``): the account-delete
-  path. The audit row keeps the id in ``target_id``; ``target_user_id`` is left unset because
-  the account is already gone (the foreign key would answer ``not_found``).
+  path, revoke first (#365, PLAN section 4.3): ``user.revoke`` runs the delete's checks and
+  queues the target's Withings revoke (``revoke_account``), ``user.revoke_wait`` waits for it
+  (``ownvitals.admin.user_revoke``), then the delete runs whatever the revoke's outcome and its
+  ``ok`` row records it (``revoke``: ``none``, ``revoked`` or ``failed``). Still 204. The audit
+  row names the account in ``target_user_id``, which the foreign key's ``ON DELETE SET NULL``
+  clears as the account goes in the same transaction, and keeps the id in ``target_id``.
 
 No route changes ``users.role`` or resets a second factor. Withings status is not here: reading
 it would mean issuing a ``UserContext`` for someone else, and only ``auth.deps`` may do that.
 """
 
 import unicodedata
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import Depends, Query, Request, Response
@@ -37,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ownvitals.admin.audit import Target
 from ownvitals.admin.db import AdminRefused, admin_session
 from ownvitals.admin.routes import AdminActor, admin_router, require_db
+from ownvitals.admin.user_revoke import wait_for_revoke
 from ownvitals.auth.admin_accounts import (
     AccountMissing,
     AccountSummary,
@@ -48,8 +51,9 @@ from ownvitals.auth.admin_accounts import (
     enable_account,
     find_account,
     list_accounts,
+    revoke_account,
 )
-from ownvitals.auth.deps import request_ip, require_admin_stepup
+from ownvitals.auth.deps import current_session, request_ip, require_admin_stepup
 from ownvitals.config import Settings
 from ownvitals.context import UserContext
 
@@ -134,28 +138,25 @@ async def _page(request: Request, rows: list[AccountSummary]) -> list[AccountOut
     return [_shown(row, emails[row.id]) for row in rows if row.id in emails]
 
 
-async def _ok(
+async def _change[T](
     request: Request,
     actor: AdminActor,
     action: str,
-    *,
     target: Target,
-    params: dict[str, object] | None = None,
-) -> None:
-    async with admin_session(
-        require_db(request), actor, action, write=True, target=target, params=params
-    ):
-        return
-
-
-async def _refused(
-    request: Request, actor: AdminActor, action: str, user_id: UUID, reason: str, status: int
-) -> None:
-    async with admin_session(
-        require_db(request), actor, action, write=True, target=Target(user_id=user_id)
-    ):
-        raise AdminRefused(reason, status)
-    raise AssertionError("a refusal returns")  # the session re-raises AdminRefused
+    change: Callable[[AsyncSession], Awaitable[T]],
+    params: Mapping[str, Any] | None = None,
+) -> T:
+    """``change`` in the admin transaction whose first statement is the ``ok`` row (#314)."""
+    db_ = require_db(request)
+    async with admin_session(db_, actor, action, write=True, target=target, params=params) as db:
+        try:
+            return await change(db)
+        except AccountMissing:
+            raise AdminRefused("not_found", 404) from None
+        except TargetIsAdmin:
+            raise AdminRefused("target_is_admin", 409) from None
+        except EmailMismatch:
+            raise AdminRefused("email_mismatch", 409) from None
 
 
 @router.get("/users", response_model=UserPage)
@@ -193,9 +194,9 @@ async def read_user(request: Request, actor: AdminActor, user_id: UUID) -> Accou
         if found is None:
             raise AdminRefused("not_found", 404)
         emails = await account_emails(_factory(request), [found.id])
-    email = emails.get(found.id)
-    if email is None:
-        raise AdminRefused("not_found", 404)
+        email = emails.get(found.id)
+        if email is None:  # gone in between: inside the session, so no ``ok`` row commits
+            raise AdminRefused("not_found", 404)
     return _shown(found, email)
 
 
@@ -207,16 +208,13 @@ async def disable_user(
     ctx: Annotated[UserContext, Depends(require_admin_stepup)],
 ) -> DisabledOut:
     _same_admin(ctx, actor)
-    try:
-        disabled_at, revoked = await disable_account(_factory(request), user_id)
-    except AccountMissing:
-        await _refused(request, actor, "user.disable", user_id, "not_found", 404)
-    except TargetIsAdmin:
-        await _refused(request, actor, "user.disable", user_id, "target_is_admin", 409)
-    else:
-        await _ok(request, actor, "user.disable", target=Target(user_id=user_id))
-        return DisabledOut(id=user_id, disabled_at=disabled_at, sessions_revoked=revoked)
-    raise AssertionError("a refusal returns")
+
+    async def change(db: AsyncSession) -> tuple[datetime, int]:
+        return await disable_account(db, user_id)
+
+    target = Target(user_id=user_id)
+    disabled_at, revoked = await _change(request, actor, "user.disable", target, change)
+    return DisabledOut(id=user_id, disabled_at=disabled_at, sessions_revoked=revoked)
 
 
 @router.post("/users/{user_id}/enable", response_model=DisabledOut)
@@ -227,14 +225,12 @@ async def enable_user(
     ctx: Annotated[UserContext, Depends(require_admin_stepup)],
 ) -> DisabledOut:
     _same_admin(ctx, actor)
-    try:
-        await enable_account(_factory(request), user_id)
-    except AccountMissing:
-        await _refused(request, actor, "user.enable", user_id, "not_found", 404)
-    else:
-        await _ok(request, actor, "user.enable", target=Target(user_id=user_id))
-        return DisabledOut(id=user_id, disabled_at=None, sessions_revoked=0)
-    raise AssertionError("a refusal returns")
+
+    async def change(db: AsyncSession) -> None:
+        await enable_account(db, user_id)
+
+    await _change(request, actor, "user.enable", Target(user_id=user_id), change)
+    return DisabledOut(id=user_id, disabled_at=None, sessions_revoked=0)
 
 
 @router.delete("/users/{user_id}", status_code=204)
@@ -244,19 +240,19 @@ async def delete_user(
     user_id: UUID,
     body: DeleteIn,
     ctx: Annotated[UserContext, Depends(require_admin_stepup)],
+    info: Annotated[Any, Depends(current_session)],
 ) -> Response:
     _same_admin(ctx, actor)
-    action = "user.delete"
-    try:
-        await delete_account(_factory(request), user_id, email=body.email, ip=request_ip(request))
-    except AccountMissing:
-        await _refused(request, actor, action, user_id, "not_found", 404)
-    except TargetIsAdmin:
-        await _refused(request, actor, action, user_id, "target_is_admin", 409)
-    except EmailMismatch:
-        await _refused(request, actor, action, user_id, "email_mismatch", 409)
-    else:
-        # The account is gone, so the audit row cannot name it with the foreign key.
-        await _ok(request, actor, action, target=Target(kind="user", id=str(user_id)))
-        return Response(status_code=204)
-    raise AssertionError("a refusal returns")
+
+    async def revoke(db: AsyncSession) -> UUID | None:
+        return await revoke_account(db, user_id, email=body.email, session_id=info.id)
+
+    async def change(db: AsyncSession) -> None:
+        await delete_account(db, user_id, email=body.email, ip=request_ip(request))
+
+    job_id = await _change(request, actor, "user.revoke", Target(user_id=user_id), revoke)
+    outcome = await wait_for_revoke(require_db(request), actor, user_id, job_id)
+    # target_user_id is cleared by the foreign key as the account goes; target_id keeps the id.
+    target = Target(user_id=user_id, kind="user", id=str(user_id))
+    await _change(request, actor, "user.delete", target, change, {"revoke": outcome})
+    return Response(status_code=204)

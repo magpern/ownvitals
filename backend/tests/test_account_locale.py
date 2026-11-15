@@ -196,10 +196,22 @@ async def test_the_body_must_name_the_locale(menv: Env) -> None:
     assert (await browser.request("PUT", LOCALE, {})).status_code == 422
 
 
+@pytest.mark.parametrize(
+    "body", [{"other": "PLANTED-VALUE-4711"}, ["PLANTED-VALUE-4711"], "PLANTED-VALUE-4711"]
+)
+async def test_a_malformed_body_is_refused_without_echoing_it(menv: Env, body: object) -> None:
+    """``/api/account/`` is a secret-input path (#282): FastAPI's 422 drops its ``input``."""
+    browser = await signed_in(menv)
+    response = await browser.request("PUT", LOCALE, body)
+    assert response.status_code == 422
+    assert "PLANTED-VALUE" not in response.text
+
+
 async def test_the_write_needs_a_full_session_and_the_csrf_token(menv: Env) -> None:
     assert (await Browser(menv).request("PUT", LOCALE, {"locale": "sv"})).status_code == 401
     half = Browser(menv)
     user_id = await user_with_password(menv, "half@example.com")
+    await menv.enrol(user_id)  # #475: an account with a TOTP, whose code this session owes
     assert (await half.sign_in("half@example.com")).status_code == 200
     response = await half.request("PUT", LOCALE, {"locale": "sv"})
     assert (response.status_code, reason(response)) == (403, "two_factor_required")
@@ -259,7 +271,7 @@ async def test_a_google_sign_up_stores_its_language_through_the_flow_row(
     assert started.status_code == 200
     assert await oenv.scalar("SELECT locale FROM oauth_flows") == "sv"
     callback = fake.complete(started.json()["authorization_url"])
-    assert location(await browser.get(callback)) == "/"
+    assert location(await browser.get(callback)) == "/overview"
     assert await oenv.scalar("SELECT locale FROM users") == "sv"
     assert await session_locale(browser) == "sv"
 

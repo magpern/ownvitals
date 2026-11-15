@@ -3,17 +3,19 @@ PLAN §7.1 steps 6 and 7). Pure: no database, clock or randomness; ``today`` is 
 
 ``evaluate(inputs)`` runs every v1 rule of ``analysis.rules`` (``SPECS``) that applies:
 
-* **Replayed rules** (B1 to B6, C1, C1x, C2, N2, N3, N5). Each (rule, subject) is evaluated on
-  every one of its evaluation days in order (ADR 0010 §1: the days its trigger has data), and the
-  results are folded into episodes by ``advance_simple`` or, for the trend-test rules,
-  ``advance_persistent`` (§4). A rule at day *d* reads only data up to *d*, so replaying the whole
-  history gives the episodes an incremental evaluation in data order would have given, and a
-  recompute after a data revision re-derives them (PLAN §5). The writer keeps ``first_seen`` and
-  the origin of a stored episode with the same rule, subject and reference day (§4).
+* **Replayed rules** (B1 to B6, C1, C1x, C2, E1 to E4, E6, N2, N3, N5). Each (rule, subject) is
+  evaluated on every one of its evaluation days in order (ADR 0010 §1: the days its trigger has
+  data), and the results are folded into episodes by ``advance_simple`` or, for the trend-test
+  rules, ``advance_persistent`` (§4). A rule at day *d* reads only data up to *d*, so replaying
+  the whole history gives the episodes an incremental evaluation in data order would have given,
+  and a recompute after a data revision re-derives them (PLAN §5). The writer keeps
+  ``first_seen`` and the origin of a stored episode with the same rule, subject and reference day
+  (§4). E1 to E3 are evaluated only on the days ``ecg.decided_days`` gives (a missing code never
+  counts as negative).
 * **Q1** (system) has no history to replay: each part is evaluated on ``today`` from the state
   records read now, and the writer applies ``advance_simple`` to the stored active episode.
 
-**Experimental rules** (B1, B3, C1x; tier ``experimental``) are evaluated only when
+**Experimental rules** (B1, B3, C1x, E4; tier ``experimental``) are evaluated only when
 ``inputs.experimental`` is true (D9, PLAN §7.2: the owner-only switch); otherwise they are not
 computed at all and no episode of theirs is returned.
 
@@ -32,7 +34,7 @@ from functools import partial
 from ownvitals.analysis.daily import DailyValue
 from ownvitals.analysis.policy import InsufficientData
 from ownvitals.analysis.quality import Reading
-from ownvitals.analysis.rules import body, heart, nerve, system
+from ownvitals.analysis.rules import body, ecg, heart, nerve, system
 from ownvitals.analysis.rules.core import (
     SPECS,
     Band,
@@ -192,6 +194,16 @@ def _plans(inputs: Inputs) -> list[_Plan]:
         add("N2:routine", key, (key,), _reading_days(routine), n2)
         add("N3", key, (key,), _days(series(key)),
             partial(nerve.n3, series(key), metric_key=key, provenance=prov))  # fmt: skip
+    for key in ecg.E4_KEYS:
+        found = readings.get(key, ())
+        add("E4", key, (key,), _reading_days(found),
+            partial(ecg.e4, found, metric_key=key, sex=inputs.sex))  # fmt: skip
+    for key in ecg.E6_KEYS:
+        add("E6", key, (key,), _days(series(key)),
+            partial(ecg.e6, series(key), metric_key=key, provenance=prov))  # fmt: skip
+    recordings = inputs.recordings
+    for rule, run in (("E1", ecg.e1), ("E2", ecg.e2), ("E3", ecg.e3)):
+        add(rule, ecg.SUBJECT, (), ecg.decided_days(run, recordings), partial(run, recordings))
     for foot, (first_key, second_key) in FOOT_PAIRS.items():
         first, second = readings.get(first_key, ()), readings.get(second_key, ())
         add("N5", f"nerve_foot_{foot}", (first_key, second_key), _foot_days(first, second),

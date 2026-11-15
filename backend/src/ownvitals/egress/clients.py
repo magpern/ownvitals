@@ -15,6 +15,7 @@ each one's list is chosen here.
 | ``model_async_client`` | worker, AI enabled | ``api.anthropic.com`` |
 | ``google_oauth_client``, ``google_async_client`` | web | Google's token endpoint and JWKS |
 | ``exchange_withings_code`` (``code_exchange``) | web | one ``POST`` (roadmap Amendment 1) |
+| ``verify_turnstile_token`` (``turnstile``) | web, Turnstile on | one ``POST`` (Amendment 12) |
 """
 
 import warnings
@@ -66,6 +67,14 @@ GOOGLE_TOTAL_SECONDS: Final = 10.0
 # package's own total deadline. Anything else a call raises is not a transport failure.
 TRANSPORT_ERRORS: Final[tuple[type[Exception], ...]] = (httpx.RequestError, RequestDeadline)
 TIMEOUT_ERRORS: Final[tuple[type[Exception], ...]] = (httpx.TimeoutException, RequestDeadline)
+# The transport errors raised before any byte of the request was sent (no connection was made,
+# or none was free in the pool): a caller may treat the request as never sent (the AI budget
+# releases its reservation then, ADR 0014 section 7). Every other transport error may have sent it.
+CONNECT_ERRORS: Final[tuple[type[Exception], ...]] = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+)
 
 
 def _network_transport() -> httpx.AsyncHTTPTransport:
@@ -106,10 +115,10 @@ def model_async_client(
     inner: httpx.AsyncBaseTransport | None = None,
     refused: Callable[[OutboundBlocked], Exception] | None = None,
 ) -> httpx.AsyncClient:
-    """The model SDK's client (M7: ``AsyncAnthropic(http_client=...)``). Built only in a worker
-    whose list holds the model host, that is with AI enabled; otherwise ``OutboundBlocked``. Its
-    list is the model host alone, although the worker's is wider. ``timeout`` bounds each read;
-    every request with its answer ends within ``total_seconds``."""
+    """The model client (``ownvitals.ai.client`` posts the Messages API on it; no SDK, #207). Built
+    only in a worker whose list holds the model host, that is with AI enabled; otherwise
+    ``OutboundBlocked``. Its list is the model host alone, although the worker's is wider.
+    ``timeout`` bounds each read; every request with its answer ends within ``total_seconds``."""
     seconds = check_total_seconds(total_seconds)
     allowlist = worker_only(MODEL_ALLOWLIST.hosts, MODEL_HOST)
     network = inner if inner is not None else _network_transport()

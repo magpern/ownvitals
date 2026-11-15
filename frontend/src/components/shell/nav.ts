@@ -18,7 +18,7 @@ export interface NavGroup {
   items: readonly NavItem[]
 }
 
-const OVERVIEW: NavItem = { id: 'overview', label: 'shell.nav.overview', to: '/', icon: 'overview' }
+const OVERVIEW: NavItem = { id: 'overview', label: 'shell.nav.overview', to: '/overview', icon: 'overview' }
 const FINDINGS: NavItem = { id: 'findings', label: 'shell.nav.findings', to: '/findings', icon: 'findings' }
 const CONNECTIONS: NavItem = { id: 'connections', label: 'shell.nav.connections', to: '/connections', icon: 'connections' }
 const SETTINGS: NavItem = { id: 'settings', label: 'shell.nav.settings', to: '/settings', icon: 'settings' }

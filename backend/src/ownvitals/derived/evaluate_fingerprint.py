@@ -48,6 +48,23 @@ def fingerprint(inputs: Inputs) -> bytes:
     for key in sorted(inputs.readings):
         lines.extend(sorted(_reading_line(key, r) for r in inputs.readings[key]))
     lines.extend(sorted(_reading_line(f"segment:{s.position}", s.reading) for s in inputs.segments))
+    lines.extend(
+        sorted(
+            "|".join(
+                (
+                    "ecg",
+                    str(r.signalid),
+                    r.recorded_at.isoformat(),
+                    r.day.isoformat(),
+                    str(r.afib),
+                    str(r.afib_details),
+                    ",".join(str(g) for g in r.groups),
+                )
+            )
+            for r in inputs.recordings
+        )
+    )
+    lines.append(f"sex={inputs.sex}")
     q1 = inputs.q1
     lines.append(f"q1|capability|{q1.weight_capability}")
     if q1.connection is not None:

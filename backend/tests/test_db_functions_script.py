@@ -10,6 +10,7 @@ with the test database, by authenticating a temporary role through libpq itself.
 passwords only."""
 
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -190,10 +191,19 @@ def test_the_entrypoint_starts_the_runner_with_the_image_s_sql() -> None:
         '  "host=db port=5432 dbname=ownvitals user=postgres" \\\n'
         "  /app/db-functions/20-queue.sql /app/db-functions/30-maint.sql \\\n"
         "  /app/db-functions/40-withings.sql /app/db-functions/rate.sql \\\n"
-        "  /app/db-functions/50-outbox.sql /app/db-functions/50-ai.sql"
+        "  /app/db-functions/50-outbox.sql /app/db-functions/50-ai.sql \\\n"
+        "  /app/db-functions/60-exports.sql /app/db-functions/70-admin-accounts.sql"
     )
     assert "PGPASSWORD" not in source
     assert "psql" not in source
+
+
+def test_the_ci_install_step_runs_the_entrypoint_s_sql_in_its_order() -> None:
+    entry = re.findall(r"/app/db-functions/(\S+\.sql)", SCRIPT.read_text(encoding="utf-8"))
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    in_ci = [Path(p).name for p in re.findall(r"\.\./docker/postgres/(\S+\.sql)", ci)]
+    assert entry
+    assert in_ci == entry
 
 
 # --- the runner -------------------------------------------------------------------------------

@@ -29,27 +29,28 @@ test('switch language signed out, sign in, change it in Settings, reload, get Sw
   await enrolAuthenticator(page)
 
   // Settings: the account's language, applied at once.
-  await page.goto('/settings/security')
-  await expect(page.getByRole('heading', { name: "Where you're signed in" })).toBeVisible()
+  await page.goto('/settings/profile')
+  await expect(page.getByRole('heading', { name: 'Display' })).toBeVisible()
   await page.getByLabel('Language').selectOption('sv')
-  await expect(page.getByRole('heading', { name: 'Där du är inloggad' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Visning' })).toBeVisible()
 
   // A reload keeps it (the session carries the account's language).
-  await page.reload()
+  await page.goto('/settings/security')
   await expect(page.getByRole('heading', { name: 'Där du är inloggad' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Logga ut överallt…' })).toBeVisible()
 
   // The activity page, in Swedish.
   await page.goto('/activity')
   await expect(page.getByRole('heading', { name: 'Aktivitet', level: 1 })).toBeVisible()
-  await expect(page.getByText('Aktivitetssidan kommer i M6.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Aktivitet', level: 2 })).toBeVisible()
 
   // Mail goes out in the account's language: the reset mail for this address.
   await page.getByRole('button', { name: account.email }).click()
   await page.getByRole('menuitem', { name: 'Logga ut' }).click()
-  await expect(page.getByRole('heading', { name: 'Logga in', exact: true })).toBeVisible()
-  // The reload shows this browser's own choice (English, set with the picker above), so the
+  // Signed out, the account's language no longer applies (ADR 0015 section 2, #282): the page
+  // shows this browser's own choice (English, set with the picker above) at once, so the
   // request's language is English: the Swedish mail comes from the account's stored language.
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
   await page.goto('/reset')
   await page.getByLabel('Email').fill(account.email)
   await page.getByRole('button', { name: 'Send reset link' }).click()

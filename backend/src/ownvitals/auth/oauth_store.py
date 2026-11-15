@@ -62,6 +62,9 @@ class Flow:
     invite_id: UUID | None
     return_to: str | None
     locale: str | None  # a sign-in's language at the start (ADR 0015 section 2), else None
+    # Seconds since the start by the database clock, read by the take itself (#247: a Google
+    # re-authentication must end within 5 minutes of its start).
+    age: float | None = None
 
     def state_matches(self, state: str) -> bool:
         return hmac.compare_digest(self.state_hash, token_hash(state))
@@ -102,7 +105,7 @@ async def create_flow(
 
 
 async def take_flow(db: AsyncSession, cookie: str) -> Flow | None:
-    """Atomic single use: the row is deleted by the request that reads it."""
+    """Atomic single use: the row is deleted by the request that reads it, with its age."""
     row = (
         await db.execute(
             delete(oauth_flows)
@@ -120,10 +123,11 @@ async def take_flow(db: AsyncSession, cookie: str) -> Flow | None:
                 oauth_flows.c.invite_id,
                 oauth_flows.c.return_to,
                 oauth_flows.c.locale,
+                func.extract("epoch", func.now() - oauth_flows.c.created_at),
             )
         )
     ).first()
-    return None if row is None else Flow(*row)
+    return None if row is None else Flow(*row[:-1], age=float(row[-1]))
 
 
 @dataclass(frozen=True, slots=True)

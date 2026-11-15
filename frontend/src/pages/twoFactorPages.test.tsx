@@ -1,6 +1,16 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { QR_SVG, SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, fakeApi, json, reason } from '../test/fakeApi'
+import {
+  QR_SVG,
+  SIGNED_IN,
+  SIGNED_IN_NO_CODE,
+  SIGNED_IN_NO_TOTP,
+  SIGNED_IN_OPTIONAL_TOTP,
+  fakeApi,
+  json,
+  reason,
+} from '../test/fakeApi'
+import { fakeStatus } from '../test/overviewFixtures'
 import { renderAt } from '../test/render'
 
 // The second-factor pages (#11, Auth mock-up): forced enrolment with its recovery codes, and the
@@ -22,6 +32,8 @@ function enrolRoutes() {
   let enrolled = false
   return {
     'GET /api/auth/session': () => (enrolled ? SIGNED_IN : SIGNED_IN_NO_TOTP),
+    'GET /api/connections': { connections: [] },
+    'GET /api/status': fakeStatus({ connection: 'not_connected', streams: [] }),
     'POST /api/auth/mfa/totp/start': ENROLMENT,
     'POST /api/auth/mfa/totp/confirm': () => {
       enrolled = true
@@ -71,7 +83,7 @@ describe('forced enrolment', () => {
     expect(go).toBeDisabled()
     fireEvent.click(screen.getByRole('checkbox', { name: "I've saved them somewhere safe" }))
     fireEvent.click(go)
-    expect(await screen.findByText('The connections page comes in M6.')).toBeInTheDocument()
+    expect(await screen.findByText('Not connected.')).toBeInTheDocument()
     expect(here()).toBe('/connections')
     expect(screen.queryByText('aaaa-1111')).toBeNull()
   })
@@ -136,11 +148,33 @@ describe('forced enrolment', () => {
     expect(screen.queryByRole('list', { name: 'Recovery codes' })).toBeNull()
   })
 
-  it('shows an error when the enrolment cannot be started', async () => {
-    fakeApi({ ...enrolRoutes(), 'POST /api/auth/mfa/totp/start': reason(403, 'reauth_required') })
+  it('asks for the password when the start needs a recent sign-in, then starts (issue 475)', async () => {
+    let fresh = false
+    const api = fakeApi({
+      ...enrolRoutes(),
+      'POST /api/auth/mfa/totp/start': () => (fresh ? ENROLMENT : reason(403, 'reauth_required')),
+      'GET /api/auth/identities': { identities: [] },
+      'POST /api/auth/reauth': () => {
+        fresh = true
+        return { status: 'ok' }
+      },
+    })
     renderAt('/two-factor/setup')
-    expect(await screen.findByRole('alert')).toHaveTextContent('This needs your password again.')
+    const dialog = await screen.findByRole('dialog', { name: "Confirm it's you" })
+    fireEvent.change(within(dialog).getByLabelText('Password'), { target: { value: 'synthetic password' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+    expect(await screen.findByRole('img', { name: 'QR code for your authenticator app' })).toBeInTheDocument()
+    expect(api.to('POST', '/api/auth/reauth')).toHaveLength(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('shows an error when the enrolment cannot be started', async () => {
+    fakeApi({ ...enrolRoutes(), 'POST /api/auth/mfa/totp/start': reason(500, 'boom') })
+    renderAt('/two-factor/setup')
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+    // An administrator must enrol: there is no way past it.
+    expect(screen.queryByRole('button', { name: 'Skip for now' })).toBeNull()
   })
 
   it('does not draw anything from a server SVG that carries script', async () => {
@@ -181,8 +215,8 @@ describe('the code prompt after sign-in', () => {
     expect(screen.getByRole('button', { name: 'Verify' })).toBeDisabled()
     typeCode('123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
-    expect(await screen.findByText('The dashboard comes in M6.')).toBeInTheDocument()
-    expect(here()).toBe('/')
+    expect(await screen.findByText('Needs a look')).toBeInTheDocument()
+    expect(here()).toBe('/overview')
     expect(api.to('POST', '/api/auth/mfa/verify')[0]?.body).toEqual({ code: '123456' })
   })
 
@@ -242,5 +276,42 @@ describe('the code prompt after sign-in', () => {
     expect(await screen.findByText(/Signed in as ann@example\.test\. This step expires in 10 minutes\./)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Not you? Sign out' }))
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+  })
+})
+
+describe('optional enrolment (issue 475)', () => {
+  /** A user without TOTP: a full session that may add one. */
+  function optionalRoutes() {
+    let enrolled = false
+    return {
+      'GET /api/auth/session': () => (enrolled ? SIGNED_IN : SIGNED_IN_OPTIONAL_TOTP),
+      'GET /api/connections': { connections: [] },
+      'GET /api/status': fakeStatus({ connection: 'not_connected', streams: [] }),
+      'POST /api/auth/mfa/totp/start': ENROLMENT,
+      'POST /api/auth/mfa/totp/confirm': () => {
+        enrolled = true
+        return { recovery_codes: RECOVERY }
+      },
+    }
+  }
+
+  it('is offered after sign-in with "Skip for now", which goes on to the page asked for', async () => {
+    fakeApi(optionalRoutes())
+    renderAt('/connections')
+    await waitFor(() => {
+      expect(here()).toBe('/two-factor/setup?return_to=%2Fconnections')
+    })
+    expect(await screen.findByText(/Recommended, not required/)).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+    await waitFor(() => {
+      expect(here()).toBe('/connections')
+    })
+  })
+
+  it('can still be completed, and then the recovery codes are shown', async () => {
+    fakeApi(optionalRoutes())
+    renderAt('/two-factor/setup')
+    await confirmEnrolment()
+    expect(await screen.findByRole('list', { name: 'Recovery codes' })).toBeInTheDocument()
   })
 })

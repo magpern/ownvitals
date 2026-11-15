@@ -1,12 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { SIGNED_IN, SIGNED_IN_NO_CODE, SIGNED_IN_NO_TOTP, fakeApi, json, reason } from '../test/fakeApi'
+import {
+  SIGNED_IN,
+  SIGNED_IN_NO_CODE,
+  SIGNED_IN_NO_TOTP,
+  SIGNED_IN_OPTIONAL_TOTP,
+  fakeApi,
+  json,
+  reason,
+} from '../test/fakeApi'
 import { DecodeError } from './decode'
 import { confirmTotp, getPendingSignup, getSession, setAccountLocale, startOAuth, startTotp } from './auth'
 
 describe('getSession', () => {
   it('reads a signed-out answer without asking about two-factor', async () => {
     const api = fakeApi({})
-    expect(await getSession()).toEqual({ authenticated: false, user: null, session: null, totpEnabled: false })
+    expect(await getSession()).toEqual({
+      authenticated: false,
+      user: null,
+      session: null,
+      totpEnabled: false,
+      totpRequired: false,
+      turnstile: null,
+    })
     expect(api.to('GET', '/api/auth/mfa')).toHaveLength(0)
   })
 
@@ -17,14 +32,30 @@ describe('getSession', () => {
       user: { id: 'u1', email: 'ann@example.test', role: 'user', locale: null },
       session: { id: 's1', expiresAt: '2030-01-01T00:00:00Z', recentAuth: true, mfa: false, stepup: false },
       totpEnabled: true,
+      totpRequired: false,
+      turnstile: null,
     })
     // #11: `totp_enabled` is in the session answer; no second call that the gate would refuse.
     expect(api.to('GET', '/api/auth/mfa')).toHaveLength(0)
   })
 
-  it('knows an account without TOTP', async () => {
+  it('reads the Turnstile widget config only while the server has it on (ADR 0018)', async () => {
+    const config = { site_key: 'synthetic-site-key', script_url: '/synthetic/turnstile.js' }
+    fakeApi({ 'GET /api/auth/session': { authenticated: false, csrf_token: 'a', turnstile: config } })
+    expect((await getSession()).turnstile).toEqual({ siteKey: 'synthetic-site-key', scriptUrl: '/synthetic/turnstile.js' })
+    fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, turnstile: config } })
+    expect((await getSession()).turnstile?.siteKey).toBe('synthetic-site-key')
+    fakeApi({ 'GET /api/auth/session': { authenticated: false, csrf_token: 'a', turnstile: { site_key: 5 } } })
+    await expect(getSession()).rejects.toBeInstanceOf(DecodeError)
+  })
+
+  it('knows an account without TOTP, and whether it must have one (issue 475)', async () => {
     fakeApi({ 'GET /api/auth/session': SIGNED_IN_NO_TOTP })
-    expect((await getSession()).totpEnabled).toBe(false)
+    const required = await getSession()
+    expect([required.totpEnabled, required.totpRequired]).toEqual([false, true])
+    fakeApi({ 'GET /api/auth/session': SIGNED_IN_OPTIONAL_TOTP })
+    const optional = await getSession()
+    expect([optional.totpEnabled, optional.totpRequired, optional.session?.mfa]).toEqual([false, false, true])
   })
 
   it('refuses an answer that is not the shape the pages rely on', async () => {
@@ -35,6 +66,10 @@ describe('getSession', () => {
     const withoutTotp: Record<string, unknown> = { ...SIGNED_IN.session }
     delete withoutTotp.totp_enabled
     fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, session: withoutTotp } })
+    await expect(getSession()).rejects.toBeInstanceOf(DecodeError)
+    const withoutRequired: Record<string, unknown> = { ...SIGNED_IN.session }
+    delete withoutRequired.totp_required
+    fakeApi({ 'GET /api/auth/session': { ...SIGNED_IN, session: withoutRequired } })
     await expect(getSession()).rejects.toBeInstanceOf(DecodeError)
   })
 })

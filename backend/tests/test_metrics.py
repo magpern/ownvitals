@@ -1,4 +1,5 @@
-"""Registry, label safety and the internal endpoint. Synthetic data only."""
+"""Registry, label safety and the DB-aggregate mapping (the listener: ``test_metrics_server.py``).
+Synthetic data only."""
 
 import re
 import uuid
@@ -90,6 +91,41 @@ def test_subscriptions_reconcile_queue_refresh_api_move():
     w.record_api_call(status=601)
     assert w.api_calls.get() == 2
     assert w.api_rate_limited.get() == 1
+
+
+def test_aggregates_set_every_db_gauge_and_skip_unknown_values():
+    w.record_last_sync_age("devices", 5)  # a stream that lost its last success: no stale age
+    rows = [
+        ("last_sync_age", "measures", None, 3600.0),
+        ("last_sync_age", "synthetic_unknown_stream", None, 1.0),
+        ("subscriptions", None, "active", 2.0),
+        ("subscriptions", None, "synthetic-user@example.test", 9.0),
+        ("completeness", "measures", "complete", 2.0),
+        ("completeness", "ecg", "backfilling", 1.0),
+        ("completeness", "ecg", "11223344", 1.0),
+        ("queue_oldest_age", None, None, 42.0),
+        ("synthetic_unknown_metric", "measures", "complete", 7.0),
+    ]
+    assert w.apply_aggregates(rows) == 42.0
+    assert w.last_sync_success.get(stream="measures") == 3600
+    assert w.last_sync_success.get(stream="devices") is None
+    assert w.subscriptions.get(state="active") == 2
+    assert w.subscriptions.get(state="missing") == 0
+    assert w.stream_completeness.get(stream="measures", state="complete") == 2
+    assert w.stream_completeness.get(stream="ecg", state="backfilling") == 1
+    assert w.stream_completeness.get(stream="sleep_summary", state="partial") == 0
+    rendered = m.REGISTRY.render()
+    for planted in ("synthetic_unknown", "synthetic-user", "11223344"):
+        assert planted not in rendered
+    assert w.apply_aggregates([]) == 0.0
+    assert w.subscriptions.get(state="active") == 0
+
+
+def test_a_delivery_age_from_the_database_is_observed_once_and_never_negative():
+    w.record_webhook_age(-5)
+    w.record_webhook_age(120)
+    assert w.webhook_delivery_age.count() == 2
+    assert "ownvitals_withings_webhook_delivery_age_seconds_sum 120" in m.REGISTRY.render()
 
 
 def test_counter_cannot_go_down():

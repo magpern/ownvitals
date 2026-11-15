@@ -19,6 +19,7 @@ from authtools import (  # noqa: F401 - fixtures
 from flows import PASSWORD, Browser, reason
 from ownvitals.auth.accounts import create_invite
 from smtpfake import SmtpFake
+from windowtools import clear_of_window
 
 EMAIL = "new.user@example.com"
 
@@ -139,6 +140,7 @@ async def test_a_wrong_password_leaves_the_row_and_token_and_counts_as_a_failure
 
 
 async def test_confirmation_failures_hit_the_sign_in_limits(menv: Env, smtp: SmtpFake) -> None:
+    await clear_of_window(900)
     token = await pending(menv, smtp, await invite(menv))
     browser = Browser(menv)
     statuses = [
@@ -210,6 +212,7 @@ async def test_an_address_taken_meanwhile_creates_nothing_and_logs_no_address(
 
 
 async def test_mail_limits_per_address_and_per_ip(menv: Env, smtp: SmtpFake) -> None:
+    await clear_of_window(3600)
     code = await invite(menv)
     statuses = [(await sign_up(Browser(menv), code)).status_code for _ in range(4)]
     assert statuses == [202, 202, 202, 429]  # 3 per address per hour

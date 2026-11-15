@@ -29,6 +29,7 @@ from ownvitals.auth.oauth_routes import router as oauth_router
 from ownvitals.auth.passkey_reauth_routes import router as passkey_reauth_router
 from ownvitals.auth.passkey_routes import router as passkey_router
 from ownvitals.auth.passkey_signin_routes import router as passkey_signin_router
+from ownvitals.auth.password_change_routes import router as password_change_router
 from ownvitals.auth.passwords import PasswordHashBusy, PasswordHasher
 from ownvitals.auth.qrlogin_phone_routes import router as qr_phone_router
 from ownvitals.auth.qrlogin_routes import router as qr_router
@@ -37,6 +38,7 @@ from ownvitals.auth.reset_routes import router as reset_router
 from ownvitals.auth.routes import router
 from ownvitals.auth.signin_routes import router as signin_router
 from ownvitals.auth.signup_routes import router as signup_router
+from ownvitals.auth.turnstile import build_verifier
 from ownvitals.config import Settings
 from ownvitals.log import describe_database_error
 from ownvitals.mail import Mailer
@@ -44,8 +46,9 @@ from ownvitals.mail import Mailer
 logger = logging.getLogger(__name__)
 
 # Routes whose request bodies can hold a password, code or token, and the jobs API (its bodies
-# are the user's own input; its routes validate them themselves, this is the backstop).
-SECRET_INPUT_PATHS = ("/api/auth/", "/api/connections", "/api/jobs")
+# are the user's own input; its routes validate them themselves, this is the backstop) and the
+# account routes (#282: a malformed body is never echoed back).
+SECRET_INPUT_PATHS = ("/api/auth/", "/api/account/", "/api/connections", "/api/jobs")
 
 
 def install(app: FastAPI) -> None:
@@ -53,7 +56,7 @@ def install(app: FastAPI) -> None:
     app.include_router(router)
     app.include_router(activity_router)  # GET /api/auth/activity (#251)
     app.include_router(locale_router)  # PUT /api/account/locale (#249)
-    for flow in (signup_router, signin_router, reset_router, email_router):
+    for flow in (signup_router, signin_router, reset_router, password_change_router, email_router):
         app.include_router(flow)
     app.include_router(mfa_router)
     app.include_router(mfa_verify_router)
@@ -85,7 +88,7 @@ def install(app: FastAPI) -> None:
         # Class and SQLSTATE only: the message carries row values (emails, hashes).
         text = describe_database_error(exc) if isinstance(exc, DBAPIError) else "database error"
         logger.error("database error: %s", text)
-        return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
+        return JSONResponse({"detail": {"reason": "internal"}}, status_code=500)
 
     @app.exception_handler(RequestValidationError)
     async def validation_failed(request: Request, exc: Exception) -> Response:
@@ -118,6 +121,7 @@ def attach_state(
     app.state.password_hasher = PasswordHasher(settings.password_hash_workers)
     app.state.mailer = Mailer(settings)
     app.state.oauth = OAuthRuntime(enabled_providers(settings))
+    app.state.turnstile = build_verifier(settings)  # None while Turnstile is off (ADR 0018)
     # httpx logs each request URL at INFO; the OAuth ones are not worth a log line.
     for noisy in ("httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)

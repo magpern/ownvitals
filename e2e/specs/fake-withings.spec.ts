@@ -8,6 +8,11 @@ import { REPO_ROOT } from '../helpers/env.ts'
 // can. Synthetic data only; the real Withings is never contacted (the browser never visits a
 // Withings host here: it resolves, on a developer machine, to the real one).
 
+// The fake is shared: the worker also calls it for the live connections of earlier specs (their
+// backfills, and the scheduler's poll and reconcile, #403), at any moment. Those calls carry
+// tokens of an earlier world, so after `resetWorld()` they are refused, but the fake still counts
+// them. So the specs below never assume a request number or a count is theirs alone.
+
 // What the worker does: the real egress allowlist and the real Withings client, given a token pair
 // of the fake's synthetic user. Prints shapes only.
 const WORKER_CALLS = `
@@ -60,17 +65,32 @@ test('the worker reaches the fake as Withings and its calls are counted', () => 
   const state = control<{
     request_count: number
     endpoint_counts: Record<string, number>
-    log: { params: Record<string, string> }[]
+    log: { endpoint: string; api_status: number | null; params: Record<string, string> }[]
   }>('GET', '/__e2e/state')
-  expect(state.endpoint_counts['v2/user:getgoals']).toBe(2)
+  // Both calls are counted. Only this world's token can be answered 0, so the one success is
+  // the spec's; the worker's calls, if any, are refused like the spec's bad token.
+  const goals = state.log.filter((entry) => entry.endpoint === 'v2/user:getgoals')
+  expect(goals.length).toBeGreaterThanOrEqual(2)
+  expect(state.endpoint_counts['v2/user:getgoals']).toBe(goals.length)
+  expect(goals.filter((entry) => entry.api_status === 0)).toHaveLength(1)
+  expect(goals.filter((entry) => entry.api_status === 401).length).toBeGreaterThanOrEqual(1)
   // The log never holds a token or the app secret.
   expect(JSON.stringify(state)).not.toContain(world.tokens.access_token)
   expect(JSON.stringify(state)).not.toContain(world.client_secret)
 })
 
+// The failure is armed on every `getgoals` of this world, not on request 1: a worker call that
+// reached the fake first took request 1, and the 601, and the spec's call succeeded (#403).
 test('an injected failure reaches the worker as the client sees it', () => {
   const world = resetWorld()
-  control('POST', '/__e2e/inject', { kind: 'status', at: 1, status: 601, wait_seconds: 7 })
+  const every = Array.from({ length: 100 }, (_, i) => i + 1)
+  control('POST', '/__e2e/inject', {
+    kind: 'status',
+    endpoint: 'v2/user:getgoals',
+    at: every,
+    status: 601,
+    wait_seconds: 7,
+  })
   const script = `
 import asyncio, sys
 from ownvitals import egress
@@ -87,12 +107,16 @@ async def main():
 
 asyncio.run(main())
 `
-  const out = pythonIn('worker', script, [
-    world.client_id,
-    world.client_secret,
-    world.tokens.access_token,
-  ])
-  expect(out.trim()).toBe('rate_limited 7')
+  try {
+    const out = pythonIn('worker', script, [
+      world.client_id,
+      world.client_secret,
+      world.tokens.access_token,
+    ])
+    expect(out.trim()).toBe('rate_limited 7')
+  } finally {
+    resetWorld() // disarm it: no later call meets the 601
+  }
 })
 
 test('the control endpoints are reachable inside the compose network only', async ({ page }) => {

@@ -125,6 +125,48 @@ follow the account is that issue's question.
 The app renders only after the theme is applied, so it is never painted in the wrong theme. One gap
 remains on a cold load: see "Not here yet".
 
+### Motion (M10, #424)
+
+[docs/design/motion.md](../design/motion.md) is the design (provisional). Tokens `--ov-dur-*`,
+`--ov-ease-*`, `--ov-stagger`, `--ov-glow`, `--ov-sheen` are in `tokens.css`; `styles/motion.css`
+holds the reduced-motion block (`prefers-reduced-motion: reduce` or `data-motion="off"` on
+`<html>`: durations 0.01 ms, shimmer off) and the classes below. It is not in `tokens.css`
+because `tokens.test.ts` only knows that file's theme rules.
+
+`src/components/motion/` (import from `components/motion`):
+
+- `useReducedMotion()`: true for the media query or the override; every JS animation calls it.
+- `<CountUp value format? still? />`: final text in the DOM from the first render (hidden sizer,
+  `.ov-sr` text), animated digits `aria-hidden`, one shared rAF loop, runs once when first on
+  screen. Pass `still` for estimates (rule 5). Write the number with the app's formatters.
+- `<Reveal index? as? className?>`: fade and rise once on first view, delay `index` x
+  `--ov-stagger` capped by `--ov-stagger-steps` (8, 5 on phone). Final state at once without motion.
+- `<Skeleton width height>` and `<SkeletonSwap loading skeleton>`: size the block like the content;
+  the content cross-fades in.
+
+Overview (#425): `Value` takes `count={{ value, format }}` and renders a `CountUp` (estimates stay still);
+`Tile` takes `index` and reveals itself staggered; `ScoreReadout` is the plain score figure with a
+fading `--ov-glow` halo (no ring or arc), ready for the health score when the API sends one. A
+count-up number is in the DOM three times (`.ov-sr`, sizer, live digits): tests query `.ov-sr`.
+
+Overview remainder (#438): `DeltaChip` (pure `deltaModel.ts`) shows the latest value against the median
+of the tile's own sparkline days, neutral blue or attention orange, never green or red, fading in after
+the number; `.ov-chart--draw` clip-path reveals a chart once at mount (the box outlives data refreshes,
+so nothing replays); `useNewReading(day)` + `Sparkline pulse` give one 600 ms halo on a new reading
+(not on first mount, not hidden, not reduced); `.ov-page` in `AppFrame` cross-fades route content
+(opacity only, CSS fallback, no View Transitions API). The health-score card stays "not available":
+the overview API carries no score yet, so `ScoreReadout` is not wired.
+
+CSP (rule 8): `sources.test.ts` forbids a `style=` attribute but not the `element.style` property
+API, so JS sets animated values with `el.style.setProperty('--x', ...)` on a class-styled element
+(`motionCss.test.ts` pins both). Only opacity and transform animate.
+
+`Reveal` is visible by default: the hidden `ov-reveal--pre` class is added only after mount, so
+prerendered markup (the `useReducedMotion` server snapshot is "reduced") never flashes or reveals
+twice on hydration. The public pages (ADR 0016) ship no script: their motion is CSS only,
+`styles/public-lively.css`, and exists only under `prefers-reduced-motion: no-preference`
+(`src/public/lively.test.ts`); below-the-fold reveals use `animation-timeline: view()` where supported.
+
 ### Fonts
 
 IBM Plex Sans (UI) and Plex Mono (ids, versions, raw values), OFL-1.1, self-hosted through
@@ -410,3 +452,59 @@ English is formatted as en-GB (day first, 24 hours); see `INTL_TAG` in `src/i18n
   (the admin page, the product name) and the test pins its size.
 - `src/i18n/catalogue.test.ts`: same keys per area, placeholder names equal to English and bare,
   no markup, plural categories present for each language, the untranslated list exact.
+
+## Settings (issue 203)
+
+`/settings/profile`, `/settings/notifications` and `/settings/data` are in `src/pages/settings/`
+(`settingsPages.tsx` maps the routes). They read and save `GET`/`PUT /api/profile` as one document
+(`src/api/profile.ts`, `useProfile`). The theme follows the account: the server value is applied on
+load and `setThemePreference` keeps it in this browser. The Language row (`AccountLanguage`) is in
+the Display card. Deleting the account runs `DELETE /api/auth/account` through `useProtected`.
+
+## Saved display settings
+
+`src/display/DisplayContext.tsx` (`DisplayProvider`, inside `AppFrame`) reads `/api/profile` once and
+holds the saved units, date format and chart range for every screen, and applies the theme.
+Settings hands each saved profile to `apply`; an answer that was requested before a save but
+arrives after it is ignored. Screens read the settings through `useFormat()`: `f.quantity(value,
+unit, digits)` and `f.unit(unit)` show kg as lb or st and C as F (values stay SI in the API and the
+analysis; only what is shown is converted, in `lib/display.ts` and `lib/displayDetail.ts`), and
+`f.day()` follows the date format. A metric or overview address with no `?range=` starts on the
+saved range (when the screen offers it) once the profile is read; the overview passes its range to
+`/api/metrics?range=`.
+
+## The public site build (ADR 0016, #430)
+
+`npm run build:public` (`scripts/build-public.mjs`) writes `dist-public/` after the SPA build; the
+Dockerfile runs it in the `spa` stage and copies the result to `/app/public`, where
+`OWNVITALS_PUBLIC_DIR` points. It loads `src/public/site.ts` through Vite's SSR loader and emits the
+four pages (`/`, `/features`, `/sv`, `/sv/features`), `sitemap.xml`, `robots.txt` (disallows only
+`/api/`), `public.css` (`src/styles/public-entry.css`: tokens, fonts, then `public.css`) and the six
+`img/*` mock-ups of `imageFiles()`. The font files stay under `/assets/` (the SPA build has the same
+content-hashed files, so the server finds them in `dist/`).
+
+- `OWNVITALS_PUBLIC_ORIGIN` (required; the Dockerfile argument defaults to `https://ownvitals.eu`, staging
+  passes its own) is validated: https, bare origin.
+- `OWNVITALS_PUBLIC_LEGAL_APPROVED` is the owner's legal gate: only the exact value `true` builds the legal
+  pages (`LEGAL_PAGES` in `site.ts`). A frontend test fails if a committed Dockerfile, compose file, `.env*`,
+  workflow or script sets it.
+- **Legal pages (#447).** With the flag exactly `true` the build adds `/privacy`, `/terms`, `/security` and
+  `/cookies` and their `/sv/...` pages, rendered from `docs/legal/<page>.<lang>.md` by the small reader in
+  `src/public/markdown.ts` (headings, lists, tables, bold, italic, code, links; every character is text, and
+  the tree is rendered by React, so no raw HTML gets through). A link to another draft becomes a link to that
+  page; any other link target is shown as text, so a page holds no external URL. The draft banner of each
+  text (draft, not legal advice, placeholders for the owner) is rendered as written. The pages join the
+  sitemap and the footer only in that build; otherwise none of them exists, the server's `noindex`
+  rule keeps answering those paths with the SPA shell, and the Dockerfile copies `docs/legal` only so the
+  build can read it. Changing a draft changes the page; nothing here marks the legal gate passed.
+- The server's `PUBLIC_FILES` (`backend/src/ownvitals/public_site.py`) must equal the non-page files the build
+  emits; `src/public/buildPublic.test.ts` compares them.
+
+**The `/` route.** With `OWNVITALS_PUBLIC_DIR` set, the server answers the exact path `/` with the public home
+for everyone, signed in or not (ADR 0016 owner question 3, default: yes). The app's start page moved to
+`/overview` (`HOME_PATH`); a client-side or dev-server `/` redirects there and keeps its query. The public pages
+link to `/signin`, which sends a signed-in visitor on to `/overview`.
+
+The SPA's own `/` route redirects to `/overview` and keeps the query, but only the dev server and
+client-side navigation reach it: the production server answers `/` with the public home whatever
+the query, so links to the app use `HOME_PATH` (`/overview`).

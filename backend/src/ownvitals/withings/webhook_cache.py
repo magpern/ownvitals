@@ -1,8 +1,9 @@
 """Web's copy of the webhook secrets' HMAC entries (PLAN section 4.4, ADR 0004, ADR 0008).
 
 The receiver (``webhook_receiver.py``) compares a presented secret only against this copy;
-``load_cache`` refreshes it. ``WebhookTargets`` tells the worker whether a secret is still an
-active job target. Secrets are never stored: only their HMACs and the pepper key ids.
+``load_cache`` reads it and ``webhook_refresh`` re-reads it well within its TTL.
+``WebhookTargets`` tells the worker whether a secret is still an active job target. Secrets
+are never stored: only their HMACs and the pepper key ids.
 """
 
 import hashlib
@@ -104,11 +105,18 @@ class WebhookTargets:
         return False
 
 
+def app_now(app: FastAPI) -> datetime:
+    """The receiver's and the cache's clock: ``app.state.webhook_clock`` (tests), else UTC now."""
+    clock = getattr(app.state, "webhook_clock", None)
+    return clock() if clock is not None else datetime.now(UTC)
+
+
 async def load_cache(app: FastAPI) -> None:
-    """Read the HMAC entries once. A miss leaves the previous copy, or none yet."""
+    """Read the HMAC entries once. A miss leaves the previous copy, or none yet. ``read_at`` is
+    stamped with the receiver's clock, and an existing ``Cache`` keeps its ``ttl``."""
     factory: Factory = app.state.session_factory
     ring = app.state.keyring
-    started = datetime.now(UTC)
+    started = app_now(app)
     peppers: dict[str, bytes] = {}
     entries: list[CachedEntry] = []
     async with factory() as session, session.begin():

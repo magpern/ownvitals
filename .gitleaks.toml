@@ -4,7 +4,13 @@ title = "ownvitals"
 [extend]
 useDefault = true
 
+# A function named like "queue_cancel_for_secret" trips generic-api-key on its digest line.
+# Allowed only when BOTH hold: the path is the digest file and the matched value is one md5 hex
+# digest, so any other value in that file is still reported (#280).
 [[allowlists]]
 description = "backend/src/ownvitals/db/queue_digests.py holds md5(pg_get_functiondef) values only"
 targetRules = ["generic-api-key"]
+condition = "AND"
 paths = ['''(?:^|/)backend/src/ownvitals/db/queue_digests\.py$''']
+regexTarget = "secret"
+regexes = ['''^[0-9a-f]{32}$''']

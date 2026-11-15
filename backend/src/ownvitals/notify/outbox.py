@@ -3,8 +3,9 @@ web's sender claims and marks rows.
 
 A row holds a fixed ``kind``, its recipient (an owned row's ``owner_id``, or no one for an owner
 notice, which goes to the admins) and a route key from ``ROUTE_PATHS``: never an address, a
-subject, free text, a value or finding text. The database checks every kind and route (migration
-``0012_outbox``), and these lists are the same (``tests/test_notify_outbox.py``).
+subject, free text, a value or finding text. The database checks every kind and route (migrations
+``0012_outbox``, ``0024_outbox_export_ready`` and ``0026_ai_digest``), and these lists are the same
+(``tests/test_notify_outbox.py``).
 
 - **Mail to a user** (``queue_user_mail``): an owned ``mail_outbox`` row, written in its owner's
   session (inside a job, a fenced write, ADR 0005 section 4), so the policy's ``WITH CHECK``
@@ -15,7 +16,13 @@ subject, free text, a value or finding text. The database checks every kind and 
   the function (``OWNER_NOTICE_ROUTES`` mirrors it). At most one pending row per kind.
 - **The sender** claims and marks rows only through ``mail_outbox_claim`` and
   ``mail_outbox_mark`` (``claim``, ``mark``), in a session with no user: it holds no
-  ``UserContext`` and gets none.
+  ``UserContext`` and gets none. For a claimed row of a suppressible kind it reads the owner's
+  email preference only through ``mail_outbox_email_pref`` (``email_pref``), which takes the
+  row's id, never an owner id (ADR 0019).
+- **The unsubscribe endpoint** switches one preference off only through ``email_unsubscribe``
+  (``unsubscribe``), after it verified the signed token (``ownvitals.notify.unsubscribe``): the
+  one write of the family that takes an owner id, and it can only switch a suppressible kind
+  off at the generation the token names (ADR 0019).
 
 The worker loads this module (``connections.providers.withings`` queues the owner notice of PLAN
 section 4.3), so it imports nothing web-only: no ``ownvitals.mail`` (``tests/egress_worker.py``).
@@ -34,9 +41,9 @@ from ownvitals.db import system_session
 
 Factory = async_sessionmaker[AsyncSession]
 
-UserKind = Literal["findings_waiting", "connection_attention"]
+UserKind = Literal["findings_waiting", "connection_attention", "export_ready", "ai_digest_ready"]
 OwnerNoticeKind = Literal["connection_needs_reconnect"]
-UserRoute = Literal["overview", "findings", "connections"]
+UserRoute = Literal["overview", "findings", "connections", "settings_data", "assistant"]
 Outcome = Literal["sent", "failed", "retry"]
 
 USER_KINDS: Final[tuple[str, ...]] = get_args(UserKind)
@@ -49,7 +56,14 @@ OWNER_NOTICE_ROUTES: Final[Mapping[str, str]] = MappingProxyType(
 # Route key -> the app's path (``frontend/src/router/appRoutes.ts``). The link in a mail is
 # ``public_base_url`` plus this path (T12): the row never holds a URL.
 ROUTE_PATHS: Final[Mapping[str, str]] = MappingProxyType(
-    {"overview": "/", "findings": "/findings", "connections": "/connections", "admin": "/admin"}
+    {
+        "overview": "/overview",
+        "findings": "/findings",
+        "connections": "/connections",
+        "settings_data": "/settings/data",
+        "assistant": "/assistant",
+        "admin": "/admin",
+    }
 )
 OUTCOMES: Final[tuple[str, ...]] = get_args(Outcome)
 # The two tables (migration 0012): the owned one and the system one.
@@ -67,6 +81,17 @@ _QUEUE_USER = text(
 _QUEUE_OWNER = text("SELECT public.owner_notice_queue(:kind)")
 _CLAIM = text("SELECT id, kind, route, owner_id FROM public.mail_outbox_claim(:limit, :lease)")
 _MARK = text("SELECT public.mail_outbox_mark(:id, :outcome)")
+_EMAIL_PREF = text("SELECT enabled, generation FROM public.mail_outbox_email_pref(:id)")
+_UNSUBSCRIBE = text("SELECT public.email_unsubscribe(:owner, :kind, :generation)")
+
+
+@dataclass(frozen=True, slots=True)
+class EmailPref:
+    """A claimed row's email preference: whether its kind's email is on, and the generation an
+    unsubscribe link must name."""
+
+    enabled: bool
+    generation: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,3 +143,20 @@ async def mark(factory: Factory, mail_id: UUID, outcome: Outcome) -> bool:
         raise ValueError("not an outbox outcome")
     async with system_session(factory) as db:
         return bool((await db.execute(_MARK, {"id": mail_id, "outcome": outcome})).scalar_one())
+
+
+async def email_pref(factory: Factory, mail_id: UUID) -> EmailPref | None:
+    """The email preference behind a claimed row of a suppressible kind, in a transaction of its
+    own with no user; ``None`` when the row is not claimed or its kind has no preference."""
+    async with system_session(factory) as db:
+        row = (await db.execute(_EMAIL_PREF, {"id": mail_id})).first()
+    return None if row is None else EmailPref(enabled=bool(row.enabled), generation=row.generation)
+
+
+async def unsubscribe(factory: Factory, owner_id: UUID, kind: str, generation: int) -> bool:
+    """Switch ``owner_id``'s email of ``kind`` off, only if the preference is still on at
+    ``generation``; True when it changed. The caller has verified a signed token for exactly
+    these three values (``ownvitals.notify.unsubscribe.verify``)."""
+    async with system_session(factory) as db:
+        params = {"owner": owner_id, "kind": kind, "generation": generation}
+        return bool((await db.execute(_UNSUBSCRIBE, params)).scalar_one())

@@ -286,7 +286,7 @@ when one did, or when the user id or the V4 flags are refused. V2 is report-only
 | `OC2 positions N` | how many distinct wear-position codes are stored (not the codes) |
 | `OC2` | pass only when the owner answers yes and at least one code is stored |
 | `OC3 lowpass` | pass when, on every strip long enough for a 4 s Welch spectrum, power from 5–15 Hz is ≥ 30 dB above power above 40 Hz (the ADR's figure), on the stored signal |
-| `OC3 mains` | yes when a 50 or 60 Hz line's ±1 Hz power is ≥ 10 dB above the side bands 3–10 Hz away and ≥ 1% of the 5–15 Hz power (our choices for the ADR's yes/no) |
+| `OC3 mains` | yes when a 50 or 60 Hz line's ±1 Hz power is ≥ 10 dB above the side bands 3–10 Hz away and ≥ 1% of the 5–15 Hz power (our choices for the ADR's yes/no); `not-observable` when no line was found and a strip's sampling rate is at or below 120 Hz, since a 60 Hz line is then at or above Nyquist (#315) |
 | `OC4` | not-applicable when every recording has one lead. Otherwise pass when each extra lead has the same length and ≥ 95% of R-peaks (both directions) lie within 20 ms. One sampling rate is stored per recording, so "equal rate" is that single rate; an unsupported rate fails toward "not simultaneous" |
 | `OC5` | pass when every recording shares connection and timestamp with a live measure group that has a type in {130, 135, 136, 137, 138} and the same device id (or, when the recording names a device and the group has none, the same model). A recording with no device id does not match. `OC5 without` is the count with no such group |
 | `OC5 late-link` | `not-applicable` until the notification hold records why it ended (#88) |
@@ -297,3 +297,113 @@ when one did, or when the user id or the V4 flags are refused. V2 is report-only
 | `V5` | pass when recomputing `estimated` matches the stored JSON byte for byte (`canonical_json`), including the stored input revision and fingerprint. A row with neither a signal nor an estimate is not compared |
 
 The command was not run on a real account. Tests use labelled synthetic values only.
+
+## ECG list, signal and PDF (#192, ADR 0006 section 3)
+
+| Route | Answers |
+|---|---|
+| `GET /api/ecg?limit=&offset=` | The user's recordings, newest first: local time with zone, device, Withings' classification (attributed), reported heart rate and the linked 135-138 values ("not reported" is an absent value, never 0) |
+| `GET /api/ecg/{id}` | The same plus the stored signal (int32 µV per lead, unfiltered), the sampling rate and the lead label ("lead unverified", A2). `ownvitals_estimate` is `null` without the owner-only flag; with it, it holds our estimate from `read_ecg_estimates`, labelled "Estimated by ownvitals from the raw signal; not a Withings measurement" |
+| `GET /api/ecg/{id}.pdf` | The true-scale A4 landscape PDF, as an attachment. 404 when there is no signal, 422 over 120 s |
+
+Another user's recording answers 404 (forced RLS plus an explicit `owner_id` filter). The signal
+is decoded in `views/ecg_read.py` and never logged; a frame that does not decode is logged by
+exception class only and reads as "no signal".
+
+**PDF.** 10 s rows of 250 mm, 25 mm/s and 10 mm/mV, a 1 mm grid with 5 mm majors, a 1 mV 200 ms
+calibration pulse per row, three rows to a page, the median level of each lead as its baseline.
+It carries local time with zone, device, rate, the lead label, Withings' values with attribution
+and the "not a medical device" line. It has **no estimate and nothing experimental**: the
+document's input (`ReportFacts`) has no field for one and the route never calls
+`read_ecg_estimates`. A strip longer than 120 s (`MAX_SECONDS`, our limit, not Withings') is
+refused.
+
+**Renderer: reportlab 5.1.0** (BSD-3-Clause; brings pillow and charset-normalizer). Server side,
+no network, built-in Helvetica, no fonts or images fetched, `invariant=1` so the bytes are
+deterministic. Alternatives not taken: WeasyPrint (system libraries, CSS layout is not
+millimetre-exact), fpdf2 (fewer guarantees on stream determinism). The layout
+(`reports/ecg_layout.py`) is pure and emits drawing operations in millimetres; the renderer
+(`reports/ecg_pdf.py`) only draws them. Tests measure both the operations and the PDF's own path
+operators (`tests/pdftools.py`).
+
+**Hardening (#301).** The route builds the PDF with `asyncio.to_thread` (about 1.2 s of CPU; same
+bytes, `build_pdf` is pure), proven by `tests/test_ecg_pdf_route_offloop.py`. The renderer clips
+each trace to its own row's grid (plus and minus 2 mV, a PDF clip path inside `q`/`Q`), so a large
+excursion never runs over a neighbouring row or the header; the layout still places every sample
+unscaled and the clip only cuts the line at the edge (`test_a_trace_beyond_2_mv_is_clipped...`).
+`tests/test_ecg_pdf_guard.py` is an AST guard: the ECG and doctor PDF modules make no image or
+link calls (`drawImage`, `linkURL`, platypus, URL literals), with planted mutations that must fail.
+
+## Rules E1 to E4 and E6, and the `estimated` recompute (#191)
+
+ADR 0006 §11 and §15, ADR 0010 §7 "ECG". Status IMPLEMENTED: synthetic tests only; nothing here is
+verified against a real Withings account.
+
+**Rules** (`analysis/rules/ecg.py` for E1 to E3, `ecg_intervals.py` for E4 and E6; pure). They are
+rules of the evaluation pass of #187 (`SPECS`, `derived/evaluate.py`), so they share its replay,
+episodes, origin, diff, lock and stale check ([derived.md](derived.md), "Rule evaluation").
+Findings hold Withings-reported values only; our gate is the read-time overlay
+(`ecg/overlay.py`, #190).
+
+| Rule | Subject | Evaluation days | Trigger groups |
+|---|---|---|---|
+| E1 `afib` 1 or `afib_details` 1/11/12 (urgent) | `ecg` | days with a recording whose outcome is decided | the groups A7 links to the positive recordings |
+| E2 ≥ 3 of the last 10 (by `recorded_at`, up to the day) with `afib_details` 2/5 | `ecg` | same | the groups linked to the counted recordings |
+| E3 `afib_details` 6/7 | `ecg` | same | the groups linked to the firing recordings |
+| E4 QTc > 450 (male) / 460 (female) / 500 ms (anyone; sex unknown: only 500); PR > 200 ms; QRS ≥ 120 ms | `qtc_interval`, `pr_interval`, `qrs_duration` | days with a reading of the subject | every reading of the day above the band |
+| E6 daily value > the finding threshold at the day (k 2.5, 90 days before, BASELINE) | `qtc_interval`, `qrs_duration` | days with a daily value | the daily value's provenance (`metric_daily.source_groups`) |
+
+Choices the specification leaves open:
+
+- **A missing code.** NULL or a code outside withings-findings §2's table is missing. A day on
+  which a missing code could change E1's, E2's or E3's outcome is **not an evaluation day**
+  (`ecg.decided_days`): it neither opens nor ends an episode, so a missing value never counts as
+  negative. E2 with 2 inconclusive and one missing code among the last 10 is undecided; with 2
+  and none missing it does not fire.
+- **Episodes.** All five open on their first firing and end on the first evaluation that does not
+  fire (`advance_simple`); reference day and window end are the evaluation day (E2's window starts
+  at the oldest of the counted ten). A later negative recording ends an E1 episode; the ended
+  finding stays in the history.
+- **E1 to E3's trigger groups** are the live measure groups A7 links to the firing recordings when
+  the pass reads them (same connection and timestamp, an ECG type, the same device: the overlay's
+  `a7_links`). The read function links them again at read time, so a recording deleted later is
+  no link. They show our gate outcome only behind the owner-only flag and are never hidden.
+- **E4** is experimental: computed only when the owner-only switch is effective, like B1, B3 and
+  C1x. The sex is `user_profiles.sex`.
+- **Inputs and provenance.** `derived/findings_ecg.py` reads, in the pass's transaction, the
+  recordings' Withings fields (never `signal` or `estimated`), their A7 groups and the profile's
+  sex; the evaluation fingerprint covers them, so a new or changed recording between the read and
+  the write makes the pass `stale`. `input_revision` stays the `measures` counter. An `ecg` pass
+  (sync, backfill, webhook fetch) queues an evaluation; without a `measures` revision row nothing
+  is evaluated (the pass's known gap), so an ECG-only account gets no E1 to E6 until a `measures`
+  row exists.
+- **Codes.** `afib_details` -1 (not processed) and 13 are documented codes: a recording that
+  carries one counts as decided and settles E1, E2 and E3 negative. E1 with `afib` 0 and
+  `afib_details` missing is also a decided negative (`NoFinding`, counted in decided days), though
+  a detail of 1, 11 or 12 would have fired it (ADR 0006 §11 OR). Open ADR 0006 §11 question:
+  whether that case should be undecided instead; behaviour unchanged.
+
+**The recompute** (`derived/ecg_recompute.py`, kind `ecg_recompute`, singleton `ecg_recompute`,
+input `{connection_id, origin: "backfill"}`). A row is current when its `estimated` has the running
+`algo_version` and the row's `input_fingerprint`; every other row is read, analysed outside the
+transaction and written only if it still has the same `signalid`, payload hash and sampling rate.
+A rewrite or a purge in between wins. The write touches `estimated` only: no revision bump, no
+evaluation queued (§15). Queued after every `ecg` pass (a new row or a rewritten signal) and by the
+nightly reconciliation of each connection: **the sweep** after a module version bump, so stale
+estimates are recomputed within a day. Until then the overlay already treats a gate-module
+difference as no gate result and keeps the result on an `hrv`-only difference. A stored frame that
+no longer decodes gets the `signal_missing` estimate. Logs: counts and the pipeline version.
+
+Known gaps (decided in #307; changes would be their own issues): the job is claimed on the
+scheduler's lane (3), not the backfill lane (5): `queue_enqueue` maps only `withings_backfill` to
+lane 5 (as for `derive_normalize`), and mapping more kinds is a change to a security-critical SQL
+function, so it stays as is. Every `ecg` pass queues the recompute, and the nightly reconciliation
+is the guaranteed sweep trigger, so a module version bump reaches stale estimates within 24 h;
+the overlay covers the gap (above). No sweep runs at worker start.
+
+Tests: `tests/analysis/rules/test_ecg.py` and `test_ecg_intervals.py` (every rule case, the
+undecided days, origin, the switch, E6's provenance into the overlay; no database),
+`tests/test_derived_ecg_findings_db.py` (ingest to findings: history without notification, A7
+triggers, E4 and the sex, no re-evaluation after a recompute, stale, worker context) and
+`tests/test_derived_ecg_recompute_db.py` (current and stale rows, no bump, no evaluation queued,
+the sweep and an `hrv`-only bump, rewrite and purge races, worker context, the enqueue).

@@ -6,7 +6,10 @@ authority. From that row alone this module
 1. asks the account directory whether the owner exists and is not disabled (``Accounts.
    owner_active``; ADR 0005 section 4 puts that question to ``ownvitals.auth``, guard 8: only auth
    reads the account tables). An owner that is not active gets a bare context, and the job fails
-   ``account_disabled``;
+   ``account_disabled``. The one exception (amended 2026-11-11, #383): with ``disabled_owner``,
+   which the runner passes only for an ``operator`` job of a kind registered with
+   ``disabled_owner=True`` (``withings_admin_revoke``), an owner that is disabled but still
+   exists (``Accounts.owner_exists``) is issued as below;
 2. issues a context with ``role="user"`` (a job never carries admin authority, whoever owns it)
    and the owner's connection refs (``Accounts.connection_refs``, read through
    ``ownvitals.connections`` in that owner's own ``user_session``).
@@ -57,6 +60,10 @@ class Accounts(Protocol):
         """Whether the account exists and is not disabled (``ownvitals.auth.owners``)."""
         ...
 
+    async def owner_exists(self, factory: Factory, owner_id: UUID) -> bool:
+        """Whether the account exists, disabled or not (``ownvitals.auth.owners``)."""
+        ...
+
     async def connection_refs(self, factory: Factory, ctx: UserContext) -> Refs:
         """The owner's ``(provider, connection id)`` refs, read in the owner's own session
         (``ownvitals.connections`` from #13). ``ctx`` is the owner's bare context."""
@@ -67,6 +74,9 @@ class NoAccounts:
     """The fail-closed default: nobody is active, nobody has a connection."""
 
     async def owner_active(self, factory: Factory, owner_id: UUID) -> bool:
+        return False
+
+    async def owner_exists(self, factory: Factory, owner_id: UUID) -> bool:
         return False
 
     async def connection_refs(self, factory: Factory, ctx: UserContext) -> Refs:
@@ -82,9 +92,16 @@ def owner_context(owner_id: UUID) -> UserContext:
     return UserContext(user_id=owner_id, role="user", issuer=issuer_token())
 
 
-async def issue(factory: Factory, claimed: Claimed, accounts: Accounts) -> Issued:
+async def issue(
+    factory: Factory, claimed: Claimed, accounts: Accounts, *, disabled_owner: bool = False
+) -> Issued:
+    """The claimed job's lease and context. ``disabled_owner`` admits an owner that is disabled
+    but exists; only the runner passes it, for the one kind of ADR 0005 section 4's exception."""
     bare = owner_context(claimed.owner_id)
-    if not await accounts.owner_active(factory, claimed.owner_id):
+    active = await accounts.owner_active(factory, claimed.owner_id)
+    if not active and disabled_owner:
+        active = await accounts.owner_exists(factory, claimed.owner_id)
+    if not active:
         return Issued(Lease(claimed.job_id, claimed.lease_version, bare), active=False)
     refs = await accounts.connection_refs(factory, bare)
     if not isinstance(refs, frozenset):

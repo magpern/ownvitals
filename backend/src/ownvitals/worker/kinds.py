@@ -5,8 +5,16 @@ section 8, ADR 0008).
 ``ownvitals.withings.sync`` (``withings_connect``, ``withings_backfill``, ``withings_sync``,
 ``ecg_fetch``, ``withings_poll``), the nightly ``withings_reconcile``,
 ``token_refresh_recover`` and ``withings_disconnect`` (the revoke a disconnect or an account
-deletion enqueues, ``ownvitals.auth.purge``, #163), and the analysis chain
-``derive_normalize``, ``derive_daily`` and ``derive_evaluate`` (#185, #186, #187). Only
+deletion enqueues, ``ownvitals.auth.purge``, #163) and ``withings_admin_revoke`` (the revoke an
+admin's account delete queues, ``ownvitals.auth.admin_revoke_job``, #365), and the analysis chain
+``derive_normalize``, ``derive_daily``, ``derive_evaluate`` and ``derive_scores`` (#185, #186,
+#187, #188), the ECG ``estimated`` recompute ``ecg_recompute`` (#191; the nightly
+reconciliation queues it as the sweep after a module version bump, ADR 0006 section 15), and the
+finding notifications ``notify_findings`` (#195), queued after each evaluation and recompute,
+and the user's JSON/CSV export ``export_build`` (#211, ADR 0013 section 4), and the chat
+assistant's ``ai_chat_turn`` (#208, ADR 0014 section 5; its model calls need AI on), and the
+weekly digest ``ai_digest`` (issue 209), queued for its owner by the notification pass
+(``then_digest``) when one is due. Only
 ``python -m ownvitals.worker`` builds it. The API's registry (``ownvitals.jobs.KINDS``) stays
 empty, so ``POST /api/jobs`` still refuses every kind and the web process registers no handler
 (web imports ``ownvitals.auth.purge`` for the routes, which defines the disconnect handler but
@@ -31,14 +39,22 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from ownvitals.ai.assistant import register_chat_kind
+from ownvitals.ai.digest import register_digest_kind, then_digest
+from ownvitals.auth.admin_revoke_job import register_admin_revoke_kind
 from ownvitals.auth.purge import register_disconnect_kind
 from ownvitals.crypto.keks import KeyRing, KeyRingError, KeyUnavailable
 from ownvitals.derived.daily_job import register_daily_kind
+from ownvitals.derived.ecg_recompute import enqueue_recompute, register_recompute_kind
 from ownvitals.derived.evaluate_job import register_evaluate_kind
 from ownvitals.derived.normalize_job import enqueue_normalize, register_normalize_kind
+from ownvitals.derived.scores_job import register_scores_kind
 from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
 from ownvitals.jobs.withings import ConnectInput, SecretTargets
+from ownvitals.notify.findings_job import register_notify_kind, then_notify
+from ownvitals.reports.doctor import register_doctor_kind
+from ownvitals.reports.export import register_export_kind
 from ownvitals.withings.client import WithingsClient
 from ownvitals.withings.reconcile import execute_nightly
 from ownvitals.withings.subscriptions import callback_url, derive_secret
@@ -139,6 +155,7 @@ async def run_reconcile(job: JobRun) -> Complete:
     async with WithingsClient.open(app) as client:
         await execute_nightly(job, account, client, callback_base=base, current_url=current)
     await enqueue_normalize(job.factory, parsed.connection_id, "live")
+    await enqueue_recompute(job.factory, parsed.connection_id)  # the sweep (section 15)
     return Complete()
 
 
@@ -165,7 +182,23 @@ def worker_registry() -> KindRegistry:
     registry.register(JobKind("withings_reconcile", ConnectInput, run_reconcile))
     registry.register(JobKind("token_refresh_recover", ConnectInput, run_token_recover))
     register_disconnect_kind(registry)
+    register_admin_revoke_kind(registry)  # #365: the admin delete's revoke (ADR 0002 section 3)
     register_normalize_kind(registry)
     register_daily_kind(registry)
-    register_evaluate_kind(registry)
+    register_scores_kind(registry)
+    # #195: a notification pass after each rule evaluation and each estimated recompute.
+    followed = KindRegistry()
+    register_evaluate_kind(followed)
+    register_recompute_kind(followed)
+    for kind in followed:
+        registry.register(then_notify(kind))
+    # Issue 209: each notification pass asks whether its owner's weekly digest is due.
+    notify = KindRegistry()
+    register_notify_kind(notify)
+    for kind in notify:
+        registry.register(then_digest(kind))
+    register_export_kind(registry)  # #211: the user's JSON/CSV export (ADR 0013 section 4)
+    register_doctor_kind(registry)  # issue 210: the doctor PDF (ADR 0013 section 6)
+    register_chat_kind(registry)  # #208: the chat assistant's turn (ADR 0014 section 5)
+    register_digest_kind(registry)  # issue 209: the weekly digest (ADR 0014 section 5)
     return registry

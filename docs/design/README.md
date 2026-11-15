@@ -9,6 +9,9 @@ screenshot of each. The owner's design canvas is
 <https://claude.ai/artifact/HQrrU1y3u2sxh29c4Xqp7p> (private; agents work from the repository
 copy, which is identical to it).
 
+**Motion and liveliness (M10):** accepted by the owner 2026-11-11 (provisional, for the
+owner's M8 review): [motion.md](motion.md).
+
 ## Rules for agents
 
 1. **Build what the mock-ups show.** Layout, components, states, tokens, type, icons and the
@@ -59,6 +62,7 @@ App (ready)   /                    Overview: "Needs a look", then tiles by area
               /m/:metric/:day      day: everything recorded, reading drawer with provenance
               /heart/ecg[/:id]     ECG list and viewer (+ PDF)
               /findings            Live | History, tier and area filters
+              /assistant           the chat assistant (M7, #208; see "Assistant" below)
               /connections         Withings: streams, capabilities, devices, disconnect
               /settings            Profile and display | Sign-in and security | Notifications | Your data
                                    the tabs are /settings/profile, /settings/security,
@@ -79,7 +83,7 @@ Each screen is `mockups/src/<Name>.dc.html`, `mockups/html/<Name>.html` and
 | `Main` | Design language: principles, chart grammar, value styles, tiers, data states, type, colour, controls | D9, §4.2, §5, §8 |
 | `Rail` | The navigation rail component used by every app page (no screenshot; it's in every page's) | §8 |
 | `Dashboard` | Overview: freshness line; "Needs a look"; tiles with sparkline and typical range; not-supported, insufficient-data and incomplete-import tiles | §7.1 (7), §8 |
-| `Metric` | Weight over 6 months: band, smoothed line, 9-day gap, change point, unconfirmed readings; latest, typical range, Theil–Sen trend, data quality; the day's readings; method | §7.1 |
+| `Metric` | (Ranges changed by the owner on 2026-11-11: 7 days, 30 days, 3 months, 6 months, 1 year, All; default 7 days; the screenshot keeps the old control.) Weight over 6 months: band, smoothed line, 9-day gap, change point, unconfirmed readings; latest, typical range, Theil–Sen trend, data quality; the day's readings; method | §7.1 |
 | `Reading` | Day: everything recorded; reading drawer with raw value × 10^unit, attrib, device, source time zone; quality gates passed; provenance | §5, §7.1 (2–3) |
 | `ECG` | Recording list; Withings' result attributed; reported intervals; 25 mm/s × 10 mm/mV strip with calibration pulse; 30 s overview; experimental estimates boxed and dashed; doctor PDF. Shows the "signal quality passed" case only: the other overlay states ("not evaluated by ownvitals", hidden findings) and what the doctor PDF carries follow ADR 0006 (#46), and the Architect adds them here when it merges | §7.2 E1–E3, §7.3, ADR 0006 |
 | `Findings` | Live / History (the History tab is `Findings.history.html` and `.png`); tier badges; confidence and data quality; evidence chart; "why you're seeing this" and "what it isn't" | §7.1 (6–7), §7.2 |
@@ -89,6 +93,65 @@ Each screen is `mockups/src/<Name>.dc.html`, `mockups/html/<Name>.html` and
 | `Settings` | Analysis profile (birth year, sex for score bands, day assignment), display, overview layout, notifications, experimental and AI, export and delete | §6, §7.4, D11 |
 | `Security` | Password, Google, email, passkeys and QR approve (M3), second factor and recovery codes, sessions with place and IP, sign out everywhere, recent security activity, the shared step-up dialog | §6, ADR 0003 §3–4 |
 | `Admin` | Admin band ("no health data here"), counts, accounts, job counts, Withings app (read-only), flags that only tighten, audit log | ADR 0002 §4, ADR 0005, threat model T26, T52–T54 |
+
+## Body composition (`/body`), designed for #201
+
+No mock-up covers this screen; it is built only from components the mock-ups have
+(recorded 2026-11-09 under rule 3; the owner may review it). Reference screens: `Dashboard`
+(tiles, range bars, data states) and `Findings` (finding cards).
+
+- **Layout.** The range links of the overview (7 days, 30 days, 3 months, 6 months, 1 year, All; `?range=`; default 7 days, changed by the owner on 2026-11-11, the mock-up screenshots keep the old list), then three
+  sections, each a heading with cards in the overview's tile grid (one column on a phone):
+  1. *Body composition*: one overview tile each for weight, fat ratio, fat-free mass, fat mass,
+     muscle mass, hydration, bone mass, extracellular water, intracellular water, visceral fat
+     and metabolic age. A tile is the overview tile unchanged (value, sparkline or phone range
+     bar, typical range, data state) and its title links to the metric detail.
+  2. *Arms and legs*: one card with four rows (left arm, right arm, left leg, right leg), each
+     the segmental muscle mass in kg, with the left and right difference shown as a plain
+     percentage (the B6 symmetric index), one line per pair (arms, legs) as paragraphs after the
+     rows. Descriptive only: no good or bad colour; the tier mark of B6 appears only on its
+     finding.
+  3. *Body findings*: the finding cards of the findings inbox for the rules B2, B4, B5 and B6,
+     and B1 and B3 only when the API returns them (the owner-only flag), each linking to
+     `/findings`. Empty: "No body findings right now."
+- **States.** Every tile and row uses the data-state pill and sentence of the overview: up to
+  date, stale, importing, incomplete import, insufficient data (with progress), not supported,
+  not shared, not available. A metric a device cannot measure reads "Not supported" with the
+  overview's own sentence ("This Withings account doesn't offer this ...") and is never empty or zero. A metric the API does
+  not list at all reads "Not available". Segmental values have no read API yet, so the card
+  shows "Not available" per row until they arrive.
+- **Wording.** Titles use the metric names of the catalogue; the section headings are "Body
+  composition", "Arms and legs" and "Body findings"; the symmetry line is "Left and right {pair} differ
+  by {percent} %." No new colour, icon, chart style or component.
+
+## Nerve health (`/nerve`), designed for #202
+
+No mock-up covers this screen; it is built only from components the mock-ups have
+(recorded 2026-11-09 under rule 3; the owner may review it). Reference screens: `Dashboard`
+(tiles, range links, data states) and `Findings` (finding cards). Same pattern as
+"Body composition".
+
+- **Layout.** The range links of the overview (`?range=`), then three sections:
+  1. *Nerve measures*: one overview tile each for the nerve health score, the nerve response
+     score and electrochemical skin conductance (ESC), unchanged (value, sparkline or phone
+     range bar, typical range, data state), the title linking to the metric detail. Below
+     those, one card, *Left and right foot*, for the per-foot pairs and the N5 symmetric
+     index: "Not supported" with the overview's own sentence until the account has the
+     per-foot types (the API lists no per-foot metric yet).
+  2. *Month by month*: one card, newest month first, one row per month with, for each of the
+     three metrics, the days with data and the median with the lowest and highest daily value
+     (from `/api/nerve/summary`, the view of ADR 0010 section 8). A month without data reads
+     "No readings", never zero.
+  3. *Nerve findings*: the finding cards of the findings inbox for N2, N3 and N5 (guided and
+     routine N2 readings are told apart by the finding's own name), each linking to
+     `/findings`. Empty: "No nerve findings right now." There is no N4 and no ESC literature
+     band anywhere on the page.
+- **States.** The overview's data-state pill and sentence on every tile. "Insufficient data"
+  (N1: fewer than 4 days with data over 28 days) shows the overview's progress line. A
+  metric the API does not list reads "Not available".
+- **Wording.** Section headings "Nerve measures", "Month by month" and "Nerve findings"; metric
+  names of the catalogue. Descriptive only: no good or bad colour. No new colour, icon,
+  chart style or component.
 
 ## Visual system
 
@@ -141,3 +204,157 @@ Each screen is `mockups/src/<Name>.dc.html`, `mockups/html/<Name>.html` and
 - M6 is split into issues by screen group (shell and tokens first, then overview, metric and
   day, ECG, findings, connections and onboarding, settings and security). The UI parts of #10,
   #11 and #12 (sign-in, second factor, step-up, admin) follow `Auth`, `Security` and `Admin`.
+
+## Gaps found building Connections and Onboarding (issue 196)
+
+For the Architect to accept or send to the owner. Each was built from existing components and tokens.
+
+- **No devices list.** The API has no devices route, so "Devices" is the "Coming later" marker with
+  the Withings-app note. Battery and last-reading columns come with that route.
+- **No "Sync now" or "Import 90 more days".** No web route exists for either; the buttons are not
+  drawn rather than drawn dead.
+- **No "Imported" range column** in "What we import": the status API has no range field. The table
+  has Stream, Available, Last sync and State.
+- **Dates inside the notices are dropped** (for example the "since" date of Needs reconnect): the
+  status API does not carry them.
+- **The disconnect code is asked by the shared step-up dialog**, after "Disconnect", not by a field
+  inside the disconnect dialog.
+- **The connect routes** (#296, [connections.md](../dev/connections.md)): the screens use `POST
+  /api/connections/withings/start` answering `{authorize_url}`, and the callback returns to
+  `/onboarding?withings=<outcome>`.
+- **New classes** `ov-callout` (neutral, urgent, attn, info), `ov-kv`, `ov-choice` and `ov-steps` in
+  `styles/connections.css`, built only from existing tokens.
+- **Onboarding's phone "overview" step** is the real overview page: the last step links to it.
+
+## ECG screens built beyond the mock-up (#199)
+
+Built from existing components and tokens; the Architect accepts them here.
+
+- The `ECG` mock-up shows the list and the viewer side by side. The UI has two routes: the list
+  at `/heart/ecg` and the viewer at `/heart/ecg/:id` (a back link, no list sidebar).
+- The mock-up's 9.5 s scroll is a 10 s row with Earlier/Later, plus the 30 s overview with the
+  shown row outlined (a click picks a row).
+- States the mock-up lacks: "Not evaluated by ownvitals" (no gate result), "Signal quality: not
+  passed" (values hidden; only mapped reasons shown, never a raw code), no signal stored (no
+  strip, no PDF button), "Withings code n" for an undocumented classification, and "not reported"
+  for a missing value.
+- Gain options are 10 (nominal) and a labelled 5 mm/mV; zoom is 100/150/200 %, both axes
+  together. The mock-up's 20 mm/mV option is not built.
+- The two PDF buttons of the mock-up are one "Download PDF" link.
+- The All / AFib / Inconclusive filter chips are not built; the list pages by "Older recordings".
+- The filtered 0.5-40 Hz view is an opt-in checkbox, off by default, labelled display-only.
+
+## Findings inbox built beyond the mock-up (#200)
+
+Built from existing components and tokens; the Architect accepts them here.
+
+- The route is `/findings`. The tab (`tab=history`), the tier (`tier=`), the area (`area=`) and the
+  chosen finding (`id=`) are in the address, so a deep link and the back button work; defaults are
+  left out.
+- The API sends no titles, counts or status line, so the mock-up's per-tab counts, its "N findings
+  need a look" line and its filter totals are not built. Names and "why" texts come from the
+  `health.rule.*` catalogue, worded from the finding's evidence; a text whose numbers the evidence
+  lacks is not shown.
+- "Seen" and "New" follow the API's `seen_at`; the screen does not mark a finding seen (no write
+  endpoint). A backfill finding shows "From history" instead.
+- "What it isn't" is one fixed text per tier (`findings.isnt.*`, health wording).
+- The evidence chart is the metric's own daily series from the metric endpoint, cut to the 28 days
+  before the window through the day after it, with the typical range. The mock-up's shaded window
+  is not drawn. "Open <metric>" and "Readings on <day>" link to the metric and day screens.
+- The "Provenance" block of the mock-up is the Data quality, Confidence and Sources rows.
+- The area filter is a select, not chips; the list pages by "Older findings".
+- Hidden findings are absent and an experimental finding appears only when the API sends it, marked
+  "Only you see this".
+
+## Report for your doctor (issue 210)
+
+No mock-up covers this Settings → Your data row. It reuses the export row's pattern (`Row`, the
+step-up dialog, a "Preparing…" status, a single-use "Download"), with date fields for the period
+and filter chips for the metrics and up to 10 ECG recordings. Uncovered, and for the owner to
+confirm: the placement of the choices below the row and the disabled state of "Create report…"
+until a metric is chosen.
+
+## Assistant (`/assistant`), designed for #208
+
+No mock-up covers the chat assistant (ADR 0014 §5, PLAN §7.4); it is built only from components
+the mock-ups have (recorded 2026-11-09 under rule 3; the owner may review it). Reference screens:
+`Findings` (the list-and-detail grid) and `Settings` (the AI row, rows, notices, buttons).
+
+- **Where.** A page of its own, `/assistant`, in the Settings group of the rail (no new rail
+  item or phone tab: adding one is a change to the `Rail` design and waits for the owner). It is
+  reached from the AI row of Settings → Your data ("Open the assistant", shown while consent is
+  given). The page header is "Assistant".
+- **Layout.** The findings grid: on the left the list of conversations (newest first, each a
+  finding-card-style link with its start date and message count, and "New conversation" above
+  it); on the right the chosen conversation in a card: the messages in order, then the composer
+  (a text area, "Send" as the primary button). One column on a phone, the list first.
+- **Messages.** The user's own text and the answers are plain text. An answer may use a minimal
+  formatting subset (paragraphs, bulleted lists, bold); no link is clickable and no HTML, image
+  or heading is rendered (ADR 0014 §5). Every answer carries the muted line "AI-generated from
+  your data. It can be wrong, and it is not medical advice." While a turn runs, the conversation
+  shows the muted status "Preparing an answer…" (the export row's pattern) and the composer is
+  disabled.
+- **States**, each a `Notice` above the composer, worded from the catalogue:
+  not available (the flag is off: the Settings sentence), no consent or an outdated one (the
+  consent form of the Settings AI row, the same component, step-up included), the cap ("This
+  month's AI budget for your account is used up. It resets on <date>.", composer disabled), a
+  turn that could not be answered ("The assistant couldn't answer. Try again later."), and the
+  chat limit (20 messages per hour).
+- **Delete conversation.** A danger button under the conversation with the Settings confirm
+  pattern (a sentence and "Cancel" / "Delete conversation"); no step-up (deleting your own data
+  stays easy). Withdrawing consent (Settings, or the AI row shown on this page) deletes every
+  conversation; the page then shows the consent form again.
+- No new colour, icon, chart style or component.
+
+## Not in the mock-ups: TOTP enrolment, re-authentication needed (#282)
+
+The two-factor setup screen when the server answers `reauth_required` is not drawn in the
+mock-ups. It uses the existing error `Notice` with the catalogue message (en "Confirm it is you:
+sign in again, then continue.", sv "Bekräfta att det är du: logga in igen och fortsätt sedan.");
+no new component, state or token.
+
+## Health score panel, designed for #493
+
+The overview's Health score tile has a "How it's computed" link (owner decisions, 2026-10-31); the
+`Dashboard` mock-up points it at `Reading.dc.html` and no mock-up covers the screen. **Owner
+decision 2026-11-12: "You figure it out"**, so this is designed under rule 3, **delegated and
+provisional**. It is re-checked at the M8 review, wording included, which goes to the owner's
+medical-claims review. It is built only from the `Reading` mock-up's right-hand panel
+(`ReadingPanel.tsx`): the "Calculated by ownvitals" card, the measure table and the Provenance
+block. No new component, colour, icon or chart style.
+
+- **Opening it.** The link opens a panel beside the overview the way a reading opens on the day
+  view: `?score=his` on the overview (the chosen `range` stays). Escape and the close button close
+  it, and the focus goes back to the link. The link and the panel exist only while `/api/scores`
+  lists `his` (owner-only flag); a deep link with no `his` drops the parameter quietly. On a phone
+  the panel is full-screen, as the reading panel is.
+- **Header.** "Health score", the source tag ("ownvitals 2.0", as on the tile) and the
+  experimental tier mark (dashed diamond).
+- **States.** For `not_set`, `insufficient_data`, `not_available` and `not_supported` the top of
+  the panel shows the data-state pill with the reason's sentence (the reason codes of #492, an
+  unknown code reads generically); the table still lists the criteria that have a value.
+- **Card "How your score became {value}"** ("Why there is no score yet" when not computed): a table
+  in the reading's measure-table style, *Area, Measure, Your value, Band, Points*, one row per
+  criterion in `components.criteria`. The band is the word (Perfect, Good, Average, Bad) with the
+  table's boundaries for the user's sex and age bracket beneath it. A criterion with no value shows
+  its reason's sentence across the row. Then one line per area, with its score or "n/a" and its
+  reason. Three sentences of method follow, from `his.py`: 100 points inside Perfect, 75 at Good,
+  50 at Average and 0 at Bad, in a straight line between; an area is the weighted mean of its
+  measures; the score is the mean of the areas that have one and needs at least two.
+- **Band word.** Inside the perfect range is Perfect; up to the Good boundary is Good; up to the
+  Average boundary is Average; beyond it is Bad. The panel derives it from the same boundaries the
+  server scored with (`components.criteria.*.low/high`); the points are the server's.
+- **Band line.** Under the word: "Perfect 18.5–25 · Good 17–27 · Average 15–30" and then the Bad
+  line, which starts beyond the Average boundary (where the word turns Bad), so it never reads as
+  a range the value is inside: "Bad: below 15 or above 30" on a two-sided row, "Bad: above 30" or
+  "Bad: below 15" on a one-sided one.
+- **"Where the bands come from".** Per ADR 0012 section 2, which wins over the first design: the
+  band table by a user-facing label keyed by its id, not its raw source, and its version ("Band
+  table: the values on Withings' Health Improvement Score card (provisional) (version 1)."; an
+  unknown id reads "a fixed band table"), and exactly "This score compares your values with fixed
+  bands for your age and sex; it is not a medical assessment." (Swedish: "Poängen jämför dina
+  värden med fasta nivåer för din ålder och ditt kön; det är ingen medicinsk bedömning."). The
+  table's raw `source` string is a mono row in Provenance, left out when there is none.
+- **Provenance.** `algo_version`, the table id and version, the table's `source`, the table SHA-256, `input_revision`,
+  `input_fingerprint`, the day it was computed for, and Current or Stale. The stored score has a
+  day, not a time of day, so "computed" shows the day.

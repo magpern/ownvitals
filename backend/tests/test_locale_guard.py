@@ -44,6 +44,14 @@ def _edit(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
+def _widening_migration(root: Path, names: tuple[str, ...]) -> None:
+    text = "".join(
+        f'# DROP CONSTRAINT {n}; ADD CONSTRAINT {n} CHECK (locale IN ("en", "sv", "{FAKE}"))\n'
+        for n in names
+    )
+    (root / "backend/migrations/versions" / "9999_locale_xx.py").write_text(text, encoding="utf-8")
+
+
 def _wire(root: Path, piece: str) -> None:
     i18n = root / I18N
     if piece == "catalogue":
@@ -55,9 +63,8 @@ def _wire(root: Path, piece: str) -> None:
             _edit(root / table / "__init__.py", '"sv":', f'"{FAKE}": sv.TABLE, "sv":')
     elif piece == "checks":
         _edit(root / SRC / "auth/tables.py", "'sv')", f"'sv', '{FAKE}')")
-        (root / "backend/migrations/versions" / "9999_locale_xx.py").write_text(
-            f'LOCALES = ("en", "sv", "{FAKE}")  # widens the locale CHECKs\n', encoding="utf-8"
-        )
+        names = ("users_locale", "pending_signups_locale", "oauth_flows_locale")
+        _widening_migration(root, names)
     elif piece == "picker":
         _edit(i18n / "locale.ts", "{ en: 'en-GB',", f"{{ {FAKE}: 'sv-SE', en: 'en-GB',")
         _edit(i18n / "locale.ts", "{ en: 'English',", f"{{ {FAKE}: 'Fake', en: 'English',")
@@ -93,3 +100,18 @@ def test_the_guard_names_the_one_missing_piece(tmp_path: Path, piece: str) -> No
 
 def test_a_fully_wired_fake_code_passes(tmp_path: Path) -> None:
     assert missing_pieces(_fake_copy(tmp_path, PIECES))[FAKE] == ()
+
+
+@pytest.mark.parametrize(
+    "left_out", ["users_locale", "pending_signups_locale", "oauth_flows_locale"]
+)
+def test_a_migration_that_widens_only_two_of_the_three_tables_fails(
+    tmp_path: Path, left_out: str
+) -> None:
+    root = _fake_copy(tmp_path, tuple(p for p in PIECES if p != "checks"))
+    _edit(root / SRC / "auth/tables.py", "'sv')", f"'sv', '{FAKE}')")
+    names = tuple(
+        n for n in ("users_locale", "pending_signups_locale", "oauth_flows_locale") if n != left_out
+    )
+    _widening_migration(root, names)
+    assert missing_pieces(root)[FAKE] == ("checks",)

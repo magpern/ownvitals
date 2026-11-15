@@ -58,6 +58,7 @@ MAILS: dict[str, Callable[[str], MailMessage]] = {
     "email_change_taken": lambda loc: mails.email_change_taken(SETTINGS, TO, locale=loc),
     "email_changed_notice": lambda loc: mails.email_changed_notice(TO, locale=loc),
     "totp_enrolled_notice": lambda loc: mails.totp_enrolled_notice(TO, locale=loc),
+    "totp_removed_notice": lambda loc: mails.totp_removed_notice(TO, locale=loc),
     "mfa_failures_notice": lambda loc: mails.mfa_failures_notice(TO, locale=loc),
     "provider_signup_confirmation": lambda loc: mails.provider_signup_confirmation(
         SETTINGS, TO, "google", TOKEN, locale=loc
@@ -72,6 +73,15 @@ MAILS: dict[str, Callable[[str], MailMessage]] = {
     ),
 }
 CASES = [(locale, name) for locale in sorted(TABLES) for name in sorted(MAILS)]
+
+
+def _bare(text: str) -> bool:
+    """True when every field is a plain ``{name}``: no format spec or ``!r`` (ADR 0015 s9)."""
+    return all(
+        spec == "" and conversion is None
+        for _, name, spec, conversion in string.Formatter().parse(text)
+        if name is not None
+    )
 
 
 def _fields(text: str) -> set[str]:
@@ -101,6 +111,13 @@ def test_every_table_has_the_english_keys_and_placeholders() -> None:
         for key, text in table.items():
             assert _fields(text) == _fields(en.TEXTS[key]), (locale, key)
             assert all(name.isidentifier() for name in _fields(text)), (locale, key)
+            assert _bare(text), (locale, key)
+
+
+@pytest.mark.parametrize("text", ["{name!r}", "{name:>9}", "{name!s:5}"])
+def test_the_placeholder_check_rejects_a_conversion_or_format_spec(text: str) -> None:
+    assert not _bare(text)
+    assert _bare("Hello {name}, {{literal}}")
 
 
 def test_the_untranslated_list_holds_exactly_the_english_copies() -> None:

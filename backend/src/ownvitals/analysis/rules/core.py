@@ -132,7 +132,7 @@ def _spec(
     return rule_id, RuleSpec(rule_id, 1, tier, severity, persistent)
 
 
-# Rules of this module's three files. A change to a rule bumps its ``version``.
+# Rules of this module's files. A change to a rule bumps its ``version``.
 SPECS: Mapping[str, RuleSpec] = MappingProxyType(
     dict(
         [
@@ -145,6 +145,12 @@ SPECS: Mapping[str, RuleSpec] = MappingProxyType(
             _spec("C1", Tier.TREND),
             _spec("C1x", Tier.EXPERIMENTAL),
             _spec("C2", Tier.TREND, persistent=True),
+            # ECG (ecg.py; ADR 0006 section 11). E5 is deferred (section 12): not in v1.
+            _spec("E1", Tier.DEVICE, severity=Severity.URGENT),
+            _spec("E2", Tier.DEVICE),
+            _spec("E3", Tier.DEVICE),
+            _spec("E4", Tier.EXPERIMENTAL),
+            _spec("E6", Tier.TREND),
             # Nerve health (nerve.py). N2's two parts are separate rules so that a guided and a
             # routine finding of one nerve key are separate episodes (one active per rule_id and
             # subject, §4). N1 is a gate, not a rule; N4 is not in v1.

@@ -27,6 +27,7 @@ from ownvitals.egress import (
     install_egress_hook,
     installed_kind,
     require_standard_event_loop,
+    worker_allowlist_installed,
 )
 from ownvitals.egress.hook import WEB_HOSTS, _policy_for  # pyright: ignore[reportPrivateUsage]
 from ownvitals.worker import __main__ as worker_main
@@ -273,6 +274,14 @@ def test_each_kind_resolves_its_own_hosts() -> None:
     google = {"oauth2.googleapis.com", "www.googleapis.com"}
     assert web.hosts == {*google, "wbsapi.withings.net", *database, "mail.example.org"}
     assert {*google, "wbsapi.withings.net"} == WEB_HOSTS
+    # Turnstile's host only while it is on (roadmap Amendment 12, ADR 0018).
+    assert "challenges.cloudflare.com" not in web.hosts
+    on = _settings(
+        turnstile_enabled=True, turnstile_site_key="synthetic-site-key", turnstile_secret_key="s"
+    )
+    assert _policy_for("web", on).hosts == web.hosts | {"challenges.cloudflare.com"}
+    assert _policy_for("worker", on).hosts == worker.hosts
+    assert _policy_for("cli", on).hosts == cli_.hosts
     assert worker.hosts == frozenset(database)  # plus the installed worker list, at run time
     assert cli_.hosts == frozenset(database | {"mail.example.org"})
     assert web.unix_paths == worker.unix_paths == frozenset({"/run/pg/.s.PGSQL.5432"})
@@ -330,18 +339,19 @@ def _restore_worker_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_the_worker_installs_the_hook_and_refuses_another_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    seen: list[str | None] = []
+    seen: list[tuple[str | None, bool]] = []
     original = worker_main._run  # pyright: ignore[reportPrivateUsage]
 
     async def run(settings: Settings) -> None:
-        seen.append(installed_kind())
+        seen.append((installed_kind(), worker_allowlist_installed()))
 
     def no_engine(*_: object) -> None:
         raise AssertionError("the worker went on past the loop check")
 
     monkeypatch.setattr(worker_main, "_run", run)
     assert worker_main.main() == 0
-    assert seen == ["worker"]  # installed before the loop ran anything
+    # The hook and the allowlist, both before the engine and the role and queue checks (#278).
+    assert seen == [("worker", True)]
     monkeypatch.setattr(worker_main, "create_worker_engine", no_engine)
     with pytest.raises(RuntimeError, match="refusing to run on"):
         asyncio.run(original(Settings()), loop_factory=ForeignLoop)  # before any connection

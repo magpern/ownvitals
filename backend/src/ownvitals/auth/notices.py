@@ -26,6 +26,9 @@ class SecurityNotifier(Protocol):
     async def mfa_failures(self, user_id: UUID, email: str, locale: str) -> None:
         """Five failed MFA attempts within an hour."""
 
+    async def totp_removed(self, user_id: UUID, email: str, locale: str) -> None:
+        """The authenticator app was turned off (removed) on the account (#475)."""
+
 
 _notifier: SecurityNotifier | None = None
 
@@ -43,6 +46,16 @@ async def notify_totp_enrolled(user_id: UUID, email: str, locale: str = DEFAULT_
         await _notifier.totp_enrolled(user_id, email, locale)
     except Exception as exc:  # the class only: the text may name the recipient
         logger.error("sending the TOTP enrollment notice failed: %s", type(exc).__name__)
+
+
+async def notify_totp_removed(user_id: UUID, email: str, locale: str = DEFAULT_LOCALE) -> None:
+    if _notifier is None:
+        logger.warning("no security notifier is registered; the TOTP removal notice was not sent")
+        return
+    try:
+        await _notifier.totp_removed(user_id, email, locale)
+    except Exception as exc:  # the class only: the text may name the recipient
+        logger.error("sending the TOTP removal notice failed: %s", type(exc).__name__)
 
 
 async def notify_mfa_failures(user_id: UUID, email: str, locale: str = DEFAULT_LOCALE) -> None:

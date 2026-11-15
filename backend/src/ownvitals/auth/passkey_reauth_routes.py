@@ -22,6 +22,7 @@ from ownvitals.auth.passkey_signin_routes import AssertionIn, _assertion, _refus
 from ownvitals.auth.passkeys import PasskeyFailure
 from ownvitals.auth.ratelimit import Attempt, password_buckets
 from ownvitals.auth.sessions import IssuedSession, SessionGone, SessionInfo, rotate_session
+from ownvitals.auth.stepup_first_factor import record_stepup, steps_up
 from ownvitals.context import UserContext
 from ownvitals.db import system_session
 from ownvitals.emailnorm import normalize_email
@@ -56,7 +57,9 @@ async def reauth_finish(
     ctx: Annotated[UserContext, Depends(require_user)],
     info: Annotated[SessionInfo | None, Depends(current_session)],
 ) -> Any:
-    """Recent authentication by passkey (section 3): ``reauth_at``, never ``stepup_at``."""
+    """Recent authentication by passkey (section 3): ``reauth_at``. ``stepup_at`` too only for
+    an account without TOTP that is not required to have one (#475, ``stepup_first_factor``);
+    the ceremony holds the user-row lock by then (``passkeys.lock_user``)."""
     rp, session, ip = rp_or_404(request), session_or_401(info), request_ip(request)
     keys = request.app.state.keys
     attempts: list[Attempt] = []
@@ -68,12 +71,15 @@ async def reauth_finish(
         attempts.append(await reserve(request, password_buckets(email, ip, known_device=known)))
 
     async def finish(db: AsyncSession, stored: StoredCredential) -> IssuedSession:
+        stepup = await steps_up(db, request.app.state.settings, ctx.user_id)
         issued = await rotate_session(
-            db, session, reauth=True, user_agent=user_agent(request), ip=ip
+            db, session, reauth=True, stepup=stepup, user_agent=user_agent(request), ip=ip
         )
         await record_event(
             db, "passkey_reauth", user_id=ctx.user_id, ip=ip, detail={"passkey": str(stored.id)}
         )
+        if stepup:
+            await record_stepup(db, ctx.user_id, ip, "passkey")
         return issued
 
     assertion = _assertion(body)

@@ -59,11 +59,25 @@ ALLOWED: dict[str, str] = {
     "ownvitals.ingest.rows": "ingest writes ecg_recordings; the recompute writes estimated (§15)",
     "ownvitals.ecg_validate": "ownvitals ecg validate (#47) reads the stored estimated (V5)",
     "ownvitals.connections.purge": "the purge path: delete imported data removes both tables",
+    # #192: the ECG screen's reader of the user's recordings (Withings' values and the signal);
+    # it never selects the estimates, which come only through the read function.
+    "ownvitals.views.ecg_read": "the ECG list, viewer and PDF read the recordings (#192)",
     # #187: the rules engine's findings writer (ADR 0010 §4 episodes; ADR 0006 section 11 allows
     # the rules engine's writes) and the owner's read-only reproducibility check, which compares
     # the stored rows with a recompute and prints counts only.
     "ownvitals.derived.findings_store": "the rules engine's writer of findings (#187)",
     "ownvitals.derived.check_cli": "ownvitals analysis check (#187) compares the stored rows",
+    # #191: the rules engine's ECG inputs (the Withings fields E1 to E3 read, never the signal or
+    # estimated) and the estimated recompute with its sweep (ADR 0006 section 15), both allowed by
+    # section 11 by name.
+    "ownvitals.derived.findings_ecg": "the rules engine reads the recordings' Withings fields",
+    "ownvitals.derived.ecg_recompute": "the estimated recompute and its sweep (§15) write it",
+    # #195: the notification step's state moves (notify_state, notified_at) and the ids of the
+    # findings still waiting; what the step shows or hides comes only through the read function.
+    "ownvitals.notify.findings_state": "the notification state of a finding (#195)",
+    # #211: the export's reader of the recordings (Withings' values and the signal, the columns
+    # of the export allowlist); the findings and estimates come only through the read function.
+    "ownvitals.reports.export_ecg": "the export reads the recordings' Withings values (#211)",
 }
 # Strings outside ``ALLOWED`` that hold a word and were reviewed as no read: exact, by module,
 # with how many times each occurs there.
@@ -76,6 +90,22 @@ REVIEWED_STRINGS: dict[tuple[str, str], int] = {
     ("ownvitals.notify.outbox", "/findings"): 1,
     # The API's own prefix; the routes read through the read function.
     ("ownvitals.views.findings_routes", "/api/findings"): 1,
+    # The AI tool named ``findings`` (ADR 0014 section 4, #206): its key in the handler map, in
+    # the tool table and in the output allowlist. The tool reads through the read function.
+    ("ownvitals.ai.tools", "findings"): 1,
+    ("ownvitals.ai.tools_model", "findings"): 2,
+    # The weekly digest's instruction names the same tool (issue 209); it reads nothing.
+    ("ownvitals.ai.digest_model", "findings"): 1,
+    # The export's allowlist (#211, ADR 0013 section 1): the two specially read tables, named
+    # once each (their file stems and allowlist keys), the recordings' column that is not
+    # exported, and the label of the estimates' file (ADR 0013 section 2). It reads nothing.
+    ("ownvitals.reports.export_allowlist", "ecg_recordings"): 1,
+    ("ownvitals.reports.export_allowlist", "findings"): 1,
+    ("ownvitals.reports.export_allowlist", "estimated"): 1,
+    (
+        "ownvitals.reports.export_allowlist",
+        "Estimated by ownvitals from the raw signal; not a Withings measurement",
+    ): 1,
 }
 TABLES = frozenset({"findings", "ecg_recordings"})
 _WORD = re.compile(
@@ -207,8 +237,13 @@ def test_the_allow_list_is_exact() -> None:
         "ownvitals.ingest.rows",
         "ownvitals.ecg_validate",
         "ownvitals.connections.purge",
+        "ownvitals.views.ecg_read",
         "ownvitals.derived.findings_store",
         "ownvitals.derived.check_cli",
+        "ownvitals.derived.findings_ecg",
+        "ownvitals.derived.ecg_recompute",
+        "ownvitals.notify.findings_state",
+        "ownvitals.reports.export_ecg",
     }
     paths = {module_name(path): path for path in _modules()}
     for module in ALLOWED:

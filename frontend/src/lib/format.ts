@@ -17,14 +17,19 @@ export function formatNumber(locale: Locale, value: number, digits = 0): string 
 const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/
 
 /** "14 Oct 2026" from "2026-10-14". Text that is not a day is returned unchanged. */
-export function formatDay(locale: Locale, day: string, style: 'long' | 'short' = 'long'): string {
+export function formatDay(
+  locale: Locale,
+  day: string,
+  style: 'long' | 'short' = 'long',
+  tag: string = INTL_TAG[locale],
+): string {
   const match = ISO_DAY.exec(day)
   if (match === null) return day
   const [year, month, date] = [Number(match[1]), Number(match[2]), Number(match[3])]
   // Noon UTC, formatted in UTC: the same calendar day wherever the browser is.
   const at = new Date(Date.UTC(year, month - 1, date, 12))
   if (at.getUTCMonth() !== month - 1 || at.getUTCDate() !== date) return day
-  return new Intl.DateTimeFormat(INTL_TAG[locale], {
+  return new Intl.DateTimeFormat(tag, {
     timeZone: 'UTC',
     day: 'numeric',
     month: 'short',

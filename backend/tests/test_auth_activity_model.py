@@ -41,6 +41,14 @@ def _row(kind: str, detail: Any = None, **origin: Any) -> model.StoredEvent:
         ("identity_linked", {"provider": "google"}, "google_linked", "google"),
         ("identity_unlinked", None, "google_unlinked", "google"),
         ("mfa_failed", {"purpose": "reauth"}, "mfa_failed", None),
+        # The export and the doctor PDF (ADR 0013 section 5; #333): one code each, no method.
+        ("export_requested", {"export_id": str(uuid4())}, "export_requested", None),
+        ("export_ready", {"size": 10}, "export_ready", None),
+        ("export_failed", {"reason": "build_failed"}, "export_failed", None),
+        ("export_downloaded", {"attempt": 1, "completed": True}, "export_downloaded", None),
+        ("export_expired", None, "export_expired", None),
+        ("doctor_pdf_requested", None, "doctor_pdf_requested", None),
+        ("doctor_pdf_downloaded", {"completed": False}, "doctor_pdf_downloaded", None),
     ],
 )
 def test_kind_and_method(kind: str, detail: Any, shown: str, method: str | None) -> None:
@@ -163,3 +171,15 @@ async def test_the_middleware_sets_the_request_only_while_it_runs() -> None:
     await middleware({"type": "lifespan"}, None, None)  # pyright: ignore[reportArgumentType]
     assert seen == [event_origin.EventOrigin("Firefox", "Linux", None), None]
     assert event_origin.current_origin() is None
+
+
+@pytest.mark.parametrize("kind", ["export_ready", "export_failed", "export_expired"])
+def test_an_export_event_the_system_caused_shows_no_origin(kind: str) -> None:
+    """The build, the purge or the tidy of another request changed the export: the browser of
+    whichever request ran the tidy is not the user's doing, so none is shown (#333)."""
+    item = model.entry(_row(kind, browser="Edge", os="macOS", place="Malmö, SE"))
+    assert item is not None
+    assert (item.browser, item.os, item.place) == (None, None, geo.UNKNOWN)
+    own = model.entry(_row("export_downloaded", browser="Edge", os="macOS", place="Malmö, SE"))
+    assert own is not None
+    assert (own.browser, own.os, own.place) == ("Edge", "macOS", "Malmö, SE")

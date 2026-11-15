@@ -99,7 +99,19 @@ locale applies:
 - **auth mail sent inside a request** (sign-up confirmation, "account exists", reset): the
   recipient's stored locale if an account exists and has one, otherwise the request locale (§2).
   Pre-account mail always uses the request locale;
+- **security notices** (TOTP enrolled, failed second factors, email changed, identity linked,
+  passkey added or suspended, QR login approved): the same rule as auth mail inside a request,
+  the recipient's stored locale at send time, otherwise the request locale, otherwise `en`
+  (amendment of 2026-11-10 below);
 - **anything else:** `en`.
+
+**Amendment (2026-11-10, owner delegated the call, provisional; #282).** The security notices
+were "anything else: `en`". They now follow the recipient's stored `users.locale`, looked up when
+the notice is sent through `ownvitals.auth.recipients` (guard 8), falling back to the request
+locale (§2), then `en`. The lookup is the one auth mail inside a request already uses, so it
+returns only a manifest code that is also offered, and its one use is still to pick a fixed
+template table: the texts stay in the per-locale tables, no new placeholder is added, nothing is
+written to the outbox and T59 holds unamended.
 
 The rest:
 

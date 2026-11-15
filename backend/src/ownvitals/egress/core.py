@@ -9,9 +9,9 @@ as the worker and records its list (``worker_allowlist``): Withings' two hosts, 
 
 - a **worker-only** client (Withings API, model) is built and sends only while the worker list is
   installed, and only to hosts on it (``worker_only``); in the web process it is refused;
-- a **web-only** call site (Google sign-in, the Withings authorization-code exchange, account
-  mail) calls ``refuse_in_worker`` first, so it cannot reach the network from the worker even if
-  worker code ends up calling it.
+- a **web-only** call site (Google sign-in, the Withings authorization-code exchange, the
+  Turnstile verification, account mail) calls ``refuse_in_worker`` first, so it cannot reach
+  the network from the worker even if worker code ends up calling it.
 
 A refused request raises ``OutboundBlocked`` (a job then fails ``outbound_blocked``, ADR 0005)
 and logs the host only, never the URL, its path or query, a header or a body.
@@ -48,6 +48,13 @@ MODEL_HOST: Final = "api.anthropic.com"
 GOOGLE_TOKEN_HOST: Final = "oauth2.googleapis.com"  # noqa: S105 - a host name
 GOOGLE_JWKS_HOST: Final = "www.googleapis.com"
 GOOGLE_SIGNIN_HOSTS: Final = frozenset({GOOGLE_TOKEN_HOST, GOOGLE_JWKS_HOST})
+# Cloudflare Turnstile's verification endpoint (roadmap Amendment 12, ADR 0018), from the web
+# process and only with ``turnstile_enabled``; the widget's script and frame are the browser's.
+TURNSTILE_HOST: Final = "challenges.cloudflare.com"
+TURNSTILE_VERIFY_PATH: Final = "/turnstile/v0/siteverify"
+TURNSTILE_VERIFY_URL: Final = f"{HTTPS}://{TURNSTILE_HOST}{TURNSTILE_VERIFY_PATH}"
+# The widget's script, which the page loads (explicit rendering); the server never fetches it.
+TURNSTILE_SCRIPT_URL: Final = f"{HTTPS}://{TURNSTILE_HOST}/turnstile/v0/api.js?render=explicit"
 # The worker's hosts without the model host (``worker_hosts`` adds it when AI is enabled).
 WORKER_HOSTS: Final = WITHINGS_HOSTS
 
@@ -144,6 +151,7 @@ MODEL_ALLOWLIST: Final = Allowlist(frozenset({MODEL_HOST}))
 GOOGLE_SIGNIN_ALLOWLIST: Final = Allowlist(GOOGLE_SIGNIN_HOSTS)
 # The web process's one Withings request (roadmap Amendment 1); the transport narrows it further.
 CODE_EXCHANGE_ALLOWLIST: Final = Allowlist(frozenset({WITHINGS_API_HOST}))
+TURNSTILE_ALLOWLIST: Final = Allowlist(frozenset({TURNSTILE_HOST}))
 
 
 def worker_hosts(*, ai_enabled: bool) -> frozenset[str]:

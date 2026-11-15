@@ -6,12 +6,12 @@ spec uses is made up per run. M0's "done when" (PLAN §11) is the login-and-TOTP
 
 | Path | What |
 |---|---|
-| `compose.e2e.yaml` | the overlay on `compose.yaml`: `fake-oidc`, Google sign-in switched on for web, web's trust bundle |
+| `compose.e2e.yaml` | the overlay on `compose.yaml`: `fake-oidc`, Google sign-in switched on for web, web's trust bundle, the `localhost` origin |
 | `e2e/fake-oidc/` | the stand-in for Google's token and JWKS hosts (Node, no dependencies) |
 | `e2e/fake-withings/` | the stand-in for Withings (`server.py`, Python standard library, runs `backend/tests/withingscore.py`) |
 | `e2e/scripts/` | `stack-up.sh`, `stack-prepare.sh`, `stack-checks.sh`, `stack-down.sh` |
-| `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps) |
-| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `i18n` |
+| `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps), `ratelimit.ts` (empties the rate-limit buckets) |
+| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login`, `onboarding`, `export` |
 
 ## Run it
 
@@ -25,11 +25,15 @@ e2e/scripts/stack-down.sh        # down -v, removes e2e/.certs
 ```
 
 Ports come from `.env` (`WEB_PORT`, `MAILPIT_PORT`; `FAKE_OIDC_PORT` defaults to 9100), which
-`playwright.config.ts` reads. The browser must use `http://127.0.0.1:<WEB_PORT>`, the stack's
-`OWNVITALS_PUBLIC_BASE_URL`, or the Origin check refuses it. One worker, no retries: the specs
-share one stack and one client IP, and with them the sign-up (5 an hour) and sign-in rate limits
-(ADR 0003 §9). A rerun against the same stack needs a fresh one (`stack-down.sh`, `stack-up.sh`)
-once those budgets are spent.
+`playwright.config.ts` reads. The browser must use `http://localhost:<WEB_PORT>`, the
+`OWNVITALS_PUBLIC_BASE_URL` that `compose.e2e.yaml` sets for web and the worker, or the Origin
+check refuses it: `localhost`, not `127.0.0.1`, because WebAuthn has no relying party on an IP
+address (#180; the two fakes' redirect URIs follow it). One worker, no retries: the specs share
+one stack and one client IP, and with them the sign-up (5 an hour) and sign-in rate limits (ADR
+0003 §9). `passkeys` and `qr-login` sign up more accounts and start with `resetRateLimits()`
+(`DELETE FROM rate_limits` as the database superuser, like `ageStepUp`); a rerun of the other
+specs against the same stack still needs a fresh one (`stack-down.sh`, `stack-up.sh`) once those
+budgets are spent.
 
 ## Image and SPA
 
@@ -86,7 +90,17 @@ trust bundle (the worker needs it for the Withings calls of M1).
   `seconds`), `GET /__e2e/state` (counts, the masked request log, subscriptions as scheme and host
   only, failures fired), `POST /__e2e/send-webhook` (`userid`, `appli`, optional `fields` or a
   forged `form`; one attempt per subscribed URL, the retry schedule spans hours and is not run
-  here), `GET /__e2e/ready`.
+  here), `POST /__e2e/authorize` (`url`, optional `deny`: the fake answers its authorize page for
+  that URL, its synthetic user consenting or refusing once, and returns `status` and `location`),
+  `GET /__e2e/ready`.
+- **The connect journey** (#296). The browser's visit to `account.withings.com` is intercepted by
+  the spec (`answerWithings` in `helpers/fake-withings.ts`) and handed to `/__e2e/authorize`; the
+  answer's redirect goes to the app's callback base, which `withings-apps create` requires to be
+  https (`https://localhost:<WEB_PORT>`, the fake's `FAKE_WITHINGS_REDIRECT_URI`), so the spec sends
+  the browser to the same path and query on the stack's http origin. `registerApp` stores the fake
+  app as the newest Withings app with the operator command in a one-off `migrate` container (the
+  overlay gives it the synthetic `connection_kek`; the secret goes in on stdin) after
+  `resetWorld()`, which gives the fake a new client secret.
 - **Callback URLs.** The strict default (HTTPS, 443, a domain name) would refuse the compose
   receiver, which is plain HTTP on `web:8000`. The service starts the fake with
   `strict_callbacks=False`, the one e2e-only opt-out (a backend test shows the default refuses),
@@ -106,13 +120,30 @@ trust bundle (the worker needs it for the Withings calls of M1).
   account with a password gets `reauth_use_password` at the start ([auth-reauth.md](auth-reauth.md)).
 - `step-up`: Security → "Sign out everywhere…" → "Confirm it's you" with a fresh code → signed out
   everywhere. A wrong code changes nothing.
+- `export` (#211, ADR 0013 §4): Your data → "Export…" → "Confirm it's you" with a fresh code →
+  the worker builds the archive → "Download" saves one zip (its entry names checked) → the row
+  offers a new export. An account without Withings data.
+- `passkeys` (#180, ADR 0011 §8): a CDP virtual authenticator (CTAP2, internal, resident key, user
+  verification): add a passkey behind "Confirm it's you" (code), sign out, "Sign in with a
+  passkey", the code prompt, then remove it behind the dialog (password, then code).
+- `qr-login` (#180, ADR 0011 §5): two contexts, the test's page as the desktop and a signed-in
+  "phone". The phone opens `/qr#<nonce>` with the nonce from the desktop's `qr/start` answer (as
+  the camera reads it from the QR; no test hook in the app): approve with a code (the desktop shows
+  "Signed in as …", then the app), deny, and expiry: the desktop's clock is faked
+  (`page.clock`), the code shows as expired after 60 s, and a new code makes the old one refused.
 - `password-reset`: mail from mailpit → new password → the old one is refused, the new one signs
   in (as far as enrolment).
 
 - `fake-withings`: the worker's own Withings client (real egress allowlist) reaches the fake over
   TLS and its calls are counted without a token or secret in the log; an injected 601 arrives as
   `RateLimited`; the control endpoints are reachable from the worker by service name and not from
-  the host or the browser, and the TLS side does not serve `/__e2e/`.
+  the host or the browser, and the TLS side does not serve `/__e2e/`. The fake is shared with
+  the worker's own traffic for earlier specs' connections, so no assertion takes a request
+  number or a count as the spec's alone (the 601 is armed on every `getgoals`, #403).
+
+**The scheduler and the import.** Since #410 the worker's `queue_schedule` skips a connection
+while its `withings_connect` or `withings_backfill` job is queued or running, so a scheduler tick
+cannot stretch a first import (#403) and specs wait the no-tick value (240 s) with no hold.
 
 `helpers/totp.ts` implements RFC 6238 itself (checked against the RFC's test vector). The server
 refuses a code of a step already used, so `Authenticator.next()` hands out a later step each time:
@@ -135,12 +166,18 @@ is part of `checks` and required.
 
 ## Assumptions not verified here
 
+- `onboarding`'s connect journey (#296) was written without a Docker daemon; its first CI run is
+  its first run (the `docker compose run` of `migrate` with the KEK, the intercepted authorize
+  page, the redirect to http, the worker's first import within 60 s).
+
 - `fake-withings`: the first CI run is its first run in Docker (the sysctl for port 443 as a
   non-root user, the alias names, the mounted bundle in the worker). Nothing about it is verified
   against the real Withings (INTEGRATION_VERIFIED is the owner's).
 
 - The specs were written without a Docker daemon in the authoring session; the first CI run is
-  their first run. Chromium must keep `Secure` cookies (`__Host-`) on `http://127.0.0.1`, which it
-  does for loopback.
+  their first run. Chromium must keep `Secure` cookies (`__Host-`) on `http://localhost`, which it
+  does for loopback, and reach the port published on 127.0.0.1 when it resolves `localhost`.
+- `passkeys` and `qr-login` (#180) were written without a Docker daemon too; their first CI run is
+  their first run.
 - The Trivy release and checksum in the `e2e` job are copied from the `checks` job (both
   install it through `scripts/ci-install-release.sh`): bump both together.

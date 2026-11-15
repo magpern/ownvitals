@@ -10,6 +10,7 @@ from authtools import (  # noqa: F401 - fixtures
 )
 from flows import PASSWORD, Browser, age_reauth, reason, signed_in, user_with_password
 from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
+from windowtools import clear_of_window
 
 EMAIL = "user@example.com"
 
@@ -72,6 +73,7 @@ async def test_an_unknown_email_still_costs_one_verification(env: Env) -> None:
 
 
 async def test_failures_count_and_the_limit_answers_429_before_checking(env: Env) -> None:
+    await clear_of_window(900)
     await user_with_password(env)
     browser = Browser(env)
     statuses = [
@@ -132,6 +134,7 @@ async def test_reauth_sets_reauth_at_and_rotates_the_session(env: Env) -> None:
 
 
 async def test_reauth_with_a_wrong_password_fails_generically_and_counts(env: Env) -> None:
+    await clear_of_window(900)
     browser = await signed_in(env)
     wrong = await browser.post("/api/auth/reauth", {"password": "wrong password 12345"})
     assert (wrong.status_code, reason(wrong)) == (401, "invalid_credentials")

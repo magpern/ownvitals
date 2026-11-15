@@ -148,5 +148,5 @@ export function TimeSeriesChart({ data, label, unit, format, height = 300 }: Pro
     // `theme` is not read here: a new value is what makes the colours be read again.
   }, [data, unit, format, height, theme])
 
-  return <div className="ov-chart" ref={host} role="img" aria-label={label} data-testid="time-series-chart" />
+  return <div className="ov-chart ov-chart--draw" ref={host} role="img" aria-label={label} data-testid="time-series-chart" />
 }

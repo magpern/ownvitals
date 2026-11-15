@@ -61,7 +61,7 @@ async def test_with_the_stored_verifier_the_same_flow_signs_up(
     oenv: Env, fake: FakeProviders
 ) -> None:
     browser, url, _ = await started(oenv)
-    assert location(await browser.get(fake.complete(url))) == "/"
+    assert location(await browser.get(fake.complete(url))) == "/overview"
     assert fake.token_requests == 1
 
 

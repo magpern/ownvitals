@@ -1,5 +1,7 @@
 import { vi } from 'vitest'
 import { rememberCsrfToken } from '../api/client'
+import { OVERVIEW_ROUTES } from './overviewFixtures'
+import { PROFILE_ROUTES } from './profileFixtures'
 
 // Everything here is synthetic: no network, no real account, no real health data.
 
@@ -36,6 +38,7 @@ export const SIGNED_IN = {
     mfa: true,
     stepup: true,
     totp_enabled: true,
+    totp_required: false,
     second_factor: null,
     admin_pending_mfa: false,
   },
@@ -47,10 +50,24 @@ export const SIGNED_IN_NO_CODE = {
   session: { ...SIGNED_IN.session, mfa: false, stepup: false, second_factor: 'verify' },
 }
 
-/** Signed in to an account without an authenticator app yet: only enrolment is open. */
+/** Signed in to an administrator's account without an authenticator app yet: only enrolment is open. */
 export const SIGNED_IN_NO_TOTP = {
   ...SIGNED_IN,
-  session: { ...SIGNED_IN.session, mfa: false, stepup: false, totp_enabled: false, second_factor: 'enrol' },
+  // The server reports the role as `user` until the TOTP is passed (ADR 0003 section 7).
+  session: {
+    ...SIGNED_IN.session,
+    mfa: false,
+    stepup: false,
+    totp_enabled: false,
+    totp_required: true,
+    second_factor: 'enrol',
+  },
+}
+
+/** Signed in to a user's account without an authenticator app (issue 475): full after the password. */
+export const SIGNED_IN_OPTIONAL_TOTP = {
+  ...SIGNED_IN,
+  session: { ...SIGNED_IN.session, stepup: false, totp_enabled: false, second_factor: null },
 }
 
 export const MFA_ON = { totp_enabled: true, recovery_codes_left: 8 }
@@ -63,7 +80,7 @@ export const QR_SVG =
 /**
  * Stubs `fetch` with a table of `"METHOD /path"` handlers. A handler returns a Response or any
  * JSON value (answered 200); a missing route fails the test loudly. By default the session is
- * anonymous, the account has two-factor on and no OAuth provider is enabled.
+ * anonymous, the account has two-factor on, no OAuth provider is enabled and no passkey is saved.
  */
 export function fakeApi(routes: Record<string, Handler | object | string>) {
   rememberCsrfToken(null)
@@ -72,6 +89,10 @@ export function fakeApi(routes: Record<string, Handler | object | string>) {
     'GET /api/auth/session': ANONYMOUS,
     'GET /api/auth/mfa': MFA_ON,
     'GET /api/auth/oauth/providers': { providers: [] },
+    'GET /api/auth/passkeys': { passkeys: [], limit: 10 },
+    'GET /api/auth/activity': { events: [], next_before: null },
+    ...OVERVIEW_ROUTES,
+    ...PROFILE_ROUTES,
     ...routes,
   }
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -80,7 +101,8 @@ export function fakeApi(routes: Record<string, Handler | object | string>) {
     const headers = new Headers(init?.headers)
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined
     calls.push({ method, path, body, headers })
-    const route = table[`${method} ${path}`]
+    // A route without a query answers the same path with one; `calls` keeps the full address.
+    const route = table[`${method} ${path}`] ?? table[`${method} ${path.split('?')[0] ?? path}`]
     if (route === undefined) {
       return Promise.reject(new Error(`unexpected request: ${method} ${path}`))
     }

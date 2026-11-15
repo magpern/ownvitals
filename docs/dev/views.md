@@ -79,6 +79,8 @@ ADR 0006 §§9 and 11, ADR 0010, PLAN §7.2 and D9.
 | `backend/src/ownvitals/ecg/overlay.py` | Pure: the A7 link (`a7_links`, `resolve_links`), the gate result of one `estimated` (`gate_result`), `ecg_gate_overlay`, and §9's up-to-date rule (`estimate_view`) |
 | `backend/src/ownvitals/views/findings_read.py` | `read_findings`, `read_finding`, `read_ecg_estimates`: the only module that reads `findings` or `estimated` for presentation, and the only one in `views` that opens a `user_session` |
 | `backend/src/ownvitals/views/findings_routes.py` | `GET /api/findings?tab=live\|history&tier=&area=` and `GET /api/findings/{id}` |
+| `backend/src/ownvitals/views/ecg_read.py` | `list_recordings`, `read_recording`: Withings' own values and the decoded signal of the signed-in user's `ecg_recordings` (never the estimates column, which only `findings_read` reads). Allowlisted in `tests/session_scan.py` and the findings guard |
+| `backend/src/ownvitals/views/ecg_routes.py` | `GET /api/ecg`, `GET /api/ecg/{id}`, `GET /api/ecg/{id}.pdf` (see `ecg.md`, "ECG list, signal and PDF") |
 
 Each call is one `user_session` (forced RLS); every statement also filters `owner_id`. Then:
 

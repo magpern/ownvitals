@@ -25,18 +25,31 @@ from jobcore import (  # noqa: F401 - fixtures
     settings_for,
 )
 from jobtools import admin_fixture, queue_schema_fixture  # noqa: F401 - fixtures
+from ownvitals.ai.chat_model import CHAT_KIND, ChatInput
+from ownvitals.ai.digest_model import DIGEST_KIND, DigestInput
+from ownvitals.auth.admin_revoke_job import ADMIN_REVOKE_KIND, AdminRevokeInput
 from ownvitals.crypto.envelope import WebhookSeed
 from ownvitals.crypto.keks import KeyUnavailable
 from ownvitals.db import create_session_factory
 from ownvitals.derived.daily_job import KIND as DAILY_KIND
 from ownvitals.derived.daily_job import DailyInput
+from ownvitals.derived.ecg_recompute import KIND as RECOMPUTE_KIND
+from ownvitals.derived.ecg_recompute import RecomputeInput
 from ownvitals.derived.evaluate_job import KIND as EVALUATE_KIND
 from ownvitals.derived.evaluate_job import EvaluateInput
 from ownvitals.derived.normalize_job import KIND as NORMALIZE_KIND
 from ownvitals.derived.normalize_job import NormalizeInput
+from ownvitals.derived.scores_job import KIND as SCORES_KIND
+from ownvitals.derived.scores_job import ScoresInput
 from ownvitals.jobs import KINDS, Complete, JobFailure, JobRun
 from ownvitals.jobs.runner import RunConfig
 from ownvitals.jobs.withings import INPUT_MODELS, NO_TARGETS, ConnectInput
+from ownvitals.notify.findings_job import KIND as NOTIFY_KIND
+from ownvitals.notify.findings_job import NotifyInput
+from ownvitals.reports.doctor import KIND as DOCTOR_KIND
+from ownvitals.reports.doctor_input import DoctorInput
+from ownvitals.reports.export import KIND as EXPORT_KIND
+from ownvitals.reports.export import ExportInput
 from ownvitals.withings.disconnect import DISCONNECT_KIND, DisconnectInput
 from ownvitals.withings.subscriptions import callback_url, derive_secret
 from ownvitals.withings.tokens import RefreshResult
@@ -55,11 +68,19 @@ from ownvitals.worker.loop import Worker, create_worker_engine
 SEED_BYTES = b"\x11" * 32
 BASE = "https://app.example.test"
 WITHINGS_KINDS = [
+    "ai_chat_turn",  # #208: the chat assistant's turn, queued by POST .../messages
+    "ai_digest",  # issue 209: the weekly digest, queued by the notification pass when due
     "derive_daily",  # #186: the metric_daily pass, queued by derive_normalize
     "derive_evaluate",  # #187: the rule evaluation, queued by derive_daily
     "derive_normalize",  # #185: the observations pass, queued after the measures streams
+    "derive_scores",  # #188: the scores pass, queued by derive_evaluate
+    "doctor_pdf_build",  # issue 210: the doctor PDF, queued by POST /api/reports/doctor
     "ecg_fetch",
+    "ecg_recompute",  # #191: the estimated recompute, queued by an ecg pass and the nightly sweep
+    "export_build",  # #211: the user's JSON/CSV export, queued by POST /api/exports
+    "notify_findings",  # #195: the finding notifications, queued by evaluate and recompute
     "token_refresh_recover",
+    "withings_admin_revoke",  # #365: the admin delete's revoke, queued by admin_account_revoke
     "withings_backfill",
     "withings_connect",
     "withings_disconnect",
@@ -79,14 +100,24 @@ def test_the_worker_registry_holds_the_withings_kinds_and_the_api_none() -> None
         # The disconnect revoke (#163) takes its own input: ids of the row and the session.
         own = {
             DISCONNECT_KIND: DisconnectInput,
+            ADMIN_REVOKE_KIND: AdminRevokeInput,  # #365: the admin and its session, ids only
             NORMALIZE_KIND: NormalizeInput,
             DAILY_KIND: DailyInput,
             EVALUATE_KIND: EvaluateInput,
+            SCORES_KIND: ScoresInput,
+            RECOMPUTE_KIND: RecomputeInput,
+            NOTIFY_KIND: NotifyInput,
+            EXPORT_KIND: ExportInput,
+            DOCTOR_KIND: DoctorInput,
+            CHAT_KIND: ChatInput,  # #208: the conversation and the message, ids only
+            DIGEST_KIND: DigestInput,  # issue 209: the week only
         }
         expected = own[kind.name] if kind.name in own else INPUT_MODELS[kind.name]
         assert kind.input_model is expected
     assert worker_registry() is not registry  # a new one each time; nothing shared
     assert KINDS.names() == []  # the API's registry: POST /api/jobs still refuses every kind
+    # ADR 0005 section 4 (amended 2026-11-11, #383): the issuer's one exception, one kind only.
+    assert [kind.name for kind in registry if kind.disabled_owner] == [ADMIN_REVOKE_KIND]
 
 
 def test_only_registered_kinds_are_scheduled_and_the_targets_reach_the_runs() -> None:
@@ -336,14 +367,19 @@ async def test_reconcile_passes_the_current_callback_to_the_nightly_run(
     async def normalize(factory: object, connection_id: UUID, origin: str) -> None:
         queued.append((factory, connection_id, origin))
 
+    async def recompute(factory: object, connection_id: UUID) -> None:
+        queued.append((factory, connection_id, "sweep"))
+
     monkeypatch.setattr(worker_kinds, "current_callback", callback)
     monkeypatch.setattr(worker_kinds, "execute_nightly", nightly)
     monkeypatch.setattr(worker_kinds, "enqueue_normalize", normalize)
+    monkeypatch.setattr(worker_kinds, "enqueue_recompute", recompute)
     connection = uuid4()
     job = _Job(ConnectInput(connection_id=connection))
     outcome = await run_reconcile(job)  # type: ignore[arg-type]
     assert isinstance(outcome, Complete)
-    assert queued == [(job.factory, connection, "live")]  # the nightly pass re-derives
+    # The nightly pass re-derives, and queues the estimated sweep (ADR 0006 section 15).
+    assert queued == [(job.factory, connection, "live"), (job.factory, connection, "sweep")]
     assert faked["materials"] == connection
     assert faked["nightly"] == (
         "client-for-app",

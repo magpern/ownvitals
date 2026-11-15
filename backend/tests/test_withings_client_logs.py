@@ -1,6 +1,6 @@
 """The Withings client's logs and exceptions never hold a token, a code, a secret, a nonce, a
-callback URL, a measurement value or the provider's error text (AGENTS.md "Health data", PLAN
-§4.2, ADR 0004 §9; #20's third acceptance criterion).
+signature, a callback URL, a measurement value or the provider's error text (AGENTS.md "Health
+data", PLAN §4.2, ADR 0004 §9; #20's third acceptance criterion).
 
 Every endpoint and every error path runs against the fake with every logger at DEBUG; then each
 record (its message, arguments and every attribute) and each raised exception (``str``, ``repr``
@@ -10,6 +10,7 @@ and attributes) is searched for the secrets and values of the run. Synthetic dat
 import logging
 import urllib.request
 from typing import Any
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -21,7 +22,7 @@ from withingscore import FakeWithings
 from withingsfake import FakeWithingsTransport
 from withingsstore import add_group
 from withingsstreams import START
-from withingswire import FailureKind
+from withingswire import FailureKind, Request
 
 HOOK_SECRET = "synthetic-hook-secret-0d1f"
 HOOK = f"https://app.example.test/api/webhooks/withings/{HOOK_SECRET}"
@@ -78,6 +79,16 @@ async def test_no_secret_value_or_provider_text_reaches_a_log_or_an_exception(
             raised.append(error)
             return None
 
+    # The nonces and signatures the client sends (getnonce, revoke) are secrets too.
+    signed: set[str] = set()
+    answer = fake.start
+
+    def start(request: Request) -> Any:
+        form = parse_qs(request.body.decode())
+        signed.update(form.get("nonce", []) + form.get("signature", []))
+        return answer(request)
+
+    fake.start = start  # type: ignore[method-assign]
     withings = WithingsApp(app.client_id, app.client_secret)
 
     async def no_sleep(seconds: float) -> None:
@@ -131,6 +142,8 @@ async def test_no_secret_value_or_provider_text_reaches_a_log_or_an_exception(
         await client.revoke(user.userid)
         await attempt(client.revoke(user.userid))  # already revoked: 247
 
+    assert len(signed) >= 5  # two nonces sent, and the getnonce and revoke signatures
+    secrets |= signed
     assert len(raised) >= 15
     assert caplog.records, "the failures were logged"
     texts = [_text(r.getMessage()) + _text(vars(r)) for r in caplog.records]

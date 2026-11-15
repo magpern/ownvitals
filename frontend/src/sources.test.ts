@@ -261,6 +261,10 @@ describe('no third-party hosts', () => {
       ['https://evil.example'],
     ],
     // `e.g.` and `i.e.` are let through only with no scheme and as a whole word.
+    ["'https://schema.org.evil.example'", ['https://schema.org.evil.example']],
+    ["'https://schema.org@evil.example'", ['https://schema.org@evil.example']],
+    ["'https://schema.org/Thing'", ['https://schema.org']],
+    ["'http://schema.org'", ['http://schema.org']],
     ['https://e.g/x', ['https://e.g']],
     ['see https://e.g for details', ['https://e.g']],
     ['"//e.g/x"', ['//e.g']],
@@ -286,6 +290,7 @@ describe('no third-party hosts', () => {
     '<svg xmlns="http://www.w3.org/2000/svg">',
     '<svg xmlns:xlink="http://www.w3.org/1999/xlink">',
     "xmlns = 'http://www.w3.org/1999/xhtml'",
+    "'@context': 'https://schema.org',",
     '// a comment',
     '//TODO: something',
     '//eslint-disable-next-line',
@@ -448,6 +453,24 @@ describe('nothing the content security policy would block', () => {
     ['src/data/links.json', '{"u": "data:text/html,<p>x</p>"}', 'a data: URL'],
   ])('catches %s: %s', (path, text, what) => {
     expect(cspViolations(path, text).join(' ')).toContain(what)
+  })
+
+  const LD = '<script type="application/ld+json">'
+  it('lets the JSON-LD data block through in the public renderer only', () => {
+    expect(cspViolations('src/public/renderPublic.tsx', `const a = \`${LD}\${json}</script>\``)).toEqual([])
+  })
+
+  it.each([
+    ['src/public/renderPublic.tsx', '`<script>x</script>`'],
+    ['src/public/renderPublic.tsx', '`<script type="module">x</script>`'],
+    ['src/public/renderPublic.tsx', '`<script type="application/ld+json" src="/a.js"></script>`'],
+    ['src/public/renderPublic.tsx', '`<script src="/a.js"></script>`'],
+    ['src/public/renderPublic.tsx', `\`${LD}</script><script>x()</script>\``],
+    ['src/public/meta.ts', `\`${LD}x</script>\``],
+    ['src/components/A.tsx', `\`${LD}x</script>\``],
+    ['src/public/renderPublic.test.tsx', `\`${LD}x</script>\``],
+  ])('still catches a script element in %s: %s', (path, text) => {
+    expect(cspViolations(path, text).join(' ')).toContain('a style or script element')
   })
 
   it('finds data: URLs but not a property called data', () => {

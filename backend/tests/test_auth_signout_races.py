@@ -3,8 +3,9 @@
 Each sign-out takes the user row before its session row and writes its ``auth_events`` row
 (whose foreign key takes ``FOR KEY SHARE`` on that user row) last. Without the lock first, a
 sign-out holding its session row and an account deletion holding the user row wait for each
-other: a deadlock. Each test fails if the lock is removed. Synthetic accounts only, on the real
-database.
+other: a deadlock. Each test fails if the lock is removed. The deletion is the admin delete on
+its maint path since #314 (``racetools.AdminPath``): its audit row's ``FOR KEY SHARE`` on the
+user row comes before the definer's lock. Synthetic accounts only, on the real database.
 """
 
 import asyncio
@@ -14,8 +15,8 @@ from sqlalchemy import text
 
 from authtools import Env, auth_schema_fixture, clean_auth_fixture, env_fixture  # noqa: F401 - fixtures
 from flows import Browser, only_user_id, signed_in
-from ownvitals.auth import admin_accounts, routes
-from racetools import EMAIL, WAIT, Held
+from ownvitals.auth import routes
+from racetools import ADMIN_EMAIL, EMAIL, WAIT, AdminPath, Held, admin_path
 
 
 async def _kinds(env: Env) -> list[object]:
@@ -31,18 +32,18 @@ async def test_an_account_deletion_waits_for_a_sign_out_in_flight(
     user_id = await only_user_id(env)
     held = Held(monkeypatch, routes, "revoke_session")  # the session row is deleted, uncommitted
     csrf = await browser.csrf()
-    signing_out = asyncio.create_task(browser.post("/api/auth/logout", csrf=csrf))
-    await held.inside()
-    deleting = asyncio.create_task(
-        admin_accounts.delete_account(env.factory, user_id, email=EMAIL, ip=None)
-    )
-    await asyncio.sleep(WAIT)
-    assert not deleting.done()  # waiting for the user row the sign-out holds
-    held.release.set()
-    assert (await signing_out).status_code == 204
-    await deleting  # no deadlock, no serialization error
+    async with admin_path(env) as admin:
+        await admin.actor()
+        signing_out = asyncio.create_task(browser.post("/api/auth/logout", csrf=csrf))
+        await held.inside()
+        deleting = asyncio.create_task(admin.delete(user_id, email=EMAIL))
+        await asyncio.sleep(WAIT)
+        assert not deleting.done()  # waiting for the user row the sign-out holds
+        held.release.set()
+        assert (await signing_out).status_code == 204
+        await deleting  # no deadlock, no serialization error
     assert "sign_out" in await _kinds(env)
-    assert await env.scalar("SELECT count(*) FROM users") == 0
+    assert await env.scalar("SELECT count(*) FROM users WHERE email <> :a", a=ADMIN_EMAIL) == 0
 
 
 async def test_a_sign_out_waits_for_an_account_deletion_and_records_nothing(
@@ -51,16 +52,21 @@ async def test_a_sign_out_waits_for_an_account_deletion_and_records_nothing(
     browser = await signed_in(env, EMAIL)
     user_id = await only_user_id(env)
     csrf = await browser.csrf()  # before: reading the session waits for the deletion too
-    held = Held(monkeypatch, admin_accounts, "delete_user_account")  # the user row is gone
-    deleting = asyncio.create_task(
-        admin_accounts.delete_account(env.factory, user_id, email=EMAIL, ip=None)
-    )
-    await held.inside()
-    signing_out = asyncio.create_task(browser.post("/api/auth/logout", csrf=csrf))
-    await asyncio.sleep(WAIT)
-    assert not signing_out.done()  # its transaction waits for the user row
-    held.release.set()
-    await deleting
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def hold() -> None:  # the user row is gone, uncommitted
+        entered.set()
+        await asyncio.wait_for(release.wait(), 10)
+
+    async with admin_path(env) as admin:
+        await admin.actor()
+        deleting = asyncio.create_task(admin.delete(user_id, email=EMAIL, inside=hold))
+        await asyncio.wait_for(entered.wait(), 10)
+        signing_out = asyncio.create_task(browser.post("/api/auth/logout", csrf=csrf))
+        await asyncio.sleep(WAIT)
+        assert not signing_out.done()  # its transaction waits for the user row
+        release.set()
+        await deleting
     assert (await signing_out).status_code == 204
     assert "sign_out" not in await _kinds(env)
 
@@ -74,22 +80,28 @@ async def test_ending_another_session_waits_for_an_account_deletion(
     csrf = await browser.csrf()
     held = Held(monkeypatch, routes, "revoke_session")
     path = f"/api/auth/sessions/{spare.id}"
-    ending = asyncio.create_task(browser.request("DELETE", path, csrf=csrf))
-    await held.inside()
-    deleting = asyncio.create_task(
-        admin_accounts.delete_account(env.factory, user_id, email=EMAIL, ip=None)
-    )
-    await asyncio.sleep(WAIT)
-    assert not deleting.done()
-    held.release.set()
-    assert (await ending).status_code == 204
-    await deleting
+    async with admin_path(env) as admin:
+        await admin.actor()
+        ending = asyncio.create_task(browser.request("DELETE", path, csrf=csrf))
+        await held.inside()
+        deleting = asyncio.create_task(admin.delete(user_id, email=EMAIL))
+        await asyncio.sleep(WAIT)
+        assert not deleting.done()
+        held.release.set()
+        assert (await ending).status_code == 204
+        await deleting
     assert "session_signed_out" in await _kinds(env)
 
 
 async def test_sign_outs_and_deletions_at_once_never_deadlock(env: Env) -> None:
     """Each pair at once, a few rounds: every answer is a normal one (never a 500 from a
     deadlock), and the account is gone afterwards."""
+    async with admin_path(env) as admin:
+        await admin.actor()
+        await _rounds(env, admin)
+
+
+async def _rounds(env: Env, admin: AdminPath) -> None:
     for round_ in range(4):
         email = f"round{round_}@example.com"
         browser = await signed_in(env, email)
@@ -100,12 +112,7 @@ async def test_sign_outs_and_deletions_at_once_never_deadlock(env: Env) -> None:
         out, ended, deleted = await asyncio.gather(
             browser.post("/api/auth/logout", csrf=csrf),
             spare.post("/api/auth/logout"),
-            admin_accounts.delete_account(
-                env.factory,
-                user_id,  # pyright: ignore[reportArgumentType]
-                email=email,
-                ip=None,
-            ),
+            admin.delete(user_id, email=email),  # pyright: ignore[reportArgumentType]
             return_exceptions=True,
         )
         assert deleted is None

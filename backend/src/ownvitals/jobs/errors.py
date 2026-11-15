@@ -11,7 +11,8 @@ from typing import Final
 
 from sqlalchemy.exc import DisconnectionError, OperationalError
 
-# ADR 0005 section 6; the same list as the ``jobs.error_category`` check of migration 0003.
+# ADR 0005 section 6; the same list as the ``jobs.error_category`` check of migration 0025 (0003's
+# list and the chat assistant's three ``ai_*`` categories, ADR 0014; #208).
 CATEGORIES: Final = (
     "upstream_unavailable",
     "rate_limited",
@@ -24,6 +25,9 @@ CATEGORIES: Final = (
     "account_disabled",
     "outbound_blocked",
     "internal",
+    "ai_not_enabled",
+    "ai_budget_exhausted",
+    "ai_unavailable",
 )
 # Retried by the worker (a new attempt with backoff). ``lease_lost`` is retried by the reaper.
 RETRYABLE: Final = frozenset({"upstream_unavailable", "rate_limited"})

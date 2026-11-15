@@ -4,6 +4,9 @@
 skipped as out of range, and, for goals, the latest payload. There is no goals table (the
 schema from the measures issue has none), so the goals stream keeps that payload here, under
 the owner's row, and nowhere else. Values in it are not logged.
+
+The covered range only widens: a write with no range (an incremental pass, a classified stream)
+keeps the stored one, and a later write extends it (``LEAST``/``GREATEST`` skip NULL).
 """
 
 import json
@@ -25,7 +28,8 @@ _UPSERT = text(
     "CAST(:state AS jsonb), :last_ok, :error, :zone) "
     "ON CONFLICT (owner_id, connection_id, stream) DO UPDATE SET "
     "capability = EXCLUDED.capability, lastupdate = EXCLUDED.lastupdate, "
-    "covered_from = EXCLUDED.covered_from, covered_to = EXCLUDED.covered_to, "
+    "covered_from = LEAST(sync_cursors.covered_from, EXCLUDED.covered_from), "
+    "covered_to = GREATEST(sync_cursors.covered_to, EXCLUDED.covered_to), "
     "backfill_state = EXCLUDED.backfill_state, last_ok_at = EXCLUDED.last_ok_at, "
     "last_error_category = EXCLUDED.last_error_category, source_tz = EXCLUDED.source_tz"
 )

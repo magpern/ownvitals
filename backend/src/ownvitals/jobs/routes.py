@@ -241,6 +241,6 @@ async def cancel_job(
     view = await service.cancel(request.app.state.session_factory, ctx, wanted)
     if view is None:
         return _refuse("not_found")
-    if view.state in ("completed", "failed"):
+    if view.state in ("completed", "failed", "dead_letter"):  # terminal: nothing to cancel
         return _refuse("not_cancellable")
     return JobOut.of(view)

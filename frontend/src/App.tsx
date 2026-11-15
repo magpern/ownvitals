@@ -1,10 +1,13 @@
-import { RequireReady, RequireSignedOut } from './auth/guards'
-import { accessOf, isAdmin } from './auth/access'
+import { Redirect, RequireReady, RequireSignedOut } from './auth/guards'
+import { HOME_PATH, accessOf, isAdmin } from './auth/access'
 import { SessionProvider, useSession } from './auth/SessionContext'
 import { PlainFrame } from './components/PlainFrame'
+import { CookieNotice } from './components/notice/CookieNotice'
 import { StepUpProvider } from './components/StepUp'
 import { AppFrame } from './components/shell/AppFrame'
 import { AppPage } from './pages/appPages'
+import { ApproveLoginPage } from './pages/ApproveLoginPage'
+import { OnboardingPage } from './pages/OnboardingPage'
 import { ProviderEmailPage } from './pages/ProviderEmailPage'
 import { ResetPage } from './pages/ResetPage'
 import { SignInPage } from './pages/SignInPage'
@@ -22,7 +25,7 @@ function NotFound() {
     <section className="card">
       <h1 className="card__title">{t('shell.notFound')}</h1>
       <p>
-        <Link to="/">{t('shell.backToStart')}</Link>
+        <Link to={HOME_PATH}>{t('shell.backToStart')}</Link>
       </p>
     </section>
   )
@@ -70,8 +73,18 @@ function Routes() {
   return <PlainFrame>{otherPage(path)}</PlainFrame>
 }
 
+// An old `/?range=90d` keeps its query.
+function RootRedirect() {
+  const { search } = useRouter()
+  return <Redirect to={`${HOME_PATH}${search}`} />
+}
+
 function otherPage(path: string) {
   switch (path) {
+    case '/':
+      // The public home page owns `/` when the server has it; without it (the dev server) the
+      // app's start page is the signed-in one.
+      return <RootRedirect />
     case '/signin':
       return (
         <RequireSignedOut>
@@ -98,6 +111,15 @@ function otherPage(path: string) {
       return <TwoFactorSetupPage />
     case '/two-factor':
       return <TwoFactorChallengePage />
+    case '/onboarding':
+      return (
+        <RequireReady>
+          <OnboardingPage />
+        </RequireReady>
+      )
+    case '/qr':
+      // The phone's approval of a QR sign-in: it checks the session itself (ADR 0011 section 5).
+      return <ApproveLoginPage />
     default:
       return <NotFound />
   }
@@ -111,6 +133,7 @@ export function App() {
       <SessionProvider>
         <StepUpProvider>
           <Routes />
+          <CookieNotice />
         </StepUpProvider>
       </SessionProvider>
     </RouterProvider>

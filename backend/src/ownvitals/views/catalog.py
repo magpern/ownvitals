@@ -3,7 +3,9 @@ architecture): the area each metric belongs to, the stream whose capability deci
 state, the chart ranges and the thresholds that are ours to set. Pure; no database.
 
 The keys are those of ``analysis.quality.METRICS``, the metrics that have daily values
-(``derived.daily.KEYS``). Segmental, sleep and activity keys have no daily value yet.
+(``derived.daily.KEYS``). Sleep and activity keys have no daily value yet; the segmental
+tiles are not here, they are built from the latest reading
+(``views.assemble_segmental``).
 """
 
 from types import MappingProxyType
@@ -69,9 +71,9 @@ STATUS_STREAMS: Final = (
 
 # ``?range=`` of the metric detail: the profile's chart ranges (``derived.tables.CHART_RANGES``)
 # and ``all``. Days of the window; ``all`` runs from the first day with data.
-RANGE_DAYS: Final = MappingProxyType({"30d": 30, "90d": 90, "6mo": 182, "1y": 365})
+RANGE_DAYS: Final = MappingProxyType({"7d": 7, "30d": 30, "90d": 90, "6mo": 182, "1y": 365})
 RANGES: Final = (*RANGE_DAYS, "all")
-DEFAULT_RANGE: Final = "90d"
+DEFAULT_RANGE: Final = "7d"
 
 SPARKLINE_DAYS: Final = 30
 BAND_DAYS: Final = 90  # the display band's window (ADR 0010 section 2)

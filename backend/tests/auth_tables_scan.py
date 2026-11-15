@@ -74,7 +74,9 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     "ownvitals.auth.setup": frozenset({"attach_state", "detach_state", "install"}),
     # the jobs API: the signed-in user and the event stream's session check; the step-up
     # dependencies (#11) for the connections layer (#13) and the admin writes; the admin
-    # gate (#12): current_context, current_session and request_ip
+    # gate (#12): current_context, current_session and request_ip; the Withings connect start's
+    # per-IP OAuth limit (#296): reserve_oauth_start; the chat limits (#208, #352):
+    # reserve_ai_chat, reserve_ai_conversation
     "ownvitals.auth.deps": frozenset(
         {
             "Probe",
@@ -85,13 +87,25 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "require_sensitive",
             "require_stepup",
             "require_user",
+            "reserve_export_request",
+            "reserve_doctor_request",
+            "reserve_oauth_start",
+            "reserve_ai_chat",
+            "reserve_ai_conversation",
+            "reserve_unsubscribe",  # the one-click unsubscribe's per-IP limit (#459)
             "session_probe",
         }
     ),
+    # the AI audit log (#207, ADR 0014 section 6): its fingerprint key is HKDF of
+    # ``app_secret_key`` under the label ``ai-audit`` (ADR 0003 section 1, "Derived keys"); only
+    # the derivation function, no table and no other key
+    "ownvitals.auth.keys": frozenset({"derive_key"}),
     # the worker: the issuer's account check and the purge
     "ownvitals.auth.owners": frozenset({"ACCOUNTS"}),
     # and the revoke a disconnect or an account deletion enqueues (#163)
     "ownvitals.auth.purge": frozenset({"purge_expired", "register_disconnect_kind"}),
+    # and the revoke an admin's account delete queues (#365)
+    "ownvitals.auth.admin_revoke_job": frozenset({"register_admin_revoke_kind"}),
     # the operator CLI
     "ownvitals.auth.operator": frozenset(
         {
@@ -112,6 +126,24 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     ),
     # keys rewrap (#13): only the wrap of a TOTP seed changes
     "ownvitals.auth.totp_keys": frozenset({"rewrap_totp_secrets", "totp_rows_by_key"}),
+    # the export (#211, ADR 0013 section 4): the account's allowlisted data for the archive
+    # and the export audit events, both keyed by the context's user alone
+    "ownvitals.auth.exports": frozenset(
+        {
+            "ACCOUNT_COLUMNS",
+            "AccountExport",
+            "Downloaded",
+            "ExportEventKind",
+            "Expired",
+            "Failed",
+            "Ready",
+            "Requested",
+            "export_account",
+            "record_event",
+        }
+    ),
+    # the admin abuse view (#461): the signal codes it may show
+    "ownvitals.auth.session_anomaly_policy": frozenset({"SIGNALS"}),
     # the admin Users view (#127): list and find, emails by id, disable, enable and delete
     "ownvitals.auth.admin_accounts": frozenset(
         {
@@ -125,6 +157,7 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "enable_account",
             "find_account",
             "list_accounts",
+            "revoke_account",  # #365: the delete's first step, the target's Withings revoke
         }
     ),
 }
@@ -161,7 +194,9 @@ SUBMODULES = frozenset(
         "email_routes",
         "event_origin",
         "events",
+        "exports",
         "flowtools",
+        "gate",
         "hooks",
         "identity_routes",
         "keys",
@@ -183,6 +218,7 @@ SUBMODULES = frozenset(
         "passkey_routes",
         "passkey_signin_routes",
         "passkeys",
+        "password_change_routes",
         "oauth_client",
         "oauth_errors",
         "oauth_handoff",
@@ -207,6 +243,8 @@ SUBMODULES = frozenset(
         "ratelimit",
         "reset_routes",
         "routes",
+        "session_anomaly",
+        "session_anomaly_policy",
         "session_manage",
         "session_model",
         "session_resolve",
@@ -220,6 +258,8 @@ SUBMODULES = frozenset(
         "tokens",
         "totp",
         "totp_keys",
+        "turnstile",
+        "turnstile_policy",
     }
 )
 FORBIDDEN_NAMES = frozenset(TABLE_NAMES) | {"metadata"} | SUBMODULES

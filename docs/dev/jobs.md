@@ -34,10 +34,10 @@ function is `SECURITY DEFINER` with `search_path = pg_catalog, pg_temp`, the com
 | `queue_claim(worker, lease_seconds, kinds)` | claims the next claimable job of one of `kinds` (`SKIP LOCKED`), bumps `attempt` and `lease_version`, writes the `claimed` event | `(job_id, owner_id, lease_version)` or nothing |
 | `queue_reap(limit)` | requeues (with backoff), dead-letters (`lease_lost`) or cancels expired leases, bumping the token; fails queued jobs whose attempts are spent (`internal`) | the count |
 | `queue_stats()` | counts per state, across users, including `dead_letter` | `(metric, total)`: no ids |
-| `queue_enqueue(...)` | webhook or scheduler job owned by the connection's owner; a queued singleton collapses and its `available_at` moves 30 s out (namespace 1) | the job id |
-| `queue_cancel_for_secret(kind, secret_id)` | cancels queued jobs of that kind for that webhook secret, any owner | the count |
-| `queue_replay(id)` | a new queued job from a dead-lettered one; the terminal row stays | `(job_id, owner_id)` |
-| `queue_schedule(kind, interval_seconds)` | the scheduler (#164): through `queue_enqueue`, one `withings_poll` or `withings_reconcile` job (origin `scheduler`) for every `connected` connection with none queued or running and none created in the last `interval_seconds` (3600 to 604800); at most 500 per call | the count |
+| `queue_enqueue(...)` | webhook or scheduler job owned by the connection's owner; a queued singleton collapses and its `available_at` moves 30 s out, a follow-up of a running one is queued 30 s out too, and an insert that meets a queued row of the key (one handed back after the check) collapses into it (namespace 1); a job whose input names a `secret_id` (`notify_update` must) has the same id in `target_secret_id`, or is refused `invalid target` | the job id |
+| `queue_cancel_for_secret(kind, secret_id)` | cancels queued jobs of that kind for that webhook secret, any owner; waits for a queued row another transaction holds (never skips it), and any error fails the call | the count |
+| `queue_replay(id)` | a new queued job from a dead-lettered one, under the owner's job-creation lock (namespace 1); the terminal row stays | `(job_id, owner_id)` |
+| `queue_schedule(kind, interval_seconds)` | the scheduler (#164): through `queue_enqueue`, one `withings_poll` or `withings_reconcile` job (origin `scheduler`) for every `connected` connection with none queued or running and none created in the last `interval_seconds` (3600 to 604800), and no `withings_connect` or `withings_backfill` of it queued or running (an import in progress: it stays due until the import ends, #407); at most 500 per call | the count |
 
 No user code may run as `ownvitals_queue`: the script, the queue check and guard 9 all refuse
 any other user-defined function, operator, trigger or rule, and any default, check, index or
@@ -112,9 +112,8 @@ startup is checked on its first connection. Drift anywhere (the background check
 run's connection, a heartbeat, maintenance) stops the worker, never a job's attempt; running
 jobs are handed back first. The check names objects, never data or credentials.
 
-**Gap against ADR 0005 §3 (#77 item 3):** web does not run the queue check yet. Its lifespan
-runs only the event hub and the stream limiter; the web refusal of a drifted queue comes with
-#77.
+Web runs it too (#77): its lifespan installs the per-connection check before the first
+connection and calls `verify_queue` before it serves.
 
 ## Leases and the fence
 
@@ -141,6 +140,25 @@ deadline plus 30 s and committed before the call; no transaction is open across 
 `JobFailure(category)`; only the category is ever kept (`jobs/errors.py`). `GET /api/jobs/{id}` shows that category as a code (`error_category`, the `job_failures` family of `response_codes.py`) and no sentence; the page words it from `src/i18n/*/codes.ts`.
 The heartbeat extends the lease every lease/3 with `GREATEST`.
 
+## Waiting for the rate limiter (#349, #351)
+
+An ingest call (`ingest/calls.py`) asks the limiter again while the refusal is only a queue
+(`wait`, `busy`, `empty`). The waits start at the limiter's `retry_at`, double with each refusal
+(0.2 s, 0.4 s, ... capped at 5 s) and are stretched by up to 25 % of jitter, so a long wait makes
+a few claims, not five a second. `CLAIM_WAIT_SECONDS` (60 s) bounds the wait **per call**, not per
+attempt: an attempt of many calls can wait 60 s for each. A 601 hold (`paused`), or a wait that
+would pass the bound, fails the attempt as `rate_limited` with `retry_after`, and the queue counts
+that attempt like any other retryable failure (`backoff_seconds` honours `retry_after`); a hold
+is not waited out inside the attempt, because it lasts minutes.
+
+Only live demand competes in the limiter (ADR 0005 §8, amended #370): a lane and account that
+asked within 10 s and has not been granted since, or the caller itself. A served lane holds
+nothing, so a higher lane between its calls never stalls a lower one; `_STEP_CAP` (5 s; the
+jitter is applied before the cap, so no wait is longer) must stay under those 10 s, or a waiting
+lane drops out between its asks. A claim reads its clock before it waits on the bucket row, so it
+never moves `seen_at` or `granted_at` backwards: a delayed sibling cannot make a served row look
+live again.
+
 ## The worker
 
 `python -m ownvitals.worker` (compose `worker`): up to `worker_concurrency` runs, woken by `LISTEN
@@ -160,7 +178,10 @@ validated against its model when written and again when sent (`jobs/events.py`).
 
 `python -m ownvitals jobs stats` prints `<metric> <count>` per state, including `jobs_dead_letter`.
 `python -m ownvitals jobs replay <id>` queues a new job with the same kind and input (origin
-`operator`) and writes an `admin_audit` row `job.replay`. The dead-lettered row is not changed.
+`operator`) and writes an `admin_audit` row `job.replay` before the new job commits: if the row
+fails, nothing is queued (#278). The dead-lettered row is not changed. `POST
+/api/jobs/{id}/cancel` answers 409 `not_cancellable` for a `completed`, `failed` or
+`dead_letter` job.
 A job with `target_secret_id` set is cancelled when it runs unless a target check confirms the
 entry is still active (`NoTargets` confirms none; the worker process passes `WebhookTargets`).
 
@@ -174,7 +195,10 @@ entry is still active (`NoTargets` confirms none; the worker process passes `Web
   `withings/tokens.py`, inside one `provider_call`; `needs_reconnect` and `not_connected` are
   kept as the job's category) and `withings_disconnect` (`auth.purge.register_disconnect_kind`,
   #163: the revoke a disconnect or an account deletion enqueues; see
-  [connections.md](connections.md)) and `derive_normalize` (`derived/normalize_job.py`, #185:
+  [connections.md](connections.md)) and `withings_admin_revoke`
+  (`auth.admin_revoke_job.register_admin_revoke_kind`, #365: the revoke an admin's account delete
+  queues through `admin_account_revoke`; one attempt, origin `operator`; see
+  [admin.md](admin.md)) and `derive_normalize` (`derived/normalize_job.py`, #185:
   normalises the owner's measures, sleep summaries, activity days and workouts into
   `observations`, #229; see [derived.md](derived.md)) and `derive_daily` (`derived/daily_job.py`,
   #186: daily values into `metric_daily`, queued by `derive_normalize` after its measures pass).
@@ -244,6 +268,6 @@ synthetic owners (random UUIDs) and the test-only kind `test_kind` only:
 | `test_jobs_runner.py`, `test_jobs_cancel.py` | runs end to end, retries, cancel |
 | `test_jobs_api.py`, `test_jobs_stream.py`, `test_jobs_events.py` | the API, SSE and the hub |
 | `test_jobs_errors.py`, `test_worker.py` | categories and backoff; the worker process |
-| `test_queue_schedule.py` | `queue_schedule`: due connections only, no doubling, refused kinds and intervals, its ACL (#164) |
+| `test_queue_schedule.py` | `queue_schedule`: due connections only, no doubling, no poll or reconcile during a connection's import (#407), refused kinds and intervals, its ACL (#164) |
 | `test_worker_kinds.py` | the worker's registry and the API's empty one, the process entry's wiring, the target check through the runner, the current callback, the reconcile and recovery handlers, the loop's schedule (#164) |
 | `test_worker_withings_e2e.py` | a webhook queues `withings_sync`, the worker runs it against the fake and the measures are stored (#164; synthetic data) |

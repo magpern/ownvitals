@@ -89,7 +89,7 @@ async def test_an_existing_identity_with_an_unverified_email_signs_in_instead(
     )
     browser = Browser(oenv)
     response = await sign_in_with(browser, fake, "google", email_verified=False)
-    assert location(response) == "/"
+    assert location(response) == "/overview"
     assert browser.signed_in
     assert await oenv.scalar("SELECT count(*) FROM pending_signups") == 0
 

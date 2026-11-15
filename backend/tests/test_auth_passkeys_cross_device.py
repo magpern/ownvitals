@@ -16,11 +16,15 @@ from authtools import (  # noqa: F401 - fixtures
     clean_auth_fixture,
     env_fixture,
 )
-from flows import Browser, only_user_id, pass_second_factor, signed_in
+from flows import Browser, only_user_id, pass_second_factor, reason, signed_in
 from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
 from ownvitals.auth.purge import purge_expired
 from ownvitals.auth.session_manage import list_sessions
 from passkeytools import SoftAuthenticator, register, sign_in
+from qrtools import QrBrowser, fresh_code
+from qrtools import approve as qr_approve
+from qrtools import scan as qr_scan
+from qrtools import start as qr_start
 
 EMAIL = "user@example.com"
 DAY = timedelta(hours=24).total_seconds()
@@ -161,3 +165,20 @@ async def test_a_long_session_of_the_browser_is_capped(env: Env) -> None:
     assert await life(env) > timedelta(days=29).total_seconds()  # inherited by the next one
     assert (await sign_in(browser, auth, attachment="cross-platform")).status_code == 200
     assert await life(env) <= DAY
+
+
+async def test_a_cross_device_session_cannot_approve_a_qr_login(env: Env) -> None:
+    """The route answers 403 ``qr_approval_not_allowed`` for a full cross-device session (#282,
+    from the #267 review): the model rule ``may_approve_qr`` is wired to scan and approve."""
+    auth = await with_passkey(env)
+    phone = Browser(env)
+    assert (await sign_in(phone, auth, attachment="cross-platform")).status_code == 200
+    await full(env, phone)
+    assert (await phone.get("/api/auth/sessions")).status_code == 200  # a full session
+    desktop = QrBrowser(env)
+    started = await qr_start(desktop)
+    refused = await qr_scan(phone, started)
+    assert (refused.status_code, reason(refused)) == (403, "qr_approval_not_allowed")
+    refused = await qr_approve(phone, started["id"], await fresh_code(env))
+    assert (refused.status_code, reason(refused)) == (403, "qr_approval_not_allowed")
+    assert await env.scalar("SELECT state FROM qr_logins") == "pending"

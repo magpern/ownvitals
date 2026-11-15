@@ -98,6 +98,7 @@ All settings of the platform milestone exist already, so the issues that use the
 | `migrations_database_url` | `...//ownvitals_owner@127.0.0.1:5432/ownvitals` | owner role, Alembic only |
 | `maint_database_url` | unset | admin role; needs `database_maint_password` too |
 | `static_dir` | unset | built SPA; unset: API only |
+| `public_dir` | unset | prerendered public site (ADR 0016), served only with `static_dir`; unset: none |
 | `public_base_url` | `http://127.0.0.1:8000` | the one public origin, normalised |
 | `admin_emails` | empty | comma-separated; these addresses get `admin` when they sign up |
 | `trusted_proxies` | `127.0.0.0/8,::1` | comma-separated IPs or CIDR ranges whose `X-Forwarded-For` counts: SWAG's address in production (#10, [auth.md](auth.md)) |
@@ -110,16 +111,19 @@ All settings of the platform milestone exist already, so the issues that use the
 | `connection_kek_id` | `kek-1` | `kek-[a-z0-9-]{1,28}`; the key is the secret file `connection_kek` |
 | `webhook_seed_id` | `seed-1` | `seed-[a-z0-9-]{1,28}`; the key is the secret file `webhook_seed`, worker only (ADR 0004 §4; optional in M0, see [crypto.md](crypto.md)) |
 | `webhook_pepper_id` | `pep-1` | `pep-[a-z0-9-]{1,28}`; the key is the secret file `webhook_pepper`, web and worker (optional in M0) |
+| `webhook_cache_ttl_seconds` | 60 | 4 to 60; how long the web process caches the webhook secret entries before the refresh (#340) |
 | `smtp_host`, `smtp_port`, `smtp_sender`, `smtp_tls`, `smtp_username` | unset, 587, `ownvitals@localhost`, `starttls` | `smtp_tls=none` only for loopback or `mailpit` |
 | `smtp_total_seconds` | 20 | the most one mail may take, connect to quit; positive and finite |
 | `oauth_google_client_id` | unset | Google is the only OAuth provider |
 | `worker_poll_seconds`, `worker_maintenance_seconds`, `worker_shutdown_wait_seconds` | 2, 30, 25 | wait at most 25 s |
+| `metrics_bind`, `metrics_port`, `metrics_refresh_seconds` | unset, 9464, 30 | the worker's `/metrics` listener (a loopback or private IP literal; unset: none) and its gauge refresh ([metrics.md](metrics.md)) |
 | `job_lease_seconds`, `worker_concurrency`, `jobs_per_user`, `job_busy_requeue_limit` | 120, 2, 2, 5 | bounded: 30..600, 1..16, 1..100, 0..100 |
 | `experimental_findings`, `ai_insights` | `false` | environment side of the stored flags; the stricter wins |
 
 Secret files (`SECRET_FILE_FIELDS`): `database_password`, `database_owner_password`,
 `database_maint_password`, `app_secret_key` (at least 32 bytes), `smtp_password`,
-`oauth_google_client_secret`. The key ring's files (`connection_kek`, `webhook_seed`,
+`oauth_google_client_secret`, `turnstile_secret_key` (only with `turnstile_enabled`, ADR 0018).
+The key ring's files (`connection_kek`, `webhook_seed`,
 `webhook_pepper` and their retired `<file>_<id>`) are read by the crypto package, not by
 `Settings` ([crypto.md](crypto.md)).
 
@@ -169,8 +173,8 @@ ring's check table ([crypto.md](crypto.md)). Every migration needs a working `do
 | `__main__.py` | `python -m ownvitals`: uvicorn with JSON logs, access log and proxy headers off, 5 s graceful shutdown; or a subcommand |
 | `cli.py` | subcommand registry (`add_subcommands`, `COMMANDS`, `run_command`); later issues add theirs here |
 | `config.py` | settings (above): `Settings`, every validator that refuses a value, the secret-file field list and sources, the database URLs and passwords |
-| `config_auth.py`, `config_mail.py`, `config_jobs.py`, `config_ai.py` | the non-secret field groups `Settings` inherits (sessions, proxies, passkeys and QR login; mail and Google client id; worker and jobs; feature flags and AI caps); fields only, validators stay in `config.py` |
-| `config_secrets.py`, `config_net.py` | the secret-file helpers; host and network helpers |
+| `config_auth.py`, `config_mail.py`, `config_jobs.py`, `config_ai.py`, `config_webhooks.py` | the non-secret field groups `Settings` inherits (sessions, proxies, passkeys and QR login; mail and Google client id; worker and jobs; feature flags and AI caps; webhook key ids and cache TTL); fields only, validators stay in `config.py` |
+| `config_secrets.py`, `config_net.py`, `config_rpid.py` | the secret-file helpers; host and network helpers; the WebAuthn relying-party id check and the id in use (pure) |
 | `log.py` | JSON logs and the redaction filter: cookies, credential headers, OAuth query strings and `code`/`state`, mail-link tokens, the secret part of `/api/webhooks/<provider>/<secret>`, secret keys in `extra`; strings in dict **keys** too; DB errors reduce to class and SQLSTATE. It fails closed: a record that cannot be formatted becomes a line with the redacted message text, the logger and the error type (`log_error`), and a failing write prints only the error type to stderr (`SafeStreamHandler`), never the raw message or arguments |
 | `headers.py` | `Content-Security-Policy` (`'self'` only), `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff` on every response |
 | `web.py` | app factory; refuses to start as a privileged database role; `/api/health` (no database), `/api/ready` (`SELECT 1`, 503 without detail); serves the built SPA from `static_dir`; includes `FEATURE_ROUTERS` |

@@ -6,8 +6,10 @@ neither clears the cookie (the token may have just been rotated). A known sessio
 expired, idle, belongs to a disabled user, or never passed its second factor within ten minutes
 is deleted and the cookie is cleared.
 
-TOTP is mandatory (ownvitals ADR 0003 section 2): a session yields a ``UserContext`` only once it
-is full. The middleware's gate (``gate.py``) refuses every other route to a session that is not.
+A session yields a ``UserContext`` only once it is full (ownvitals ADR 0003 section 2, amended
+2026-11-12, #475: an account with TOTP must pass it in the session, an admin must have one, a
+user without one is full after the first factor). The middleware's gate (``gate.py``) refuses
+every other route to a session that is not.
 """
 
 from collections.abc import Awaitable, Callable
@@ -17,8 +19,19 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ownvitals.auth.clientip import client_ip
+from ownvitals.auth import session_anomaly
+from ownvitals.auth.clientip import bucket_ip, client_ip
 from ownvitals.auth.cookies import DEVICE_COOKIE, SESSION_COOKIE
+from ownvitals.auth.flowtools import limiter, reserve
+from ownvitals.auth.ratelimit import (
+    AI_CHAT_ACCOUNT,
+    AI_CONVERSATION_ACCOUNT,
+    DOCTOR_PDF_ACCOUNT,
+    EXPORT_ACCOUNT,
+    OAUTH_IP,
+    UNSUBSCRIBE_IP,
+    Bucket,
+)
 from ownvitals.auth.sessions import (
     ADMIN_STEPUP_WINDOW,
     Resolution,
@@ -47,6 +60,9 @@ async def resolve_request(request: Request) -> Resolution:
     if resolution.outcome == "refused":
         request.state.clear_session_cookie = True
     setattr(request.state, _RESOLUTION, resolution)
+    if resolution.info is not None:  # the anomaly signal (#461): it never refuses the request
+        info = resolution.info
+        await session_anomaly.observe(request, info.id, info.user_id, request_ip(request))
     return resolution
 
 
@@ -120,11 +136,12 @@ async def require_stepup(
     ctx: Annotated[UserContext, Depends(require_user)],
     info: Annotated[SessionInfo | None, Depends(current_session)],
 ) -> UserContext:
-    """A full session with a TOTP or recovery code within the step-up window
-    (``stepup_window_minutes``, 10 minutes; ownvitals ADR 0003 section 4), else 403
-    ``step_up_required``. For: replacing, removing or resetting the TOTP, new recovery codes,
-    log out everywhere, and (with ``require_sensitive``) every action that also needs recent
-    authentication."""
+    """A full session with a step-up within the step-up window (``stepup_window_minutes``, 10
+    minutes; ownvitals ADR 0003 section 4), else 403 ``step_up_required``. The step-up is a TOTP
+    or recovery code; for an account without TOTP that is not required to have one, a fresh
+    password, Google re-authentication or passkey (#475, ``stepup_first_factor``). For:
+    replacing, removing or resetting the TOTP, new recovery codes, log out everywhere, and (with
+    ``require_sensitive``) every action that also needs recent authentication."""
     if info is None or not info.recent_stepup:
         _refuse(403, "step_up_required")
     return ctx
@@ -181,6 +198,45 @@ def request_ip(request: Request) -> str:
         cf_connecting_ip=request.headers.getlist("cf-connecting-ip"),
         cf_proxies=settings.cf_connecting_ip_networks,
     )
+
+
+async def reserve_oauth_start(request: Request) -> None:
+    """One slot of the per-IP OAuth start limit (``OAUTH_IP``, 30 per 15 minutes; ADR 0003
+    section 9) that Google's start reserves too: the Withings connect start (ADR 0004 section 7)
+    counts against it. Raises ``RateLimited`` (429 with ``Retry-After``) above it."""
+    await reserve(request, [Bucket(OAUTH_IP, bucket_ip(request_ip(request)))])
+
+
+async def reserve_unsubscribe(request: Request) -> int | None:
+    """One slot of the per-IP unsubscribe limit (``UNSUBSCRIBE_IP``, 20 per 15 minutes; ADR
+    0019). ``None`` when taken, else the seconds to wait: the endpoint runs outside the auth
+    middleware and its handlers, so it answers the 429 itself."""
+    attempt = await limiter(request).begin([Bucket(UNSUBSCRIBE_IP, bucket_ip(request_ip(request)))])
+    return None if attempt.allowed else attempt.retry_after
+
+
+async def reserve_export_request(request: Request, ctx: UserContext) -> None:
+    """One slot of the export request limit (``EXPORT_ACCOUNT``, 3 per 24 hours in a fixed
+    window, the bucket key an HMAC of the user's id; ADR 0013 section 4). Raises
+    ``RateLimited`` (429 with ``Retry-After``) above it."""
+    await reserve(request, [Bucket(EXPORT_ACCOUNT, str(ctx.user_id))])
+
+
+async def reserve_doctor_request(request: Request, ctx: UserContext) -> None:
+    """One slot of the doctor PDF request limit (``DOCTOR_PDF_ACCOUNT``, 10 per 24 hours)."""
+    await reserve(request, [Bucket(DOCTOR_PDF_ACCOUNT, str(ctx.user_id))])
+
+
+async def reserve_ai_chat(request: Request, ctx: UserContext) -> None:
+    """One slot of the chat limit (``AI_CHAT_ACCOUNT``, 20 messages per hour; ADR 0014 section 8).
+    Raises ``RateLimited`` (429 with ``Retry-After``) above it."""
+    await reserve(request, [Bucket(AI_CHAT_ACCOUNT, str(ctx.user_id))])
+
+
+async def reserve_ai_conversation(request: Request, ctx: UserContext) -> None:
+    """One slot of the conversation creation limit (``AI_CONVERSATION_ACCOUNT``, 30 per hour).
+    Raises ``RateLimited`` (429 with ``Retry-After``) above it."""
+    await reserve(request, [Bucket(AI_CONVERSATION_ACCOUNT, str(ctx.user_id))])
 
 
 def request_device_token(request: Request) -> str | None:

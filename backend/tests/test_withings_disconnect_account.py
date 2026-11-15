@@ -242,6 +242,16 @@ def _plant(url: str, owner_id: UUID, connection: UUID, tag: str) -> None:
                 ),
                 {"o": owner_id, "j": job},
             )
+            # The AI audit log (#207): one redacted row of a completed call.
+            conn.execute(
+                text(
+                    "INSERT INTO ai_audit (owner_id, job_id, kind, model, prompt_version, "
+                    "toolset_version, cost_microusd, reservation_id, latency_ms, attempts, "
+                    "status, settlement, request_hmac) VALUES (:o, :j, 'chat', 'synthetic-model', "
+                    "'1', '1', 5, gen_random_uuid(), 0, 1, 'completed', 'settled', :h)"
+                ),
+                {"o": owner_id, "j": job, "h": b"\x5a" * 32},
+            )
     finally:
         engine.dispose()
 
@@ -262,8 +272,29 @@ def _plant_derived(conn: Connection, owner_id: UUID, digest: bytes) -> None:
         "'2026-11-02', 0, :h)",
         "INSERT INTO scores (owner_id, kind, day, components, algo_version, input_revision, "
         "input_fingerprint) VALUES (:o, 'his', '2026-11-02', '{\"status\": \"not_set\"}', "
-        "'his/1', 0, :h)",
+        "'his/2', 0, :h)",
         "INSERT INTO user_profiles (owner_id) VALUES (:o)",
+        # #195: an open notification hold of a synthetic finding id.
+        "INSERT INTO notify_holds (owner_id, finding_id, rule_id, started_at, revision_at, "
+        "revision_seen) VALUES (:o, gen_random_uuid(), 'E4', '2026-11-02 08:00:00+00', "
+        "'2026-11-02 08:00:00+00', '2026-11-02 08:00:00+00')",
+        # #206: a live AI consent and one conversation with a synthetic message.
+        "INSERT INTO ai_consents (owner_id, consent_version, locale, text_sha256) "
+        "VALUES (:o, 1, 'en', :h)",
+        "INSERT INTO ai_conversations (owner_id) VALUES (:o)",
+        "INSERT INTO ai_messages (owner_id, conversation_id, role, content) SELECT :o, id, "
+        "'user', 'synthetic question' FROM ai_conversations WHERE owner_id = :o",
+        # Issue 209: the digest opt-in and one synthetic weekly digest.
+        "INSERT INTO ai_digest_prefs (owner_id) VALUES (:o)",
+        # #459: an email preference switched off (a setting: kept).
+        "INSERT INTO email_prefs (owner_id, kind, enabled, generation) "
+        "VALUES (:o, 'findings_waiting', false, 1)",
+        "INSERT INTO ai_digests (owner_id, week_start, status, content) "
+        "VALUES (:o, '2026-11-02', 'ready', 'synthetic digest')",
+        # #211: an expired export record and one synthetic chunk of it.
+        "INSERT INTO exports (owner_id, kind, state) VALUES (:o, 'data', 'expired')",
+        "INSERT INTO export_chunks (owner_id, export_id, seq, bytes) SELECT :o, id, 0, "
+        "decode('5a', 'hex') FROM exports WHERE owner_id = :o",
     ):
         conn.execute(text(sql), {"o": owner_id, "h": digest})
 
@@ -323,12 +354,21 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
     names = {name for name, _ in catalog}
     assert names == {
         "activity_daily",
+        "ai_audit",
+        "ai_consents",
+        "ai_conversations",
+        "ai_digest_prefs",
+        "ai_digests",
+        "ai_messages",
         "ai_reservations",
         "ai_spend",
         "connections",
         "data_revisions",
         "devices",
         "ecg_recordings",
+        "email_prefs",
+        "export_chunks",
+        "exports",
         "findings",
         "intraday",
         "job_events",
@@ -337,6 +377,7 @@ async def test_account_delete_revokes_and_removes_every_owned_row(
         "measure_groups",
         "measures",
         "metric_daily",
+        "notify_holds",
         "observations",
         "scores",
         "sleep_series",
@@ -433,7 +474,18 @@ async def test_delete_imported_removes_only_that_owners_rows(
     names = {str(name) for name, _ in _rows(database_url, _OWNED)}
     assert names == purged | kept
     assert {"observations", "metric_daily", "findings", "scores"} <= purged
-    assert kept == {"user_profiles", "mail_outbox", "ai_spend", "ai_reservations"}
+    assert kept == {
+        "user_profiles",
+        "mail_outbox",
+        "ai_spend",
+        "ai_reservations",
+        "ai_consents",
+        "ai_audit",
+        "ai_digest_prefs",
+        "email_prefs",
+    }
+    assert {"ai_messages", "ai_conversations", "ai_digests"} <= purged
+    assert {"exports", "export_chunks"} <= purged
     _partitions(database_url, True)
     try:
         _plant(database_url, linked.ctx.user_id, linked.connection_id, "c")

@@ -6,10 +6,12 @@ well as running under forced RLS (ADR 0002).
 
 1. **Read** (``gather``) the ``measures`` revision first, then the profile's day setting, the
    observations, the stored ``metric_daily`` rows, the group ``attrib`` of the nerve readings,
-   Q1's state records and the owner-only switch. ``nothing`` without a revision row (nothing
-   imported, or purged). ``behind`` when an observation read carries another revision (the
-   normaliser has not caught up) or the daily rows are not those of these observations and this
-   day setting (the daily pass has not caught up; it queues this pass when it has).
+   Q1's state records, the owner-only switch and the ECG inputs (``findings_ecg``: the
+   recordings' Withings fields and their A7 groups, the profile's sex). ``nothing`` without a
+   revision row (nothing imported, or purged). ``behind`` when an observation read carries
+   another revision (the normaliser has not caught up) or the daily rows are not those of these
+   observations and this day setting (the daily pass has not caught up; it queues this pass when
+   it has).
 2. **Evaluate** (``derived.evaluate``, pure).
 3. **Write**, in one transaction: take the owner's normalisation lock (namespace 6, ADR 0005 §9:
    the lock the normaliser's and the daily pass's writes take), lock the revision row ``FOR
@@ -19,8 +21,8 @@ well as running under forced RLS (ADR 0002).
    race of the review of #225).
 
 **The diff** (ADR 0010 §4) touches only the rows of the rules this writer owns
-(``evaluate.OWNED_RULES``); another writer's rules (E1 to E6) are never read, changed or
-deleted.
+(``evaluate.OWNED_RULES``, E1 to E4 and E6 included since #191); any other rule id (E5 is
+deferred) is never read, changed or deleted.
 
 * Replayed rules: a stored episode and a computed one with the same rule, subject and reference
   day are the same episode. It keeps its id, ``first_seen``, ``origin``, ``notify_state``,

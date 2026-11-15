@@ -190,23 +190,25 @@ makes it stop with a message naming it (its foreign-code check), and the rollbac
 
 #### db-functions and the egress hook
 
-Three ownvitals processes install no egress hook today. The worker
-(`ownvitals/worker/__main__.py`) and the CLI (`run_command` in `ownvitals/cli.py`) install one.
+Two ownvitals processes install no egress hook today. The worker
+(`ownvitals/worker/__main__.py`), the CLI (`run_command` in `ownvitals/cli.py`) and `migrate`
+(`backend/migrations/env.py`, #284) install one.
 
 `db-functions` installs none, by design (ADR 0009): an exemption, decided on #118. It is a
 one-shot runner (`python -m ownvitals.db.install_functions`) that reads no settings, so it has
 no egress configuration to install; its only connection is libpq's to `db` (host, port, database
-and user from its command line, the password from its `PGPASSFILE`), which the hook cannot see,
-since libpq connects in C below Python's audit events. The static guard still scans it:
-`psycopg` and `psycopg.conninfo` are classified for that module alone and by name
-(`backend/tests/egress_classified.py`, `test_egress_db_functions.py`), so no other module may
-import psycopg and the runner may use no other psycopg name.
+and user from its command line, the password from its `PGPASSFILE`). psycopg looks that host up
+in Python (`socket.getaddrinfo`, which a hook would see) and libpq connects to the address in C,
+below Python's audit events, so a hook would check only the host it is given. The static guard
+still scans it: `psycopg` and `psycopg.conninfo` are classified for that module alone and by
+name (`backend/tests/egress_classified.py`, `test_egress_db_functions.py`), so no other module
+may import psycopg and the runner may use no other psycopg name, nor a chain past one (#284).
 
-`migrate` installs none because its command is `alembic upgrade head` (`compose.yaml`) and it
-never calls `install_egress_hook`. The async engine's lookup of hostname `db` would be visible
-to an installed hook via `socket.getaddrinfo` (ADR 0009); migrate does not install one. The
-static classification of `alembic` (no names) and `alembic.op` (`execute`) does not scan
-`backend/migrations/env.py`.
+`migrate` (`alembic upgrade head`, `compose.yaml`) installs kind `migrate` in `env.py` when
+alembic's command line runs it: only the configured database hosts resolve, no other connection
+or process is allowed, and the online run checks for the standard event loop first (ADR 0009).
+The static guard scans `env.py` as `migrations.env`; the revisions under `migrations/versions`
+are not scanned.
 
 `web` installs none until #77. `python -m ownvitals` (`ownvitals/__main__.py`) does not call
 `install_egress_hook` today; that call and the standard-loop check at startup are acceptance

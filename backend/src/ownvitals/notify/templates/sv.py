@@ -3,7 +3,8 @@
 from types import MappingProxyType
 from typing import Final
 
-from ownvitals.notify.templates.base import LINK, Template
+from ownvitals.notify.templates import en
+from ownvitals.notify.templates.base import LINK, UNSUBSCRIBE_LINK, Template
 
 _FOOTER: Final = (
     "\n\nDet här mejlet säger med avsikt inte mer än så: vad som väntar visas först när du "
@@ -22,10 +23,25 @@ TABLE: Final = MappingProxyType(
             + LINK
             + _FOOTER,
         ),
+        # Still the English copy (``untranslated.UNTRANSLATED_SV``) until the translation PR.
+        "export_ready": en.TABLE["export_ready"],
+        "ai_digest_ready": Template(
+            subject="ownvitals: din veckosammanfattning väntar",
+            body="Din veckosammanfattning väntar på dig i ownvitals.\n\nÖppna den här: "
+            + LINK
+            + _FOOTER,
+        ),
         "connection_needs_reconnect": Template(
             subject="ownvitals: något väntar på administrationssidan",
             body="Något väntar på en administratör i ownvitals.\n\nÖppna administrationssidan "
             "här: " + LINK + _FOOTER,
         ),
     }
+)
+
+# The unsubscribe footer of a suppressible kind's mail (ADR 0019; #459).
+UNSUBSCRIBE: Final = (
+    "\nVill du inte få sådana här mejl? Stäng av dem: "
+    + UNSUBSCRIBE_LINK
+    + "\nDu kan slå på dem igen i ownvitals under Inställningar, Aviseringar.\n"
 )

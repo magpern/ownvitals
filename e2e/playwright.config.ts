@@ -9,7 +9,8 @@ try {
   // no .env: the defaults in helpers/env.ts apply
 }
 
-const base = `http://127.0.0.1:${process.env.WEB_PORT ?? '8000'}`
+// localhost, as OWNVITALS_PUBLIC_BASE_URL in compose.e2e.yaml: passkeys need a host name.
+const base = `http://localhost:${process.env.WEB_PORT ?? '8000'}`
 
 export default defineConfig({
   testDir: './specs',
@@ -27,6 +28,12 @@ export default defineConfig({
     locale: 'en-GB',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // Every context starts as a visitor who has seen the cookie notice (it sits over the page
+    // and would intercept clicks); cookie-notice.spec.ts starts from an empty state instead.
+    storageState: {
+      cookies: [],
+      origins: [{ origin: base, localStorage: [{ name: 'ownvitals.cookie-notice', value: '1' }] }],
+    },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 })

@@ -1,0 +1,179 @@
+{
+ "rows": [
+  {
+   "age_max": 65,
+   "age_min": 18,
+   "criterion": "bmi",
+   "high": {
+    "average": 30,
+    "bad": 40,
+    "good": 25,
+    "perfect": 21
+   },
+   "low": {
+    "average": 16,
+    "bad": 15,
+    "good": 18.5,
+    "perfect": 20
+   },
+   "sex": "any",
+   "unit": "kg/m2",
+   "vertical": "body"
+  },
+  {
+   "age_max": 40,
+   "age_min": 18,
+   "criterion": "fat_ratio",
+   "high": {
+    "average": 25,
+    "bad": 40,
+    "good": 20,
+    "perfect": 10
+   },
+   "low": {
+    "average": 5,
+    "bad": 3,
+    "good": 6,
+    "perfect": 7
+   },
+   "sex": "male",
+   "unit": "%",
+   "vertical": "body"
+  },
+  {
+   "age_max": 40,
+   "age_min": 18,
+   "criterion": "fat_ratio",
+   "high": {
+    "average": 34,
+    "bad": 45,
+    "good": 27,
+    "perfect": 18
+   },
+   "low": {
+    "average": 11,
+    "bad": 8,
+    "good": 13,
+    "perfect": 15
+   },
+   "sex": "female",
+   "unit": "%",
+   "vertical": "body"
+  },
+  {
+   "age_max": 40,
+   "age_min": 18,
+   "criterion": "night_hr",
+   "high": {
+    "average": 70,
+    "bad": 80,
+    "good": 64,
+    "perfect": 50
+   },
+   "sex": "male",
+   "unit": "bpm",
+   "vertical": "heart"
+  },
+  {
+   "age_max": 40,
+   "age_min": 18,
+   "criterion": "vascular_age_gap",
+   "high": {
+    "average": 3,
+    "bad": 5,
+    "good": 0,
+    "perfect": -5
+   },
+   "sex": "male",
+   "unit": "years",
+   "vertical": "heart"
+  },
+  {
+   "age_max": 40,
+   "age_min": 18,
+   "criterion": "vascular_age_gap",
+   "high": {
+    "average": 0,
+    "bad": 3,
+    "good": -2,
+    "perfect": -7
+   },
+   "sex": "female",
+   "unit": "years",
+   "vertical": "heart"
+  },
+  {
+   "age_max": 40,
+   "age_min": 18,
+   "criterion": "afib_ecg_count",
+   "high": {
+    "average": 5,
+    "bad": 10,
+    "good": 1,
+    "perfect": 0
+   },
+   "sex": "any",
+   "unit": "recordings",
+   "vertical": "heart"
+  },
+  {
+   "age_max": 150,
+   "age_min": 40,
+   "criterion": "high_bp_ratio",
+   "high": {
+    "average": 0.5,
+    "bad": 0.7,
+    "good": 0.15,
+    "perfect": 0
+   },
+   "sex": "any",
+   "unit": "ratio",
+   "vertical": "heart"
+  },
+  {
+   "age_max": 65,
+   "age_min": 18,
+   "criterion": "daily_steps",
+   "low": {
+    "average": 3000,
+    "bad": 2000,
+    "good": 6000,
+    "perfect": 12000
+   },
+   "sex": "any",
+   "unit": "steps",
+   "vertical": "activity"
+  },
+  {
+   "age_max": 65,
+   "age_min": 18,
+   "criterion": "weekly_active_minutes",
+   "low": {
+    "average": 300,
+    "bad": 100,
+    "good": 600,
+    "perfect": 1000
+   },
+   "sex": "any",
+   "unit": "min/week",
+   "vertical": "activity"
+  },
+  {
+   "age_max": 40,
+   "age_min": 18,
+   "criterion": "sleep_ahi",
+   "high": {
+    "average": 30,
+    "bad": 50,
+    "good": 15,
+    "perfect": 0
+   },
+   "sex": "any",
+   "unit": "events/h",
+   "vertical": "sleep"
+  }
+ ],
+ "source": "docs/withings-findings.md section 3, Health Improvement Score (the 18-40 bracket unless the section names another); provisional, owner decision 2026-11-12",
+ "table_id": "withings_card_v1",
+ "version": "1"
+}

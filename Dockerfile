@@ -19,6 +19,18 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build
+# The prerendered public site (ADR 0016), into /spa/dist-public. The canonical origin is a build
+# argument (production by default; staging passes its own). OWNVITALS_PUBLIC_LEGAL_APPROVED is the
+# owner's legal gate: declared here without a value, so the legal pages are left out unless the
+# owner passes exactly `true` (`--build-arg`); no committed file sets it (a frontend test checks).
+# The public build copies the owner-approved mock-ups from ../docs/design/mockups/png, which is
+# /docs/... here (WORKDIR /spa); .dockerignore lets exactly this folder through.
+COPY docs/design/mockups/png /docs/design/mockups/png
+# The legal drafts (/docs/legal here), read only by a build that passes the legal gate.
+COPY docs/legal /docs/legal
+ARG OWNVITALS_PUBLIC_ORIGIN=https://ownvitals.eu
+ARG OWNVITALS_PUBLIC_LEGAL_APPROVED
+RUN npm run build:public
 
 # --- runtime ----------------------------------------------------------------------------
 FROM python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df AS runtime
@@ -29,7 +41,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
     OWNVITALS_ENVIRONMENT=prod \
-    OWNVITALS_STATIC_DIR=/app/static
+    OWNVITALS_STATIC_DIR=/app/static \
+    OWNVITALS_PUBLIC_DIR=/app/public
 # The image fails closed: prod (https public URL, no API docs, no password inside a database URL)
 # unless the stack sets OWNVITALS_ENVIRONMENT itself, as compose.yaml does for the local stack.
 
@@ -47,19 +60,24 @@ COPY backend/migrations ./migrations
 COPY backend/src ./src
 # The built single-page app, owned by root: web serves it, the app user cannot change it.
 COPY --from=spa /spa/dist ./static
+# The prerendered public site (ADR 0016), also owned by root. Web answers the fixed set of public
+# paths from it (ownvitals.public_site) and everything else from ./static.
+COPY --from=spa /spa/dist-public ./public
 # The locale manifest the backend reads as SUPPORTED_LOCALES (ADR 0015 section 1; ownvitals.locales).
 COPY --from=spa /spa/src/i18n/locales.json ./locales.json
 # The database functions and their runner script (compose's db-functions one-shot): installed from
 # the release image, never from the host, so a rollback re-installs the previous release's
 # functions (docs/dev/deploy.md, "Database functions"). 30-maint.sql, then 40-withings.sql, then
-# rate.sql, then 50-outbox.sql, then 50-ai.sql, are installed in the same transaction, after
-# 20-queue.sql. Owned by root; the app user can read them, not change them.
+# rate.sql, then 50-outbox.sql, then 50-ai.sql, then 60-exports.sql, then 70-admin-accounts.sql,
+# are installed in the same transaction, after 20-queue.sql. Owned by root; the app user can read them, not change them.
 COPY --chmod=0555 docker/postgres/queue/20-queue.sql docker/postgres/queue/db-functions.sh /app/db-functions/
 COPY --chmod=0555 docker/postgres/maint/30-maint.sql /app/db-functions/
 COPY --chmod=0555 docker/postgres/withings/40-withings.sql /app/db-functions/
 COPY --chmod=0555 docker/postgres/withings/rate.sql /app/db-functions/
 COPY --chmod=0555 docker/postgres/notify/50-outbox.sql /app/db-functions/
 COPY --chmod=0555 docker/postgres/ai/50-ai.sql /app/db-functions/
+COPY --chmod=0555 docker/postgres/exports/60-exports.sql /app/db-functions/
+COPY --chmod=0555 docker/postgres/maint/70-admin-accounts.sql /app/db-functions/
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev

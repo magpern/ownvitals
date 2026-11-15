@@ -20,6 +20,7 @@ from ownvitals.auth.flowtools import factory, reserve
 from ownvitals.auth.notices import notify_mfa_failures
 from ownvitals.auth.qrlogin_routes import Info, _enabled, _refuse, _refused
 from ownvitals.auth.ratelimit import QR_APPROVE_ACCOUNT, QR_SCAN_ACCOUNT, Bucket, mfa_buckets
+from ownvitals.auth.recipients import request_mail_locale
 from ownvitals.auth.sessions import SessionInfo
 from ownvitals.context import UserContext
 from ownvitals.db import system_session
@@ -124,9 +125,11 @@ async def approve(
             body.code,
             ip,
         )
+        mail = result.outcome == "invalid_code" and result.mail_failures
+        locale = await request_mail_locale(db, request, ctx.user_id) if mail else None
     if result.outcome == "invalid_code":
-        if result.mail_failures:
-            background.add_task(notify_mfa_failures, ctx.user_id, session.email)
+        if locale is not None:
+            background.add_task(notify_mfa_failures, ctx.user_id, session.email, locale)
         return JSONResponse(
             {"detail": {"reason": "invalid_code"}}, status_code=400, background=background
         )

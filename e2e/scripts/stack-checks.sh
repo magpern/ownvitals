@@ -18,10 +18,12 @@ ok() { echo "ok   $*"; }
 
 if [ "$(curl -s -o /dev/null -w '%{http_code}' "$base/api/ready")" = 200 ]; then ok "/api/ready is 200"; else fail "/api/ready is not 200"; fi
 
-for path in / /signin /settings/security; do
+for path in /overview /signin /settings/security; do
   if curl -fsS "$base$path" | grep -q '<div id="root"></div>'; then ok "$path serves the single-page app"; else fail "$path does not serve the single-page app"; fi
 done
-asset="$(curl -fsS "$base/" | sed -n 's/.*src="\(\/assets\/[^"]*\.js\)".*/\1/p' | head -n 1)"
+# `/` is the public home (ADR 0016), not the app shell.
+if curl -fsS "$base/" | grep -q '<h1'; then ok "/ serves the public home"; else fail "/ does not serve the public home"; fi
+asset="$(curl -fsS "$base/overview" | sed -n 's/.*src="\(\/assets\/[^"]*\.js\)".*/\1/p' | head -n 1)"
 if [ -n "$asset" ] && [ "$(curl -s -o /dev/null -w '%{http_code}' "$base$asset")" = 200 ]; then ok "the built script $asset is served"; else fail "no built script is served"; fi
 if curl -fsS "$base/api/does-not-exist" > /dev/null 2>&1; then fail "an unknown /api path answered 200"; else ok "an unknown /api path is not the single-page app"; fi
 

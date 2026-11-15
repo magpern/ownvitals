@@ -13,6 +13,7 @@ SECRET_FILE_FIELDS = (
     "app_secret_key",
     "smtp_password",
     "oauth_google_client_secret",
+    "turnstile_secret_key",
 )
 
 

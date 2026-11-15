@@ -237,7 +237,7 @@ def _score(conn: Connection, owner: uuid.UUID, **overrides: Any) -> None:
         "day": "2026-10-28",
         "value": 62,
         "status": "computed",
-        "version": "his/1",
+        "version": "his/2",
         **overrides,
     }
     # ``components`` (raw JSON) replaces the status object, so a test can omit the status.
@@ -509,10 +509,12 @@ def test_the_migration_writes_the_vocabularies_of_the_tables_module() -> None:
         derived.WEIGHT_UNITS,
         derived.TEMPERATURE_UNITS,
         derived.DATETIME_FORMATS,
-        derived.CHART_RANGES,
         derived.OVERVIEW_GROUPS,
     ):
         assert listed(values), values
+    # The chart ranges were widened by 0028 (7 d, issue 402); 0011 holds the first list.
+    widened = (MIGRATION.parent / "0028_chart_range_7d.py").read_text(encoding="utf-8")
+    assert ", ".join(f"'{v}'" for v in derived.CHART_RANGES) in widened
     assert "'{{" + ",".join(derived.DEFAULT_NOTIFY_TIERS) + "}}'" in source
     assert f"(rule_id = '{derived.SYSTEM_RULE}')" in source
     assert f'_KEY_BODY = "{derived.METRIC_KEY_PATTERN[1:-1]}"' in source
