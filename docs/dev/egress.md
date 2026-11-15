@@ -54,11 +54,15 @@ For the eval module (parts 2 and 3 of #527):
 - It installs its hook with `install_egress_hook(EVAL_HOOK_KIND, settings)`, imported from
   `ownvitals.egress`. Outside the package the guard refuses the literal `'eval'` and prose that
   names the module (the evaluator rule, by string and in prose).
-- The `eval` kind resolves database hosts only from the three existing URL settings
-  (`database_url`, `migrations_database_url`, `maint_database_url`). The eval database is
-  reached through one of them (`database_url` pointed at the `_ai_eval` database). A separate
-  eval database setting would not resolve until `_database_endpoints` reads it, in a reviewed
-  egress change.
+- The `eval` kind resolves database hosts from the three existing URL settings **and**, for this
+  kind only, from `ai_eval_database_url` and `ai_eval_migrations_database_url` (#527): the run's
+  copy of the settings points `database_url` at the `_ai_eval` database, but the hook is installed
+  from the process's own settings, before that copy exists. No other kind reads the two settings
+  (`test_egress_hook.py`).
+- The module's prose and strings may not name the evaluator `eval` as a word: `ai/audit.py` holds the
+  one exempt string, the `ai_audit.kind` value (`CODE_STRINGS` in `tests/egress_classified.py`), and
+  the evaluation's strings say `evaluation`. It imports neither `httpx` nor `alembic`: the head of the
+  migrations is read from `migrations/versions` as text.
 
 ## Using it
 

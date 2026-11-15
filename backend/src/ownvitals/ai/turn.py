@@ -14,6 +14,7 @@ tool ends the turn without an answer (``unknown_tool``), and too many tool calls
 its own consent check (``consent.require_consent`` in the storing transaction).
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -31,12 +32,15 @@ Stopped = Literal["answered", "no_answer", "tool_limit", "unknown_tool"]
 
 @dataclass(frozen=True, slots=True)
 class Turn:
-    """How a turn ended: the answer's text (only when ``answered``) and counts."""
+    """How a turn ended: the answer's text (only when ``answered``) and counts. ``results`` are
+    the tools' results of the turn, in order: only the owner's evaluation reads them (its grounding
+    grader); no caller stores or sends them."""
 
     text: str | None
     stopped: Stopped
     tool_calls: int
     requests: int
+    results: tuple[Mapping[str, Any], ...] = ()
 
 
 async def run_turn(
@@ -53,16 +57,23 @@ async def run_turn(
     if not messages or messages[-1].role != "user":
         raise ModelRefused("invalid_messages")
     calls = requests = 0
+    results: list[Mapping[str, Any]] = []
     while True:
         reply = await call_model(job, settings, kind=kind, messages=messages, **call_options)
         requests += 1
         if not reply.tool_requests:
             text = reply.text
-            return Turn(text or None, "answered" if text else "no_answer", calls, requests)
+            return Turn(
+                text or None,
+                "answered" if text else "no_answer",
+                calls,
+                requests,
+                tuple(results),
+            )
         if any(r.name not in TOOLS for r in reply.tool_requests):
-            return Turn(None, "unknown_tool", calls, requests)
+            return Turn(None, "unknown_tool", calls, requests, tuple(results))
         if calls + len(reply.tool_requests) > MAX_TOOL_CALLS_PER_TURN:
-            return Turn(None, "tool_limit", calls, requests)
+            return Turn(None, "tool_limit", calls, requests, tuple(results))
         uses: list[ToolUse] = []
         outputs: list[ToolOutput] = []
         for request in reply.tool_requests:
@@ -72,6 +83,7 @@ async def run_turn(
             )
             uses.append(ToolUse(calls, request.name, _mapping(request.arguments)))
             outputs.append(ToolOutput(calls, result))
+            results.append(result)
         said = tuple(Text(t) for t in reply.texts)
         messages = [
             *messages,

@@ -1,6 +1,6 @@
 """The feature-flag and AI cost-cap settings of ``ownvitals.config`` (fields only)."""
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
 
 
@@ -39,3 +39,16 @@ class AiSettings(BaseSettings):
     ai_model: str = Field(default="", max_length=100, pattern=r"^([a-z0-9][a-z0-9.\-]*)?$")
     ai_provider_review_ref: str = Field(default="", max_length=500)
     ai_eval_ref: str = Field(default="", max_length=200)
+
+    # The owner's model evaluation (ADR 0014 section 9; ``docs/dev/ai.md``). Off unless
+    # ``OWNVITALS_AI_EVAL=on``, set by the owner for one run only (never in a compose file).
+    ai_eval: bool = False
+    # What one run may spend, integer micro-USD, against the evaluation database's own ledger (0: no
+    # call can be reserved). Not the users' caps: the evaluation serves no user.
+    ai_eval_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000)
+    # The evaluation database (the name must end in ``_ai_eval``; never the app's own):
+    # the app role's URL and the owner role's URL, which seeds the marked accounts and reads the
+    # schema version. Their passwords come from the same secret files as the app's
+    # (``database_password`` and ``database_owner_password``).
+    ai_eval_database_url: SecretStr | None = None
+    ai_eval_migrations_database_url: SecretStr | None = None

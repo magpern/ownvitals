@@ -42,9 +42,10 @@ AI_AUDIT_OWNED: Final = ("ai_audit",)
 AUDIT_LABEL: Final = "ai-audit"
 AUDIT_TOOLS_MAX: Final = 16
 
-# ``ai_audit.kind`` also admits the owner's evaluation run (ADR 0014 section 9), which that
-# issue adds here with its own guard entry.
-AuditKind = Literal["chat", "digest"]
+# ``ai_audit.kind`` (migration 0023): the owner's evaluation run (ADR 0014 section 9) writes
+# evaluation rows, in its own ``_ai_eval`` database only (``ai.call_hooks``).
+AuditKind = Literal["chat", "digest", "eval"]
+EVAL_AUDIT_KIND: Final[AuditKind] = "eval"
 Status = Literal["completed", "failed"]
 ErrorCategory = Literal[
     "refused",

@@ -36,6 +36,8 @@ from typing import TYPE_CHECKING, Final
 
 from ownvitals import egress
 from ownvitals.ai import audit, budget, consent
+from ownvitals.ai.audit import AuditKind
+from ownvitals.ai.call_hooks import CallHooks
 from ownvitals.ai.client_settle import settle_and_audit
 from ownvitals.ai.gates import (
     ModelFailed,
@@ -45,7 +47,7 @@ from ownvitals.ai.gates import (
     read_api_key,
     retry_after_of,
 )
-from ownvitals.ai.pricing import PRICES, Price, request_bound
+from ownvitals.ai.pricing import PRICES, TOOL_ALLOWANCE_TOKENS, Price, request_bound
 from ownvitals.ai.requests import (
     API_VERSION,
     MAX_TOKENS,
@@ -75,16 +77,21 @@ Sleep = Callable[[float], Awaitable[None]]
 class _Call:
     """One model call's state: the attempts, the answer, the settlement."""
 
-    def __init__(self, job: JobRun, settings: Settings, kind: Kind, model: str) -> None:
-        self.job, self.settings, self.model = job, settings, model
-        self.kind: Kind = kind
+    def __init__(
+        self, job: JobRun, settings: Settings, kind: Kind, model: str, hooks: CallHooks | None
+    ) -> None:
+        self.job, self.settings, self.model, self.hooks = job, settings, model, hooks
+        self.kind: AuditKind = hooks.audit_kind if hooks is not None else kind
         self.attempts = 0
         self.status: int | None = None
         self.answer: bytes | None = None
         self.retry_after: float | None = None
 
     async def recheck(self) -> None:
-        """Before a later attempt: the flag, the live consent and the job's cancel."""
+        """Before a later attempt: the evaluation's own check, the flag, the live consent and the
+        job's cancel."""
+        if self.hooks is not None and not await self.hooks.allowed():
+            raise ModelFailed("cancelled")
         try:
             async with self.job.fenced() as fs:
                 owner = fs.lease.ctx.user_id
@@ -146,6 +153,7 @@ async def call_model(
     inner: httpx.AsyncBaseTransport | None = None,
     secrets_directory: Path | None = None,
     sleep: Sleep = asyncio.sleep,
+    hooks: CallHooks | None = None,
 ) -> Reply:
     """One model request for ``job``'s user; the parsed answer. ``ModelRefused`` when no
     request was sent (nothing stays reserved); ``ModelFailed`` when one failed."""
@@ -166,6 +174,8 @@ async def call_model(
             raise ModelRefused("ai_not_configured") from None
         except RequestRefused as refused:
             raise ModelRefused(refused.code) from None
+        if hooks is not None and not await hooks.allowed():
+            raise ModelRefused("eval_refused")  # the evaluation's own check, before any reservation
         held = await _reserve(
             job, settings, request_bound(model, len(raw), MAX_TOKENS[kind], prices)
         )
@@ -175,7 +185,7 @@ async def call_model(
             "content-type": "application/json",
             "accept": "application/json",
         }
-        call = _Call(job, settings, kind, model)
+        call = _Call(job, settings, kind, model, hooks)
         started = time.monotonic()
         reply: Reply | None = None
         failure: ModelFailed | None = None
@@ -197,6 +207,8 @@ async def call_model(
         except LeaseLost:  # lost during a re-check, after an earlier attempt was sent
             stopped, failure = RunStopped("lost"), ModelFailed("cancelled")
         latency = int((time.monotonic() - started) * 1000)
+        if hooks is not None and reply is not None:
+            hooks.observe(len(raw) + TOOL_ALLOWANCE_TOKENS, reply)
         return await settle_and_audit(
             call, held, key, raw, reply, failure, stopped, latency, prices
         )
