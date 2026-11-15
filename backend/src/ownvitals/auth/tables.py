@@ -58,6 +58,9 @@ users = Table(
     # The account's language (ADR 0015 section 2); NULL follows the browser. Migration 0017.
     Column("locale", Text),
     CheckConstraint(LOCALE_CHECK, name="users_locale"),
+    # An AI evaluation seeder's account (ADR 0014 section 9; migration 0031, #531). The app role may
+    # not write it: only the owner role does, through ``ownvitals.auth.synthetic``.
+    Column("synthetic", Boolean, nullable=False, server_default=text("false")),
 )
 
 identities = Table(

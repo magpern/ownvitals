@@ -142,6 +142,20 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
             "record_event",
         }
     ),
+    # the AI eval's synthetic accounts (#531, ADR 0014 section 9): the owner-role insert of a
+    # marked account in an ``_ai_eval`` database, and the checks that every account is marked
+    "ownvitals.auth.synthetic": frozenset(
+        {
+            "EVAL_DATABASE_SUFFIX",
+            "EVAL_EMAIL_DOMAIN",
+            "SyntheticRefused",
+            "account_is_synthetic",
+            "create_synthetic_account",
+            "eval_database",
+            "is_eval_database_name",
+            "unmarked_accounts",
+        }
+    ),
     # the admin abuse view (#461): the signal codes it may show
     "ownvitals.auth.session_anomaly_policy": frozenset({"SIGNALS"}),
     # the admin Users view (#127): list and find, emails by id, disable, enable and delete

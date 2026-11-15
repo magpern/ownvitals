@@ -41,6 +41,7 @@ ACCOUNT_NOT_EXPORTED: Final[Mapping[str, Mapping[str, str]]] = {
         "email_normalized": "a normalized copy of the email (the email itself is exported)",
         "password_hash": "the password hash (ADR 0013 section 1)",
         "webauthn_handle": "the passkey user handle (ADR 0013 section 1)",
+        "synthetic": "the AI evaluation's mark of a seeded account; false for a person (#531)",
     },
     "auth_events": {
         "id": "an internal row id",
