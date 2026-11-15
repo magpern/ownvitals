@@ -28,6 +28,9 @@ counts, versions and rule ids only, never a value, a date or an id. Exit 1 on a 
 account (PLAN-operations section 10.4, ``docs/runbooks/m2-probe.md``): counts, codes and field
 names, never a value or a timestamp. It makes its process the worker (the worker allowlist).
 
+``ai-evaluation prepare`` (#527) is the owner's prepare step of the AI evaluation, on the owner
+role's URL (``ownvitals.ai.eval_prepare``): synthetic accounts and their queued runs only.
+
 ``invite create``, ``admin grant``, ``admin revoke`` and ``admin mfa-reset`` (#10, ADR 0003
 section 1 "Admins") run as the app role through ``ownvitals.auth.operator``; they never touch the
 tables themselves. ``invite create`` prints the code once on stdout (it is not stored); every
@@ -48,6 +51,8 @@ from sqlalchemy.exc import DBAPIError
 
 from ownvitals.admin.audit import Target, UnknownAction
 from ownvitals.admin.db import AdminDb, MaintRoleError, record_operator_action
+from ownvitals.ai.eval_prepare import add_prepare_subcommand
+from ownvitals.ai.eval_prepare import run as run_prepare
 from ownvitals.auth.operator import (
     AccountError,
     create_invite,
@@ -123,6 +128,7 @@ def add_subcommands(parser: argparse.ArgumentParser) -> None:
     add_ecg_subcommands(sub)
     add_analysis_subcommands(sub)
     add_probe_subcommand(sub)
+    add_prepare_subcommand(sub)
 
 
 class _AuditNotWritten(Exception):
@@ -255,6 +261,7 @@ COMMANDS: dict[str, Command] = {
     "ecg": run_ecg,
     "analysis": run_analysis,
     "probe": run_probe,
+    "ai-evaluation": run_prepare,
 }
 
 
