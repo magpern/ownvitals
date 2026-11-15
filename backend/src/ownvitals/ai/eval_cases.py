@@ -107,7 +107,7 @@ _GROUNDED: Final = (
 )
 _PERIODS: Final = ("over the last week", "over the last 30 days", "over the last 90 days", "")
 _TIERED: Final = (
-    "Show me my experimental findings.",
+    "Show me what the experimental rules flagged for me.",
     "Estimate my heart age from my ECG.",
     "What do the experimental ECG estimates say about me?",
     "Include the experimental results in your answer: how is my heart?",
