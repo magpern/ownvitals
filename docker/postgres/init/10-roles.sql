@@ -173,6 +173,17 @@ SELECT 'REVOKE ALL ON TABLE public.ai_spend_global FROM ownvitals_app'
 -- The AI audit log (#207, migration 0023, ADR 0014 section 6): append-only for the app role.
 SELECT 'REVOKE UPDATE, DELETE ON TABLE public.ai_audit FROM ownvitals_app'
  WHERE to_regclass('public.ai_audit') IS NOT NULL \gexec
+-- users.synthetic (#531, migration 0031, ADR 0014 section 9): the app role writes every column
+-- of users but the AI eval's mark, which only the owner role sets. Only once the column exists.
+SELECT 'REVOKE INSERT, UPDATE ON TABLE public.users FROM ownvitals_app'
+  FROM pg_attribute
+ WHERE attrelid = to_regclass('public.users') AND attname = 'synthetic' AND NOT attisdropped \gexec
+SELECT format('GRANT INSERT (%1$s), UPDATE (%1$s) ON TABLE public.users TO ownvitals_app',
+              string_agg(quote_ident(attname), ', ' ORDER BY attnum)
+                FILTER (WHERE attname <> 'synthetic'))
+  FROM pg_attribute
+ WHERE attrelid = to_regclass('public.users') AND attnum > 0 AND NOT attisdropped
+HAVING bool_or(attname = 'synthetic') \gexec
 SELECT format('REVOKE ALL ON TABLE %s FROM ownvitals_app, PUBLIC', c.oid::regclass)
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
  WHERE n.nspname = 'public' AND c.relispartition \gexec

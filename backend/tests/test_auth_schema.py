@@ -79,11 +79,20 @@ def test_the_app_role_gets_dml_and_nothing_else(admin: Connection) -> None:
     }
     for name in AUTH:
         for privilege, expected in privileges.items():
+            if name == "users" and privilege in {"INSERT", "UPDATE"}:
+                expected = False  # by column since migration 0031 (#531): never ``synthetic``
             granted = admin.execute(
                 text("SELECT has_table_privilege('ownvitals_app', :t, :p)"),
                 {"t": f"public.{name}", "p": privilege},
             ).scalar_one()
             assert granted is expected, (name, privilege)
+    for column in metadata.tables["users"].columns:
+        for privilege in ("INSERT", "UPDATE"):
+            granted = admin.execute(
+                text("SELECT has_column_privilege('ownvitals_app', 'public.users', :c, :p)"),
+                {"c": column.name, "p": privilege},
+            ).scalar_one()
+            assert granted is (column.name != "synthetic"), (column.name, privilege)
 
 
 def test_the_app_role_cannot_truncate_or_alter(app_database_url: str, auth_schema: None) -> None:

@@ -43,6 +43,7 @@ from collections.abc import Callable
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from ownvitals.auth.tables import users as _users
 from ownvitals.db.role_check import EXPECTED_ROLE_SETTINGS
 from ownvitals.db.tables import NO_APP_ACCESS
 from ownvitals.withings.tables import APP_WITHINGS_COLUMNS
@@ -72,6 +73,18 @@ RESTRICTED_APP_PRIVILEGES: dict[str, set[str]] = {
     "ai_reservations": {"SELECT"},
     # Migration 0023 (#207, ADR 0014 section 6): the AI audit log is append-only for the app.
     "ai_audit": {"SELECT", "INSERT"},
+    # Migration 0031 (#531, ADR 0014 section 9): INSERT and UPDATE by column, below. Applied once
+    # ``users.synthetic`` exists (``SYNTHETIC_COLUMN``).
+    "users": {"SELECT", "DELETE"},
+}
+# Migration 0031: the app role inserts and updates every column of users but the AI eval's mark
+# ``synthetic``, which only the owner role writes. A later users column needs both grants in its
+# migration (and 10-roles.sql's restore grants every column but the mark).
+SYNTHETIC_COLUMN = "synthetic"
+APP_USER_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
+    ("users", c.name): {(APP, "INSERT"), (APP, "UPDATE")}
+    for c in _users.columns
+    if c.name != SYNTHETIC_COLUMN
 }
 # The only column-level privileges in public, exactly: (table, column) -> {(grantee, privilege)}.
 # Maint's columns are guard 11's. The queue role reads three columns of ``connections`` and
@@ -822,6 +835,16 @@ def check_roles(conn: Connection) -> list[str]:
     # Month partitions of ensure_month_partitions' tables (40-withings.sql): that function
     # revokes every privilege of the app role and PUBLIC on each one, so the app role reaches
     # the rows only through the parent, under its policy (#280).
+    # Migration 0031 has run: users carries the AI eval's mark (and the app role's column grants).
+    marked_users = bool(
+        conn.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = "
+                "to_regclass('public.users') AND attname = :c AND NOT attisdropped)"
+            ),
+            {"c": SYNTHETIC_COLUMN},
+        ).scalar()
+    )
     month_partitions = {
         f"{name}:r"
         for (name,) in conn.execute(
@@ -837,7 +860,8 @@ def check_roles(conn: Connection) -> list[str]:
     }
     for obj in sorted({o for o, *_ in relations}):
         expected = SEQUENCE_PRIVILEGES if obj.endswith(":S") else TABLE_PRIVILEGES
-        expected = RESTRICTED_APP_PRIVILEGES.get(obj.split(":")[0], expected)
+        if obj != "users:r" or marked_users:
+            expected = RESTRICTED_APP_PRIVILEGES.get(obj.split(":")[0], expected)
         if obj.split(":")[0] in NO_APP_ACCESS or obj in month_partitions:
             expected = set()
         need(
@@ -945,6 +969,9 @@ def check_roles(conn: Connection) -> list[str]:
         for key, value in COLUMN_PRIVILEGES.items()
         if key[0] in present and (queue_installed or not any(g == QUEUE for g, _ in value))
     }
+    if marked_users:
+        for key, extra in APP_USER_COLUMNS.items():
+            expected_columns[key] = set(expected_columns.get(key, ())) | extra
     if withings_installed:
         for key, extra in WITHINGS_COLUMNS.items():
             if key[0] in present:
