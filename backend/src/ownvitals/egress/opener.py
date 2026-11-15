@@ -37,7 +37,11 @@ from ownvitals.egress.deadline import (  # noqa: F401 (re-exported)
     call_deadline_until,
     request_deadline,
 )
-from ownvitals.egress.hook import _connection_scope  # the package's own
+from ownvitals.egress.hook import (
+    EVAL_HOOK_KIND,
+    _connection_scope,  # the package's own
+    installed_kind,
+)
 
 
 def _check_urllib_request(allowlist: Allowlist, req: urllib.request.Request) -> None:
@@ -168,8 +172,11 @@ def install_eval_allowlist() -> urllib.request.OpenerDirector:
     installed as the opener of every ``urllib.request.urlopen``. From now on only the model
     client builds; the Withings client refuses (not on the list) and so does every web-only
     call site (``refuse_in_worker``: Google sign-in, the code exchange, Turnstile, mail). Only
-    ``ownvitals.ai.eval`` calls it, after its database checks; a process that is already the
-    worker refuses it (``RuntimeError``), and the worker's list refuses it afterwards."""
+    ``ownvitals.ai.eval`` calls it, after its database checks. It raises ``RuntimeError`` unless
+    the egress hook of kind ``eval`` is installed (ADR 0014 §9's order: the hook first), and in
+    a process that is already the worker; the worker's list refuses it afterwards."""
+    if installed_kind() != EVAL_HOOK_KIND:
+        raise RuntimeError("the eval role needs the eval egress hook installed first")
     _install_worker_list(MODEL_ALLOWLIST)  # first: refused in the worker, its opener then stays
     opener = build_allowlist_opener(MODEL_ALLOWLIST)
     urllib.request.install_opener(opener)

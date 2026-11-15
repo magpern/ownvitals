@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 
 Kind = Literal["web", "worker", "cli", "migrate", "eval"]
 KINDS: Final = frozenset(get_args(Kind))
+# The model evals' kind, for ``install_egress_hook(EVAL_HOOK_KIND, settings)``: outside this
+# package the guard refuses the literal (an evaluator's name, by string).
+EVAL_HOOK_KIND: Final[Kind] = "eval"
 WEB_HOSTS: Final = GOOGLE_SIGNIN_HOSTS | {WITHINGS_API_HOST}
 POSTGRES_PORT: Final = 5432
 
@@ -41,7 +44,7 @@ class _Policy:
 
     def installed_hosts(self) -> frozenset[str]:
         """The installed worker list's hosts, which this kind resolves too; none for ``eval``."""
-        return frozenset() if self.kind == "eval" else installed_worker_hosts()
+        return frozenset() if self.kind == EVAL_HOOK_KIND else installed_worker_hosts()
 
     def resolvable(self, host: str) -> bool:
         return host in self.hosts or host in self.installed_hosts()
@@ -82,7 +85,7 @@ def _policy_for(kind: Kind, settings: Settings) -> _Policy:
         hosts |= WEB_HOSTS
         if settings.turnstile_enabled is True:  # roadmap Amendment 12: only when it is on
             hosts.add(TURNSTILE_HOST)
-    if kind == "eval":  # ADR 0014 §9: the model host only, no Withings, Google or SMTP host
+    if kind == EVAL_HOOK_KIND:  # ADR 0014 §9: the model host only, no Withings, Google or SMTP host
         hosts.add(MODEL_HOST)
     if kind in ("web", "cli") and settings.smtp_host:
         hosts.add(_normalise(settings.smtp_host) or "")

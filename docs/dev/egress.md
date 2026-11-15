@@ -42,6 +42,23 @@ worker role: only `ownvitals.ai.eval` may call it (the guard's `EVAL_ROLE_MODULE
 module is not in `WORKER_ROLE_MODULES`. The two roles exclude each other: in a process with one,
 installing the other raises `RuntimeError` and leaves the list and the opener as they were (both
 installs record the role before they install their opener).
+`install_eval_allowlist()` also raises `RuntimeError` unless the egress hook of kind `eval` is
+installed, so ADR 0014 §9's order (the hook first, the list after the database checks) is the
+package's, not only the caller's.
+
+For the eval module (parts 2 and 3 of #527):
+
+- It is the **single file** `ownvitals/ai/eval.py`, run as `python -m ownvitals.ai.eval` through
+  `if __name__ == "__main__"`. Both guard lists name exactly `ownvitals.ai.eval`, so a package
+  whose entry point is `ownvitals.ai.eval.__main__` would be refused.
+- It installs its hook with `install_egress_hook(EVAL_HOOK_KIND, settings)`, imported from
+  `ownvitals.egress`. Outside the package the guard refuses the literal `'eval'` and prose that
+  names the module (the evaluator rule, by string and in prose).
+- The `eval` kind resolves database hosts only from the three existing URL settings
+  (`database_url`, `migrations_database_url`, `maint_database_url`). The eval database is
+  reached through one of them (`database_url` pointed at the `_ai_eval` database). A separate
+  eval database setting would not resolve until `_database_endpoints` reads it, in a reviewed
+  egress change.
 
 ## Using it
 

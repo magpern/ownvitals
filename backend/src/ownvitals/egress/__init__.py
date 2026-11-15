@@ -114,6 +114,7 @@ from ownvitals.egress.deadline import (
     request_deadline,
 )
 from ownvitals.egress.hook import (
+    EVAL_HOOK_KIND,
     EgressRefused,
     install_egress_hook,
     installed_kind,
@@ -141,6 +142,7 @@ __all__ = [
     "CODE_EXCHANGE_HEADERS",
     "CODE_EXCHANGE_TOTAL_SECONDS",
     "CONNECT_ERRORS",
+    "EVAL_HOOK_KIND",
     "GOOGLE_JWKS_HOST",
     "GOOGLE_SIGNIN_ALLOWLIST",
     "GOOGLE_SIGNIN_HOSTS",

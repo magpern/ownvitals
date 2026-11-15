@@ -22,6 +22,7 @@ from ownvitals import cli, mail
 from ownvitals.config import Settings
 from ownvitals.db import event_loop_factory
 from ownvitals.egress import (
+    EVAL_HOOK_KIND,
     EgressRefused,
     core,
     install_egress_hook,
@@ -29,6 +30,7 @@ from ownvitals.egress import (
     require_standard_event_loop,
     worker_allowlist_installed,
 )
+from ownvitals.egress.hook_hosts import KINDS as HOOK_KINDS
 from ownvitals.egress.hook_hosts import WEB_HOSTS, _policy_for  # pyright: ignore[reportPrivateUsage]
 from ownvitals.worker import __main__ as worker_main
 
@@ -312,6 +314,14 @@ def test_the_eval_kind_resolves_the_model_host_and_the_database_only() -> None:
         policy = _policy_for("eval", settings)
         assert policy.hosts == {*database, "api.anthropic.com"}
         assert policy.unix_paths == frozenset({"/run/pg/.s.PGSQL.5432"})
+
+
+def test_the_eval_hook_kind_constant_is_the_eval_kind() -> None:
+    """``ownvitals.ai.eval`` installs its hook with the package's constant (the guard refuses the
+    literal there)."""
+    assert EVAL_HOOK_KIND == "eval"
+    assert EVAL_HOOK_KIND in HOOK_KINDS
+    assert _policy_for(EVAL_HOOK_KIND, _settings()).kind == "eval"
 
 
 def test_an_installed_worker_list_widens_every_kind_but_eval(

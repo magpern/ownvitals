@@ -64,7 +64,8 @@ from typing import TYPE_CHECKING, Any, Final
 from ownvitals.egress.core import (
     _printable_host,  # the package's own; the guard refuses private names outside it
 )
-from ownvitals.egress.hook_hosts import (
+from ownvitals.egress.hook_hosts import (  # noqa: F401 (EVAL_HOOK_KIND re-exported)
+    EVAL_HOOK_KIND,
     KINDS,
     Kind,
     _normalise,  # the package's own

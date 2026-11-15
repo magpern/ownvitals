@@ -379,8 +379,11 @@ def test_the_eval_module_does_not_make_its_process_the_worker(source: str) -> No
 
 
 def test_the_eval_module_may_install_the_eval_hook() -> None:
-    # The kind by name: a literal 'eval' outside the package is the string rule's (an evaluator).
-    source = "from ownvitals.egress import install_egress_hook\ninstall_egress_hook(kind, s)"
+    # The package's constant: a literal 'eval' outside the package is the string rule's.
+    source = (
+        "from ownvitals.egress import EVAL_HOOK_KIND, install_egress_hook\n"
+        "install_egress_hook(EVAL_HOOK_KIND, s)"
+    )
     assert scan_source(source, "ownvitals.ai.eval") == []
     assert scan_source(source, "ownvitals.ai.client") != []
 

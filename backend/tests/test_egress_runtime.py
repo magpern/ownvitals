@@ -24,17 +24,20 @@ import netguard
 from ownvitals import egress
 from ownvitals.config import Settings
 from ownvitals.egress import (
+    EVAL_HOOK_KIND,
     OutboundBlocked,
     core,
     exchange_withings_code,
     google_async_client,
     google_oauth_client,
+    hook,
     install_eval_allowlist,
     install_worker_allowlist,
     model_async_client,
     verify_turnstile_token,
     withings_async_client,
 )
+from ownvitals.egress.hook_hosts import _policy_for  # pyright: ignore[reportPrivateUsage]
 from ownvitals.mail import Mailer, MailMessage
 from smtpfake import SmtpFake
 
@@ -124,8 +127,25 @@ async def test_the_model_client_is_refused_in_a_worker_without_ai() -> None:
 # --- the model evals' role (ADR 0014 §9, #530) -------------------------------------------------
 
 
+def _eval_process() -> urllib.request.OpenerDirector:
+    """The eval entry point's order: its hook first (recorded, as conftest keeps the real one
+    out; conftest's fixture puts ``hook._policy`` back), then the eval list."""
+    hook._policy = _policy_for(EVAL_HOOK_KIND, Settings())  # pyright: ignore[reportPrivateUsage]
+    return install_eval_allowlist()
+
+
+@pytest.mark.parametrize("kind", [None, "web", "worker", "cli", "migrate"])
+def test_the_eval_role_needs_the_eval_hook_first(kind: Any) -> None:
+    if kind is not None:
+        hook._policy = _policy_for(kind, Settings())  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(RuntimeError, match="eval egress hook installed first"):
+        install_eval_allowlist()
+    assert egress.installed_worker_hosts() == frozenset()
+    assert urllib.request._opener is None  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
+
+
 async def test_in_the_eval_role_the_model_client_builds() -> None:
-    install_eval_allowlist()
+    _eval_process()
     assert egress.installed_worker_hosts() == {"api.anthropic.com"}  # by name, not the constant
     async with model_async_client() as client:
         assert isinstance(client, httpx.AsyncClient)
@@ -143,7 +163,7 @@ EVAL_REFUSED: list[tuple[Callable[..., Any], str]] = [
 async def test_in_the_eval_role_every_other_entry_point_refuses(
     builder: Callable[..., Any], host: str, no_smtp: list[str]
 ) -> None:
-    install_eval_allowlist()
+    _eval_process()
 
     async def call() -> None:
         result = builder()
@@ -158,21 +178,21 @@ async def test_in_the_eval_role_every_other_entry_point_refuses(
 
 def test_the_eval_role_and_the_worker_exclude_each_other() -> None:
     """One role per process: neither list is widened into, or swapped for, the other."""
-    install_eval_allowlist()
+    _eval_process()
     eval_opener = urllib.request._opener  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
     for ai_enabled in (False, True):
         with pytest.raises(RuntimeError, match="another egress role"):
             install_worker_allowlist(ai_enabled=ai_enabled)
     assert egress.installed_worker_hosts() == {"api.anthropic.com"}
     assert urllib.request._opener is eval_opener  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
-    install_eval_allowlist()  # the same role again: no change
+    _eval_process()  # the same role again: no change
     assert egress.installed_worker_hosts() == {"api.anthropic.com"}
 
     core._worker_list = None  # pyright: ignore[reportPrivateUsage] - a fresh process
     install_worker_allowlist(ai_enabled=True)
     worker_opener = urllib.request._opener  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
     with pytest.raises(RuntimeError, match="another egress role"):
-        install_eval_allowlist()
+        _eval_process()
     assert egress.installed_worker_hosts() == {*egress.WITHINGS_HOSTS, "api.anthropic.com"}
     assert urllib.request._opener is worker_opener  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
 
@@ -416,7 +436,7 @@ PROCESSES: dict[str, tuple[Callable[[], urllib.request.OpenerDirector | None], s
         lambda: install_worker_allowlist(ai_enabled=True),
         {*WITHINGS_WORKER, "api.anthropic.com"},
     ),
-    "eval": (install_eval_allowlist, {"api.anthropic.com"}),
+    "eval": (_eval_process, {"api.anthropic.com"}),
 }
 
 
