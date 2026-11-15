@@ -73,10 +73,11 @@ function Routes() {
   return <PlainFrame>{otherPage(path)}</PlainFrame>
 }
 
-// An old `/?range=90d` keeps its query.
-function RootRedirect() {
+// An old `/?range=90d` keeps its query, and so does the OAuth callback's `/account?oauth=…`
+// (linking and re-authentication come back there; ADR 0003 section 6): the Security tab reads it.
+function QueryRedirect({ to }: { to: string }) {
   const { search } = useRouter()
-  return <Redirect to={`${HOME_PATH}${search}`} />
+  return <Redirect to={`${to}${search}`} />
 }
 
 function otherPage(path: string) {
@@ -84,7 +85,9 @@ function otherPage(path: string) {
     case '/':
       // The public home page owns `/` when the server has it; without it (the dev server) the
       // app's start page is the signed-in one.
-      return <RootRedirect />
+      return <QueryRedirect to={HOME_PATH} />
+    case '/account':
+      return <QueryRedirect to="/settings/security" />
     case '/signin':
       return (
         <RequireSignedOut>
