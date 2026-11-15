@@ -2,8 +2,9 @@
 
 What each process can reach, enumerated: every entry point of ``ownvitals.egress`` and the one
 exempt site (mail) against every candidate request, in the web process and in the worker with AI
-off and on. Web reaches Google's sign-in hosts, the one Withings authorization-code exchange and
-the configured SMTP server; the worker reaches Withings, and the model host only with AI. And no
+off and on, and in the model evals' role (ADR 0014 §9). Web reaches Google's sign-in hosts, the
+one Withings authorization-code exchange and the configured SMTP server; the worker reaches
+Withings, and the model host only with AI; the eval role reaches the model host only. And no
 test reaches Withings over the network: ``netguard`` stops the real network transports."""
 
 import contextlib
@@ -28,6 +29,7 @@ from ownvitals.egress import (
     exchange_withings_code,
     google_async_client,
     google_oauth_client,
+    install_eval_allowlist,
     install_worker_allowlist,
     model_async_client,
     verify_turnstile_token,
@@ -117,6 +119,62 @@ async def test_the_model_client_is_refused_in_a_worker_without_ai() -> None:
     install_worker_allowlist(ai_enabled=True)  # and with AI it builds
     async with model_async_client() as client:
         assert isinstance(client, httpx.AsyncClient)
+
+
+# --- the model evals' role (ADR 0014 §9, #530) -------------------------------------------------
+
+
+async def test_in_the_eval_role_the_model_client_builds() -> None:
+    install_eval_allowlist()
+    assert egress.installed_worker_hosts() == {"api.anthropic.com"}  # by name, not the constant
+    async with model_async_client() as client:
+        assert isinstance(client, httpx.AsyncClient)
+
+
+EVAL_REFUSED: list[tuple[Callable[..., Any], str]] = [
+    *WEB_ONLY,  # Google sign-in, the code exchange, Turnstile
+    (withings_async_client, "wbsapi.withings.net"),
+    (lambda: _mailer().send(MESSAGE), "mailpit"),
+    (lambda: _mailer()._send_blocking(MESSAGE), "mailpit"),  # pyright: ignore[reportPrivateUsage]
+]
+
+
+@pytest.mark.parametrize(("builder", "host"), EVAL_REFUSED)
+async def test_in_the_eval_role_every_other_entry_point_refuses(
+    builder: Callable[..., Any], host: str, no_smtp: list[str]
+) -> None:
+    install_eval_allowlist()
+
+    async def call() -> None:
+        result = builder()
+        if inspect.isawaitable(result):
+            await result
+
+    with pytest.raises(OutboundBlocked) as raised:
+        await call()
+    assert raised.value.host == host
+    assert no_smtp == []
+
+
+def test_the_eval_role_and_the_worker_exclude_each_other() -> None:
+    """One role per process: neither list is widened into, or swapped for, the other."""
+    install_eval_allowlist()
+    eval_opener = urllib.request._opener  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
+    for ai_enabled in (False, True):
+        with pytest.raises(RuntimeError, match="another egress role"):
+            install_worker_allowlist(ai_enabled=ai_enabled)
+    assert egress.installed_worker_hosts() == {"api.anthropic.com"}
+    assert urllib.request._opener is eval_opener  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
+    install_eval_allowlist()  # the same role again: no change
+    assert egress.installed_worker_hosts() == {"api.anthropic.com"}
+
+    core._worker_list = None  # pyright: ignore[reportPrivateUsage] - a fresh process
+    install_worker_allowlist(ai_enabled=True)
+    worker_opener = urllib.request._opener  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
+    with pytest.raises(RuntimeError, match="another egress role"):
+        install_eval_allowlist()
+    assert egress.installed_worker_hosts() == {*egress.WITHINGS_HOSTS, "api.anthropic.com"}
+    assert urllib.request._opener is worker_opener  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage]
 
 
 class Recorder:
@@ -358,6 +416,7 @@ PROCESSES: dict[str, tuple[Callable[[], urllib.request.OpenerDirector | None], s
         lambda: install_worker_allowlist(ai_enabled=True),
         {*WITHINGS_WORKER, "api.anthropic.com"},
     ),
+    "eval": (install_eval_allowlist, {"api.anthropic.com"}),
 }
 
 

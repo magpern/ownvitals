@@ -13,6 +13,9 @@ as the worker and records its list (``worker_allowlist``): Withings' two hosts, 
   Turnstile verification, account mail) calls ``refuse_in_worker`` first, so it cannot reach
   the network from the worker even if worker code ends up calling it.
 
+``install_eval_allowlist`` (the model evals' role, ADR 0014 §9) installs ``MODEL_ALLOWLIST`` the
+same way: only the model client builds, everything else refuses. A process has one role.
+
 A refused request raises ``OutboundBlocked`` (a job then fails ``outbound_blocked``, ADR 0005)
 and logs the host only, never the URL, its path or query, a header or a body.
 """
@@ -173,7 +176,13 @@ _worker_list: Allowlist | None = None
 
 
 def _install_worker_list(allowlist: Allowlist) -> None:
+    """Record the process list; the eval role (``MODEL_ALLOWLIST``) and the worker's exclude
+    each other, so neither is widened into the other."""
     global _worker_list
+    if _worker_list is not None and (_worker_list is MODEL_ALLOWLIST) != (
+        allowlist is MODEL_ALLOWLIST
+    ):
+        raise RuntimeError("this process already has another egress role")
     _worker_list = allowlist
 
 

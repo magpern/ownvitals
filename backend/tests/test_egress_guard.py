@@ -8,6 +8,8 @@ import pytest
 from egress_classified import LISTENER_ATTRIBUTES, LISTENER_MODULE, LISTENER_NAMES, TABLE
 from egress_scan import (
     EGRESS_SUBMODULES,
+    EVAL_ROLE_MODULES,
+    HOOK_INSTALLERS,
     WORKER_ROLE_MODULES,
     imported_modules,
     scan_source,
@@ -337,6 +339,58 @@ def test_the_guard_fails_when_a_planted_web_module_installs_the_worker_list(
     assert [(m, line) for m, line, _ in scan_tree(tmp_path)] == [("ownvitals.web.startup", 5)]
     (tmp_path / "ownvitals" / "web" / "startup.py").unlink()
     plant(tmp_path, "ownvitals.worker.__main__", source)
+    assert scan_tree(tmp_path) == []
+
+
+# ADR 0014 §9 (#530): only the model evals' entry point takes the eval role, and it is not a
+# worker-role module.
+EVAL_INSTALLS = [
+    "from ownvitals.egress import install_eval_allowlist\ninstall_eval_allowlist()",
+    "from ownvitals import egress\negress.install_eval_allowlist()",
+    "from ownvitals.egress.opener import install_eval_allowlist as i\ni()",
+    "import ownvitals.egress\nownvitals.egress.install_eval_allowlist()",
+    "from ownvitals.egress import install_eval_allowlist",
+]
+
+
+def test_the_eval_role_and_hook_lists_are_exactly_these() -> None:
+    assert set(EVAL_ROLE_MODULES) == {"ownvitals.ai.eval"}
+    assert {
+        "ownvitals.worker.__main__",
+        "ownvitals.cli",
+        "ownvitals.web",
+        "migrations.env",
+        "ownvitals.ai.eval",
+    } == HOOK_INSTALLERS
+    assert "ownvitals.ai.eval" not in WORKER_ROLE_MODULES
+
+
+@pytest.mark.parametrize("source", EVAL_INSTALLS)
+def test_only_the_eval_module_installs_the_eval_allowlist(source: str) -> None:
+    others = (*WORKER_ROLE_MODULES, "ownvitals.web", "ownvitals.cli", "ownvitals.ai.client")
+    for module in (*others, "ownvitals.ai", "ownvitals.ai.eval_cases", "ownvitals.ai.evals"):
+        assert scan_source(source, module) != [], module
+    assert scan_source(source, "ownvitals.ai.eval") == []
+
+
+@pytest.mark.parametrize("source", INSTALLS)
+def test_the_eval_module_does_not_make_its_process_the_worker(source: str) -> None:
+    assert scan_source(source, "ownvitals.ai.eval") != []
+
+
+def test_the_eval_module_may_install_the_eval_hook() -> None:
+    # The kind by name: a literal 'eval' outside the package is the string rule's (an evaluator).
+    source = "from ownvitals.egress import install_egress_hook\ninstall_egress_hook(kind, s)"
+    assert scan_source(source, "ownvitals.ai.eval") == []
+    assert scan_source(source, "ownvitals.ai.client") != []
+
+
+def test_the_guard_fails_when_a_planted_module_takes_the_eval_role(tmp_path: Path) -> None:
+    source = "from ownvitals import egress\n\n\ndef start():\n    egress.install_eval_allowlist()\n"
+    plant(tmp_path, "ownvitals.ai.turn", source)
+    assert [(m, line) for m, line, _ in scan_tree(tmp_path)] == [("ownvitals.ai.turn", 5)]
+    (tmp_path / "ownvitals" / "ai" / "turn.py").unlink()
+    plant(tmp_path, "ownvitals.ai.eval", source)
     assert scan_tree(tmp_path) == []
 
 

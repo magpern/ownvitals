@@ -17,9 +17,10 @@ change in `egress/core.py` and a security-critical review.
 | web | `exchange_withings_code()` (`egress/code_exchange.py`) | one request it builds itself: `POST https://wbsapi.withings.net/v2/oauth2`, `action=requesttoken`, `grant_type=authorization_code` |
 | web, `turnstile_enabled` | `verify_turnstile_token()` (`egress/turnstile.py`) | one request it builds itself: `POST https://challenges.cloudflare.com/turnstile/v0/siteverify` with exactly `secret` and `response`; the hook resolves the host only while Turnstile is on (roadmap Amendment 12, ADR 0018) |
 | web | `ownvitals.mail.Mailer` | the configured SMTP server (`smtp_host`, a setting, not a list entry) |
+| eval (`python -m ownvitals.ai.eval`, ADR 0014 §9) | `model_async_client()` and the process-wide urllib opener (`install_eval_allowlist`) | `api.anthropic.com` only; every Withings, Google, code-exchange, Turnstile and mail entry point refuses |
 
 `tests/test_egress_runtime.py` enumerates it: every entry point against every candidate request,
-in web and in the worker with AI off and on. A new client builder in the package fails that test
+in web, in the worker with AI off and on, and in the eval role. A new client builder in the package fails that test
 until it joins the enumeration.
 
 **Process roles.** `install_worker_allowlist(ai_enabled=settings.ai_insights)` makes the process
@@ -32,6 +33,15 @@ connection (`refuse_in_worker`), and the worker-only clients work only there: in
 `withings_async_client()` and `model_async_client()` raise `OutboundBlocked`, so web can make no
 refresh, revoke or other Withings call. `ai_enabled` must be a real `bool`; with it false the
 model host is on no list. Both checks run when a client is built and again on every request.
+
+**The eval role** (ADR 0014 §9, #530). `install_eval_allowlist()` gives the model evals' process
+its own role: it records `MODEL_ALLOWLIST` (exactly `api.anthropic.com`) as the process list and
+installs an opener with that list, so `model_async_client()` builds, `withings_async_client()`
+refuses (not on the list) and every web-only site refuses (`refuse_in_worker`). It is not a
+worker role: only `ownvitals.ai.eval` may call it (the guard's `EVAL_ROLE_MODULES`), and that
+module is not in `WORKER_ROLE_MODULES`. The two roles exclude each other: in a process with one,
+installing the other raises `RuntimeError` and leaves the list and the opener as they were (both
+installs record the role before they install their opener).
 
 ## Using it
 
@@ -117,18 +127,20 @@ Only `ownvitals.mail` may open it (the guard).
 ## The runtime hook (ADR 0009)
 
 The authoritative control. `install_egress_hook(kind, settings)` (`kind`: `web`, `worker`,
-`cli`, `migrate`) adds a PEP 578 audit hook, once per process; it cannot be removed. Installed by
+`cli`, `migrate`, `eval`) adds a PEP 578 audit hook, once per process; it cannot be removed. Installed by
 `ownvitals/worker/__main__.py` (`main`), the CLI (`run_command`) and, for `migrate`
 (`alembic upgrade head`), `backend/migrations/env.py` when alembic's command line runs it
 (`context.config.cmd_opts` is set; an in-process `alembic.command` caller, such as the tests,
 keeps its own process's hook), with the standard-loop check as the online run's first statement
 (#284); web's install and its startup loop check are acceptance criteria of #77. The guard
 allows the call only in those modules (`env.py` is scanned as `migrations.env`). `db-functions`
-installs none (ADR 0009 item 1).
+installs none (ADR 0009 item 1). The `eval` kind is the model evals' (`ownvitals.ai.eval`,
+ADR 0014 §9), which installs it before any connection and its eval list after its database
+checks. The per-kind sets are built in `egress/hook_hosts.py`.
 
 | Audit event | Rule |
 |---|---|
-| `socket.getaddrinfo`, `socket.gethostbyname` (and `_ex`) | only a host in the process's set: web: Google sign-in's hosts and `wbsapi.withings.net`; worker (and the CLI once its probe installs it): the installed worker list; every kind: the database URLs' hosts (all `migrate` gets); web and CLI: `smtp_host`. No context needed: asyncio resolves in an executor thread |
+| `socket.getaddrinfo`, `socket.gethostbyname` (and `_ex`) | only a host in the process's set: web: Google sign-in's hosts and `wbsapi.withings.net`; worker (and the CLI once its probe installs it): the installed worker list; eval: `api.anthropic.com` only, never widened by an installed list; every kind: the database URLs' hosts (all `migrate` gets); web and CLI: `smtp_host`. No context needed: asyncio resolves in an executor thread |
 | `socket.gethostbyaddr`, `socket.getnameinfo` | always refused |
 | `socket.connect` (and `connect_ex`), `sendto`, `sendmsg` | `AF_INET`/`AF_INET6`: only inside a connection scope, set by `AllowlistTransport` and the urllib opener around a send (after their allowlist check) and by `mail` around one SMTP session. `AF_UNIX`: only a configured database socket (`<host dir>/.s.PGSQL.<port>`). Any other family: refused. A send without an address is allowed |
 | `socket.__new__` | only `AF_INET`, `AF_INET6` and `AF_UNIX`: a raw or packet socket is refused before it exists, and so is `socket.socket(fileno=fd)` without a family (family `-1` on Linux) |
@@ -353,9 +365,11 @@ What else the guard refuses outside the package:
   `setattr`/`delattr`), and any private name of either;
 - building an `Allowlist`, `AllowlistTransport`, opener or deadline handler, or handing an entry
   point a list;
-- calling `install_worker_allowlist` (only `WORKER_ROLE_MODULES`, above);
+- calling `install_worker_allowlist` (only `WORKER_ROLE_MODULES`, above), or
+  `install_eval_allowlist` (only `EVAL_ROLE_MODULES`: `ownvitals.ai.eval`);
 - calling `install_egress_hook` outside the entry points (`ownvitals.worker.__main__`,
-  `ownvitals.cli`, `ownvitals.web`, `migrations.env`), or `smtp_session` outside `ownvitals.mail`;
+  `ownvitals.cli`, `ownvitals.web`, `migrations.env`, `ownvitals.ai.eval`), or `smtp_session`
+  outside `ownvitals.mail`;
 - star-importing anything.
 
 An import inside `if TYPE_CHECKING:` passes every rule, `ctypes` and the process routes

@@ -27,7 +27,9 @@ name under ``ownvitals``) may not do outside the egress package:
   **assign** to (or delete) any attribute of either from outside;
 - write to a name or attribute ``TYPE_CHECKING`` (``egress_typeonly``);
 - use ``install_worker_allowlist``, which makes a process the worker: only the worker's entry
-  point and the probe CLI may (``WORKER_ROLE_MODULES``), and tests.
+  point and the probe CLI may (``WORKER_ROLE_MODULES``), and tests; or ``install_eval_allowlist``,
+  which gives it the model evals' role: only ``ownvitals.ai.eval`` (``EVAL_ROLE_MODULES``,
+  ADR 0014 §9), and tests.
 
 Type-only imports pass when their names appear only in annotations (``egress_typeonly``). The
 rest of deliberate indirection (``vars(sys)``, a computed ``getattr``, ``exec``) is review's (N9).
@@ -119,13 +121,20 @@ WORKER_ROLE_MODULES: dict[str, str] = {
     "ownvitals.worker.__main__": "the worker process's entry point (#9)",
     "ownvitals.withings.probe": "the probe CLI, a worker-side one-off (#29, never the model host)",
 }
+INSTALL_EVAL = f"{EGRESS}.install_eval_allowlist"
+# The one module that may give its process the model evals' role (ADR 0014 §9, #530): the model
+# host only. Not a worker-role module (the worker's list holds the Withings hosts).
+EVAL_MODULE = "ownvitals.ai.eval"
+EVAL_ROLE_MODULES: dict[str, str] = {
+    EVAL_MODULE: "the model evals' entry point, python -m ownvitals.ai.eval (ADR 0014 §9)",
+}
 # The runtime egress hook (ADR 0009): installed only by the process entry points (web's: #77;
-# migrate's: alembic's env.py, #284), and the SMTP session's connection scope opened only by the
-# mail module.
+# migrate's: alembic's env.py, #284; the model evals': ADR 0014 §9), and the SMTP session's
+# connection scope opened only by the mail module.
 INSTALL_HOOK = f"{EGRESS}.install_egress_hook"
 MIGRATIONS_ENV = "migrations.env"  # backend/migrations/env.py, scanned with src (#284)
 HOOK_INSTALLERS = frozenset(
-    {"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web", MIGRATIONS_ENV}
+    {"ownvitals.worker.__main__", "ownvitals.cli", "ownvitals.web", MIGRATIONS_ENV, EVAL_MODULE}
 )
 SMTP_SESSION = f"{EGRESS}.smtp_session"
 # Builtins resolved where nothing rebinds them: ``__import__`` (an importer), the evaluators.
@@ -350,6 +359,8 @@ def _internal(name: str, module: str, verb: str) -> list[str]:
         found.append(f"{verb} {name}: private to its module")
     if name == INSTALL_WORKER and module not in WORKER_ROLE_MODULES:
         found.append(f"{verb} {name}: only the worker's entry point makes a process the worker")
+    if name == INSTALL_EVAL and module not in EVAL_ROLE_MODULES:
+        found.append(f"{verb} {name}: only the model evals' entry point takes the eval role")
     if name == INSTALL_HOOK and module not in HOOK_INSTALLERS:
         found.append(f"{verb} {name}: only a process entry point installs the egress hook")
     if name == SMTP_SESSION and module != MAIL:

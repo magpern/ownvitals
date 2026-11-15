@@ -33,7 +33,7 @@ from ownvitals.egress.hook_hosts import WEB_HOSTS, _policy_for  # pyright: ignor
 from ownvitals.worker import __main__ as worker_main
 
 CHILD = Path(__file__).resolve().parent / "egress_hook_child.py"
-KINDS = ("web", "worker", "cli")
+KINDS = ("web", "worker", "cli", "eval")
 LINUX = sys.platform.startswith("linux")
 WINDOWS = sys.platform == "win32"
 OUTSIDE = "example.invalid"
@@ -139,10 +139,11 @@ def test_numpy_fetching_a_url_is_refused(runs: dict[str, dict[str, Any]], kind: 
     assert (result["error"], result["accepted"]) == ("FileNotFoundError", 0)
 
 
+@pytest.mark.parametrize("kind", ["worker", "eval"])
 def test_numpy_fetching_a_url_in_the_worker_stops_at_its_opener(
-    runs: dict[str, dict[str, Any]],
+    runs: dict[str, dict[str, Any]], kind: str
 ) -> None:
-    result = case(runs, "worker", "numpy_loadtxt")
+    result = case(runs, kind, "numpy_loadtxt")
     assert (result["error"], result["accepted"]) == ("OutboundBlocked", 0)
 
 
@@ -158,6 +159,14 @@ def test_numpy_fetching_a_url_in_the_worker_stops_at_its_opener(
         # connects by hand.
         ("web", "egress_failure_then_connect", CONNECT, "AF_INET"),
         ("worker", "egress_failure_then_connect", CONNECT, "AF_INET"),
+        # ADR 0014 §9 (#530): the eval role resolves the model host and the database only.
+        ("eval", "withings_host", GETADDRINFO, "wbsapi.withings.net"),
+        ("eval", "withings_account_host", GETADDRINFO, "account.withings.com"),
+        ("eval", "google_host", GETADDRINFO, "oauth2.googleapis.com"),
+        ("eval", "turnstile_host", GETADDRINFO, "challenges.cloudflare.com"),
+        ("eval", "smtp", GETADDRINFO, "mailpit"),  # inside an SMTP session, still refused
+        ("eval", "worker_list_never_widens", GETADDRINFO, "wbsapi.withings.net"),
+        ("eval", "egress_failure_then_connect", CONNECT, "AF_INET"),
         *[(k, "unix_other", CONNECT, "AF_UNIX") for k in KINDS if LINUX],
     ],
 )
@@ -188,7 +197,7 @@ def test_allowed_in_every_process(runs: dict[str, dict[str, Any]], kind: str, na
     assert (result["error"], result["refused"]) == (None, []), result
 
 
-@pytest.mark.parametrize("kind", ["web", "worker"])
+@pytest.mark.parametrize("kind", ["web", "worker", "eval"])
 def test_the_egress_client_resolves_and_connects(
     runs: dict[str, dict[str, Any]], kind: str
 ) -> None:
@@ -200,9 +209,15 @@ def test_the_egress_client_resolves_and_connects(
     assert "ConnectionRefusedError" in result["chain"], result
 
 
-def test_the_worker_urllib_opener_connects(runs: dict[str, dict[str, Any]]) -> None:
-    result = case(runs, "worker", "urllib_opener")
+@pytest.mark.parametrize("kind", ["worker", "eval"])
+def test_the_worker_urllib_opener_connects(runs: dict[str, dict[str, Any]], kind: str) -> None:
+    result = case(runs, kind, "urllib_opener")
     assert (result["refused"], result["accepted"]) == ([], 1), result
+
+
+def test_the_eval_urllib_opener_refuses_withings(runs: dict[str, dict[str, Any]]) -> None:
+    result = case(runs, "eval", "withings_urllib")
+    assert (result["error"], result["refused"], result["accepted"]) == ("OutboundBlocked", [], 0)
 
 
 @pytest.mark.parametrize("kind", ["web", "cli"])
@@ -268,7 +283,7 @@ def _settings(**values: Any) -> Settings:
 
 
 def test_each_kind_resolves_its_own_hosts() -> None:
-    web, worker, cli_ = (_policy_for(k, _settings()) for k in KINDS)
+    web, worker, cli_ = (_policy_for(k, _settings()) for k in ("web", "worker", "cli"))
     database = {"db.example.test", "127.0.0.1"}  # the app's and the migrations' URLs
     # N1: pinned by name, not through the constants the hook itself uses.
     google = {"oauth2.googleapis.com", "www.googleapis.com"}
@@ -285,6 +300,30 @@ def test_each_kind_resolves_its_own_hosts() -> None:
     assert worker.hosts == frozenset(database)  # plus the installed worker list, at run time
     assert cli_.hosts == frozenset(database | {"mail.example.org"})
     assert web.unix_paths == worker.unix_paths == frozenset({"/run/pg/.s.PGSQL.5432"})
+
+
+def test_the_eval_kind_resolves_the_model_host_and_the_database_only() -> None:
+    """ADR 0014 §9: no Withings, Google, Turnstile or SMTP host, whatever the settings say."""
+    on = _settings(
+        turnstile_enabled=True, turnstile_site_key="synthetic-site-key", turnstile_secret_key="s"
+    )
+    database = {"db.example.test", "127.0.0.1"}
+    for settings in (_settings(), on):
+        policy = _policy_for("eval", settings)
+        assert policy.hosts == {*database, "api.anthropic.com"}
+        assert policy.unix_paths == frozenset({"/run/pg/.s.PGSQL.5432"})
+
+
+def test_an_installed_worker_list_widens_every_kind_but_eval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(core, "_worker_list", core.WORKER_ALLOWLIST)
+    for kind in ("web", "worker", "cli", "migrate"):
+        assert _policy_for(kind, _settings()).resolvable("wbsapi.withings.net"), kind
+    policy = _policy_for("eval", _settings())
+    assert not policy.resolvable("wbsapi.withings.net")
+    assert policy.installed_hosts() == frozenset()
+    assert policy.resolvable("api.anthropic.com")
 
 
 def test_an_unknown_kind_is_refused() -> None:

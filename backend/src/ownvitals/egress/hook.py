@@ -1,18 +1,19 @@
 """Runtime egress enforcement: a PEP 578 audit hook in every process (ADR 0009).
 
-``install_egress_hook(kind, settings)`` (``kind``: ``web``, ``worker``, ``cli`` or ``migrate``,
-alembic's ``env.py``) is called first thing in each entry point. It adds one audit hook, which
-cannot be removed; a second call with the same kind does nothing (the first policy stays), with
-another kind it raises. For an event that does not start with ``socket.`` the hook does one set
-lookup (process creation, below) and returns; otherwise it decides:
+``install_egress_hook(kind, settings)`` (``kind``: ``web``, ``worker``, ``cli``, ``migrate``,
+alembic's ``env.py``, or ``eval``, the model evals' ``python -m ownvitals.ai.eval``) is called
+first thing in each entry point. It adds one audit hook, which cannot be removed; a second call
+with the same kind does nothing (the first policy stays), with another kind it raises. For an
+event that does not start with ``socket.`` the hook does one set lookup (process creation,
+below) and returns; otherwise it decides (the sets: ``ownvitals.egress.hook_hosts``):
 
 - **Resolution** (the audit events ``socket.getaddrinfo`` and ``socket.gethostbyname``, which
   ``gethostbyname_ex`` raises too): only a host in the process's resolvable set: its kind's
   egress hosts (web: Google sign-in, the Withings code exchange and, only with
-  ``turnstile_enabled``, Turnstile's verification host; any kind: the worker list
-  once ``install_worker_allowlist`` installed it), the configured database hosts, and the SMTP
-  host in web and the CLI. No context is required: asyncio resolves in an executor thread,
-  where context variables do not reach.
+  ``turnstile_enabled``, Turnstile's verification host; eval: the model host; any kind but eval:
+  the worker list once ``install_worker_allowlist`` installed it), the configured database
+  hosts, and the SMTP host in web and the CLI. No context is required: asyncio resolves in an
+  executor thread, where context variables do not reach.
 - **Reverse lookups** (``socket.gethostbyaddr``, ``socket.getnameinfo``): always refused.
 - **Socket creation** (``socket.__new__``): only ``AF_INET``, ``AF_INET6`` and ``AF_UNIX``; a raw
   or packet socket is refused before it exists (its sends raise no audit event).
@@ -62,7 +63,6 @@ from typing import TYPE_CHECKING, Any, Final
 
 from ownvitals.egress.core import (
     _printable_host,  # the package's own; the guard refuses private names outside it
-    installed_worker_hosts,
 )
 from ownvitals.egress.hook_hosts import (
     KINDS,
@@ -246,4 +246,4 @@ def _refuse(
 
 def resolvable_hosts() -> frozenset[str]:
     """The installed policy's resolvable host names (empty before the hook is installed)."""
-    return frozenset() if _policy is None else _policy.hosts | installed_worker_hosts()
+    return frozenset() if _policy is None else _policy.hosts | _policy.installed_hosts()
