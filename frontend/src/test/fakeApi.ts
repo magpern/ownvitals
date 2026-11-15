@@ -91,6 +91,7 @@ export function fakeApi(routes: Record<string, Handler | object | string>) {
     'GET /api/auth/oauth/providers': { providers: [] },
     'GET /api/auth/passkeys': { passkeys: [], limit: 10 },
     'GET /api/auth/activity': { events: [], next_before: null },
+    'GET /api/auth/identities': { identities: [], has_password: true, available: [] },
     ...OVERVIEW_ROUTES,
     ...PROFILE_ROUTES,
     ...routes,

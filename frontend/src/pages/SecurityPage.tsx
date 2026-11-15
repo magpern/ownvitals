@@ -5,6 +5,7 @@ import { SIGN_IN_PATH } from '../auth/access'
 import { useSession } from '../auth/SessionContext'
 import { Notice } from '../components/forms'
 import { PasskeyList } from '../components/PasskeyList'
+import { GoogleRow } from '../components/security/GoogleRow'
 import { SecondFactorCard } from '../components/security/SecondFactorCard'
 import { SecurityActivity } from '../components/security/SecurityActivity'
 import { Cancelled, useProtected } from '../components/StepUp'
@@ -25,7 +26,7 @@ import { SettingsTabs } from './settings/SettingsTabs'
 // sign-ins from your phone" row of "How you sign in" (ADR 0011 section 10). The account's language
 // (ADR 0015 section 2, issue 249) is a row of Settings → Profile and display (issue 203). Issue
 // 475 adds the "Second factor" card (`SecondFactorCard`): the authenticator app is optional for
-// users.
+// users. Issue 516 adds the Google row (`GoogleRow`): a signed-in user links and unlinks Google.
 
 /** "Firefox on Windows", from the browser's user agent (shown only to its own user). */
 export function deviceName(userAgent: string | null): string {
@@ -85,6 +86,7 @@ export function SecurityPage() {
       </p>
       <SecondFactorCard />
       <Card title={t('passkeys.card.title')}>
+        <GoogleRow />
         <PasskeyList />
         <div className="ov-setting">
           <div className="ov-setting__what">

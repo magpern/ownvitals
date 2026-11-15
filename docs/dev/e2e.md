@@ -11,7 +11,7 @@ spec uses is made up per run. M0's "done when" (PLAN §11) is the login-and-TOTP
 | `e2e/fake-withings/` | the stand-in for Withings (`server.py`, Python standard library, runs `backend/tests/withingscore.py`) |
 | `e2e/scripts/` | `stack-up.sh`, `stack-prepare.sh`, `stack-checks.sh`, `stack-down.sh` |
 | `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps), `ratelimit.ts` (empties the rate-limit buckets) |
-| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login`, `onboarding`, `export` |
+| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `google-link`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login`, `onboarding`, `export` |
 
 ## Run it
 
@@ -118,6 +118,9 @@ trust bundle (the worker needs it for the Withings calls of M1).
 - `google-reauth`: a Google-only account (fake-oidc sends no `auth_time`, like Google) signs up,
   activates 2FA, re-authenticates with Google, still needs a code, then sets a first password; an
   account with a password gets `reauth_use_password` at the start ([auth-reauth.md](auth-reauth.md)).
+- `google-link` (issue 516): a password account → Security → "Link…" → "Confirm it's you" with a
+  fresh code → fake-oidc → `/account?oauth=linked` back on Security, "Linked to …" → sign out →
+  Google sign-in (no invite) → code prompt → signed in to the same account → "Unlink…" with a code.
 - `step-up`: Security → "Sign out everywhere…" → "Confirm it's you" with a fresh code → signed out
   everywhere. A wrong code changes nothing.
 - `export` (#211, ADR 0013 §4): Your data → "Export…" → "Confirm it's you" with a fresh code →
