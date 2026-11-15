@@ -30,26 +30,24 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Literal
 
 from ownvitals import egress
 from ownvitals.ai import audit, budget, consent
 from ownvitals.ai.audit import AuditEntry, Settlement
-from ownvitals.ai.gates import (
-    ModelFailed,
-    ModelRefused,
-    category_of,
-    check_locks,
-    read_api_key,
-    retry_after_of,
+from ownvitals.ai.client_call import (
+    BACKOFF_SECONDS,
+    MAX_ATTEMPTS,
+    ModelCall,
+    Sleep,
 )
+from ownvitals.ai.gates import ModelFailed, ModelRefused, category_of, check_locks, read_api_key
 from ownvitals.ai.pricing import PRICES, Price, request_bound, usage_cost
 from ownvitals.ai.requests import (
     API_VERSION,
     MAX_TOKENS,
-    MESSAGES_PATH,
     PROMPT_VERSION,
     Kind,
     Message,
@@ -58,68 +56,13 @@ from ownvitals.ai.requests import (
     check_body,
     serialize,
 )
-from ownvitals.ai.responses import BadResponse, Reply, parse_reply
+from ownvitals.ai.responses import BadResponse, Reply
 from ownvitals.ai.tools_model import TOOLSET_VERSION
 from ownvitals.config import Settings
 from ownvitals.jobs import FencedSession, JobRun, LeaseLost, RunStopped
 
 if TYPE_CHECKING:
     import httpx
-
-MAX_ATTEMPTS: Final = 3
-BACKOFF_SECONDS: Final = (2.0, 8.0)
-RETRYABLE_STATUSES: Final = frozenset({429, 529})
-_URL: Final = f"https://{egress.MODEL_HOST}{MESSAGES_PATH}"
-
-Sleep = Callable[[float], Awaitable[None]]
-
-
-class _Call:
-    """One model call's state: the attempts, the answer, the settlement."""
-
-    def __init__(self, job: JobRun, settings: Settings, kind: Kind, model: str) -> None:
-        self.job, self.settings, self.model = job, settings, model
-        self.kind: Kind = kind
-        self.attempts = 0
-        self.status: int | None = None
-        self.answer: bytes | None = None
-        self.retry_after: float | None = None
-
-    async def recheck(self) -> None:
-        """Before a later attempt: the flag, the live consent and the job's cancel."""
-        try:
-            async with self.job.fenced() as fs:
-                owner = fs.lease.ctx.user_id
-                await consent.require_enabled(fs.db, owner, self.settings, nowait=True)
-                if fs.cancel_requested:
-                    raise ModelFailed("cancelled")
-        except consent.AiNotEnabled:
-            raise ModelFailed("consent") from None
-
-    async def attempt(
-        self, client: httpx.AsyncClient, raw: bytes, headers: Mapping[str, str]
-    ) -> Reply | None:
-        """One attempt; ``None`` when it may be retried (provably not processed)."""
-        self.attempts += 1
-        self.status, self.answer, self.retry_after = None, None, None
-        try:
-            async with self.job.provider_call(egress.MODEL_TOTAL_SECONDS):
-                response = await client.post(_URL, content=raw, headers=dict(headers))
-        except egress.OutboundBlocked:
-            raise ModelFailed("not_sent") from None
-        except egress.CONNECT_ERRORS:
-            return None  # never sent
-        except egress.TIMEOUT_ERRORS:
-            raise ModelFailed("timeout") from None
-        except egress.TRANSPORT_ERRORS:
-            raise ModelFailed("transport") from None
-        self.status, self.answer = response.status_code, response.content
-        if response.status_code == 200:
-            return parse_reply(response.content)
-        self.retry_after = retry_after_of(response)
-        if response.status_code in RETRYABLE_STATUSES:
-            return None
-        raise ModelFailed(category_of(response.status_code), self.retry_after)
 
 
 async def _reserve(job: JobRun, settings: Settings, amount: int) -> budget.Reservation:
@@ -196,7 +139,7 @@ async def call_model(
             "content-type": "application/json",
             "accept": "application/json",
         }
-        call = _Call(job, settings, kind, model)
+        call = ModelCall(job, settings, kind, model)
         started = time.monotonic()
         reply: Reply | None = None
         failure: ModelFailed | None = None
@@ -224,7 +167,7 @@ async def call_model(
 
 
 async def _settle_and_audit(
-    call: _Call,
+    call: ModelCall,
     held: budget.Reservation,
     key: bytes,
     raw: bytes,
