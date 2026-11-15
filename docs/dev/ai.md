@@ -238,7 +238,10 @@ questions 1, 3 and 6). Agents never set them.
   `ai.pricing.PRICES` (`ai_model_unpriced` otherwise). The table prices `claude-sonnet-5-5`
   (list prices of 2026-11-15, 5-minute cache write; the Architect's proposal of 2026-11-15, the
   owner may choose another model, and each price change is a reviewed PR). Pricing it sets
-  nothing: `OWNVITALS_AI_MODEL` stays empty until the owner sets it.
+  nothing: `OWNVITALS_AI_MODEL` stays empty until the owner sets it. The prices are 1x only
+  with global inference: the request carries no `inference_geo`, so the API key's workspace
+  `default_inference_geo` decides, and it must be `"global"` (US-only is billed 1.1x on every
+  category). See "Known gaps (client)".
 - `OWNVITALS_AI_PROVIDER_REVIEW_REF`: the reference of the recorded provider review (lock 2).
 - `OWNVITALS_AI_EVAL_REF`: exactly `<model>/<PROMPT_VERSION>/<TOOLSET_VERSION>` as the owner's
   evaluation run passed it (lock 3). Changing the model, the prompt or the tool set makes it stale,
@@ -352,6 +355,14 @@ Without `50-ai.sql` nothing is called; withdrawal and account deletion still rem
 
 ### Known gaps (client)
 
+- The 1x prices in `ai.pricing.PRICES` and the request bound assume global inference. The
+  request sends no `inference_geo`, so the API key's workspace `default_inference_geo` applies;
+  a workspace set to `"us"` (legacy US-only workspaces were migrated to it) is billed 1.1x on
+  every category, so `request_bound` can be below the real cost and `usage_cost` settles 10%
+  low against the D11 caps. Agents cannot see or set it: the owner confirms
+  `default_inference_geo: "global"` (and re-confirms the table's prices) at the provider review
+  (ADR 0014 §2). Not yet hardened in code (sending `inference_geo` explicitly or checking
+  `usage.inference_geo` is a follow-up).
 - `compose.yaml` mounts `anthropic_api_key` and `app_secret_key` into the worker, the key there
   only (`test_compose_ai_key.py`, [stack.md](stack.md#secrets)); `scripts/worktree.sh init`
   leaves the key file empty, so the local stack is `ai_not_configured`. With the defaults AI is

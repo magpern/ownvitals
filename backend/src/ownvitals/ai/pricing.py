@@ -49,8 +49,12 @@ PRICING_SOURCE: Final = "https://platform.claude.com/docs/en/about-claude/pricin
 
 # Model id -> price. Pricing a model does not enable it: the owner still sets ``ai_model`` and
 # the other locks (ADR 0014 open question 3). The cache-write price is the 5-minute write; the
-# client sends no ``cache_control`` (a 1-hour write, $4/MTok, would exceed the bound) and no
-# ``inference_geo`` (US-only inference is priced 1.1x). No long-context price for this model.
+# client sends no ``cache_control`` (a 1-hour write, $4/MTok, would exceed the bound). These
+# 1x prices also need global inference: the client sends no ``inference_geo``, so the API key's
+# workspace ``default_inference_geo`` applies, and it must be ``"global"`` (US-only is billed
+# 1.1x on every category, which this table and the bound do not cover). Agents cannot see that
+# setting; the owner confirms it at the provider review (docs/dev/ai.md, "Known gaps (client)").
+# No long-context price for this model.
 PRICES: Mapping[str, Price] = MappingProxyType(
     {
         "claude-sonnet-5-5": Price(
