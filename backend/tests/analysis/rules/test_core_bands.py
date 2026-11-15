@@ -11,6 +11,7 @@ from rules_builders import DAY, constant, dv, preceding, run_of
 from ownvitals.analysis.methods.baseline import Window
 from ownvitals.analysis.methods.series import MAD_SCALE
 from ownvitals.analysis.policy import InsufficientData
+from ownvitals.analysis.quality import METRICS
 from ownvitals.analysis.rules import core
 from ownvitals.analysis.rules.core import (
     Band,
@@ -118,8 +119,13 @@ def test_a_sparse_baseline_gives_no_band() -> None:
 def test_a_centered_band_is_refused_and_a_metric_without_a_minimum_is_named() -> None:
     with pytest.raises(ValueError, match="centered"):
         core.band_at("weight", [], Q, k=1.5, window=Window.CENTERED)
-    with pytest.raises(KeyError, match="fat_mass"):
-        min_half_width("fat_mass")
+    with pytest.raises(KeyError, match="no_such_metric"):
+        min_half_width("no_such_metric")
+
+
+def test_every_analysed_metric_has_a_minimum_half_width() -> None:
+    """The overview builds a band for every metric in METRICS; a gap is a 500 for every user."""
+    assert set(METRICS) <= set(core.MIN_HALF_WIDTH)
 
 
 def test_every_band_call_passes_k_and_nothing_uses_default_k() -> None:
