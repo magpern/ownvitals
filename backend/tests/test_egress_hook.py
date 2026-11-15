@@ -29,7 +29,7 @@ from ownvitals.egress import (
     require_standard_event_loop,
     worker_allowlist_installed,
 )
-from ownvitals.egress.hook import WEB_HOSTS, _policy_for  # pyright: ignore[reportPrivateUsage]
+from ownvitals.egress.hook_hosts import WEB_HOSTS, _policy_for  # pyright: ignore[reportPrivateUsage]
 from ownvitals.worker import __main__ as worker_main
 
 CHILD = Path(__file__).resolve().parent / "egress_hook_child.py"

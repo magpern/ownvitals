@@ -37,7 +37,7 @@ Modules: ``core`` (lists, refusal, process roles, request budget, TLS context), 
 worker's urllib opener), ``deadline`` (the total deadline of a urllib request), ``clients`` (the
 httpx clients), ``transport`` (their allowlist transport), ``code_exchange`` (the web
 process's one Withings call), ``turnstile`` (web's Turnstile verification), ``hook`` (the
-audit hook).
+audit hook) and ``hook_hosts`` (what each process kind may resolve and connect to).
 
 The hook sees only Python's ``socket`` module (not C extensions such as libpq, nor ``ctypes``);
 a network-level egress rule stays the deployment's.
