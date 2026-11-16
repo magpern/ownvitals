@@ -39,7 +39,10 @@ def _walk(value: Any, numbers: set[Decimal], lengths: set[int]) -> None:
     if isinstance(value, bool):
         return
     if isinstance(value, int | float):
-        numbers.add(Decimal(str(value)))
+        number = Decimal(str(value))
+        numbers.add(number)
+        if 0 < abs(number) < 1:  # a fraction shown as a percentage (coverage 0.67 as 67%)
+            numbers.add(number * 100)
     elif isinstance(value, str):
         for part in _DATE_PART.findall(value) if _DATE.fullmatch(value) else ():
             numbers.add(Decimal(part))
