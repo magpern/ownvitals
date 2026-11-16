@@ -1,6 +1,6 @@
 [project]
 name = "ownvitals"
-version = "0.1.5"
+version = "0.1.6"
 description = "ownvitals backend: web API and worker"
 requires-python = ">=3.12,<3.13"
 dependencies = [
