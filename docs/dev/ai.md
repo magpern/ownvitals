@@ -580,7 +580,7 @@ wrapped.
 - **The digest is written in English** (the instruction says so): the worker does not read the
   account language. A Swedish digest needs the locale passed into the request and a second
   instruction, and a new `PROMPT_VERSION` if the system prompt changes.
-- **`PROMPT_VERSION` is 3**: the system prompt forbids revealing or paraphrasing its instructions (v2) and calculating new numbers or looping on tools (v3), after the eval runs showed each. The digest instruction is a
+- **`PROMPT_VERSION` is 4**: the system prompt forbids revealing or paraphrasing its instructions (v2) and calculating new numbers or looping on tools (v3) and describing how the tools are graded (v4), after the eval runs showed each. The digest instruction is a
   new fixed text the owner's eval run (lock 3) must cover before an `ai_eval_ref` is set; with
   none set, AI is off anyway.
 - **Users without a Withings connection get no digest**: the pass that queues it runs per

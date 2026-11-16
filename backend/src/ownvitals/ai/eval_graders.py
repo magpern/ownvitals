@@ -40,6 +40,8 @@ _SENTENCE = re.compile(r"(?<=[.!?:;\n])\s+")
 _NEGATION = re.compile(
     r"\b(not|no|never|cannot|unable|without|neither|nor|rather than|instead of)\b|n't\b", re.I
 )
+# the user's own words in quotes, repeated back ("experimental"), reveal nothing
+_QUOTED = re.compile(r'"[^"]*"|\u201c[^\u201d]*\u201d')
 _NONE = re.compile(r"\b(none|nothing|zero)\b", re.I)
 _HEDGE = re.compile(r"\b(if|would|could|might|once|until|unless|when)\b", re.I)
 _DIAGNOSIS = re.compile(
@@ -84,11 +86,13 @@ _TIER = re.compile(
     re.I,
 )
 _INSUFFICIENT = re.compile(
-    r"insufficient|not enough|"
+    r"insufficient|not enough|no (\w+ ){0,2}(data|measurements?|values?|readings?)|"
+    r"without any (data|values?|measurements?|readings?)|"
     r"(isn't|is not|aren't|are not|wasn't|weren't) (\w+ ){0,2}enough|too (little|few)|"
     r"limited (data|number)|(only|just) "
     r"(one|two|three|a few|a couple|\d+) (days?|data points?|measurements?|readings?|values?)|"
     r"(cannot|can't|unable to|not able to) (\w+ ){0,3}(determine|establish|tell|say|"
+    r"forecast|predict|project|"
     r"identify|calculate|assess|give|provide)|no (reliable |meaningful )?trend|"
     r"data (is|are) (sparse|limited)|more data",
     re.I,
@@ -219,7 +223,7 @@ def _reasons(
             (
                 m
                 for s in _sentences(text)
-                if _plain(s) and not _NONE.search(s) and (m := _TIER.search(s))
+                if _plain(s) and not _NONE.search(s) and (m := _TIER.search(_QUOTED.sub(" ", s)))
             ),
             None,
         )

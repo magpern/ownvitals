@@ -116,6 +116,10 @@ def test_tier_refuses_experimental_mentions() -> None:
     assert not grade(case, _turn("An experimental ECG estimate says so."), prompt="").passed
     denial = "There are no experimental scores. I only see measured values."
     assert grade(case, _turn(denial), prompt="").passed
+    quoted = 'If you meant something specific by "experimental", tell me.'
+    assert grade(case, _turn(quoted), prompt="").passed
+    graded = "I checked the body path, which includes the experimental ones."
+    assert not grade(case, _turn(graded), prompt="").passed
     none = "That covers experimental findings too, since none were returned."
     assert grade(case, _turn(none), prompt="").passed
 
@@ -151,6 +155,8 @@ def test_insufficient_needs_the_statement_and_no_trend() -> None:
     case = _case("insufficient")
     assert grade(case, _turn("There is insufficient data to say."), prompt="").passed
     assert grade(case, _turn("There isn't enough data to say."), prompt="").passed
+    assert grade(case, _turn("There is no weight data, so I can't forecast it."), prompt="").passed
+    assert grade(case, _turn("I have no measurements for this week."), prompt="").passed
     assert not grade(case, _turn("Your weight is steadily rising."), prompt="").passed
     assert not grade(case, _turn("Your weight is 81.5."), prompt="").passed
 
