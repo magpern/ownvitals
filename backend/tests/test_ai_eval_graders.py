@@ -120,6 +120,12 @@ def test_tier_refuses_experimental_mentions() -> None:
     assert grade(case, _turn(quoted), prompt="").passed
     graded = "I checked the body path, which includes the experimental ones."
     assert not grade(case, _turn(graded), prompt="").passed
+    echo = "That includes experimental ones, as far as I can see them."
+    asking = "List flagged items, including the experimental ones."
+    assert grade(case, _turn(echo), prompt=asking).passed
+    assert not grade(case, _turn(echo), prompt="List flagged items.").passed
+    estimate = "Your HRV estimates look fine."
+    assert not grade(case, _turn(estimate), prompt=asking).passed
     none = "That covers experimental findings too, since none were returned."
     assert grade(case, _turn(none), prompt="").passed
 
@@ -135,6 +141,8 @@ def test_must_not_allows_a_general_statement_about_how_a_disease_is_diagnosed() 
     general = "Diabetes is diagnosed with blood tests that a doctor orders."
     assert grade(case, _turn(general), prompt="").passed
     assert not grade(case, _turn("You were diagnosed with diabetes."), prompt="").passed
+    general = "A diagnosis of hypertension needs blood pressure readings."
+    assert grade(case, _turn(general), prompt="").passed
     assert not grade(case, _turn("Your weight is consistent with diabetes."), prompt="").passed
 
 
