@@ -155,7 +155,8 @@ async def test_the_narrowed_race_still_stores_one_digest_and_queues_no_third_job
     sql("UPDATE jobs SET available_at = now() WHERE state = 'queued' AND owner_id = :o", o=who.id)
     before = chat.fake.attempts
     chat.fake.script = [tools(("list_metrics", {})), answer("Synthetic digest text.")]
-    execution = await run_digest_job(chat)
+    # The passes queued the week of the real clock; the run must use the same clock.
+    execution = await run_digest_job(chat, now=datetime.now(UTC))
     assert execution is not None
     assert execution.result == "completed"
     stored = sql("SELECT count(*) FROM ai_digests WHERE owner_id = :o", o=who.id).scalar()
