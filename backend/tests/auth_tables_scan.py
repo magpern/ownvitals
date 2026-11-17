@@ -160,6 +160,10 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     "ownvitals.auth.session_anomaly_policy": frozenset({"SIGNALS"}),
     # the admin Overview (issue 549): how many accounts, how many with a second factor
     "ownvitals.auth.admin_counts": frozenset({"AccountCounts", "account_counts"}),
+    # the admin page's writes (issue 550): "Sign out all" and an admin's invite
+    "ownvitals.auth.admin_writes": frozenset(
+        {"NewInvite", "create_admin_invite", "sign_out_account"}
+    ),
     # the admin Users view (#127): list and find, emails by id, disable, enable and delete
     "ownvitals.auth.admin_accounts": frozenset(
         {
@@ -202,6 +206,7 @@ SUBMODULES = frozenset(
         "activity_routes",
         "admin_accounts",
         "admin_counts",
+        "admin_writes",
         "admin_routes",
         "clientip",
         "cookies",

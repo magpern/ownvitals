@@ -203,6 +203,7 @@ def install(app: Any) -> None:
     audit row of an admin request's 422, 400 or 413, and the body limit. Call it after
     ``ownvitals.auth.setup.install``: it wraps the handlers installed there."""
     from ownvitals.admin import (  # see below
+        account_writes,
         anomaly_routes,
         audit_routes,
         jobs,
@@ -213,7 +214,16 @@ def install(app: Any) -> None:
     )
     from ownvitals.admin.body_limit import AdminBodyLimit, _body_refusal  # it imports this one
 
-    features = (anomaly_routes, audit_routes, jobs, overview, settings, users, withings_app)
+    features = (
+        account_writes,
+        anomaly_routes,
+        audit_routes,
+        jobs,
+        overview,
+        settings,
+        users,
+        withings_app,
+    )
     for feature in features:  # each imports this module
         app.include_router(feature.router)
 

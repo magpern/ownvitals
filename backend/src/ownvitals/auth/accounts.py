@@ -90,11 +90,17 @@ async def _require_user(db: AsyncSession, email: str) -> UserRow:
     return user
 
 
+def new_invite_code() -> tuple[str, bytes]:
+    """A new invite code (16 random bytes) and the SHA-256 that is all ``invites`` keeps of it.
+    The CLI path below and the admin page's (``auth.admin_writes``, issue 550) both use it."""
+    code = secrets.token_urlsafe(16)
+    return code, hashlib.sha256(code.encode()).digest()
+
+
 async def create_invite(db: AsyncSession, expires_in: timedelta) -> str:
     """One invite code (16 random bytes), shown once; only its SHA-256 is stored.
     ``created_by`` is null: this is the CLI path."""
-    code = secrets.token_urlsafe(16)
-    digest = hashlib.sha256(code.encode()).digest()
+    code, digest = new_invite_code()
     await db.execute(insert(invites).values(code_hash=digest, expires_at=func.now() + expires_in))
     return code
 

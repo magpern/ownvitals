@@ -30,8 +30,9 @@ account table, no jobs) and
 ``exports_purge_expired``, and the app role may ``EXECUTE`` it. When
 ``docker/postgres/maint/70-admin-accounts.sql`` has run (#314, ADR 0002 section 3), the NOLOGIN
 role ``ownvitals_admin_accounts`` (no ``BYPASSRLS``) has exactly its attributes, the column grants
-and the two ``DELETE`` privileges that script creates (no health table, no secret column), owns
-the five admin account functions (#461: the abuse view's read among them), which only
+(issue 550: an insert into two columns of ``invites``) and the two ``DELETE`` privileges that
+script creates (no health table, no secret column), owns the seven admin account functions (#461:
+the abuse view's read among them; issue 550: the sign-out and the invite), which only
 ``ownvitals_maint`` may ``EXECUTE``, and is the only grantee of ``webhook_events_purge_account``
 and of the queue's ``queue_enqueue_admin_revoke`` (#365; owned by ``ownvitals_queue``, executable
 by nobody else, and by nobody at all before the family is installed). The same script's second
@@ -39,7 +40,7 @@ NOLOGIN role ``ownvitals_admin_connections`` (issue 549; ``BYPASSRLS``, since ``
 an owned table) has exactly its attributes and its column grants (three columns of
 ``connections``, three of ``users``, the audit check's of ``admin_audit``; no table privilege),
 and owns the two admin connection-state reads, which only ``ownvitals_maint`` may ``EXECUTE``.
-The app role may execute none of those nine. Any other grantee fails.
+The app role may execute none of those eleven. Any other grantee fails.
 """
 
 from collections.abc import Callable
@@ -273,6 +274,8 @@ ADMIN_ACCOUNTS_FUNCTIONS = {
     "admin_account_delete": ADMIN_ACCOUNTS,
     "admin_account_revoke": ADMIN_ACCOUNTS,  # #365
     "admin_session_anomalies": ADMIN_ACCOUNTS,  # #461: the abuse view's read
+    "admin_account_signout": ADMIN_ACCOUNTS,  # issue 550: "Sign out all"
+    "admin_invite_create": ADMIN_ACCOUNTS,  # issue 550: an admin's invite
 }
 ADMIN_ACCOUNTS_ATTRIBUTES = (False, False, False, False, False, False, False)
 # The same script's connection-state reads (issue 549): their own NOLOGIN role, BYPASSRLS because
@@ -322,6 +325,8 @@ ADMIN_ACCOUNTS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
         ("admin_audit", c): {(ADMIN_ACCOUNTS, "SELECT")}
         for c in ("xmin", "created_at", "actor_id", "action", "target_user_id", "outcome")
     },
+    # issue 550: an admin's invite, as the CLI stores it; insert only, never a read of a hash.
+    **{("invites", c): {(ADMIN_ACCOUNTS, "INSERT")} for c in ("code_hash", "expires_at")},
 }
 # The admin delete's purge (#362): its owner and, once the family is installed, that role alone.
 PURGE_ACCOUNT = "webhook_events_purge_account"
