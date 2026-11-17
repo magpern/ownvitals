@@ -12,7 +12,13 @@ import pytest
 
 from ownvitals.ai import requests as r
 from ownvitals.ai.requests import Message, RequestRefused, Text, ToolOutput, ToolUse
-from ownvitals.ai.responses import RESPONSE_MAX_BYTES, BadResponse, parse_reply, rejected_usage
+from ownvitals.ai.responses import (
+    REJECTED_TOKENS_MAX,
+    RESPONSE_MAX_BYTES,
+    BadResponse,
+    parse_reply,
+    rejected_usage,
+)
 from ownvitals.ai.tools_model import MAX_TOOL_CALLS_PER_TURN, TOOLS, TOOLSET_VERSION
 
 SYNTHETIC = True
@@ -274,6 +280,25 @@ def test_a_rejected_answer_keeps_its_usage_when_the_block_parses() -> None:
         b"[]",
         _answer(usage={"input_tokens": -1, "output_tokens": 1}),
         _answer(usage="synthetic"),
-        b" " * (RESPONSE_MAX_BYTES + 1),
+        _answer(usage={"input_tokens": REJECTED_TOKENS_MAX + 1, "output_tokens": 1}),
+        _answer(usage={"input_tokens": 1, "output_tokens": 2**63}),  # past a bigint
+        _answer(usage={"input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": 10**30}),
     ):
         assert rejected_usage(raw) is None
+    at_limit = _answer(usage={"input_tokens": REJECTED_TOKENS_MAX, "output_tokens": 1})
+    assert rejected_usage(at_limit) is not None
+
+
+def _padded(size: int) -> bytes:
+    """A rejected answer with a valid usage block, padded to exactly ``size`` bytes."""
+    base = _answer(stop_reason="synthetic_unknown", pad="")
+    raw = _answer(stop_reason="synthetic_unknown", pad="x" * (size - len(base)))
+    assert len(raw) == size
+    return raw
+
+
+def test_a_rejected_answer_over_the_size_limit_is_not_read() -> None:
+    usage = rejected_usage(_padded(RESPONSE_MAX_BYTES))
+    assert usage is not None
+    assert (usage.input_tokens, usage.output_tokens) == (5, 7)
+    assert rejected_usage(_padded(RESPONSE_MAX_BYTES + 1)) is None

@@ -285,6 +285,8 @@ def _rejected(usage: Any) -> tuple[int, dict[str, Any]]:
         {"input_tokens": -1, "output_tokens": 1},  # an invalid count
         {"input_tokens": 1},  # a required count missing
         "not a block",
+        {"input_tokens": 1, "output_tokens": 2**63},  # past the ai_audit bigint
+        {"input_tokens": 10**15, "output_tokens": 10**15},  # priced above budget.MAX_ACTUAL
     ],
 )
 async def test_a_rejected_answer_with_invalid_usage_is_charged_the_reservation(
@@ -295,7 +297,9 @@ async def test_a_rejected_answer_with_invalid_usage_is_charged_the_reservation(
         await aicall.call()
     [(state, amount, actual)] = aicall.reservations()
     assert (state, actual) == ("settled", amount)
-    assert aicall.audit()[0].settlement == "charged"
+    [row] = aicall.audit()  # the normal failure path: audited, charged the reservation
+    assert (row.settlement, row.error, row.cost_microusd) == ("charged", "bad_response", amount)
+    assert (row.input_token_count, row.output_token_count) == (0, 0)
 
 
 async def test_a_rejected_answer_below_its_reservation_is_charged_the_reservation(

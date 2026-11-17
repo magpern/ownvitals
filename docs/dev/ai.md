@@ -270,7 +270,9 @@ questions 1, 3 and 6). Agents never set them.
    403, 404, 413, 429, 529, a withdrawal or cancel between attempts) or charge the reserved amount
    (`charged`: a timeout, a broken connection after sending, any other status, a malformed
    answer). A malformed 200 answer whose usage block still parses is charged the higher of the
-   reservation and that usage's cost, geo premium included (`overrun` when above it; #561). The settlement and the `ai_audit` row commit together in one fenced transaction
+   reservation and that usage's cost, geo premium included (`overrun` when above it; #561);
+   a count above `REJECTED_TOKENS_MAX` (10^8) makes that usage invalid. The settlement and the
+   `ai_audit` row commit together in one fenced transaction
    (the session guard's reviewed path for job writes), with one `ai call` log line. A lease lost
    before or at that point (during a re-check too) leaves the reservation to the reaper and
    writes the log line only (`settlement: lost`): the attempt is no longer this worker's.
