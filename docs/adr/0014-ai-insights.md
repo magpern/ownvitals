@@ -17,7 +17,8 @@ and no `ai_audit` row**: the row is written with the settle or release in the jo
 transaction, so a worker that lost its lease writes no row (the attempt is no longer its own);
 the reaper (`ai_settle_lost()`) charges the reservation at its full amount.
 
-Amended 2026-11-17 by #528 (the AI monthly caps in the admin area; see "Amendments").
+Amended 2026-11-17 by #528 (the AI monthly caps in the admin area) and by #568 (the default
+caps, open question 2; DELEGATED 2026-11-17, PROVISIONAL); see "Amendments".
 
 ## Context
 
@@ -297,6 +298,7 @@ greps the logs and `ai_audit`.
 - **Global cap** (our choice, the owner's total exposure): `ai_global_monthly_cap_microusd`.
 - **Defaults**: per-user cap **0** and global cap **0**: no call can be reserved until the owner
   sets the amounts (open question 2). Settings refuse a per-user cap above the global one.
+  (Amended 2026-11-17, #568: the defaults are now 10 USD and 100 USD; see "Amendments".)
 - **At the cap**: no call; the chat says "This month's AI budget for your account is used up. It
   resets on <date>." and the digest for that week is skipped with the same in-app note. Nothing
   else in the app changes; no partial answer is stored.
@@ -471,7 +473,8 @@ Two layers, both on **synthetic accounts only**:
    record. Default meanwhile: **not recorded**, so AI is off. Safe-off: `ai_provider_review_ref`
    empty.
 2. **The monthly cost caps**: the per-user amount (D11) and the global amount. Default meanwhile:
-   **0 and 0**, no call. Safe-off: 0.
+   **0 and 0**, no call. Safe-off: 0. **Settled 2026-11-17 (#568): DELEGATED, PROVISIONAL**, 10 USD
+   and 100 USD; see "Amendments".
 3. **The model** (`ai_model`) and with it the pricing table's first entry. Default meanwhile:
    **empty**, no call. The Architect proposed `claude-sonnet-5-5` on 2026-11-15 and the table
    prices it (a reviewed PR); the owner may choose another model, and `ai_model` stays unset
@@ -537,3 +540,35 @@ a cached read in the worker (a lowered cap would not apply to the next reservati
 Consequences: the owner's suggested amounts (10 USD per account, 100 USD in total a month,
 `docs/dev/ai.md`) are not a code default; the settings stay 0 until the owner sets them, and the
 admin page can then only lower them. Open question 2 stays the owner's.
+
+### 2026-11-17, #568: the default monthly caps (open question 2 settled)
+
+Architect decision (security-critical; **DELEGATED 2026-11-17, PROVISIONAL**, re-checked at the M8
+human review). On 2026-11-17 the owner delegated the open owner questions to the Architect. This
+settles open question 2 only; it is not an owner sign-off, passes no gate and sets no lock.
+
+Context: the caps defaulted to 0 and 0 (no request can be reserved) until the owner set them. The
+owner had already suggested 10 USD per account and 100 USD in total a month (#528,
+`docs/dev/ai.md`).
+
+Decision:
+
+- `ai_user_monthly_cap_microusd` defaults to **10,000,000** (10 USD) and
+  `ai_global_monthly_cap_microusd` to **100,000,000** (100 USD). The per-user default is at or
+  below the global one, so the settings' cross-field check holds; a test pins both defaults.
+- These are a **ceiling only**. AI still makes no call until the owner-only locks are set
+  (`ai_model`, `ai_provider_review_ref`, `ai_eval_ref`) and `ai_insights` is on; this amendment
+  changes none of them. The #528 rules are unchanged: the settings are the ceiling, an admin's
+  stored cap can only lower them, a setting of 0 still means no request can be reserved, and an
+  invalid stored cap counts as 0.
+- §7's definer functions, their digests and `ownvitals_ai`'s privileges are unchanged: the caps
+  stay arguments of `ai_reserve`.
+
+Alternatives: keep 0 and 0 until the owner sets them (the open question then has no answer after
+the delegation, and every installation must set two variables before AI can be tried; rejected); higher
+defaults (more exposure than the owner suggested; rejected).
+
+Consequences: an installation that sets the locks and turns on `ai_insights` spends at most 10 USD
+per account and 100 USD in total a month without further settings. A server that wants less sets
+either setting lower, or to 0. Open question 2 is closed as DELEGATED, PROVISIONAL; the owner may
+reopen it.
