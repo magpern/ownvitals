@@ -4,8 +4,9 @@ The answer is untrusted. Only two kinds of content block are kept: ``text`` (bou
 text; the UI renders it as plain text) and ``tool_use`` (a request to run a read-only tool,
 which the turn loop validates against the tool's closed arguments before anything runs). Every
 other block is dropped. The usage must be four non-negative integers, or the answer is
-``BadResponse`` and the call is charged at its reserved amount; ``usage.inference_geo``, when
-present, must be a short string (it only sets the price: ``ai.pricing.usage_cost``). The
+``BadResponse`` and the call is charged at its reserved amount. ``usage.inference_geo`` only
+sets the price (``ai.pricing.usage_cost``): a malformed one (not a short string) is read as
+absent, so valid token counts are still charged, at the non-global 1.1x (#556). The
 model's output is a proposal: nothing here, and nothing that reads a ``Reply``, acts on it
 beyond running a read-only tool for the same user and storing the text in that user's
 conversation.
@@ -68,11 +69,11 @@ def _count(usage: dict[str, Any], key: str, required: bool) -> int:
 
 
 def _geo(usage: dict[str, Any]) -> str | None:
+    """The reported geo, or ``None`` when it is absent or malformed. Never ``BadResponse``: that
+    would charge the reserved 1x, below the 1.1x bill of valid token counts (#556)."""
     value = usage.get("inference_geo")
-    if value is None:
-        return None
     if not isinstance(value, str) or len(value) > GEO_MAX_CHARS:
-        raise BadResponse("usage")
+        return None
     return value
 
 

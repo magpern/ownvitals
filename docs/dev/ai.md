@@ -241,8 +241,8 @@ questions 1, 3 and 6). Agents never set them.
   nothing: `OWNVITALS_AI_MODEL` stays empty until the owner sets it. The prices are the 1x
   prices of global inference: every request sends `inference_geo: "global"`, so an API key
   whose workspace does not allow global inference gets a 400 (released, nothing charged), and
-  an answer that reports another `usage.inference_geo`, or none, settles at 1.1x (US-only is
-  billed 1.1x on every category; ADR 0014 §7, #529).
+  an answer that reports another `usage.inference_geo`, none or a malformed one (#556)
+  settles at 1.1x (US-only is billed 1.1x on every category; ADR 0014 §7, #529).
 - `OWNVITALS_AI_PROVIDER_REVIEW_REF`: the reference of the recorded provider review (lock 2).
 - `OWNVITALS_AI_EVAL_REF`: exactly `<model>/<PROMPT_VERSION>/<TOOLSET_VERSION>` as the owner's
   evaluation run passed it (lock 3). Changing the model, the prompt or the tool set makes it stale,
@@ -364,7 +364,7 @@ Without `50-ai.sql` nothing is called; withdrawal and account deletion still rem
   allows `"global"` (and re-confirms the table's prices) at the provider review (ADR 0014 §2).
   Not verified against the real API: that a US-only workspace answers 400 to `"global"` and that
   every answer carries `usage.inference_geo` is the provider's documentation (data residency
-  page, read 2026-11-17); a missing field only over-charges by 10%.
+  page, read 2026-11-17); a missing or malformed field only over-charges by 10%.
 - `compose.yaml` mounts `anthropic_api_key` and `app_secret_key` into the worker, the key there
   only (`test_compose_ai_key.py`, [stack.md](stack.md#secrets)); `scripts/worktree.sh init`
   leaves the key file empty, so the local stack is `ai_not_configured`. With the defaults AI is
