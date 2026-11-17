@@ -44,6 +44,20 @@ describe('the cap amounts', () => {
   })
 })
 
+describe('the cap amounts in exact integers', () => {
+  // Binary floats are off for several of these: 0.07 * 100 = 7.000000000000001 and
+  // 2.01 * 1e6 = 2009999.9999999998, so a float rewrite that does not round yields a fraction.
+  it('gives the exact micro-USD for amounts that binary floats cannot hold', () => {
+    expect(microFromUsd('0.07')).toBe(70_000)
+    expect(microFromUsd('0.29')).toBe(290_000)
+    expect(microFromUsd('1.10')).toBe(1_100_000)
+    expect(microFromUsd('19.99')).toBe(19_990_000)
+    expect(microFromUsd('19,99')).toBe(19_990_000)
+    expect(microFromUsd('2.01')).toBe(2_010_000)
+    expect(microFromUsd('2.03')).toBe(2_030_000)
+  })
+})
+
 describe('the AI monthly caps', () => {
   it('shows each cap in USD and stores a lower one in micro-USD', async () => {
     const api = fakeApi({
