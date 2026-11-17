@@ -104,7 +104,10 @@ class FakeModel:
         if step == TIMEOUT:
             raise httpx.ReadTimeout("synthetic read timeout", request=request)
         code, body, *rest = step
-        return httpx.Response(code, json=body, headers=rest[0] if rest else None)
+        headers = rest[0] if rest else None
+        if isinstance(body, bytes):  # a raw body, sent as is (malformed on purpose)
+            return httpx.Response(code, content=body, headers=headers)
+        return httpx.Response(code, json=body, headers=headers)
 
     def bodies(self) -> list[bytes]:
         return [s.body for s in self.seen]

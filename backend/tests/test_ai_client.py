@@ -18,6 +18,7 @@ from ownvitals.ai.client import MAX_ATTEMPTS
 from ownvitals.ai.gates import ModelFailed, ModelRefused
 from ownvitals.ai.pricing import TOOL_ALLOWANCE_TOKENS
 from ownvitals.ai.requests import MAX_TOKENS, Message, Text
+from ownvitals.ai.responses import USAGE_TOKENS_MAX
 from ownvitals.jobs import RunStopped
 from test_ai_client_env import (  # noqa: F401 - fixtures
     PRICES,
@@ -263,6 +264,41 @@ async def test_a_timeout_or_server_error_is_charged_at_the_reserved_amount(
     [(state, amount, actual)] = aicall.reservations()
     assert (state, actual) == ("settled", amount)
     assert aicall.audit()[0].settlement == "charged"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"[" * 200_000,  # too deep for the JSON parser, under the size limit (#563)
+        b'{"type":"message","usage":' + b"[" * 100_000,
+    ],
+)
+async def test_a_deeply_nested_answer_is_a_bad_response_charged_and_audited(
+    aicall: AiCall, body: bytes
+) -> None:
+    aicall.fake.script = [(200, body)]
+    with pytest.raises(ModelFailed, match="bad_response"):
+        await aicall.call()
+    [(state, amount, actual)] = aicall.reservations()
+    assert (state, actual) == ("settled", amount)
+    [row] = aicall.audit()
+    assert (row.settlement, row.error, row.cost_microusd) == ("charged", "bad_response", amount)
+
+
+@pytest.mark.parametrize("count", [USAGE_TOKENS_MAX + 1, 2**63, 10**30])
+async def test_an_accepted_answer_with_an_out_of_range_count_is_charged_the_reservation(
+    aicall: AiCall, count: int
+) -> None:
+    # #563: a count no real request can reach (above ``MAX_ACTUAL`` once priced, or past the
+    # ai_audit bigint) is a bad_response at the reservation, audited, not a raw error.
+    aicall.fake.script = [answer("Synthetic answer.", input_tokens=count, output_tokens=1)]
+    with pytest.raises(ModelFailed, match="bad_response"):
+        await aicall.call()
+    [(state, amount, actual)] = aicall.reservations()
+    assert (state, actual) == ("settled", amount)
+    [row] = aicall.audit()
+    assert (row.settlement, row.error, row.cost_microusd) == ("charged", "bad_response", amount)
+    assert (row.input_token_count, row.output_token_count) == (0, 0)
 
 
 async def test_a_malformed_answer_is_charged(aicall: AiCall) -> None:
