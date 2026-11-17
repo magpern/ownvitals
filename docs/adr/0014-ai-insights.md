@@ -296,9 +296,11 @@ greps the logs and `ai_audit`.
   amount**, like a crash, because it may have been billed. A worker crash leaves the reservation
   to `ai_settle_lost()`.
 - **Global cap** (our choice, the owner's total exposure): `ai_global_monthly_cap_microusd`.
-- **Defaults**: per-user cap **0** and global cap **0**: no call can be reserved until the owner
-  sets the amounts (open question 2). Settings refuse a per-user cap above the global one.
-  (Amended 2026-11-17, #568: the defaults are now 10 USD and 100 USD; see "Amendments".)
+- **Defaults** (2026-11-17, #568): per-user cap **10 USD** and global cap **100 USD** a month
+  (10,000,000 and 100,000,000 micro-USD), a ceiling only: no call is made until the owner-only
+  locks are set and `ai_insights` is on. A setting of 0 still means no call can be reserved.
+  Settings refuse a per-user cap above the global one. (Originally 0 and 0, until the owner set
+  the amounts; see "Amendments".)
 - **At the cap**: no call; the chat says "This month's AI budget for your account is used up. It
   resets on <date>." and the digest for that week is skipped with the same in-app note. Nothing
   else in the app changes; no partial answer is stored.
@@ -473,8 +475,8 @@ Two layers, both on **synthetic accounts only**:
    record. Default meanwhile: **not recorded**, so AI is off. Safe-off: `ai_provider_review_ref`
    empty.
 2. **The monthly cost caps**: the per-user amount (D11) and the global amount. Default meanwhile:
-   **0 and 0**, no call. Safe-off: 0. **Settled 2026-11-17 (#568): DELEGATED, PROVISIONAL**, 10 USD
-   and 100 USD; see "Amendments".
+   **10 USD per user and 100 USD global** a month (**DELEGATED 2026-11-17, PROVISIONAL**, #568; the
+   owner may reopen it; originally 0 and 0). Safe-off: 0. See "Amendments".
 3. **The model** (`ai_model`) and with it the pricing table's first entry. Default meanwhile:
    **empty**, no call. The Architect proposed `claude-sonnet-5-5` on 2026-11-15 and the table
    prices it (a reviewed PR); the owner may choose another model, and `ai_model` stays unset

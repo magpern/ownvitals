@@ -391,3 +391,18 @@ def test_a_new_tool_set_needs_a_new_eval_run() -> None:
         check_locks(settings, prices={"synthetic-model-1": PRICE})
     current = settings.model_copy(update={"ai_eval_ref": eval_ref("synthetic-model-1")})
     assert check_locks(current, prices={"synthetic-model-1": PRICE}) == "synthetic-model-1"
+
+
+def test_ai_insights_off_refuses_even_when_every_other_lock_is_set() -> None:
+    """ADR 0014 section 1, lock 1: the master switch alone closes the gate."""
+    valid = Settings.model_construct(
+        ai_insights=True,
+        ai_model="synthetic-model-1",
+        ai_provider_review_ref="synthetic-review",
+        ai_eval_ref=eval_ref("synthetic-model-1"),
+    )
+    prices = {"synthetic-model-1": PRICE}
+    assert check_locks(valid, prices=prices) == "synthetic-model-1"
+    off = valid.model_copy(update={"ai_insights": False})
+    with pytest.raises(ModelRefused, match="ai_not_enabled"):
+        check_locks(off, prices=prices)
