@@ -273,6 +273,76 @@ async def test_a_malformed_answer_is_charged(aicall: AiCall) -> None:
     assert (state, actual) == ("settled", amount)
 
 
+def _rejected(usage: Any) -> tuple[int, dict[str, Any]]:
+    """A 200 answer rejected for its stop reason, with the given usage block."""
+    code, body = answer("Synthetic answer.")
+    return code, body | {"stop_reason": "synthetic_unknown", "usage": usage}
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"input_tokens": -1, "output_tokens": 1},  # an invalid count
+        {"input_tokens": 1},  # a required count missing
+        "not a block",
+        {"input_tokens": 1, "output_tokens": 2**63},  # past the ai_audit bigint
+        {"input_tokens": 10**15, "output_tokens": 10**15},  # priced above budget.MAX_ACTUAL
+    ],
+)
+async def test_a_rejected_answer_with_invalid_usage_is_charged_the_reservation(
+    aicall: AiCall, usage: Any
+) -> None:
+    aicall.fake.script = [_rejected(usage)]
+    with pytest.raises(ModelFailed, match="bad_response"):
+        await aicall.call()
+    [(state, amount, actual)] = aicall.reservations()
+    assert (state, actual) == ("settled", amount)
+    [row] = aicall.audit()  # the normal failure path: audited, charged the reservation
+    assert (row.settlement, row.error, row.cost_microusd) == ("charged", "bad_response", amount)
+    assert (row.input_token_count, row.output_token_count) == (0, 0)
+
+
+async def test_a_rejected_answer_below_its_reservation_is_charged_the_reservation(
+    aicall: AiCall,
+) -> None:
+    # Valid usage, even at 1.1x far below the bound: the reservation stays the floor (#561).
+    aicall.fake.script = [
+        _rejected({"input_tokens": 10, "output_tokens": 1, "inference_geo": "us"})
+    ]
+    with pytest.raises(ModelFailed, match="bad_response"):
+        await aicall.call()
+    [(state, amount, actual)] = aicall.reservations()
+    assert (state, actual) == ("settled", amount)
+    [row] = aicall.audit()
+    assert (row.settlement, row.cost_microusd, row.input_token_count) == ("charged", amount, 10)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        {"stop_reason": "synthetic_unknown"},
+        {"stop_reason": "end_turn", "content": "not a list"},
+        {"stop_reason": "end_turn", "content": [{"type": "text", "text": 1}]},
+    ],
+)
+async def test_a_rejected_answer_above_its_reservation_is_charged_its_usage_at_1_1x(
+    aicall: AiCall, reason: dict[str, Any]
+) -> None:
+    # A bad stop reason or content with a valid usage block above the bound: charged that
+    # usage's cost with the geo premium, not the lower 1x reservation (#561).
+    code, body = _rejected({"input_tokens": 10**7, "output_tokens": 10**6, "inference_geo": "us"})
+    aicall.fake.script = [(code, body | reason)]
+    with pytest.raises(ModelFailed, match="bad_response"):
+        await aicall.call()
+    exact = 10**7 * PRICES["synthetic-model-1"].input + 10**6 * 15_000_000
+    cost = -(-(exact * 11) // 10_000_000)
+    [(state, amount, actual)] = aicall.reservations()
+    assert (state, actual) == ("settled", cost)
+    assert actual > amount
+    [row] = aicall.audit()
+    assert (row.settlement, row.cost_microusd, row.status) == ("overrun", cost, "failed")
+
+
 async def test_a_withdrawal_between_attempts_stops_the_retry(aicall: AiCall) -> None:
     async def withdraw(_: Any) -> None:
         aicall.sql(

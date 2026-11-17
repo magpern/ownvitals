@@ -12,7 +12,13 @@ import pytest
 
 from ownvitals.ai import requests as r
 from ownvitals.ai.requests import Message, RequestRefused, Text, ToolOutput, ToolUse
-from ownvitals.ai.responses import BadResponse, parse_reply
+from ownvitals.ai.responses import (
+    REJECTED_TOKENS_MAX,
+    RESPONSE_MAX_BYTES,
+    BadResponse,
+    parse_reply,
+    rejected_usage,
+)
 from ownvitals.ai.tools_model import MAX_TOOL_CALLS_PER_TURN, TOOLS, TOOLSET_VERSION
 
 SYNTHETIC = True
@@ -259,3 +265,40 @@ def test_the_reported_inference_geo_is_kept_and_bounded() -> None:
 def test_a_malformed_answer_is_refused(raw: bytes) -> None:
     with pytest.raises(BadResponse):
         parse_reply(raw)
+
+
+def test_a_rejected_answer_keeps_its_usage_when_the_block_parses() -> None:
+    # #561: an answer rejected for its stop reason or content still reports what it cost.
+    for raw in (_answer(stop_reason="synthetic_unknown"), _answer(content="not a list")):
+        with pytest.raises(BadResponse):
+            parse_reply(raw)
+        usage = rejected_usage(raw)
+        assert usage is not None
+        assert (usage.input_tokens, usage.output_tokens, usage.cache_read_tokens) == (5, 7, 2)
+    for raw in (
+        b"not json",
+        b"[]",
+        _answer(usage={"input_tokens": -1, "output_tokens": 1}),
+        _answer(usage="synthetic"),
+        _answer(usage={"input_tokens": REJECTED_TOKENS_MAX + 1, "output_tokens": 1}),
+        _answer(usage={"input_tokens": 1, "output_tokens": 2**63}),  # past a bigint
+        _answer(usage={"input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": 10**30}),
+    ):
+        assert rejected_usage(raw) is None
+    at_limit = _answer(usage={"input_tokens": REJECTED_TOKENS_MAX, "output_tokens": 1})
+    assert rejected_usage(at_limit) is not None
+
+
+def _padded(size: int) -> bytes:
+    """A rejected answer with a valid usage block, padded to exactly ``size`` bytes."""
+    base = _answer(stop_reason="synthetic_unknown", pad="")
+    raw = _answer(stop_reason="synthetic_unknown", pad="x" * (size - len(base)))
+    assert len(raw) == size
+    return raw
+
+
+def test_a_rejected_answer_over_the_size_limit_is_not_read() -> None:
+    usage = rejected_usage(_padded(RESPONSE_MAX_BYTES))
+    assert usage is not None
+    assert (usage.input_tokens, usage.output_tokens) == (5, 7)
+    assert rejected_usage(_padded(RESPONSE_MAX_BYTES + 1)) is None
