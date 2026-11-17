@@ -1,0 +1,10 @@
+# Advisories scripts/npm-audit.sh (the "npm audit" step of ci.yml) must not fail on. npm audit has
+# no ignore flag. Upgrade first (AGENTS.md, "CI"): an entry is only for an advisory with no fix, or
+# in code that cannot be reached. One entry per line: "GHSA-xxxx-xxxx-xxxx exp:YYYY-MM-DD", with a
+# "# reason" comment above it. An entry excuses only that ID. An expired entry fails the audit; it
+# is removed in the next PR that touches this file. Never ignore without a reason.
+
+# picomatch ReDoS (high). Every version is affected (latest 4.0.7), so there is no fix. Reached
+# only through dev build tools (vite, vitest, tinyglobby); `npm audit --omit=dev` finds 0 and the
+# runtime image never has them.
+GHSA-fc5q-39xc-vjpf exp:2027-01-31
