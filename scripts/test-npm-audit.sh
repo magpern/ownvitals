@@ -30,8 +30,8 @@ audit() {
   for id in "$@"; do
     objs="$objs{\"source\":1,\"name\":\"pkg-$id\",\"severity\":\"$sev\",\"url\":\"https://github.com/advisories/$id\"},"
   done
-  printf '{"vulnerabilities":{"leaf":{"severity":"%s","via":[%s"other"]},"vite":{"severity":"high","via":["leaf"]}}}' \
-    "$sev" "$objs" >"$work/audit.json"
+  printf '{"vulnerabilities":{"leaf":{"severity":"%s","via":[%s"other"]},"vite":{"severity":"%s","via":["leaf"]}}}' \
+    "$sev" "$objs" "$sev" >"$work/audit.json"
 }
 
 A=GHSA-aaaa-bbbb-cccc
@@ -58,6 +58,34 @@ printf '%s exp:soon\n' "$A" >"$work/ignore";           expect fail "entry with a
 printf '%s exp:2027-01-31\n' "$A" >"$work/ignore"
 printf 'not json' >"$work/audit.json";                 expect fail "unreadable audit output fails"
 printf '{"error":{"code":"ENOAUDIT"}}' >"$work/audit.json"; expect fail "npm audit error output fails"
+
+# Third field on an allowlist line, impossible date, wrong URL shape.
+audit high "$A"
+printf '%s exp:2027-01-31 extra\n' "$A" >"$work/ignore"; expect fail "allowlist line with a third field fails"
+printf '%s exp:2027-13-99\n' "$A" >"$work/ignore";       expect fail "impossible expiry date fails"
+printf '%s exp:2027-01-31\n' "$A" >"$work/ignore"
+printf '{"vulnerabilities":{"l":{"severity":"high","via":[{"source":1,"name":"p","severity":"high","url":"https://example.com/x/%s-evil"}]}}}' "$A" >"$work/audit.json"
+expect fail "GHSA not at the end of an advisories URL is not matched"
+printf '{"vulnerabilities":{"l":{"severity":"high","via":[{"source":1,"name":"p","severity":"high","url":"https://github.com/advisories/%s"}]}}}' "$A" >"$work/audit.json"
+expect ok   "advisories URL path segment is matched"
+
+# High package whose via entries are all strings (no advisory to match) fails; counts alone too.
+printf '{"vulnerabilities":{"x":{"severity":"high","via":["y"]}},"metadata":{"vulnerabilities":{"high":1,"critical":0}}}' >"$work/audit.json"
+expect fail "high package with only string via entries fails"
+printf '{"vulnerabilities":{},"metadata":{"vulnerabilities":{"high":0,"critical":1}}}' >"$work/audit.json"
+expect fail "metadata count above 0 with no advisory fails"
+
+# Empty, whitespace and keyless output fail; so does a missing npm.
+: >"$work/audit.json";                          expect fail "empty audit output fails"
+printf ' \n\t\n' >"$work/audit.json";            expect fail "whitespace audit output fails"
+printf '{"metadata":{}}' >"$work/audit.json";   expect fail "output without a vulnerabilities key fails"
+printf '[]' >"$work/audit.json";                expect fail "non-object output fails"
+mkdir "$work/nonpm"
+for t in jq date dirname cat; do ln -s "$(command -v "$t")" "$work/nonpm/$t"; done
+printf '%s exp:2027-01-31\n' "$A" >"$work/ignore"
+rc=0; PATH="$work/nonpm" NPM_AUDIT_IGNORE_FILE="$work/ignore" "$(command -v bash)" "$script" "$work/pkg" >"$work/out" 2>&1 || rc=$?
+grep -q "npm is not on PATH" "$work/out" || rc=0
+if [ "$rc" != 0 ]; then echo "ok   npm missing from PATH fails"; else echo "FAIL npm missing from PATH"; failures=$((failures + 1)); fi
 
 # Missing directory fails.
 rc=0; NPM_AUDIT_JSON_FILE="$work/audit.json" "$script" "$work/nope" >/dev/null 2>&1 || rc=$?

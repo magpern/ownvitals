@@ -27,6 +27,11 @@ while IFS= read -r line; do
     continue
   fi
   exp="${exp#exp:}"
+  if [ "$(date -u -d "$exp" +%F 2>/dev/null || true)" != "$exp" ]; then
+    echo "npm-audit: allowlist entry $id has an impossible date: $exp" >&2
+    failed=1
+    continue
+  fi
   if [[ "$today" > "$exp" ]]; then
     echo "npm-audit: allowlist entry $id expired on $exp; remove it or renew it with a reason" >&2
     failed=1
@@ -38,20 +43,39 @@ done <"$ignore"
 if [ -n "${NPM_AUDIT_JSON_FILE:-}" ]; then
   json="$(cat "$NPM_AUDIT_JSON_FILE")"
 else
+  command -v npm >/dev/null || { echo "npm-audit: npm is not on PATH" >&2; exit 1; }
   # npm audit exits non-zero when it finds anything; the verdict here comes from the JSON.
   json="$(cd "$dir" && npm audit --json || true)"
+fi
+if [ -z "${json//[[:space:]]/}" ]; then
+  echo "npm-audit: $dir: npm audit produced no output" >&2
+  exit 1
+fi
+if ! jq -e 'type == "object" and has("vulnerabilities")' <<<"$json" >/dev/null 2>&1; then
+  echo "npm-audit: could not read the audit output for $dir (no vulnerabilities key)" >&2
+  exit 1
 fi
 
 # Every advisory object (via entries that are strings only name another vulnerable package).
 if ! found="$(jq -r '
-    if has("vulnerabilities") | not then error("no vulnerabilities key (npm audit failed?)") else . end
-    | [.vulnerabilities[].via[]? | select(type == "object")
+    [.vulnerabilities[].via[]? | select(type == "object")
        | select(.severity == "high" or .severity == "critical")
-       | {id: ((.url // "") | capture("(?<g>GHSA(-[0-9a-z]{4}){3})").g? // ("source-" + (.source | tostring))),
+       | {id: ((.url // "") | capture("/advisories/(?<g>GHSA(-[0-9a-z]{4}){3})$").g? // ("source-" + (.source | tostring))),
           pkg: .name, sev: .severity}]
     | unique | .[] | "\(.id) \(.pkg) \(.sev)"' <<<"$json")"; then
   echo "npm-audit: could not read the audit output for $dir" >&2
   exit 1
+fi
+
+# A high or critical package with no object advisory behind it (all via entries are strings, or
+# the counts say so) cannot be matched to an ID, so it fails instead of passing unseen.
+if ! jq -e '([.vulnerabilities[] | select(.severity == "high" or .severity == "critical")] | length) as $v
+    | (((.metadata.vulnerabilities.high // 0) + (.metadata.vulnerabilities.critical // 0))) as $m
+    | ([.vulnerabilities[].via[]? | select(type == "object")
+        | select(.severity == "high" or .severity == "critical")] | length) as $a
+    | ($v == 0 and $m == 0) or $a > 0' <<<"$json" >/dev/null; then
+  echo "npm-audit: $dir: high or critical findings without an identifiable advisory" >&2
+  failed=1
 fi
 
 while read -r id pkg sev; do
