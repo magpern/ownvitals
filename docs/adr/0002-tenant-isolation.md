@@ -1,7 +1,7 @@
 # ADR 0002: Tenant isolation: UserContext, forced RLS, roles and execution contexts
 
-Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88, and 2026-11-10 by
-#362, #314 and #365 (see "Amendments").
+Status: Accepted (2026-10-31, #4); amended 2026-10-31 by #49, #72, #78 and #88, 2026-11-10 by
+#362, #314 and #365, and 2026-11-17 by issue 549 (#552) (see "Amendments").
 Its two open questions were decided by the Architect on 2026-10-31 (§2 partitions, whose keys
 [roadmap Amendment 2](../roadmap.md) sets; §3 `webhook_events` retention). Post-port review (#16,
 2026-11-03): no decision changed; guard 7 is enforced per route, without an enumeration (threat
@@ -416,7 +416,8 @@ CREATE POLICY owner_isolation ON <t>
 | `ownvitals_mail_outbox` (M6; amended 2026-11-03, #194) | no | the mail outbox's definer functions (ADR 0007 §3) | `BYPASSRLS`, member of no role; column privileges on the two outbox tables only (ADR 0007 §3) |
 | `ownvitals_ai` (M7; amended 2026-11-03, #205) | no | the AI cost cap's definer functions (ADR 0014 §7, ADR 0005 §3) | `BYPASSRLS`, member of no role; column privileges on `jobs` and the three AI tables only (ADR 0005 §3) |
 | `ownvitals_admin_accounts` (amended 2026-11-10, #314) | no | the admin account functions (§3) | the attributes of §3 (`NOBYPASSRLS`, member of no role) and exactly its privileges |
-| `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; of `withings_apps` the non-secret columns only, and no write (amended 2026-10-31, #49); `EXECUTE` on the admin account functions only (three, amended 2026-11-10, #314; four, amended 2026-11-10, #365); default read-only; every use audited |
+| `ownvitals_admin_connections` (amended 2026-11-17, issue 549, #552) | no | the two admin connection-state reads of `70-admin-accounts.sql`: `admin_withings_states(uuid[])`, only in a transaction holding its `ok` row for `user.list` (no target) or `user.read` of the one account asked about, and `admin_withings_counts()`, only with an `ok` row for `overview.read`; both refuse inside a user session; executable by `ownvitals_maint` only | `NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT`, member of no role, no settings, owns only those two functions; `SELECT (owner_id, provider, status)` on `connections`, `SELECT (id, role, disabled_at)` on `users`, `SELECT (xmin, created_at, actor_id, action, target_user_id, outcome)` on `admin_audit`; nothing else |
+| `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; of `withings_apps` the non-secret columns only, and no write (amended 2026-10-31, #49); `EXECUTE` on the admin account functions only (three, amended 2026-11-10, #314; four, amended 2026-11-10, #365; with the abuse view's read and the two connection-state reads, amended 2026-11-17, issue 549); no column of `connections`; default read-only; every use audited |
 
 - `ownvitals_app`'s grants are an **allowlist**: `CONNECT` on its database, `USAGE` on `public`,
   `SELECT, INSERT, UPDATE, DELETE` on tables and `USAGE, SELECT` on sequences through default
@@ -662,3 +663,35 @@ and marked "amended 2026-11-10, #365":
   (#383) the issuer admits this one kind for a disabled owner (ADR 0005 §4). A delete refused
   after its revoke ran (the address changed in between) leaves a revoked connection and the
   account.
+
+### 2026-11-17 (issue 549, #552): the admin connection-state reads
+
+Architect decision (security-critical; DELEGATED, PROVISIONAL, re-checked at the M8 human
+review), made in place in §5 and marked "amended 2026-11-17, issue 549":
+
+- Context: the admin Users view and Overview show each account's Withings connection state
+  (Healthy, Needs reconnect, Not connected) and the counts per state. `ownvitals_maint` may not
+  read `owner_id` of any owned table (§4; the `contexttools` admin probe checks it), and
+  `ownvitals_admin_accounts` has no `BYPASSRLS`, so neither can map accounts to `connections`
+  rows, which are under forced row security.
+- Decision: a second `NOLOGIN` owner role of `70-admin-accounts.sql`,
+  `ownvitals_admin_connections`, with `BYPASSRLS` and exactly the column grants of §5, owns two
+  `SECURITY DEFINER` reads executable by maint only. Each refuses unless the current transaction
+  holds its `ok` audit row (inserted by this transaction, `outcome = 'ok'`, the actor an admin
+  that is not disabled): `admin_withings_states` for `user.list` with no target, or `user.read`
+  of the one account it is asked about (1 to 101 ids); `admin_withings_counts` for
+  `overview.read`. Both raise `bad_context` inside a user session. What leaves them is an account
+  id the caller passed with one of three words, or the three words with counts: never a
+  credential, `public`, the Withings user id, the app id, an error or a time. Maint itself keeps
+  no grant on `connections`. Both are admitted by name in `20-queue.sql` and pinned with the
+  admin account family (owner, ACL, version, digest). §7: guard 2 checks the role's attributes,
+  grants and ownership; guard 11 checks maint's two new `EXECUTE` grants and that it holds no
+  column of `connections`.
+- Alternatives: a column grant on `connections (owner_id, provider, status)` to maint, which §4
+  would allow for status columns, but it loosens the rule that maint reads no owner of an owned
+  table; `BYPASSRLS` for `ownvitals_admin_accounts`, which would make the account-table role able
+  to read every owned table it is ever granted; reusing `ownvitals_queue`, which reads the same
+  three columns but would need the audit log and account columns, widening every queue function.
+- Consequences: one more `BYPASSRLS` `NOLOGIN` role, reachable only through two pinned, audited
+  functions; the Users list and Overview each make one more definer call in their audited
+  transaction.

@@ -33,6 +33,7 @@ const PAGE = {
       second_factor: 'on',
       last_sign_in: '2026-11-02T07:30:00Z',
       sessions: 3,
+      withings: 'healthy',
     },
     {
       id: 'u-robin',
@@ -43,6 +44,18 @@ const PAGE = {
       second_factor: 'setup_pending',
       last_sign_in: null,
       sessions: 0,
+      withings: 'not_connected',
+    },
+    {
+      id: 'u-sam',
+      email: 'sam@example.com',
+      role: 'user',
+      disabled_at: null,
+      created_at: '2026-01-03T00:00:00Z',
+      second_factor: 'on',
+      last_sign_in: null,
+      sessions: 1,
+      withings: 'needs_reconnect',
     },
   ],
   next_offset: null,
@@ -62,18 +75,29 @@ describe('the admin accounts table', () => {
     expect(within(rows[0] as HTMLElement).getByText('alex@example.com')).toBeInTheDocument()
     expect(within(rows[0] as HTMLElement).getByText('Admin')).toBeInTheDocument()
     expect(within(rows[0] as HTMLElement).getByText('On')).toBeInTheDocument()
-    expect(within(rows[0] as HTMLElement).getByText('Not available')).toBeInTheDocument()
+    expect(within(rows[0] as HTMLElement).getByText('Healthy')).toHaveClass('ov-state--ok')
     expect(within(rows[0] as HTMLElement).getByText('3')).toBeInTheDocument()
     expect(within(rows[1] as HTMLElement).getByText('robin@example.com')).toBeInTheDocument()
     expect(within(rows[1] as HTMLElement).getByText('User')).toBeInTheDocument()
     expect(within(rows[1] as HTMLElement).getByText('Setup pending')).toBeInTheDocument()
     expect(within(rows[1] as HTMLElement).getByText('Disabled')).toBeInTheDocument()
     expect(within(rows[1] as HTMLElement).getByText('Never')).toBeInTheDocument()
+    expect(within(rows[1] as HTMLElement).getByText('Not connected')).toHaveClass('ov-state--off')
+    expect(within(rows[2] as HTMLElement).getByText('Needs reconnect')).toHaveClass('ov-state--urgent')
+    expect(within(table).queryByText('Not available')).toBeNull()
     expect(
       screen.getByText(
         'Role changes and second-factor resets run from the operator command line on the server, never from this page.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('The admin pages come later.')).toBeNull()
+  })
+
+  it('refuses an account whose Withings state is not one of the three words', async () => {
+    const bad = { ...PAGE, users: [{ ...PAGE.users[0], withings: 'connected' }] }
+    fakeApi({ 'GET /api/auth/session': ADMIN, 'GET /api/admin/users': bad })
+    renderAt('/admin?tab=accounts')
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).toBeNull()
   })
 })

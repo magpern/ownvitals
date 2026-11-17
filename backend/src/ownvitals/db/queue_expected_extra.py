@@ -126,21 +126,29 @@ EXPORTS_PINS: dict[str, tuple[str, str, str, str]] = {
 }
 # The admin account family (docker/postgres/maint/70-admin-accounts.sql, ADR 0002 section 3;
 # #314; admin_account_revoke #365; the abuse view's read admin_session_anomalies #461), owned by
-# its own NOLOGIN role and executable by ownvitals_maint only. Absent until db-functions has run
-# that script; once one is present, all five must be, each pinned (its digest in
+# its own NOLOGIN role and executable by ownvitals_maint only, and the two connection-state reads
+# of the same script (issue 549), owned by ownvitals_admin_connections. Absent until db-functions
+# has run that script; once one is present, all seven must be, each pinned (its digest in
 # queue_digests.py with the others).
 ADMIN_ACCOUNTS_ROLE = "ownvitals_admin_accounts"
+ADMIN_CONNECTIONS_ROLE = "ownvitals_admin_connections"
 ADMIN_ACCOUNTS_FUNCTION_NAMES = (
     "admin_account_disable",
     "admin_account_enable",
     "admin_account_delete",
     "admin_account_revoke",
     "admin_session_anomalies",
+    "admin_withings_states",
+    "admin_withings_counts",
 )
 ADMIN_ACCOUNTS_VERSION = "ownvitals-admin-accounts v1"
 # Sorted as the query sorts the entries: "ownvitals_admin_accounts" comes before "ownvitals_maint".
 _ADMIN_ACCOUNTS_ACL = (
     f"{ADMIN_ACCOUNTS_ROLE}=X/{ADMIN_ACCOUNTS_ROLE},ownvitals_maint=X/{ADMIN_ACCOUNTS_ROLE}"
+)
+_ADMIN_CONNECTIONS_ACL = (
+    f"{ADMIN_CONNECTIONS_ROLE}=X/{ADMIN_CONNECTIONS_ROLE},"
+    f"ownvitals_maint=X/{ADMIN_CONNECTIONS_ROLE}"
 )
 ADMIN_ACCOUNTS_PINS: dict[str, tuple[str, str, str, str]] = {
     "admin_account_disable": (
@@ -175,6 +183,13 @@ ADMIN_ACCOUNTS_PINS: dict[str, tuple[str, str, str, str]] = {
         SEARCH_PATH,
         _ADMIN_ACCOUNTS_ACL,
     ),
+    "admin_withings_states": (
+        "p_ids uuid[]",
+        ADMIN_CONNECTIONS_ROLE,
+        SEARCH_PATH,
+        _ADMIN_CONNECTIONS_ACL,
+    ),
+    "admin_withings_counts": ("", ADMIN_CONNECTIONS_ROLE, SEARCH_PATH, _ADMIN_CONNECTIONS_ACL),
 }
 # webhook_events_purge_account (#362) is the delete's step: once the family is installed its ACL
 # is this one exactly (the family's role, called from admin_account_delete), and before it only

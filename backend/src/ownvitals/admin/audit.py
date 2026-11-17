@@ -8,7 +8,8 @@ value: each action declares a pydantic model (``extra="forbid"``, bounded fields
 opens a connection. The Users view (#127) adds ``user.list``, ``user.read``, ``user.disable``,
 ``user.enable`` and ``user.delete``; the delete's Withings revoke (#365) adds ``user.revoke``
 (the job queued) and ``user.revoke_wait`` (the wait for it), and ``user.delete`` records how
-the revoke ended.
+the revoke ended. The Overview's tiles (issue 549) add ``overview.read`` and the Withings app
+card ``withings_app.read``.
 """
 
 import json
@@ -156,6 +157,7 @@ ACTIONS: Final[dict[str, type[Params]]] = {
     "audit.list": AuditListParams,
     "job.list": JobsParams,
     "job.replay": JobReplayParams,
+    "overview.read": NoParams,
     "setting.read": NoParams,
     "setting.set": SettingSetParams,
     "setting.clear": NoParams,
@@ -166,6 +168,7 @@ ACTIONS: Final[dict[str, type[Params]]] = {
     "user.delete": UserDeleteParams,
     "user.revoke": NoParams,
     "user.revoke_wait": NoParams,
+    "withings_app.read": NoParams,
 }
 
 

@@ -1,14 +1,15 @@
 import type { ReactNode } from 'react'
-import { Card, ComingLater } from '../../components/ui/Card'
 import { useT } from '../../i18n'
 import type { AdminTab } from './AdminTabs'
 import { AuditView } from './AuditView'
 import { FlagsView } from './FlagsView'
 import { JobsView } from './JobsView'
+import { OverviewTiles } from './OverviewTiles'
+import { WithingsAppCard } from './WithingsAppCard'
 
 // The body of the tabs. Overview is the whole page of the mock-up: the tiles, Accounts, Jobs, the
 // Withings app, Flags and the Audit log, each the same component its own tab shows. The tiles and
-// the Withings app wait for their data (issue 549); Accounts is rendered by the page and passed in.
+// the Withings app card are issue 549's; Accounts is rendered by the page and passed in.
 
 export function AdminSection({ tab }: { tab: Exclude<AdminTab, 'accounts' | 'overview'> }) {
   switch (tab) {
@@ -19,17 +20,8 @@ export function AdminSection({ tab }: { tab: Exclude<AdminTab, 'accounts' | 'ove
     case 'audit':
       return <AuditView />
     case 'withings':
-      return <WithingsCard />
+      return <WithingsAppCard />
   }
-}
-
-function WithingsCard() {
-  const t = useT()
-  return (
-    <Card>
-      <ComingLater label={t('admin.withings.label')}>{t('admin.withings.later')}</ComingLater>
-    </Card>
-  )
 }
 
 /** Jobs | Withings app and Flags | Audit log side by side on wide screens, stacked on a phone. */
@@ -37,13 +29,12 @@ export function Overview({ accounts }: { accounts: ReactNode }) {
   const t = useT()
   return (
     <>
-      <Card>
-        <ComingLater label={t('admin.overview.label')}>{t('admin.overview.later')}</ComingLater>
-      </Card>
+      <OverviewTiles />
+      <p className="ov-small ov-muted">{t('admin.overview.metrics')}</p>
       {accounts}
       <div className="ov-admin-pair">
         <JobsView />
-        <WithingsCard />
+        <WithingsAppCard />
       </div>
       <div className="ov-admin-pair">
         <FlagsView />

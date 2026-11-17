@@ -5,8 +5,9 @@ import { setLocale } from '../../i18n'
 import { fakeApi, reason } from '../../test/fakeApi'
 import { renderAt } from '../../test/render'
 
-// The admin tabs and the read-only Jobs, Flags and Audit log views. Synthetic data only
-// (synthetic: true); the job and audit fixtures carry fields the screens must never show.
+// The admin tabs, the Overview tiles, the Withings app card and the read-only Jobs, Flags and Audit
+// log views. Synthetic data only (synthetic: true); the job, audit and app fixtures carry fields
+// the screens must never show.
 
 const ADMIN = {
   authenticated: true,
@@ -35,8 +36,24 @@ function auditRow(id: number, action: string, outcome: string, target_kind: stri
   }
 }
 
+const TILES = {
+  accounts: { total: 4, second_factor_on: 3, signup: 'invite' },
+  connections: { healthy: 2, needs_reconnect: 1, not_connected: 1 },
+  jobs: { queued: 12, running: 2, dead_letter: 1 },
+}
+
+const APP = {
+  configured: true,
+  client_hint: '…a91f',
+  api_host: 'wbsapi.withings.net',
+  // Never sent by the server; the card must not show it even if it were.
+  client_secret: 'synthetic-client-secret',
+}
+
 const OVERVIEW = {
   'GET /api/admin/users': { users: [], next_offset: null },
+  'GET /api/admin/overview': TILES,
+  'GET /api/admin/withings-app': APP,
   'GET /api/admin/jobs': JOBS,
   'GET /api/admin/settings': { flags: [flagRow('signup_mode', 'database', 'invite')] },
   'GET /api/admin/audit': { rows: [auditRow(5, 'flag.set', 'ok', 'setting', 'signup_mode')], next_before: null },
@@ -54,14 +71,16 @@ describe('the admin tabs', () => {
     expect(screen.queryByText('The admin pages come later.')).toBeNull()
   })
 
-  it('shows the whole page on Overview: tiles and Withings app as Coming later, then every section', async () => {
+  it('shows the whole page on Overview: the tiles, then every section', async () => {
     fakeApi({ 'GET /api/auth/session': ADMIN, ...OVERVIEW })
     renderAt('/admin')
     for (const name of ['Accounts', 'Jobs', 'Flags', 'Audit log']) {
       expect(await screen.findByRole('heading', { level: 2, name })).toBeInTheDocument()
     }
-    expect(screen.getAllByText('Coming later')).toHaveLength(2)
-    expect(screen.getByText('queued')).toBeInTheDocument()
+    expect(await screen.findByText('Job queue')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Withings app' })).toBeInTheDocument()
+    expect(screen.queryByText('Coming later')).toBeNull()
+    expect(within(screen.getAllByRole('table')[0] as HTMLElement).getByText('queued')).toBeInTheDocument()
     expect(screen.getByText('Sign-up')).toBeInTheDocument()
     expect(await screen.findByText('flag.set')).toBeInTheDocument()
   })
@@ -73,6 +92,85 @@ describe('the admin tabs', () => {
     expect(await screen.findByRole('table')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Jobs' })).toHaveAttribute('aria-current', 'page')
     expect(screen.queryByRole('heading', { level: 2, name: 'Flags' })).toBeNull()
+  })
+})
+
+function tile(label: string): HTMLElement {
+  const found = screen.getAllByText(label).map((node) => node.closest('.ov-admin-tile')).filter((node) => node !== null)
+  expect(found).toHaveLength(1)
+  return found[0] as HTMLElement
+}
+
+describe('the Overview tiles', () => {
+  it('show the four counts of the mock-up, with dots on what needs a look', async () => {
+    fakeApi({ 'GET /api/auth/session': ADMIN, ...OVERVIEW })
+    renderAt('/admin')
+    await screen.findByText('Job queue')
+    expect(tile('Accounts')).toHaveTextContent('4Household · invite only')
+    expect(tile('Connections')).toHaveTextContent('2 healthy1 needs reconnect')
+    expect(tile('Connections').querySelector('.ov-dot--urgent')).not.toBeNull()
+    expect(tile('Job queue')).toHaveTextContent('12 queued2 running · 1 dead-letter')
+    expect(tile('Job queue').querySelector('.ov-dot--attn')).not.toBeNull()
+    expect(tile('Second factor')).toHaveTextContent('3 of 4 set up1 setup pending')
+    expect(screen.getByText(/server metrics in Prometheus/)).toBeInTheDocument()
+  })
+
+  it('show no dot for a zero and say so in words', async () => {
+    const calm = {
+      accounts: { total: 1, second_factor_on: 1, signup: 'closed' },
+      connections: { healthy: 1, needs_reconnect: 0, not_connected: 0 },
+      jobs: { queued: 0, running: 0, dead_letter: 0 },
+    }
+    fakeApi({ 'GET /api/auth/session': ADMIN, ...OVERVIEW, 'GET /api/admin/overview': calm })
+    renderAt('/admin')
+    await screen.findByText('Job queue')
+    expect(tile('Accounts')).toHaveTextContent('sign-up closed')
+    expect(tile('Connections')).toHaveTextContent('0 need reconnect')
+    expect(tile('Second factor')).toHaveTextContent('0 setup pending')
+    expect(document.querySelectorAll('.ov-admin-tile .ov-dot')).toHaveLength(0)
+  })
+
+  it('say why when the read fails', async () => {
+    fakeApi({ 'GET /api/auth/session': ADMIN, ...OVERVIEW, 'GET /api/admin/overview': reason(503, 'admin_unavailable') })
+    renderAt('/admin')
+    expect((await screen.findAllByRole('alert')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Job queue')).toBeNull()
+  })
+
+  it('are in Swedish too', async () => {
+    fakeApi({ 'GET /api/auth/session': ADMIN, ...OVERVIEW })
+    await setLocale('sv')
+    try {
+      renderAt('/admin')
+      await screen.findByText('Jobbkö')
+      expect(tile('Anslutningar')).toHaveTextContent('2 fungerar1 behöver anslutas igen')
+      expect(tile('Andra faktorn')).toHaveTextContent('3 av 4 konfigurerade')
+    } finally {
+      await setLocale('en')
+    }
+  })
+})
+
+describe('the Withings app card', () => {
+  it('shows the app, the last four characters of the client id and the API host, nothing else', async () => {
+    fakeApi({ 'GET /api/auth/session': ADMIN, 'GET /api/admin/withings-app': APP })
+    renderAt('/admin?tab=withings')
+    const app = (await screen.findByText('App')).closest('dl') as HTMLElement
+    expect(app).toHaveTextContent('ownvitals · client …a91f')
+    expect(within(app).getByText('wbsapi.withings.net')).toHaveClass('ov-mono')
+    expect(screen.getByText(/never shown here/)).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('synthetic-client-secret')
+    expect(within(app.closest('section') as HTMLElement).queryByRole('button')).toBeNull()
+  })
+
+  it('says when no app is configured', async () => {
+    fakeApi({
+      'GET /api/auth/session': ADMIN,
+      'GET /api/admin/withings-app': { configured: false, client_hint: null, api_host: 'wbsapi.withings.net' },
+    })
+    renderAt('/admin?tab=withings')
+    expect(await screen.findByText(/No Withings app is configured yet/)).toBeInTheDocument()
+    expect(screen.queryByText('App')).toBeNull()
   })
 })
 

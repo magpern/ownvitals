@@ -22,8 +22,10 @@ the ``ok`` row rolls back with it and one ``refused`` row is written.
   row names the account in ``target_user_id``, which the foreign key's ``ON DELETE SET NULL``
   clears as the account goes in the same transaction, and keeps the id in ``target_id``.
 
-No route changes ``users.role`` or resets a second factor. Withings status is not here: reading
-it would mean issuing a ``UserContext`` for someone else, and only ``auth.deps`` may do that.
+No route changes ``users.role`` or resets a second factor. Each account's Withings state
+(``withings``: ``healthy``, ``needs_reconnect`` or ``not_connected``, issue 549) is read in the
+same ``user.list`` or ``user.read`` transaction through the definer ``admin_withings_states``
+(``ownvitals.admin.connection_states``), never through a ``UserContext`` for someone else.
 """
 
 import unicodedata
@@ -37,6 +39,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ownvitals.admin.audit import Target
+from ownvitals.admin.connection_states import WithingsState, withings_states
 from ownvitals.admin.db import AdminRefused, admin_session
 from ownvitals.admin.routes import AdminActor, admin_router, require_db
 from ownvitals.admin.user_revoke import wait_for_revoke
@@ -79,6 +82,7 @@ class AccountOut(Out):
     second_factor: Literal["on", "setup_pending"]
     last_sign_in: datetime | None
     sessions: int
+    withings: WithingsState
 
 
 class UserPage(Out):
@@ -120,7 +124,7 @@ def _prefix(q: str | None) -> str | None:
     return prefix
 
 
-def _shown(row: AccountSummary, email: str) -> AccountOut:
+def _shown(row: AccountSummary, email: str, withings: WithingsState) -> AccountOut:
     return AccountOut(
         id=row.id,
         email=email,
@@ -130,12 +134,18 @@ def _shown(row: AccountSummary, email: str) -> AccountOut:
         second_factor=row.second_factor,
         last_sign_in=row.last_sign_in,
         sessions=row.sessions,
+        withings=withings,
     )
 
 
-async def _page(request: Request, rows: list[AccountSummary]) -> list[AccountOut]:
+async def _page(request: Request, db: AsyncSession, rows: list[AccountSummary]) -> list[AccountOut]:
     emails = await account_emails(_factory(request), [row.id for row in rows])
-    return [_shown(row, emails[row.id]) for row in rows if row.id in emails]
+    states = await withings_states(db, [row.id for row in rows if row.id in emails])
+    return [
+        _shown(row, emails[row.id], states.get(row.id, "not_connected"))
+        for row in rows
+        if row.id in emails
+    ]
 
 
 async def _change[T](
@@ -173,7 +183,7 @@ async def read_users(
         "offset": offset,
         "limit": limit,
     }
-    async with admin_session(require_db(request), actor, "user.list", params=params):
+    async with admin_session(require_db(request), actor, "user.list", params=params) as db:
         found = await list_accounts(
             _factory(request),
             _settings(request),
@@ -181,7 +191,7 @@ async def read_users(
             offset=offset,
             limit=limit + 1,
         )
-        page = await _page(request, found[:limit])
+        page = await _page(request, db, found[:limit])
     return UserPage(users=page, next_offset=offset + limit if len(found) > limit else None)
 
 
@@ -189,7 +199,7 @@ async def read_users(
 async def read_user(request: Request, actor: AdminActor, user_id: UUID) -> AccountOut:
     async with admin_session(
         require_db(request), actor, "user.read", target=Target(user_id=user_id)
-    ):
+    ) as db:
         found = await find_account(_factory(request), _settings(request), user_id)
         if found is None:
             raise AdminRefused("not_found", 404)
@@ -197,7 +207,8 @@ async def read_user(request: Request, actor: AdminActor, user_id: UUID) -> Accou
         email = emails.get(found.id)
         if email is None:  # gone in between: inside the session, so no ``ok`` row commits
             raise AdminRefused("not_found", 404)
-    return _shown(found, email)
+        states = await withings_states(db, [found.id])
+    return _shown(found, email, states.get(found.id, "not_connected"))
 
 
 @router.post("/users/{user_id}/disable", response_model=DisabledOut)
