@@ -164,7 +164,7 @@ async def run_token_recover(job: JobRun) -> Complete:
     parsed = job.input
     if not isinstance(parsed, ConnectInput):
         raise JobFailure("invalid_input")
-    _, app = await open_materials(job, parsed.connection_id)
+    _, app = await open_materials(job, parsed.connection_id, refresh=False)
     ring = await _ring(job)
     async with WithingsClient.open(app) as client, job.provider_call(RECOVER_DEADLINE_SECONDS):
         result = await recover_refresh(

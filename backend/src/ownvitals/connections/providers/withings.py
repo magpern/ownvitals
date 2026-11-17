@@ -82,9 +82,21 @@ class OpenWithings:
     public: dict[str, Any]
     intent: int | None
     stale_intent: bool
+    access_expires_at: datetime | None = None  # None: not stored (or unreadable)
 
     def __repr__(self) -> str:
         return f"OpenWithings(id={self.id}, generation={self.generation}, status={self.status!r})"
+
+
+def _expiry(raw: object) -> datetime | None:
+    """The stored access-token expiry, or None when it is missing or not a timestamp."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        when = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
 
 
 def _scope_list(scope: str) -> list[str]:
@@ -180,6 +192,7 @@ async def open_withings(
                     public=_as_public(row.public),
                     intent=None if row.refresh_in_flight is None else int(row.refresh_in_flight),
                     stale_intent=bool(row.stale),
+                    access_expires_at=_expiry(parsed.get("access_expires_at")),
                 )
             if failure == "decrypt_failed" and row is not None:
                 await db.execute(
