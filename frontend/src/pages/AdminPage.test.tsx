@@ -51,7 +51,7 @@ const PAGE = {
 describe('the admin accounts table', () => {
   it('shows the band, the accounts and the operator note', async () => {
     fakeApi({ 'GET /api/auth/session': ADMIN, 'GET /api/admin/users': PAGE })
-    renderAt('/admin')
+    renderAt('/admin?tab=accounts')
     expect(await screen.findByRole('heading', { level: 1, name: 'Admin' })).toBeInTheDocument()
     expect(screen.getByRole('note')).toHaveTextContent(
       "Health data isn't visible here, by design.",
@@ -74,6 +74,6 @@ describe('the admin accounts table', () => {
         'Role changes and second-factor resets run from the operator command line on the server, never from this page.',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText('The admin pages come later.')).toBeInTheDocument()
+    expect(screen.queryByText('The admin pages come later.')).toBeNull()
   })
 })

@@ -2,16 +2,17 @@ import { useEffect, useId, useState } from 'react'
 import { listAdminAccounts, type AdminAccount } from '../api/admin'
 import { errorMessage } from '../api/messages'
 import { Notice } from '../components/forms'
-import { Card, ComingLater } from '../components/ui/Card'
 import { DataState, StatePill } from '../components/ui/DataState'
 import { Icon } from '../components/ui/Icon'
 import { signedInAt } from './SecurityPage'
+import { AdminSection } from './admin/AdminSections'
+import { AdminTabs, useAdminTab } from './admin/AdminTabs'
 import { SessionAnomalies } from './admin/SessionAnomalies'
 
 // Admin (docs/design/mockups/html/Admin.html). Issue 127 builds the Accounts table; issue 461 adds
-// the session anomalies (pages/admin/SessionAnomalies.tsx, no mock-up: it reuses the table). Overview counts,
-// jobs, the Withings app, flags, the audit log, invites and "Sign out all" stay "Coming later":
-// those writes are not the account helpers, and connection status cannot be read here.
+// the session anomalies (pages/admin/SessionAnomalies.tsx, no mock-up: it reuses the table). Issue
+// 548 adds the tabs and the read-only Jobs, Flags and Audit log (pages/admin/). Overview counts,
+// the Withings app, invites, flag changes and "Sign out all" stay "Coming later".
 
 function factor(account: AdminAccount) {
   if (account.secondFactor === 'on') return <StatePill tone="ok">On</StatePill>
@@ -23,6 +24,7 @@ function role(account: AdminAccount): string {
 }
 
 export function AdminPage() {
+  const tab = useAdminTab()
   return (
     <div className="ov-stack" data-gap="lg">
       <p className="ov-admin-band" role="note">
@@ -35,11 +37,15 @@ export function AdminPage() {
         </span>
         <span>Authenticator valid 12 h · changes need a code from the last 5 min</span>
       </p>
-      <Accounts />
-      <SessionAnomalies />
-      <Card>
-        <ComingLater label="Admin">The admin pages come later.</ComingLater>
-      </Card>
+      <AdminTabs active={tab} />
+      {tab === 'accounts' ? (
+        <>
+          <Accounts />
+          <SessionAnomalies />
+        </>
+      ) : (
+        <AdminSection tab={tab} />
+      )}
     </div>
   )
 }

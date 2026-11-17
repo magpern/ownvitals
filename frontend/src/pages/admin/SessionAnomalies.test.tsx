@@ -43,7 +43,7 @@ describe('the admin abuse view', () => {
         next: null,
       },
     })
-    renderAt('/admin')
+    renderAt('/admin?tab=accounts')
     const show = await screen.findByRole('button', { name: 'Show anomalies' })
     expect(api.calls.some((call) => call.path.startsWith('/api/admin/anomalies'))).toBe(false)
     await userEvent.click(show)
@@ -66,7 +66,7 @@ describe('the admin abuse view', () => {
       'GET /api/admin/users': USERS,
       'GET /api/admin/anomalies': { rows: [], next: null },
     })
-    renderAt('/admin')
+    renderAt('/admin?tab=accounts')
     await userEvent.click(await screen.findByRole('button', { name: 'Show anomalies' }))
     expect(await screen.findByText('No anomalies in the last 30 days.')).toBeInTheDocument()
   })
@@ -77,7 +77,7 @@ describe('the admin abuse view', () => {
       'GET /api/admin/users': USERS,
       'GET /api/admin/anomalies': reason(403, 'step_up_required'),
     })
-    renderAt('/admin')
+    renderAt('/admin?tab=accounts')
     await userEvent.click(await screen.findByRole('button', { name: 'Show anomalies' }))
     expect(await screen.findByRole('dialog')).toHaveTextContent('Viewing session anomalies')
   })

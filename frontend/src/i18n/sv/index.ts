@@ -1,6 +1,7 @@
 import { prefixed } from '../prefix'
 import type { Messages } from '../en'
 import { account } from './account'
+import { admin } from './admin'
 import { auth } from './auth'
 import { body } from './body'
 import { nerve } from './nerve'
@@ -23,7 +24,7 @@ import { ui } from './ui'
 
 // The Swedish catalogue: its own chunk, loaded when the language is chosen (../store.ts).
 
-export const SV_AREAS = { common, errors, codes, detail, health, auth, account, security, shell, ui, overview, settings, passkeys, connections, ecg, findings, body, nerve, assistant, site }
+export const SV_AREAS = { common, errors, codes, detail, health, auth, account, security, shell, ui, overview, settings, passkeys, connections, ecg, findings, body, nerve, assistant, site, admin }
 
 export const SV: Messages = {
   ...prefixed('common', common),
@@ -46,4 +47,5 @@ export const SV: Messages = {
   ...prefixed('nerve', nerve),
   ...prefixed('assistant', assistant),
   ...prefixed('site', site),
+  ...prefixed('admin', admin),
 }
