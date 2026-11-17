@@ -21,9 +21,12 @@ and tools are [below](#consent-and-withdrawal), the client
 
 - Integer **micro-USD** everywhere. A month is the calendar month in **UTC**, stored as its first
   day; a reservation is charged to its own month whenever it is settled.
-- `OWNVITALS_AI_USER_MONTHLY_CAP_MICROUSD` and `OWNVITALS_AI_GLOBAL_MONTHLY_CAP_MICROUSD`: both 0
-  by default (no request can be reserved) until the owner sets them (ADR 0014 open question 2).
-  Settings refuse a per-user cap above the global one.
+- `OWNVITALS_AI_USER_MONTHLY_CAP_MICROUSD` and `OWNVITALS_AI_GLOBAL_MONTHLY_CAP_MICROUSD`: by
+  default **10,000,000** (10 USD per account a month) and **100,000,000** (100 USD in total a
+  month) (ADR 0014 open question 2, amendment of 2026-11-17 (#568): DELEGATED 2026-11-17,
+  PROVISIONAL, re-checked at the M8 human review). They are a ceiling only: no model call is made
+  until the owner's locks are set and `ai_insights` is on. Set either to 0 and no request can be
+  reserved. Settings refuse a per-user cap above the global one.
 - **The settings are the ceiling; an admin can only lower them** (#528, ADR 0014 amendment of
   2026-11-17). The admin page's Flags card stores `ai_user_monthly_cap_microusd` and
   `ai_global_monthly_cap_microusd` in `app_settings` (step-up, audited with the key and the
@@ -38,10 +41,9 @@ and tools are [below](#consent-and-withdrawal), the client
   integer from 0 to 10^13 counts as 0. `budget.month_budget` (the chat's paused state) uses the
   same per-user cap in force. Lowering a cap below what is already spent simply refuses every
   further request that month.
-- **The owner's suggested setting** (issue #528; not a code default, the defaults stay 0):
-  `OWNVITALS_AI_USER_MONTHLY_CAP_MICROUSD=10000000` (10 USD per account a month) and
-  `OWNVITALS_AI_GLOBAL_MONTHLY_CAP_MICROUSD=100000000` (100 USD in total a month). Set the server
-  settings to these; the admin page can then lower either, never raise it.
+- **The defaults are the owner's earlier suggestion** (issue #528, made the code default by
+  #568): 10 USD per account and 100 USD in total a month. A server that wants less sets the
+  settings lower (or 0); the admin page can then lower either, never raise it.
 
 Disconnecting Withings with "delete imported data" (#225) keeps `ai_spend` and
 `ai_reservations` (`KEPT` in `ownvitals.connections.purge`): billed spend stays counted, so the

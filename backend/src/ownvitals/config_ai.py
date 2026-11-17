@@ -13,11 +13,14 @@ class AiSettings(BaseSettings):
     experimental_findings: bool = False
     ai_insights: bool = False
     # The AI cost cap (D11, ADR 0014 section 7), integer micro-USD per calendar month in UTC: per
-    # user, and for all users together (the owner's total exposure). Both 0 until the owner sets
-    # them (ADR 0014 open question 2): no request can be reserved. These settings are the
-    # authoritative caps; the worker passes them on every reservation and nothing stores them.
-    ai_user_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
-    ai_global_monthly_cap_microusd: int = Field(default=0, ge=0, le=10_000_000_000_000)
+    # user, and for all users together (the owner's total exposure). The defaults are 10 USD per
+    # user and 100 USD in total (ADR 0014 open question 2, DELEGATED 2026-11-17, PROVISIONAL):
+    # a ceiling only, since no model call is made until the owner's locks are set and
+    # ``ai_insights`` is on. 0 means no request can be reserved. These settings are the
+    # authoritative caps (an admin's stored cap can only lower them); the worker passes them on
+    # every reservation and nothing stores them.
+    ai_user_monthly_cap_microusd: int = Field(default=10_000_000, ge=0, le=10_000_000_000_000)
+    ai_global_monthly_cap_microusd: int = Field(default=100_000_000, ge=0, le=10_000_000_000_000)
     # The audit log's retention (ADR 0014 section 6, open question 5): ``ai_audit`` rows older
     # than this many months are deleted by the worker's hourly purge. At least 12, the ADR's
     # period (``ai_audit_purge`` refuses fewer): the owner may keep them longer, never shorter.

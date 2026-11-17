@@ -313,10 +313,22 @@ def test_only_an_unprocessed_request_is_released(
 # --- settings and the worker ------------------------------------------------------------------
 
 
-def test_the_caps_default_to_zero() -> None:
+def test_the_caps_default_to_10_and_100_usd() -> None:
+    """ADR 0014 open question 2 (DELEGATED 2026-11-17, PROVISIONAL): 10 USD per user, 100 in all."""
     fields = Settings.model_fields
-    assert fields["ai_user_monthly_cap_microusd"].default == 0
-    assert fields["ai_global_monthly_cap_microusd"].default == 0
+    assert fields["ai_user_monthly_cap_microusd"].default == 10_000_000
+    assert fields["ai_global_monthly_cap_microusd"].default == 100_000_000
+    assert fields["ai_user_monthly_cap_microusd"].default <= (
+        fields["ai_global_monthly_cap_microusd"].default
+    )
+
+
+def test_the_default_caps_pass_the_settings_cross_field_check(app_database_url: str) -> None:
+    settings = settings_for(app_database_url)
+    assert (settings.ai_user_monthly_cap_microusd, settings.ai_global_monthly_cap_microusd) == (
+        10_000_000,
+        100_000_000,
+    )
 
 
 @pytest.mark.parametrize(("user_cap", "global_cap"), [(1, 0), (-1, 10), (10, -1)])
