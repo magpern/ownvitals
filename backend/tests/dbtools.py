@@ -34,6 +34,7 @@ ADMIN_ACCOUNTS_SCRIPT = (
     BACKEND_DIR.parent / "docker" / "postgres" / "maint" / "70-admin-accounts.sql"
 )
 ADMIN_ACCOUNTS_ROLE = "ownvitals_admin_accounts"
+ADMIN_CONNECTIONS_ROLE = "ownvitals_admin_connections"  # the same script's second role (issue 549)
 QUEUE_ROLE = "ownvitals_queue"
 WEBHOOK_ROLES = ("ownvitals_webhook_secrets", "ownvitals_webhook_events", "ownvitals_metrics")
 # libpq reads these when the URL leaves the host or a service open; the database fixtures drop
@@ -245,18 +246,21 @@ def drop_exports_functions(url: str | None = None) -> None:
 
 def drop_admin_accounts_functions(url: str | None = None) -> None:
     """Drop the admin account functions and ``ownvitals_admin_accounts`` when they are there
-    (#314). Their grants (maint's ``EXECUTE``, the role's on ``webhook_events_purge_account``)
-    go with them. Not a way to hide the family from guard 2: ``migrated`` installs it again."""
+    (#314), and the same script's connection-state reads and ``ownvitals_admin_connections``
+    (issue 549). Their grants (maint's ``EXECUTE``, the role's on
+    ``webhook_events_purge_account``) go with them. Not a way to hide the family from guard 2:
+    ``migrated`` installs it again."""
     admin = url if url is not None else test_admin_url()
     engine = create_engine(admin, isolation_level="AUTOCOMMIT")
     try:
         with engine.connect() as connection:
-            exists = connection.execute(
-                text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": ADMIN_ACCOUNTS_ROLE}
-            ).first()
-            if exists is not None:
-                connection.execute(text(f"DROP OWNED BY {ADMIN_ACCOUNTS_ROLE} CASCADE"))
-                connection.execute(text(f"DROP ROLE {ADMIN_ACCOUNTS_ROLE}"))
+            for role in (ADMIN_ACCOUNTS_ROLE, ADMIN_CONNECTIONS_ROLE):
+                exists = connection.execute(
+                    text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": role}
+                ).first()
+                if exists is not None:
+                    connection.execute(text(f"DROP OWNED BY {role} CASCADE"))
+                    connection.execute(text(f"DROP ROLE {role}"))
     finally:
         engine.dispose()
 

@@ -62,6 +62,9 @@ EXPECTED: frozenset[tuple[str, str]] = frozenset(
             "admin_account_delete(uuid,text,text,text,text,text)",
             "admin_account_revoke(uuid,text,uuid)",  # #365; never queue_enqueue_admin_revoke
             "admin_session_anomalies(integer,timestamp with time zone,uuid)",  # #461
+            # issue 549: the connection-state reads, owned by ownvitals_admin_connections
+            "admin_withings_states(uuid[])",
+            "admin_withings_counts()",
         )
     }
 )
@@ -81,6 +84,21 @@ SECRET_COLUMNS = {
     "rate_limits": {"bucket_hash"},
     "jobs": {"input", "idempotency_key", "request_hash", "owner_id", "leased_by"},
     "admin_audit": {"ip_hash"},
+    # Maint reads no column of connections at all (issue 549 reads states through a definer):
+    # these are the ones that must never be granted, whatever else is.
+    "connections": {
+        "owner_id",
+        "public",
+        "secret",
+        "secret_nonce",
+        "wrapped_dek",
+        "dek_nonce",
+        "key_id",
+        "app_id",
+        "withings_userid",
+        "last_error",
+        "refresh_in_flight",
+    },
     "withings_apps": {
         "client_secret",
         "client_secret_nonce",

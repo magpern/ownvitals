@@ -158,6 +158,8 @@ PUBLIC_ENTRY_POINTS: dict[str, frozenset[str]] = {
     ),
     # the admin abuse view (#461): the signal codes it may show
     "ownvitals.auth.session_anomaly_policy": frozenset({"SIGNALS"}),
+    # the admin Overview (issue 549): how many accounts, how many with a second factor
+    "ownvitals.auth.admin_counts": frozenset({"AccountCounts", "account_counts"}),
     # the admin Users view (#127): list and find, emails by id, disable, enable and delete
     "ownvitals.auth.admin_accounts": frozenset(
         {
@@ -199,6 +201,7 @@ SUBMODULES = frozenset(
         "activity_model",
         "activity_routes",
         "admin_accounts",
+        "admin_counts",
         "admin_routes",
         "clientip",
         "cookies",

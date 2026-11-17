@@ -34,8 +34,12 @@ and the two ``DELETE`` privileges that script creates (no health table, no secre
 the five admin account functions (#461: the abuse view's read among them), which only
 ``ownvitals_maint`` may ``EXECUTE``, and is the only grantee of ``webhook_events_purge_account``
 and of the queue's ``queue_enqueue_admin_revoke`` (#365; owned by ``ownvitals_queue``, executable
-by nobody else, and by nobody at all before the family is installed). The app role may execute
-none of those seven. Any other grantee fails.
+by nobody else, and by nobody at all before the family is installed). The same script's second
+NOLOGIN role ``ownvitals_admin_connections`` (issue 549; ``BYPASSRLS``, since ``connections`` is
+an owned table) has exactly its attributes and its column grants (three columns of
+``connections``, three of ``users``, the audit check's of ``admin_audit``; no table privilege),
+and owns the two admin connection-state reads, which only ``ownvitals_maint`` may ``EXECUTE``.
+The app role may execute none of those nine. Any other grantee fails.
 """
 
 from collections.abc import Callable
@@ -271,6 +275,29 @@ ADMIN_ACCOUNTS_FUNCTIONS = {
     "admin_session_anomalies": ADMIN_ACCOUNTS,  # #461: the abuse view's read
 }
 ADMIN_ACCOUNTS_ATTRIBUTES = (False, False, False, False, False, False, False)
+# The same script's connection-state reads (issue 549): their own NOLOGIN role, BYPASSRLS because
+# connections is an owned table, executable by maint alone.
+ADMIN_CONNECTIONS = "ownvitals_admin_connections"
+ADMIN_CONNECTIONS_FUNCTIONS = {
+    "admin_withings_states": ADMIN_CONNECTIONS,
+    "admin_withings_counts": ADMIN_CONNECTIONS,
+}
+ADMIN_CONNECTIONS_ATTRIBUTES = (False, False, False, False, False, True, False)
+# Its column grants, and no table privilege: a connection's owner, provider and state (never a
+# credential, public, the Withings user id or an error), the accounts and the audit check.
+ADMIN_CONNECTIONS_COLUMNS: dict[tuple[str, str], set[tuple[str, str]]] = {
+    **{
+        ("connections", c): {(ADMIN_CONNECTIONS, "SELECT")}
+        for c in ("owner_id", "provider", "status")
+    },
+    **{("users", c): {(ADMIN_CONNECTIONS, "SELECT")} for c in ("id", "role", "disabled_at")},
+    **{
+        ("admin_audit", c): {(ADMIN_CONNECTIONS, "SELECT")}
+        for c in ("xmin", "created_at", "actor_id", "action", "target_user_id", "outcome")
+    },
+}
+# Function -> owner, for both admin roles of 70-admin-accounts.sql.
+ADMIN_FUNCTIONS = {**ADMIN_ACCOUNTS_FUNCTIONS, **ADMIN_CONNECTIONS_FUNCTIONS}
 # Its table-level privileges: the account delete and the disable's sign-out everywhere.
 ADMIN_ACCOUNTS_RELATIONS = {"users:r": {"DELETE"}, "sessions:r": {"DELETE"}}
 # Its column grants (ADR 0002 section 3): never password_hash, a session token, or the audit
@@ -614,6 +641,10 @@ def check_roles(conn: Connection) -> list[str]:
         f"{ADMIN_ACCOUNTS} must hold nothing on the database",
     )
     need(
+        ADMIN_CONNECTIONS not in _grantees(databases),
+        f"{ADMIN_CONNECTIONS} must hold nothing on the database",
+    )
+    need(
         not (WITHINGS_ROLES & _grantees(databases)),
         "webhook roles must hold nothing on the database",
     )
@@ -743,6 +774,14 @@ def check_roles(conn: Connection) -> list[str]:
     admin_installed = _definer_role(
         need, conn, ADMIN_ACCOUNTS, ADMIN_ACCOUNTS_ATTRIBUTES, ADMIN_ACCOUNTS_FUNCTIONS
     )
+    # Its second role (issue 549): the same script makes both, so both or neither.
+    connections_installed = _definer_role(
+        need, conn, ADMIN_CONNECTIONS, ADMIN_CONNECTIONS_ATTRIBUTES, ADMIN_CONNECTIONS_FUNCTIONS
+    )
+    need(
+        connections_installed == admin_installed,
+        f"{ADMIN_ACCOUNTS} and {ADMIN_CONNECTIONS} come from one script: both or neither",
+    )
 
     # Schemas.
     schemas = _acl(
@@ -795,6 +834,16 @@ def check_roles(conn: Connection) -> list[str]:
             ADMIN_ACCOUNTS not in _grantees(schemas),
             f"{ADMIN_ACCOUNTS} must not be a schema grantee",
         )
+    if connections_installed:
+        need(
+            _privileges(schemas, ADMIN_CONNECTIONS, "public") == {"USAGE"},
+            f"{ADMIN_CONNECTIONS}: USAGE only on public",
+        )
+    else:
+        need(
+            ADMIN_CONNECTIONS not in _grantees(schemas),
+            f"{ADMIN_CONNECTIONS} must not be a schema grantee",
+        )
     need(not _privileges(schemas, "PUBLIC", "public"), "PUBLIC must have no privilege on public")
     need(
         {"USAGE", "CREATE"} <= _privileges(schemas, OWNER, "public"),
@@ -811,8 +860,11 @@ def check_roles(conn: Connection) -> list[str]:
         schema_grantees |= {EXPORTS}
     if admin_installed:
         schema_grantees |= {ADMIN_ACCOUNTS}
+    if connections_installed:
+        schema_grantees |= {ADMIN_CONNECTIONS}
     need(_grantees(schemas) <= schema_grantees, "unexpected grantee on a schema")
-    elsewhere = {APP, "PUBLIC", QUEUE, OUTBOX, AI, EXPORTS, ADMIN_ACCOUNTS} | WITHINGS_ROLES
+    elsewhere = {APP, "PUBLIC", QUEUE, OUTBOX, AI, EXPORTS, ADMIN_ACCOUNTS, ADMIN_CONNECTIONS}
+    elsewhere |= WITHINGS_ROLES
     need(
         not [1 for o, g, _, _ in schemas if o != "public" and g in elsewhere],
         "no privilege for the app, PUBLIC, the queue or a webhook role on another schema",
@@ -932,6 +984,11 @@ def check_roles(conn: Connection) -> list[str]:
                 ADMIN_ACCOUNTS not in _grantees(relations, obj),
                 f"{obj}: {ADMIN_ACCOUNTS} must hold no table privilege",
             )
+        # The connection-state role: column grants only (below).
+        need(
+            ADMIN_CONNECTIONS not in _grantees(relations, obj),
+            f"{obj}: {ADMIN_CONNECTIONS} must hold no table privilege",
+        )
         need(_grantees(relations, obj) <= allowed, f"{obj}: unexpected grantee")
     need(
         not [1 for *_, grantable in relations if grantable], "no grantable privilege on a relation"
@@ -992,6 +1049,10 @@ def check_roles(conn: Connection) -> list[str]:
         for key, extra in ADMIN_ACCOUNTS_COLUMNS.items():
             if key[0] in present:
                 expected_columns[key] = set(expected_columns.get(key, ())) | extra
+    if connections_installed:
+        for key, extra in ADMIN_CONNECTIONS_COLUMNS.items():
+            if key[0] in present:
+                expected_columns[key] = set(expected_columns.get(key, ())) | extra
     need(
         found_columns == expected_columns,
         f"column-level privileges in public must be exactly {expected_columns}, "
@@ -1038,7 +1099,7 @@ def check_roles(conn: Connection) -> list[str]:
         need(not missing, f"export purge missing: {sorted(missing)}")
     if admin_installed:
         found_names = {signature.partition("(")[0] for signature in signatures}
-        missing = set(ADMIN_ACCOUNTS_FUNCTIONS) - found_names
+        missing = set(ADMIN_FUNCTIONS) - found_names
         need(not missing, f"admin account functions missing: {sorted(missing)}")
     for obj in sorted({o for o, *_ in functions}):
         signature = _bare_signature(obj)
@@ -1090,21 +1151,19 @@ def check_roles(conn: Connection) -> list[str]:
                 not any(grantable for o, _, _, grantable in functions if o == obj),
                 f"{obj}: no grantable privilege",
             )
-        elif signature.partition("(")[0] in ADMIN_ACCOUNTS_FUNCTIONS and admin_installed:
-            # Maint's alone (#314); guard 11 checks that maint holds exactly these.
+        elif signature.partition("(")[0] in ADMIN_FUNCTIONS and admin_installed:
+            # Maint's alone (#314, issue 549); guard 11 checks that maint holds exactly these.
+            owner = ADMIN_FUNCTIONS[signature.partition("(")[0]]
             need(not _privileges(functions, APP, obj), f"{obj}: ownvitals_app may not execute it")
-            need(
-                _privileges(functions, ADMIN_ACCOUNTS, obj) == {"EXECUTE"},
-                f"{obj}: {ADMIN_ACCOUNTS} EXECUTE only",
-            )
+            need(_privileges(functions, owner, obj) == {"EXECUTE"}, f"{obj}: {owner} EXECUTE only")
             need(
                 _privileges(functions, MAINT, obj) == {"EXECUTE"},
                 f"{obj}: {MAINT} must have EXECUTE and nothing else",
             )
-            need(_grantees(functions, obj) <= {ADMIN_ACCOUNTS, MAINT}, f"{obj}: unexpected grantee")
+            need(_grantees(functions, obj) <= {owner, MAINT}, f"{obj}: unexpected grantee")
             need(
-                obj.endswith(f":{ADMIN_ACCOUNTS}:true"),
-                f"{obj}: must be owned by {ADMIN_ACCOUNTS} and be SECURITY DEFINER",
+                obj.endswith(f":{owner}:true"),
+                f"{obj}: must be owned by {owner} and be SECURITY DEFINER",
             )
             need(
                 not any(grantable for o, _, _, grantable in functions if o == obj),

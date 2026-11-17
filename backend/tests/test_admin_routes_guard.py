@@ -37,6 +37,7 @@ SAMPLES: dict[tuple[str, str], tuple[str, Any]] = {
     ("GET", "/api/admin/anomalies"): ("/api/admin/anomalies", None),
     ("GET", "/api/admin/audit"): ("/api/admin/audit", None),
     ("GET", "/api/admin/jobs"): ("/api/admin/jobs", None),
+    ("GET", "/api/admin/overview"): ("/api/admin/overview", None),
     ("GET", "/api/admin/settings"): ("/api/admin/settings", None),
     ("PUT", "/api/admin/settings/{key}"): ("/api/admin/settings/banner", {"value": "x"}),
     ("DELETE", "/api/admin/settings/{key}"): ("/api/admin/settings/banner", None),
@@ -57,6 +58,7 @@ SAMPLES: dict[tuple[str, str], tuple[str, Any]] = {
         "/api/admin/users/00000000-0000-4000-8000-000000000001",
         {"email": "nobody@example.com"},
     ),
+    ("GET", "/api/admin/withings-app"): ("/api/admin/withings-app", None),
 }
 SAFE = {"GET", "HEAD"}
 # Reads that show other people's accounts and so need a step-up too (#461, ADR 0020).
