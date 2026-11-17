@@ -33,4 +33,7 @@ export const SAME_IN_SV: Readonly<Record<string, string>> = {
   'settings.temperature.unit.c': 'a unit',
   'settings.temperature.unit.f': 'a unit',
   'settings.format.iso': 'an ISO date, the same in every language',
+  'admin.withings.app': 'the same word in Swedish: app',
+  'admin.withings.name': 'the product name, the same in every language: ownvitals',
+  'admin.withings.api': 'an abbreviation, the same in Swedish: API',
 }

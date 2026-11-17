@@ -13,3 +13,33 @@
   color: var(--ov-attn);
   font-weight: var(--ov-weight-semibold);
 }
+
+/* The Overview's four tiles (the mock-up's `.grid` of cards): eyebrow, a large count, a note. */
+.ov-admin-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr));
+  gap: var(--ov-space-4);
+}
+
+.ov-admin-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ov-space-1);
+  padding: var(--ov-space-4);
+}
+
+.ov-admin-tile__value {
+  font-size: var(--ov-text-xl);
+  font-weight: var(--ov-weight-semibold);
+}
+
+.ov-admin-tile__unit {
+  font-size: var(--ov-text-base);
+  font-weight: var(--ov-weight-medium);
+}
+
+.ov-admin-tile__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ov-space-2);
+}

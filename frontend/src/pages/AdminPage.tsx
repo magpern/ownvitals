@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react'
 import { listAdminAccounts, type AdminAccount } from '../api/admin'
 import { errorMessage } from '../api/messages'
 import { Notice } from '../components/forms'
-import { DataState, StatePill } from '../components/ui/DataState'
+import { StatePill } from '../components/ui/DataState'
 import { Icon } from '../components/ui/Icon'
 import { signedInAt } from './SecurityPage'
 import { AdminSection, Overview } from './admin/AdminSections'
@@ -11,12 +11,20 @@ import { SessionAnomalies } from './admin/SessionAnomalies'
 
 // Admin (docs/design/mockups/html/Admin.html). Issue 127 builds the Accounts table; issue 461 adds
 // the session anomalies (pages/admin/SessionAnomalies.tsx, no mock-up: it reuses the table). Issue
-// 548 adds the tabs and the read-only Jobs, Flags and Audit log (pages/admin/). Overview counts,
-// the Withings app, invites, flag changes and "Sign out all" stay "Coming later".
+// 548 adds the tabs and the read-only Jobs, Flags and Audit log (pages/admin/). Issue 549 adds each
+// account's Withings state here, the Overview tiles and the Withings app card. Invites, flag
+// changes and "Sign out all" come with the admin writes.
 
 function factor(account: AdminAccount) {
   if (account.secondFactor === 'on') return <StatePill tone="ok">On</StatePill>
   return <StatePill tone="attn">Setup pending</StatePill>
+}
+
+// The words of the user's own Connections page; "Healthy" is the mock-up's word for connected.
+function withings(account: AdminAccount) {
+  if (account.withings === 'healthy') return <StatePill tone="ok">Healthy</StatePill>
+  if (account.withings === 'needs_reconnect') return <StatePill tone="urgent">Needs reconnect</StatePill>
+  return <StatePill tone="off">Not connected</StatePill>
 }
 
 function role(account: AdminAccount): string {
@@ -99,9 +107,7 @@ function Accounts() {
                   </td>
                   <td>{role(account)}</td>
                   <td>{factor(account)}</td>
-                  <td>
-                    <DataState kind="not-available" />
-                  </td>
+                  <td>{withings(account)}</td>
                   <td className={account.lastSignIn === null ? 'ov-muted' : 'ov-num'}>
                     {account.lastSignIn === null ? 'Never' : signedInAt(account.lastSignIn, new Date(), 'en')}
                   </td>

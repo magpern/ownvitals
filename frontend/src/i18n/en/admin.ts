@@ -1,4 +1,5 @@
-// The admin tabs and the read-only Jobs, Flags and Audit log views (issue 548).
+// The admin tabs and the read-only Jobs, Flags and Audit log views (issue 548), the Overview tiles
+// and the Withings app card (issue 549).
 export const admin = {
   'tabs.label': 'Admin',
   'tab.overview': 'Overview',
@@ -7,10 +8,33 @@ export const admin = {
   'tab.withings': 'Withings app',
   'tab.flags': 'Flags',
   'tab.audit': 'Audit log',
-  'overview.label': 'Overview',
-  'overview.later': 'Connection counts, the job queue and the second-factor summary come later.',
+  'overview.metrics':
+    'Webhook delivery, sync freshness and the Withings API budget are server metrics in Prometheus, not part of the admin area.',
+  'tile.accounts': 'Accounts',
+  'tile.accounts.invite': 'Household · invite only',
+  'tile.accounts.closed': 'Household · sign-up closed',
+  'tile.connections': 'Connections',
+  'tile.connections.healthy': 'healthy',
+  'tile.connections.reconnect.one': '{count} needs reconnect',
+  'tile.connections.reconnect.other': '{count} need reconnect',
+  'tile.jobs': 'Job queue',
+  'tile.jobs.queued': 'queued',
+  'tile.jobs.running.one': '{count} running',
+  'tile.jobs.running.other': '{count} running',
+  'tile.jobs.deadLetter.one': '{count} dead-letter',
+  'tile.jobs.deadLetter.other': '{count} dead-letter',
+  'tile.factor': 'Second factor',
+  'tile.factor.of': 'of {total} set up',
+  'tile.factor.pending.one': '{count} setup pending',
+  'tile.factor.pending.other': '{count} setup pending',
   'withings.label': 'Withings app',
-  'withings.later': 'The app and its non-secret settings come later.',
+  'withings.app': 'App',
+  'withings.name': 'ownvitals',
+  'withings.client': 'client',
+  'withings.api': 'API',
+  'withings.none': 'No Withings app is configured yet. It is added from the operator command line.',
+  'withings.note':
+    'Read-only, and only the non-secret columns: the client secret and the webhook secrets are never shown here. The configuration changes only from the operator command line.',
   'jobs.title': 'Jobs',
   'jobs.col.state': 'State',
   'jobs.col.count': 'Jobs',

@@ -1,3 +1,4 @@
+import { withingsState, type WithingsState } from './adminOverview'
 import { get } from './client'
 import { DecodeError, count, list, object, optionalText, text } from './decode'
 
@@ -13,6 +14,8 @@ export interface AdminAccount {
   secondFactor: 'on' | 'setup_pending'
   lastSignIn: string | null
   sessions: number
+  /** The Withings connection's state (issue 549): a word, never a credential or an id. */
+  withings: WithingsState
 }
 
 export interface AdminAccountPage {
@@ -35,6 +38,7 @@ function account(value: unknown): AdminAccount {
     secondFactor: factor,
     lastSignIn: optionalText(row, 'last_sign_in'),
     sessions: count(row, 'sessions'),
+    withings: withingsState(row, 'withings'),
   }
 }
 
