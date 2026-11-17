@@ -269,7 +269,8 @@ questions 1, 3 and 6). Agents never set them.
 6. Settle at the usage's cost (`settled` or `overrun`), release (`released`: not sent, 400, 401,
    403, 404, 413, 429, 529, a withdrawal or cancel between attempts) or charge the reserved amount
    (`charged`: a timeout, a broken connection after sending, any other status, a malformed
-   answer). The settlement and the `ai_audit` row commit together in one fenced transaction
+   answer). A malformed 200 answer whose usage block still parses is charged the higher of the
+   reservation and that usage's cost, geo premium included (`overrun` when above it; #561). The settlement and the `ai_audit` row commit together in one fenced transaction
    (the session guard's reviewed path for job writes), with one `ai call` log line. A lease lost
    before or at that point (during a re-check too) leaves the reservation to the reaper and
    writes the log line only (`settlement: lost`): the attempt is no longer this worker's.
@@ -292,7 +293,8 @@ The API key is only in the `x-api-key` header.
 ### The answer and the tool loop
 
 `parse_reply` keeps `text` and `tool_use` blocks and the usage (four non-negative integers);
-anything malformed is `bad_response` and charged. `run_turn` runs each requested tool for the
+anything malformed is `bad_response` and charged (at least the reservation; more when its usage
+block parses and costs more, `rejected_usage`). `run_turn` runs each requested tool for the
 job's user through `run_tool` (which re-checks the flag and consent itself) and sends the results
 back. An unknown tool name ends the turn with `unknown_tool`, more than 8 tool calls with
 `tool_limit`; neither stores an answer. Nothing the model says authorises anything else.

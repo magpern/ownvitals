@@ -12,7 +12,7 @@ import pytest
 
 from ownvitals.ai import requests as r
 from ownvitals.ai.requests import Message, RequestRefused, Text, ToolOutput, ToolUse
-from ownvitals.ai.responses import BadResponse, parse_reply
+from ownvitals.ai.responses import RESPONSE_MAX_BYTES, BadResponse, parse_reply, rejected_usage
 from ownvitals.ai.tools_model import MAX_TOOL_CALLS_PER_TURN, TOOLS, TOOLSET_VERSION
 
 SYNTHETIC = True
@@ -259,3 +259,21 @@ def test_the_reported_inference_geo_is_kept_and_bounded() -> None:
 def test_a_malformed_answer_is_refused(raw: bytes) -> None:
     with pytest.raises(BadResponse):
         parse_reply(raw)
+
+
+def test_a_rejected_answer_keeps_its_usage_when_the_block_parses() -> None:
+    # #561: an answer rejected for its stop reason or content still reports what it cost.
+    for raw in (_answer(stop_reason="synthetic_unknown"), _answer(content="not a list")):
+        with pytest.raises(BadResponse):
+            parse_reply(raw)
+        usage = rejected_usage(raw)
+        assert usage is not None
+        assert (usage.input_tokens, usage.output_tokens, usage.cache_read_tokens) == (5, 7, 2)
+    for raw in (
+        b"not json",
+        b"[]",
+        _answer(usage={"input_tokens": -1, "output_tokens": 1}),
+        _answer(usage="synthetic"),
+        b" " * (RESPONSE_MAX_BYTES + 1),
+    ):
+        assert rejected_usage(raw) is None

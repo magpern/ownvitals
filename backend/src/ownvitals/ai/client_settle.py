@@ -11,7 +11,7 @@ from ownvitals.ai.audit import AuditEntry, Settlement
 from ownvitals.ai.gates import ModelFailed
 from ownvitals.ai.pricing import Price, usage_cost
 from ownvitals.ai.requests import PROMPT_VERSION
-from ownvitals.ai.responses import Reply
+from ownvitals.ai.responses import Reply, Usage, rejected_usage
 from ownvitals.ai.tools_model import TOOLSET_VERSION
 from ownvitals.jobs import FencedSession, LeaseLost, RunStopped
 
@@ -24,17 +24,36 @@ Mode = Literal["settle", "charge", "release"]
 async def apply(
     fs: FencedSession, held: budget.Reservation, mode: Mode, actual: int
 ) -> tuple[Settlement, int]:
-    """Settle at ``actual``, charge the reserved amount, or release; the settlement and the
-    amount this call was charged."""
+    """Settle at ``actual``, charge the higher of the reserved amount and ``actual``, or
+    release; the settlement and the amount this call was charged."""
     if mode == "release":
         return ("released" if await budget.release(fs, held) else "unchanged"), 0
-    charged = held.amount if mode == "charge" else actual
+    charged = max(held.amount, actual) if mode == "charge" else actual
     outcome = await budget.settle(fs, held, charged)
     if outcome is budget.Settled.UNCHANGED:
         return "unchanged", 0
     if outcome is budget.Settled.OVERRUN:
         return "overrun", charged
     return ("charged" if mode == "charge" else "settled"), charged
+
+
+def _cost(model: str, usage: Usage, prices: Mapping[str, Price]) -> int:
+    return usage_cost(
+        model,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cache_write_tokens=usage.cache_write_tokens,
+        cache_read_tokens=usage.cache_read_tokens,
+        inference_geo=usage.inference_geo,
+        prices=prices,
+    )
+
+
+def _rejected(call: _Call, failure: ModelFailed | None) -> Usage | None:
+    """The usage of a 200 answer rejected as ``bad_response``, when its usage block parses."""
+    if failure is None or failure.code != "bad_response" or call.status != 200:
+        return None
+    return None if call.answer is None else rejected_usage(call.answer)
 
 
 async def settle_and_audit(
@@ -48,27 +67,19 @@ async def settle_and_audit(
     latency: int,
     prices: Mapping[str, Price],
 ) -> Reply:
-    usage = reply.usage if reply is not None else None
+    usage = reply.usage if reply is not None else _rejected(call, failure)
     mode: Mode
     if reply is not None and usage is not None:
-        mode, actual = (
-            "settle",
-            usage_cost(
-                call.model,
-                input_tokens=usage.input_tokens,
-                output_tokens=usage.output_tokens,
-                cache_write_tokens=usage.cache_write_tokens,
-                cache_read_tokens=usage.cache_read_tokens,
-                inference_geo=usage.inference_geo,
-                prices=prices,
-            ),
-        )
+        mode, actual = "settle", _cost(call.model, usage, prices)
     else:
         assert failure is not None  # noqa: S101 - a call ends with an answer or a failure
         unprocessed = failure.code in {"not_sent", "consent", "cancelled"} or (
             call.status is not None and budget.may_release(sent=True, status=call.status)
         )
-        mode, actual = ("release" if unprocessed else "charge"), held.amount
+        # A rejected 200 answer whose usage block parses is charged at least that usage's cost
+        # (the geo premium included), never less than the reservation (``apply``, #561).
+        actual = held.amount if usage is None else _cost(call.model, usage, prices)
+        mode = "release" if unprocessed else "charge"
 
     def entry(settlement: Settlement, cost: int) -> AuditEntry:
         return AuditEntry(
