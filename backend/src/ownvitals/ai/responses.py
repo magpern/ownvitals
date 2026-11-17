@@ -3,9 +3,10 @@
 The answer is untrusted. Only two kinds of content block are kept: ``text`` (bounded, kept as
 text; the UI renders it as plain text) and ``tool_use`` (a request to run a read-only tool,
 which the turn loop validates against the tool's closed arguments before anything runs). Every
-other block is dropped. The usage must be four non-negative integers, or the answer is
-``BadResponse`` and the call is charged at its reserved amount; an answer rejected for any other
-reason is charged the higher of that and its usage's cost (``rejected_usage``, #561).
+other block is dropped. The usage must be four integers from 0 to ``USAGE_TOKENS_MAX``, or the
+answer is ``BadResponse`` and the call is charged at its reserved amount; an answer rejected
+for any other reason is charged the higher of that and its usage's cost (``rejected_usage``,
+#561).
 ``usage.inference_geo`` only sets the price (``ai.pricing.usage_cost``): a malformed one (not a
 short string) is read as absent, so valid token counts are still charged, at the non-global
 1.1x (#556). The model's output is a proposal: nothing here, and nothing that reads a
@@ -21,10 +22,11 @@ from ownvitals.ai.requests import TEXT_MAX_CHARS
 
 RESPONSE_MAX_BYTES: Final = 1024 * 1024
 GEO_MAX_CHARS: Final = 16
-# The largest token count a rejected answer's usage may report and still be charged from: 100
+# The largest token count a usage block may report, in an accepted answer or a rejected one: 100
 # times the largest context, so no real request reaches it, and four counts at any reviewed
-# price stay far below ``budget.MAX_ACTUAL`` and the ``ai_audit`` bigint columns (#561).
-REJECTED_TOKENS_MAX: Final = 100_000_000
+# price stay far below ``budget.MAX_ACTUAL`` and the ``ai_audit`` bigint columns. Above it the
+# usage is invalid: ``BadResponse``, charged the reservation and audited (#561, #563).
+USAGE_TOKENS_MAX: Final = 100_000_000
 TOOL_USES_MAX: Final = 16  # more in one answer is malformed (the turn allows 8 in all)
 _STOP_REASONS: Final = frozenset(
     {"end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal"}
@@ -68,7 +70,7 @@ def _count(usage: dict[str, Any], key: str, required: bool) -> int:
     value = usage.get(key)
     if value is None and not required:
         return 0
-    if type(value) is not int or value < 0:
+    if type(value) is not int or not 0 <= value <= USAGE_TOKENS_MAX:
         raise BadResponse("usage")
     return value
 
@@ -96,6 +98,16 @@ def usage_of(payload: object) -> Usage:
     )
 
 
+def _loads(raw: bytes) -> object:
+    """The JSON of a reply body. Every failure, too deep a nesting included (``[`` repeated a
+    few thousand times is well under ``RESPONSE_MAX_BYTES``), is ``BadResponse("json")``, so the
+    call ends as ``bad_response`` with its settlement and audit row, never a raw error (#563)."""
+    try:
+        return json.loads(raw)
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        raise BadResponse("json") from None
+
+
 def rejected_usage(raw: bytes) -> Usage | None:
     """The usage block of a 200 answer that ``parse_reply`` rejected, or ``None`` when it does
     not parse either. Only a charge reads it, and only to raise one: the call is charged the
@@ -103,27 +115,16 @@ def rejected_usage(raw: bytes) -> Usage | None:
     if len(raw) > RESPONSE_MAX_BYTES:
         return None
     try:
-        usage = usage_of(json.loads(raw))
-    except (UnicodeDecodeError, ValueError):  # BadResponse is a ValueError
+        return usage_of(_loads(raw))
+    except BadResponse:  # a count out of range included: charged the reservation, audited
         return None
-    counts = (
-        usage.input_tokens,
-        usage.output_tokens,
-        usage.cache_write_tokens,
-        usage.cache_read_tokens,
-    )
-    # Out of range: invalid, so the call is charged its reservation and audited as usual.
-    return None if max(counts) > REJECTED_TOKENS_MAX else usage
 
 
 def parse_reply(raw: bytes) -> Reply:
     """A 200 answer's body; ``BadResponse`` for anything malformed or too large."""
     if len(raw) > RESPONSE_MAX_BYTES:
         raise BadResponse("too_large")
-    try:
-        payload = json.loads(raw)
-    except (UnicodeDecodeError, ValueError):
-        raise BadResponse("json") from None
+    payload = _loads(raw)
     if not isinstance(payload, dict) or payload.get("type") != "message":  # pyright: ignore[reportUnknownMemberType]
         raise BadResponse("type")
     usage = usage_of(payload)

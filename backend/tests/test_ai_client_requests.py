@@ -13,8 +13,8 @@ import pytest
 from ownvitals.ai import requests as r
 from ownvitals.ai.requests import Message, RequestRefused, Text, ToolOutput, ToolUse
 from ownvitals.ai.responses import (
-    REJECTED_TOKENS_MAX,
     RESPONSE_MAX_BYTES,
+    USAGE_TOKENS_MAX,
     BadResponse,
     parse_reply,
     rejected_usage,
@@ -280,12 +280,12 @@ def test_a_rejected_answer_keeps_its_usage_when_the_block_parses() -> None:
         b"[]",
         _answer(usage={"input_tokens": -1, "output_tokens": 1}),
         _answer(usage="synthetic"),
-        _answer(usage={"input_tokens": REJECTED_TOKENS_MAX + 1, "output_tokens": 1}),
+        _answer(usage={"input_tokens": USAGE_TOKENS_MAX + 1, "output_tokens": 1}),
         _answer(usage={"input_tokens": 1, "output_tokens": 2**63}),  # past a bigint
         _answer(usage={"input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": 10**30}),
     ):
         assert rejected_usage(raw) is None
-    at_limit = _answer(usage={"input_tokens": REJECTED_TOKENS_MAX, "output_tokens": 1})
+    at_limit = _answer(usage={"input_tokens": USAGE_TOKENS_MAX, "output_tokens": 1})
     assert rejected_usage(at_limit) is not None
 
 
@@ -302,3 +302,25 @@ def test_a_rejected_answer_over_the_size_limit_is_not_read() -> None:
     assert usage is not None
     assert (usage.input_tokens, usage.output_tokens) == (5, 7)
     assert rejected_usage(_padded(RESPONSE_MAX_BYTES + 1)) is None
+
+
+DEEP = (b"[" * 200_000, b'{"a":' * 100_000, b'{"type":"message","usage":' + b"[" * 100_000)
+
+
+def test_a_deeply_nested_body_is_a_bad_response_not_a_recursion_error() -> None:
+    # #563: under the size limit, yet too deep for the JSON parser.
+    for raw in DEEP:
+        assert len(raw) <= RESPONSE_MAX_BYTES
+        with pytest.raises(BadResponse, match="json"):
+            parse_reply(raw)
+        assert rejected_usage(raw) is None
+
+
+def test_an_accepted_answer_with_an_out_of_range_count_is_a_bad_response() -> None:
+    # #563: the bound of rejected answers holds for accepted ones too.
+    for key in ("input_tokens", "output_tokens", "cache_creation_input_tokens"):
+        usage = {"input_tokens": 5, "output_tokens": 7} | {key: USAGE_TOKENS_MAX + 1}
+        with pytest.raises(BadResponse, match="usage"):
+            parse_reply(_answer(usage=usage))
+    at_limit = {"input_tokens": USAGE_TOKENS_MAX, "output_tokens": USAGE_TOKENS_MAX}
+    assert parse_reply(_answer(usage=at_limit)).usage.output_tokens == USAGE_TOKENS_MAX
