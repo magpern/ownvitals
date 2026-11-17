@@ -127,9 +127,10 @@ EXPORTS_PINS: dict[str, tuple[str, str, str, str]] = {
 # The admin account family (docker/postgres/maint/70-admin-accounts.sql, ADR 0002 section 3;
 # #314; admin_account_revoke #365; the abuse view's read admin_session_anomalies #461), owned by
 # its own NOLOGIN role and executable by ownvitals_maint only, and the two connection-state reads
-# of the same script (issue 549), owned by ownvitals_admin_connections. Absent until db-functions
-# has run that script; once one is present, all seven must be, each pinned (its digest in
-# queue_digests.py with the others).
+# of the same script (issue 549), owned by ownvitals_admin_connections, and the admin page's two
+# writes (issue 550: admin_account_signout and admin_invite_create), owned by the family's role.
+# Absent until db-functions has run that script; once one is present, all nine must be, each
+# pinned (its digest in queue_digests.py with the others).
 ADMIN_ACCOUNTS_ROLE = "ownvitals_admin_accounts"
 ADMIN_CONNECTIONS_ROLE = "ownvitals_admin_connections"
 ADMIN_ACCOUNTS_FUNCTION_NAMES = (
@@ -140,6 +141,8 @@ ADMIN_ACCOUNTS_FUNCTION_NAMES = (
     "admin_session_anomalies",
     "admin_withings_states",
     "admin_withings_counts",
+    "admin_account_signout",
+    "admin_invite_create",
 )
 ADMIN_ACCOUNTS_VERSION = "ownvitals-admin-accounts v1"
 # Sorted as the query sorts the entries: "ownvitals_admin_accounts" comes before "ownvitals_maint".
@@ -190,6 +193,18 @@ ADMIN_ACCOUNTS_PINS: dict[str, tuple[str, str, str, str]] = {
         _ADMIN_CONNECTIONS_ACL,
     ),
     "admin_withings_counts": ("", ADMIN_CONNECTIONS_ROLE, SEARCH_PATH, _ADMIN_CONNECTIONS_ACL),
+    "admin_account_signout": (
+        "p_target uuid, OUT outcome text, OUT sessions_revoked integer",
+        ADMIN_ACCOUNTS_ROLE,
+        SEARCH_PATH,
+        _ADMIN_ACCOUNTS_ACL,
+    ),
+    "admin_invite_create": (
+        "p_code_hash bytea, p_expires_in interval",
+        ADMIN_ACCOUNTS_ROLE,
+        SEARCH_PATH,
+        _ADMIN_ACCOUNTS_ACL,
+    ),
 }
 # webhook_events_purge_account (#362) is the delete's step: once the family is installed its ACL
 # is this one exactly (the family's role, called from admin_account_delete), and before it only

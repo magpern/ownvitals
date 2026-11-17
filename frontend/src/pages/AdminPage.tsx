@@ -4,7 +4,9 @@ import { errorMessage } from '../api/messages'
 import { Notice } from '../components/forms'
 import { StatePill } from '../components/ui/DataState'
 import { Icon } from '../components/ui/Icon'
+import { useT } from '../i18n'
 import { signedInAt } from './SecurityPage'
+import { InviteButton, SignOutAllButton } from './admin/AccountWrites'
 import { AdminSection, Overview } from './admin/AdminSections'
 import { AdminTabs, useAdminTab } from './admin/AdminTabs'
 import { SessionAnomalies } from './admin/SessionAnomalies'
@@ -12,8 +14,10 @@ import { SessionAnomalies } from './admin/SessionAnomalies'
 // Admin (docs/design/mockups/html/Admin.html). Issue 127 builds the Accounts table; issue 461 adds
 // the session anomalies (pages/admin/SessionAnomalies.tsx, no mock-up: it reuses the table). Issue
 // 548 adds the tabs and the read-only Jobs, Flags and Audit log (pages/admin/). Issue 549 adds each
-// account's Withings state here, the Overview tiles and the Withings app card. Invites, flag
-// changes and "Sign out all" come with the admin writes.
+// account's Withings state here, the Overview tiles and the Withings app card. Issue 550 adds the
+// writes: "Invite someone…", "Sign out all…" per account with a session (pages/admin/AccountWrites)
+// and the flag changes (pages/admin/FlagControls), each behind the step-up dialog. The page stays on
+// the English allowlist; the Withings pills and the writes' words are in the `admin` catalogue.
 
 function factor(account: AdminAccount) {
   if (account.secondFactor === 'on') return <StatePill tone="ok">On</StatePill>
@@ -21,10 +25,13 @@ function factor(account: AdminAccount) {
 }
 
 // The words of the user's own Connections page; "Healthy" is the mock-up's word for connected.
-function withings(account: AdminAccount) {
-  if (account.withings === 'healthy') return <StatePill tone="ok">Healthy</StatePill>
-  if (account.withings === 'needs_reconnect') return <StatePill tone="urgent">Needs reconnect</StatePill>
-  return <StatePill tone="off">Not connected</StatePill>
+function Withings({ account }: { account: AdminAccount }) {
+  const t = useT()
+  if (account.withings === 'healthy') return <StatePill tone="ok">{t('admin.accounts.withings.healthy')}</StatePill>
+  if (account.withings === 'needs_reconnect') {
+    return <StatePill tone="urgent">{t('admin.accounts.withings.needs_reconnect')}</StatePill>
+  }
+  return <StatePill tone="off">{t('admin.accounts.withings.not_connected')}</StatePill>
 }
 
 function role(account: AdminAccount): string {
@@ -63,6 +70,7 @@ function Accounts() {
   const headingId = useId()
   const [rows, setRows] = useState<AdminAccount[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [loads, setLoads] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -78,11 +86,17 @@ function Accounts() {
     return () => {
       controller.abort()
     }
-  }, [])
+  }, [loads])
+  const reload = () => {
+    setLoads((count) => count + 1)
+  }
 
   return (
     <section className="ov-stack" aria-labelledby={headingId}>
-      <h2 id={headingId}>Accounts</h2>
+      <div className="ov-between">
+        <h2 id={headingId}>Accounts</h2>
+        <InviteButton />
+      </div>
       {error !== null ? <Notice kind="error">{error}</Notice> : null}
       {rows !== null && rows.length === 0 ? <p className="ov-muted">No accounts.</p> : null}
       {rows !== null && rows.length > 0 ? (
@@ -96,6 +110,9 @@ function Accounts() {
                 <th>Withings</th>
                 <th>Last sign-in</th>
                 <th className="ov-r">Sessions</th>
+                <th>
+                  <span className="ov-sr">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -107,11 +124,18 @@ function Accounts() {
                   </td>
                   <td>{role(account)}</td>
                   <td>{factor(account)}</td>
-                  <td>{withings(account)}</td>
+                  <td>
+                    <Withings account={account} />
+                  </td>
                   <td className={account.lastSignIn === null ? 'ov-muted' : 'ov-num'}>
                     {account.lastSignIn === null ? 'Never' : signedInAt(account.lastSignIn, new Date(), 'en')}
                   </td>
                   <td className="ov-r ov-num">{account.sessions}</td>
+                  <td>
+                    {account.sessions > 0 ? (
+                      <SignOutAllButton userId={account.id} email={account.email} onDone={reload} />
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>

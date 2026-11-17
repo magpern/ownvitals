@@ -1,5 +1,6 @@
 // The admin tabs and the read-only Jobs, Flags and Audit log views (issue 548), the Overview tiles
-// and the Withings app card (issue 549).
+// and the Withings app card (issue 549), and the admin writes: flag changes, invites, "Sign out all"
+// and the Accounts table's Withings states (issue 550).
 export const admin = {
   'tabs.label': 'Admin',
   'tab.overview': 'Overview',
@@ -57,7 +58,38 @@ export const admin = {
   'flags.value.invite': 'Invite only',
   'flags.none': 'None',
   'flags.note':
-    'A stored flag can only tighten what the server settings allow. Changing a flag comes later: it will need a fresh code and will be audited.',
+    "A stored flag can only tighten what the server's settings allow. Every change needs a fresh code and is audited.",
+  'flags.change': 'Change…',
+  'flags.save': 'Save',
+  'flags.reset': 'Use the server setting',
+  'flags.purpose': 'Changing a flag',
+  'flags.dialog.title': 'Change {name}',
+  'flags.offLabel': '{name}, off',
+  'flags.environmentOff': "It is off in the server's settings, so it can't be turned on here.",
+  'flags.signup.help': "Open sign-up can't be chosen before the beyond-household gate.",
+  'flags.banner.text': 'Text',
+  'flags.banner.level': 'Level',
+  'flags.banner.info': 'Information',
+  'flags.banner.warning': 'Warning',
+  'flags.banner.remove': 'Remove the banner',
+  'accounts.withings.healthy': 'Healthy',
+  'accounts.withings.needs_reconnect': 'Needs reconnect',
+  'accounts.withings.not_connected': 'Not connected',
+  'invite.button': 'Invite someone…',
+  'invite.purpose': 'Creating an invite',
+  'invite.title': 'Invite code',
+  'invite.code': 'Invite code',
+  'invite.text': 'Give this code to the person you invite. It can be used once, until {date}.',
+  'invite.once': "It is shown only now: it isn't stored and can't be shown again.",
+  'invite.copy': 'Copy',
+  'invite.copied': 'Copied.',
+  'invite.done': 'Done',
+  'signOut.button': 'Sign out all…',
+  'signOut.purpose': 'Signing an account out everywhere',
+  'signOut.title': 'Sign out {email} everywhere?',
+  'signOut.text':
+    'Every session of this account ends now. Nothing else changes: the account can sign in again.',
+  'signOut.confirm': 'Sign out all',
   'audit.title': 'Audit log',
   'audit.col.when': 'When',
   'audit.col.action': 'Action',

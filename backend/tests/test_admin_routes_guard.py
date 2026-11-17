@@ -36,6 +36,7 @@ SAMPLES: dict[tuple[str, str], tuple[str, Any]] = {
     ("GET", "/api/admin/whoami"): ("/api/admin/whoami", None),
     ("GET", "/api/admin/anomalies"): ("/api/admin/anomalies", None),
     ("GET", "/api/admin/audit"): ("/api/admin/audit", None),
+    ("POST", "/api/admin/invites"): ("/api/admin/invites", None),  # issue 550
     ("GET", "/api/admin/jobs"): ("/api/admin/jobs", None),
     ("GET", "/api/admin/overview"): ("/api/admin/overview", None),
     ("GET", "/api/admin/settings"): ("/api/admin/settings", None),
@@ -57,6 +58,10 @@ SAMPLES: dict[tuple[str, str], tuple[str, Any]] = {
     ("DELETE", "/api/admin/users/{user_id}"): (
         "/api/admin/users/00000000-0000-4000-8000-000000000001",
         {"email": "nobody@example.com"},
+    ),
+    ("DELETE", "/api/admin/users/{user_id}/sessions"): (  # issue 550: "Sign out all"
+        "/api/admin/users/00000000-0000-4000-8000-000000000001/sessions",
+        None,
     ),
     ("GET", "/api/admin/withings-app"): ("/api/admin/withings-app", None),
 }

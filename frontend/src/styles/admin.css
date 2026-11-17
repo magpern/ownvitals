@@ -43,3 +43,22 @@
   align-items: center;
   gap: var(--ov-space-2);
 }
+
+/* The lock in the sign-up choice (issue 550): an admin write, like every locked button. */
+.ov-seg button[data-lock] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ov-space-1);
+}
+
+/* The invite code, shown once (issue 550): large enough to read out and to select. */
+.ov-invite-code {
+  margin: 0;
+  padding: var(--ov-space-3);
+  border: 1px solid var(--ov-line);
+  border-radius: var(--ov-radius-sm);
+  background: var(--ov-bg);
+  font-size: var(--ov-text-lg);
+  overflow-wrap: anywhere;
+  user-select: all;
+}

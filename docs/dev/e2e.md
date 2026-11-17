@@ -10,8 +10,8 @@ spec uses is made up per run. M0's "done when" (PLAN §11) is the login-and-TOTP
 | `e2e/fake-oidc/` | the stand-in for Google's token and JWKS hosts (Node, no dependencies) |
 | `e2e/fake-withings/` | the stand-in for Withings (`server.py`, Python standard library, runs `backend/tests/withingscore.py`) |
 | `e2e/scripts/` | `stack-up.sh`, `stack-prepare.sh`, `stack-checks.sh`, `stack-down.sh` |
-| `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `flows.ts` (page steps), `ratelimit.ts` (empties the rate-limit buckets) |
-| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `google-link`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login`, `onboarding`, `export` |
+| `e2e/helpers/` | `totp.ts` (the authenticator), `mailpit.ts`, `invite.ts` (operator CLI), `admin.ts` (`admin grant` through the operator CLI), `flows.ts` (page steps), `ratelimit.ts` (empties the rate-limit buckets) |
+| `e2e/specs/` | `auth-password`, `auth-google`, `google-reauth`, `google-link`, `step-up`, `password-reset`, `fake-withings`, `withings-webhook`, `i18n`, `passkeys`, `qr-login`, `onboarding`, `export`, `admin-writes` |
 
 ## Run it
 
@@ -30,7 +30,7 @@ Ports come from `.env` (`WEB_PORT`, `MAILPIT_PORT`; `FAKE_OIDC_PORT` defaults to
 check refuses it: `localhost`, not `127.0.0.1`, because WebAuthn has no relying party on an IP
 address (#180; the two fakes' redirect URIs follow it). One worker, no retries: the specs share
 one stack and one client IP, and with them the sign-up (5 an hour) and sign-in rate limits (ADR
-0003 §9). `passkeys` and `qr-login` sign up more accounts and start with `resetRateLimits()`
+0003 §9). `passkeys`, `qr-login` and `admin-writes` sign up more accounts and start with `resetRateLimits()`
 (`DELETE FROM rate_limits` as the database superuser, like `ageStepUp`); a rerun of the other
 specs against the same stack still needs a fresh one (`stack-down.sh`, `stack-up.sh`) once those
 budgets are spent.

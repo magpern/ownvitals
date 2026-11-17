@@ -65,6 +65,9 @@ EXPECTED: frozenset[tuple[str, str]] = frozenset(
             # issue 549: the connection-state reads, owned by ownvitals_admin_connections
             "admin_withings_states(uuid[])",
             "admin_withings_counts()",
+            # issue 550: the admin page's writes, owned by ownvitals_admin_accounts
+            "admin_account_signout(uuid)",
+            "admin_invite_create(bytea,interval)",
         )
     }
 )

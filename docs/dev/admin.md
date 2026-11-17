@@ -15,7 +15,7 @@ The maint role's password, compose, `db-functions`, the `Dockerfile` and CI are 
 | `backend/migrations/versions/0006_admin.py` | `app_settings` and `admin_audit` (system tables); the app role reads the flags and holds nothing on the audit log |
 | `docker/postgres/init/10-roles.sql` | creates `ownvitals_maint` `LOGIN` and sets its password from the `database_maint_password` secret, beside the owner and app roles |
 | `docker/postgres/maint/30-maint.sql` | the role `ownvitals_maint`: attributes, settings, revoke-all, the column allowlist; plain SQL, idempotent, run as the superuser after the migrations. `db-functions` installs it after `20-queue.sql` in the same transaction. It sets no password |
-| `docker/postgres/maint/70-admin-accounts.sql` | the admin account family (#314, ADR 0002 §3): `admin_account_disable`, `admin_account_enable`, `admin_account_delete` and `admin_account_revoke` (#365), and the abuse view's read `admin_session_anomalies` (#461), owned by the `NOLOGIN` role `ownvitals_admin_accounts`, executable by maint only. Each refuses unless its transaction already holds the matching `ok` audit row, so an account change commits with its row. `admin_account_revoke` queues the delete's Withings revoke through the queue's `queue_enqueue_admin_revoke`, which only that role may execute. `db-functions` runs it last (it re-grants what `30-maint.sql` revokes); a test that re-runs `30-maint.sql` re-runs it too (`admintools.maint_scripts`) |
+| `docker/postgres/maint/70-admin-accounts.sql` | the admin account family (#314, ADR 0002 §3): `admin_account_disable`, `admin_account_enable`, `admin_account_delete` and `admin_account_revoke` (#365), the abuse view's read `admin_session_anomalies` (#461), and the admin page's `admin_account_signout` and `admin_invite_create` (issue 550; the role's one more grant: `INSERT (code_hash, expires_at)` on `invites`), owned by the `NOLOGIN` role `ownvitals_admin_accounts`, executable by maint only. Each refuses unless its transaction already holds the matching `ok` audit row, so an account change commits with its row. `admin_account_revoke` queues the delete's Withings revoke through the queue's `queue_enqueue_admin_revoke`, which only that role may execute. `db-functions` runs it last (it re-grants what `30-maint.sql` revokes); a test that re-runs `30-maint.sql` re-runs it too (`admintools.maint_scripts`) |
 | `backend/src/ownvitals/admin/user_revoke.py` | the admin delete's wait for its revoke job (#365): reads only the job's `state` (maint's column grant on `jobs`) in a `user.revoke_wait` read transaction, for up to `ADMIN_REVOKE_WAIT_SECONDS` (25 s); the `user.delete` row then records `revoke`: `none`, `revoked` or `failed`. The job itself is `ownvitals.auth.admin_revoke_job` (`withings_admin_revoke`), run by the worker |
 | `backend/src/ownvitals/admin/db.py` | the maint engine and its role check, `admin_session` (the audited transaction), `audit_refusal` |
 | `backend/src/ownvitals/admin/audit.py` | the action codes, each action's `params` model, the refusal and request limiters |
@@ -26,6 +26,7 @@ The maint role's password, compose, `db-functions`, the `Dockerfile` and CI are 
 | `backend/src/ownvitals/admin/connection_states.py` | the calls to those two definers (`withings_states`, `withings_counts`); the words are the user's own Connections page's (`views.states`: no live Withings row is `not_connected`, `needs_reconnect`, and connected is the design's "Healthy") |
 | `backend/src/ownvitals/admin/overview.py` | `GET /api/admin/overview` (`overview.read`, issue 549): accounts and confirmed second factors (`auth.admin_counts`, the app role's `system_session`), the effective sign-up mode, accounts per Withings state (`admin_withings_counts`) and the `queued`, `running` and `dead_letter` job counts (maint's grant on `jobs.state`). Counts only |
 | `backend/src/ownvitals/admin/withings_app.py` | `GET /api/admin/withings-app` (`withings_app.read`, issue 549): whether an app is configured, the last four characters of the newest row's client id (`…a91f`, none for an id under 12 characters) and the API host (`egress.WITHINGS_API_HOST`); never the secret, its envelope, the webhook secrets, the callback URL or the whole id |
+| `backend/src/ownvitals/admin/account_writes.py` | the admin page's writes (issue 550), behind the gate **and** `require_admin_stepup`: `POST /api/admin/invites` (`invite.create`, params `expires_days` only) makes one invite as `ownvitals invite create` stores it (the code's SHA-256 and a 7-day expiry, no `created_by`) and answers 201 with the code, shown once and in no row, log or other response; `DELETE /api/admin/users/{user_id}/sessions` (`sessions.revoke_all`, the account as the target) signs that account out everywhere, an admin's (the caller's own included) too, and answers the count; 404 `not_found` for an unknown account. Each runs `ownvitals.auth.admin_writes` in its `admin_session`, through the definers `admin_invite_create` and `admin_account_signout` of `70-admin-accounts.sql`, which refuse without that transaction's `ok` row |
 | `backend/src/ownvitals/admin/audit_routes.py`, `settings.py`, `jobs.py` | `GET /api/admin/audit`; `GET`, `PUT`, `DELETE /api/admin/settings[/{key}]`; `GET /api/admin/jobs` |
 | `backend/src/ownvitals/flags/` | `core` (keys, validation, stricter wins), `effective` (per request, from `app_settings`), `routes` (`GET /api/settings/public`) |
 | `backend/tests/test_maint_privileges.py` | guard 11: maint's exact allowlist, its secret-column and forbidden-table registry, append-only |
@@ -54,7 +55,7 @@ Its privileges, all of them (guard 11 compares the catalog with this list):
 | `admin_audit` | `INSERT`; `SELECT` on every column but `ip_hash`; `USAGE` on `admin_audit_id_seq` | write and read the log |
 | `app_settings` | `SELECT` (all columns), `INSERT (flag, value, updated_by)`, `UPDATE (value, updated_at, updated_by)` | read, set and clear flags (clearing stores the JSON `null`: no `DELETE`) |
 | `jobs` | `SELECT (id, kind, state, error_category, created_at, finished_at)` | counts per state, failures by category; never the owner, input, keys or hashes |
-| the admin functions of `70-admin-accounts.sql` | `EXECUTE` | the account changes and the abuse view (#314, #365, #461), and the two connection-state reads (issue 549); maint reads no column of `connections` itself |
+| the admin functions of `70-admin-accounts.sql` | `EXECUTE` | the account changes and the abuse view (#314, #365, #461), the two connection-state reads (issue 549), and "Sign out all" and the invite (issue 550); maint reads no column of `connections` itself and holds nothing on `sessions` or `invites` |
 
 Nothing on any account table, `job_events`, `connection_keks` or any health-data table. The
 registry in guard 11 names the secret columns and forbidden tables; a grant on one of them fails
@@ -147,8 +148,23 @@ uvx uv@0.13.6 run pytest -q tests/test_admin_*.py tests/test_maint_privileges.py
 in the address, an unknown value is Overview). Read-only views on the endpoints above, decoded in
 `src/api/adminViews.ts`: **Jobs** shows the state counts of `GET /api/admin/jobs` only (the
 failures list, with its kinds, is never decoded); **Flags** shows `GET /api/admin/settings` as
-effective value and source, with no controls (the step-up writes are #546 part 3); **Audit log**
+effective value and source (the controls came with issue 550, below); **Audit log**
 shows when, action, target and result of `GET /api/admin/audit`, never params or the request id.
 Overview is the whole page: the four tiles of `GET /api/admin/overview` (`pages/admin/OverviewTiles.tsx`, issue 549), then Accounts, Jobs and the Withings app card (`pages/admin/WithingsAppCard.tsx`, `GET /api/admin/withings-app`), Flags and Audit log side by side on wide screens. The Accounts table's Withings column shows each account's `withings` state as a pill: Healthy, Needs reconnect or Not connected (`src/api/adminOverview.ts` refuses any other word). The new strings are the
 `admin` catalogue area (en and sv); `pages/AdminPage.tsx` itself stays on the English allowlist.
 Tests: `npx vitest run src/pages/admin src/pages/AdminPage.test.tsx`.
+
+**The writes (issue 550).** Every write carries the lock and runs through `useProtected()`, the
+shared "Confirm it's you" dialog, when the server answers `step_up_required` (a code from the last
+5 minutes). `src/api/adminWrites.ts` sends them. **Flags** (`pages/admin/FlagControls.tsx`):
+sign-up is the mock-up's Closed / Invite only choice (open is never offered; invite only is not
+offered while the server settings say closed); an on/off flag the server has off is an off switch
+that can't be pressed, otherwise "Change…" opens `pages/admin/FlagDialog.tsx`, which knows nothing
+about the flag (fields, Save and the optional "Use the server setting" come from the caller, so a
+later flag such as the AI monthly caps reuses it); the banner's "Change…" takes the text and the
+level, or removes it. **Accounts** (`pages/admin/AccountWrites.tsx`): "Invite someone…" shows the
+new code once in a dialog and forgets it when it closes; "Sign out all…" is on each account with a
+session and asks first. Role changes and second-factor resets stay with the operator CLI. The
+Withings pills and the writes' words are in the `admin` catalogue (en and sv). Tests:
+`npx vitest run src/pages/admin`, backend `tests/test_admin_writes.py`, e2e
+`e2e/specs/admin-writes.spec.ts`.

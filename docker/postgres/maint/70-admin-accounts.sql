@@ -1,7 +1,8 @@
 -- The admin account family (ADR 0002 sections 3 to 5 and ADR 0005 section 3, both amended
 -- 2026-11-10 by #314 and #365): admin_account_disable, admin_account_enable,
 -- admin_account_delete and admin_account_revoke (#365), and the read admin_session_anomalies
--- (#461), SECURITY DEFINER functions owned by the NOLOGIN role ownvitals_admin_accounts and
+-- (#461), with the admin page's writes admin_account_signout and admin_invite_create (issue
+-- 550), SECURITY DEFINER functions owned by the NOLOGIN role ownvitals_admin_accounts and
 -- executable by ownvitals_maint only. They let an admin's account change commit in the same
 -- transaction as its ok audit row (ownvitals.admin.db.admin_session inserts that row first), and
 -- the abuse view's read happen only inside its audited transaction. The script's last section
@@ -28,12 +29,14 @@
 -- 'not_found', 'target_is_admin' or 'email_mismatch'. Nothing else leaves it: no address, no
 -- hash, no token. admin_session_anomalies (#461, ADR 0020) checks the same way for its action
 -- anomaly.list (target_user_id NULL) and returns rows of the abuse view only (see its comment).
+-- admin_account_signout (sessions.revoke_all) and admin_invite_create (invite.create, target
+-- NULL) check the same way; see their comments for what each changes and returns.
 --
 -- The role has no BYPASSRLS: it touches system tables only (users, sessions, auth_events,
--- admin_audit). The rows that go with a deleted account are removed by the foreign keys'
+-- invites, admin_audit). The rows that go with a deleted account are removed by the foreign keys'
 -- referential actions, which Postgres runs as the referencing table's owner. Column grants only
--- where a table holds a secret: never users.password_hash, never a session token. 20-queue.sql
--- admits the five by name; their bodies are pinned by digest (ownvitals/db/queue_digests.py)
+-- where a table holds a secret: never users.password_hash, never a session token, and only an
+-- insert into invites (never a read of a code hash). 20-queue.sql admits the seven by name; their bodies are pinned by digest (ownvitals/db/queue_digests.py)
 -- and checked by web and the worker at startup.
 
 DO $$
@@ -45,8 +48,10 @@ BEGIN
   IF pg_catalog.to_regclass('public.users') IS NULL
      OR pg_catalog.to_regclass('public.sessions') IS NULL
      OR pg_catalog.to_regclass('public.auth_events') IS NULL
+     OR pg_catalog.to_regclass('public.invites') IS NULL
      OR pg_catalog.to_regclass('public.admin_audit') IS NULL THEN
-    RAISE EXCEPTION 'migrate to head first: users, sessions, auth_events or admin_audit is missing';
+    RAISE EXCEPTION 'migrate to head first: users, sessions, auth_events, invites or admin_audit '
+      'is missing';
   END IF;
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ownvitals_maint') THEN
     RAISE EXCEPTION 'ownvitals_maint does not exist; run docker/postgres/maint/30-maint.sql first';
@@ -89,7 +94,7 @@ BEGIN
   END LOOP;
 END $$;
 
--- ownvitals_admin_accounts owns the four functions and nothing else, and has no default
+-- ownvitals_admin_accounts owns the seven functions and nothing else, and has no default
 -- privileges of its own. Anything else is not repaired automatically (dropping or reassigning it
 -- could lose data): the script stops and names it.
 DO $$
@@ -109,7 +114,8 @@ BEGIN
                        WHERE p.oid = r.objid AND n.nspname = 'public'
                          AND p.proname IN ('admin_account_disable', 'admin_account_enable',
                                            'admin_account_delete', 'admin_account_revoke',
-                                           'admin_session_anomalies')) THEN
+                                           'admin_session_anomalies', 'admin_account_signout',
+                                           'admin_invite_create')) THEN
       RAISE EXCEPTION 'ownvitals_admin_accounts owns % (catalog %, object %); it may own only '
         'the admin account functions: drop or reassign it by hand',
         coalesce(r.what, '?'), r.catalog, r.objid;
@@ -229,6 +235,9 @@ GRANT EXECUTE ON FUNCTION public.webhook_events_purge_account(uuid) TO ownvitals
 -- grantee of that queue function.
 GRANT EXECUTE ON FUNCTION public.queue_enqueue_admin_revoke(uuid, uuid, uuid)
   TO ownvitals_admin_accounts;
+-- An admin's invite (issue 550): the two columns the operator CLI's invite stores, insert only.
+-- Never a read of invites, so never a code hash out of it.
+GRANT INSERT (code_hash, expires_at) ON TABLE public.invites TO ownvitals_admin_accounts;
 
 -- Any other function under these names (an overload) goes: each must exist once.
 DO $$
@@ -240,12 +249,14 @@ BEGIN
             WHERE n.nspname = 'public'
               AND p.proname IN ('admin_account_disable', 'admin_account_enable',
                                 'admin_account_delete', 'admin_account_revoke',
-                                'admin_session_anomalies')
+                                'admin_session_anomalies', 'admin_account_signout',
+                                'admin_invite_create')
               AND p.oid::regprocedure::text NOT IN (
                 'admin_account_disable(uuid)', 'admin_account_enable(uuid)',
                 'admin_account_delete(uuid,text,text,text,text,text)',
                 'admin_account_revoke(uuid,text,uuid)',
-                'admin_session_anomalies(integer,timestamp with time zone,uuid)') LOOP
+                'admin_session_anomalies(integer,timestamp with time zone,uuid)',
+                'admin_account_signout(uuid)', 'admin_invite_create(bytea,interval)') LOOP
     EXECUTE format('DROP ROUTINE public.%s', r.signature);
   END LOOP;
   -- An earlier draft with other OUT columns cannot be replaced in place: it goes first.
@@ -478,6 +489,76 @@ BEGIN
 END
 $fn$;
 
+-- Sign out all (issue 550): every session of the target deleted, nothing else changed. Unlike
+-- disable it takes an admin target too, the acting admin's own account included (the mock-up's
+-- "Sign out all..." is on every account with a session): it leaves no lasting state, the account
+-- signs in again as before, and the admin role itself stays with the operator CLI. Returns
+-- 'not_found' (and 0) for an unknown target, else 'ok' and how many sessions went.
+CREATE OR REPLACE FUNCTION public.admin_account_signout(
+  p_target uuid, OUT outcome text, OUT sessions_revoked integer)
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+BEGIN
+  IF coalesce(pg_catalog.current_setting('app.user_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'bad_context' USING ERRCODE = '42501';
+  END IF;
+  IF p_target IS NULL OR NOT EXISTS (
+       SELECT FROM public.admin_audit a JOIN public.users u ON u.id = a.actor_id
+        WHERE a.xmin = pg_catalog.pg_current_xact_id()::xid
+          AND a.created_at = pg_catalog.now() AND a.outcome = 'ok'
+          AND a.action = 'sessions.revoke_all' AND a.target_user_id = p_target
+          AND u.role = 'admin' AND u.disabled_at IS NULL) THEN
+    RAISE EXCEPTION 'no_audit_row' USING ERRCODE = '42501';
+  END IF;
+  sessions_revoked := 0;
+  PERFORM FROM public.users u WHERE u.id = p_target FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    outcome := 'not_found';
+    RETURN;
+  END IF;
+  DELETE FROM public.sessions s WHERE s.user_id = p_target;
+  GET DIAGNOSTICS sessions_revoked = ROW_COUNT;
+  outcome := 'ok';
+END
+$fn$;
+
+-- Invite (issue 550): one invite row as the operator CLI's `invite create` stores it, the code's
+-- SHA-256 and the expiry and nothing else (created_by stays NULL: the audit row names the admin).
+-- The code itself never reaches the database. Refuses (bad_argument) a hash that is not 32 bytes
+-- and an expiry outside one hour to 30 days. Returns the expiry; never a row id or a hash.
+CREATE OR REPLACE FUNCTION public.admin_invite_create(p_code_hash bytea, p_expires_in interval)
+  RETURNS timestamp with time zone
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, pg_temp
+AS $fn$
+DECLARE
+  v_expires timestamp with time zone;
+BEGIN
+  IF coalesce(pg_catalog.current_setting('app.user_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'bad_context' USING ERRCODE = '42501';
+  END IF;
+  IF NOT EXISTS (
+       SELECT FROM public.admin_audit a JOIN public.users u ON u.id = a.actor_id
+        WHERE a.xmin = pg_catalog.pg_current_xact_id()::xid
+          AND a.created_at = pg_catalog.now() AND a.outcome = 'ok'
+          AND a.action = 'invite.create' AND a.target_user_id IS NULL
+          AND u.role = 'admin' AND u.disabled_at IS NULL) THEN
+    RAISE EXCEPTION 'no_audit_row' USING ERRCODE = '42501';
+  END IF;
+  IF p_code_hash IS NULL OR pg_catalog.octet_length(p_code_hash) <> 32
+     OR p_expires_in IS NULL OR p_expires_in < interval '1 hour'
+     OR p_expires_in > interval '30 days' THEN
+    RAISE EXCEPTION 'bad_argument' USING ERRCODE = '22023';
+  END IF;
+  v_expires := pg_catalog.now() + p_expires_in;
+  INSERT INTO public.invites (code_hash, expires_at) VALUES (p_code_hash, v_expires);
+  RETURN v_expires;
+END
+$fn$;
+
 ALTER FUNCTION public.admin_account_disable(uuid) OWNER TO ownvitals_admin_accounts;
 ALTER FUNCTION public.admin_account_enable(uuid) OWNER TO ownvitals_admin_accounts;
 ALTER FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
@@ -485,6 +566,8 @@ ALTER FUNCTION public.admin_account_delete(uuid, text, text, text, text, text)
 ALTER FUNCTION public.admin_account_revoke(uuid, text, uuid) OWNER TO ownvitals_admin_accounts;
 ALTER FUNCTION public.admin_session_anomalies(integer, timestamp with time zone, uuid)
   OWNER TO ownvitals_admin_accounts;
+ALTER FUNCTION public.admin_account_signout(uuid) OWNER TO ownvitals_admin_accounts;
+ALTER FUNCTION public.admin_invite_create(bytea, interval) OWNER TO ownvitals_admin_accounts;
 
 -- Every EXECUTE but the owner's goes (PUBLIC's default, and any grant to another role), then
 -- the admin role gets it again.
@@ -495,6 +578,8 @@ REVOKE ALL ON FUNCTION public.admin_account_delete(uuid, text, text, text, text,
 REVOKE ALL ON FUNCTION public.admin_account_revoke(uuid, text, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_session_anomalies(integer, timestamp with time zone, uuid)
   FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_account_signout(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_invite_create(bytea, interval) FROM PUBLIC;
 DO $$
 DECLARE
   r record;
@@ -506,7 +591,8 @@ BEGIN
             WHERE n.nspname = 'public'
               AND p.proname IN ('admin_account_disable', 'admin_account_enable',
                                 'admin_account_delete', 'admin_account_revoke',
-                                'admin_session_anomalies')
+                                'admin_session_anomalies', 'admin_account_signout',
+                                'admin_invite_create')
               AND a.grantee <> 0 AND a.grantee <> p.proowner LOOP
     EXECUTE format('SET LOCAL ROLE %s', r.grantor);
     EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM %s CASCADE', r.signature, r.grantee);
@@ -522,6 +608,8 @@ GRANT EXECUTE ON FUNCTION public.admin_account_delete(uuid, text, text, text, te
 GRANT EXECUTE ON FUNCTION public.admin_account_revoke(uuid, text, uuid) TO ownvitals_maint;
 GRANT EXECUTE ON FUNCTION public.admin_session_anomalies(integer, timestamp with time zone, uuid)
   TO ownvitals_maint;
+GRANT EXECUTE ON FUNCTION public.admin_account_signout(uuid) TO ownvitals_maint;
+GRANT EXECUTE ON FUNCTION public.admin_invite_create(bytea, interval) TO ownvitals_maint;
 
 COMMENT ON FUNCTION public.admin_account_disable(uuid) IS 'ownvitals-admin-accounts v1';
 COMMENT ON FUNCTION public.admin_account_enable(uuid) IS 'ownvitals-admin-accounts v1';
@@ -530,6 +618,8 @@ COMMENT ON FUNCTION public.admin_account_delete(uuid, text, text, text, text, te
 COMMENT ON FUNCTION public.admin_account_revoke(uuid, text, uuid) IS 'ownvitals-admin-accounts v1';
 COMMENT ON FUNCTION public.admin_session_anomalies(integer, timestamp with time zone, uuid)
   IS 'ownvitals-admin-accounts v1';
+COMMENT ON FUNCTION public.admin_account_signout(uuid) IS 'ownvitals-admin-accounts v1';
+COMMENT ON FUNCTION public.admin_invite_create(bytea, interval) IS 'ownvitals-admin-accounts v1';
 
 -- ===============================================================================================
 -- The admin connection-state reads (issue 549; ADR 0002 sections 3 and 4): admin_withings_states

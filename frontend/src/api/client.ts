@@ -166,6 +166,10 @@ export function post(
   return request('POST', path, { body: body ?? {}, headers })
 }
 
+export function put(path: string, body: unknown): Promise<unknown> {
+  return request('PUT', path, { body })
+}
+
 export function del(path: string): Promise<unknown> {
   return request('DELETE', path)
 }

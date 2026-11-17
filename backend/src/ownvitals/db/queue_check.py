@@ -23,9 +23,9 @@ six, each pinned, and
 the export purge ``exports_purge_expired`` (``docker/postgres/exports/60-exports.sql``, ADR 0013
 section 4; #333), owned by ``ownvitals_exports`` and pinned the same way once installed, and the
 admin account family (``docker/postgres/maint/70-admin-accounts.sql``, ADR 0002 section 3; #314,
-#365), owned by ``ownvitals_admin_accounts``: absent, or all five (#461), each pinned, with
-``webhook_events_purge_account`` and the queue's ``queue_enqueue_admin_revoke`` then executable
-by that role alone;
+#365), owned by ``ownvitals_admin_accounts``: absent, or all of them (#461; issue 550), each
+pinned, with ``webhook_events_purge_account`` and the queue's ``queue_enqueue_admin_revoke`` then
+executable by that role alone;
 no table has a trigger (other than the internal ones of foreign keys) or a rule; and no default,
 CHECK, index or partition expression of any table or domain calls one of ``SQL_TEXT_BUILTINS``.
 So nothing can shadow a built-in a function body calls, and nothing a function fires (a trigger,

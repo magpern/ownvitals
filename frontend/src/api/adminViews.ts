@@ -26,6 +26,10 @@ export interface FlagView {
   source: string
   /** The effective value, as words: "invite", "on", "off", a banner as "level: text", or null for none. */
   effective: string | null
+  /** The server settings' own value, as words (issue 550: what a stored value may only tighten). */
+  environment: string | null
+  /** Whether a value is stored, so "Use the server setting" has something to clear. */
+  stored: boolean
   storedValid: boolean
 }
 
@@ -50,6 +54,8 @@ export function decodeFlags(raw: unknown): FlagView[] {
       key: text(row, 'key'),
       source: text(row, 'source'),
       effective: flagValue(row.effective),
+      environment: flagValue(row.environment),
+      stored: row.stored !== null && row.stored !== undefined,
       storedValid: flag(row, 'stored_valid'),
     }
   })

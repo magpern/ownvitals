@@ -198,7 +198,7 @@ describe('the Jobs view', () => {
 })
 
 describe('the Flags view', () => {
-  it('shows each flag with its effective value and source, and no controls', async () => {
+  it('shows each flag with its effective value and source', async () => {
     fakeApi({
       'GET /api/auth/session': ADMIN,
       'GET /api/admin/settings': {
@@ -217,10 +217,10 @@ describe('the Flags view', () => {
     expect(screen.getByText('AI insights').closest('.ov-setting')).toHaveTextContent('Off')
     expect(screen.getByText('Experimental findings').closest('.ov-setting')).toHaveTextContent('safe default')
     expect(screen.getByText('Banner').closest('.ov-setting')).toHaveTextContent('None')
-    const card = screen.getByText('Sign-up').closest('section')
-    expect(card).not.toBeNull()
-    expect(within(card as HTMLElement).queryByRole('button')).toBeNull()
-    expect(screen.queryByRole('switch')).toBeNull()
+    // Both switches are off in the server settings here, so neither can be turned on (issue 550).
+    for (const name of ['AI insights, off', 'Experimental findings, off']) {
+      expect(screen.getByRole('switch', { name })).toBeDisabled()
+    }
     expect(document.body).not.toHaveTextContent('synthetic-admin-id')
   })
 })

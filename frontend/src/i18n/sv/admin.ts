@@ -1,6 +1,6 @@
 import type { admin as en } from '../en/admin'
 
-// Swedish for the admin area's tabs and read-only views. `satisfies` makes a missing or extra key a type error.
+// Swedish for the admin area's tabs, views and writes. `satisfies` makes a missing or extra key a type error.
 export const admin = {
   'tabs.label': 'Administration',
   'tab.overview': 'Översikt',
@@ -58,7 +58,38 @@ export const admin = {
   'flags.value.invite': 'Endast inbjudan',
   'flags.none': 'Ingen',
   'flags.note':
-    'En sparad flagga kan bara strama åt det serverns inställningar tillåter. Att ändra en flagga kommer senare: det kräver en ny kod och granskas.',
+    'En sparad flagga kan bara strama åt det serverns inställningar tillåter. Varje ändring kräver en ny kod och granskas.',
+  'flags.change': 'Ändra…',
+  'flags.save': 'Spara',
+  'flags.reset': 'Använd serverns inställning',
+  'flags.purpose': 'Ändra en flagga',
+  'flags.dialog.title': 'Ändra {name}',
+  'flags.offLabel': '{name}, av',
+  'flags.environmentOff': 'Den är avstängd i serverns inställningar och kan inte slås på här.',
+  'flags.signup.help': 'Öppen registrering kan inte väljas förrän steget bortom hushållet är godkänt.',
+  'flags.banner.text': 'Text',
+  'flags.banner.level': 'Nivå',
+  'flags.banner.info': 'Information',
+  'flags.banner.warning': 'Varning',
+  'flags.banner.remove': 'Ta bort banderollen',
+  'accounts.withings.healthy': 'Fungerar',
+  'accounts.withings.needs_reconnect': 'Behöver anslutas igen',
+  'accounts.withings.not_connected': 'Inte ansluten',
+  'invite.button': 'Bjud in någon…',
+  'invite.purpose': 'Skapa en inbjudan',
+  'invite.title': 'Inbjudningskod',
+  'invite.code': 'Inbjudningskod',
+  'invite.text': 'Ge koden till den du bjuder in. Den kan användas en gång, till och med {date}.',
+  'invite.once': 'Den visas bara nu: den sparas inte och kan inte visas igen.',
+  'invite.copy': 'Kopiera',
+  'invite.copied': 'Kopierad.',
+  'invite.done': 'Klar',
+  'signOut.button': 'Logga ut överallt…',
+  'signOut.purpose': 'Logga ut ett konto överallt',
+  'signOut.title': 'Logga ut {email} överallt?',
+  'signOut.text':
+    'Alla sessioner för kontot avslutas nu. Inget annat ändras: kontot kan logga in igen.',
+  'signOut.confirm': 'Logga ut överallt',
   'audit.title': 'Granskningslogg',
   'audit.col.when': 'När',
   'audit.col.action': 'Åtgärd',

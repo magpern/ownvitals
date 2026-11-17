@@ -9,7 +9,8 @@ opens a connection. The Users view (#127) adds ``user.list``, ``user.read``, ``u
 ``user.enable`` and ``user.delete``; the delete's Withings revoke (#365) adds ``user.revoke``
 (the job queued) and ``user.revoke_wait`` (the wait for it), and ``user.delete`` records how
 the revoke ended. The Overview's tiles (issue 549) add ``overview.read`` and the Withings app
-card ``withings_app.read``.
+card ``withings_app.read``. The admin page's writes (issue 550) add ``invite.create`` (how long the
+invite lasts, never the code or its hash) and ``sessions.revoke_all`` (the account is the target).
 """
 
 import json
@@ -140,6 +141,12 @@ class SettingSetParams(Params):
     text_length: Annotated[int, Field(ge=0, le=100_000)] | None = None
 
 
+class InviteCreateParams(Params):
+    """An admin's invite (issue 550): how many days it lasts. Never the code or its hash."""
+
+    expires_days: Annotated[int, Field(ge=1, le=30)]
+
+
 class AnomalyListParams(Params):
     """The abuse view's page (#461): its size, and whether it is the first one. Never the
     cursor's time or id."""
@@ -155,9 +162,11 @@ ACTIONS: Final[dict[str, type[Params]]] = {
     "admin.request": RequestParams,
     "anomaly.list": AnomalyListParams,
     "audit.list": AuditListParams,
+    "invite.create": InviteCreateParams,
     "job.list": JobsParams,
     "job.replay": JobReplayParams,
     "overview.read": NoParams,
+    "sessions.revoke_all": NoParams,
     "setting.read": NoParams,
     "setting.set": SettingSetParams,
     "setting.clear": NoParams,
