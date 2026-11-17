@@ -12,10 +12,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ownvitals.config import Settings
-from ownvitals.flags import core
-from ownvitals.flags.core import Banner, SignupMode
+from ownvitals.flags import caps, core
+from ownvitals.flags.caps import Caps
+from ownvitals.flags.core import GLOBAL_CAP, USER_CAP, Banner, SignupMode
 
 _ONE = text("SELECT value FROM app_settings WHERE flag = :key")
+_CAPS = text("SELECT flag, value FROM app_settings WHERE flag IN (:user, :global)")
 
 
 async def _stored(db: AsyncSession, key: str) -> Any:
@@ -47,3 +49,18 @@ async def ai_insights(db: AsyncSession, settings: Settings) -> bool:
 
 async def banner(db: AsyncSession) -> Banner | None:
     return core.banner_setting(await _stored(db, "banner"))
+
+
+async def ai_caps(db: AsyncSession, settings: Settings) -> Caps:
+    """The AI monthly caps in force (``ownvitals.flags.caps``): the environment's, lowered by the
+    stored ones. Read in the caller's transaction, so ``ai_reserve`` gets what was stored when it
+    ran. A failed read raises: the caller makes no reservation (fail closed); an invalid stored
+    value counts as 0."""
+    rows = (await db.execute(_CAPS, {"user": USER_CAP, "global": GLOBAL_CAP})).all()
+    stored = {r.flag: r.value for r in rows}
+    return caps.effective_caps(
+        settings.ai_user_monthly_cap_microusd,
+        settings.ai_global_monthly_cap_microusd,
+        stored.get(USER_CAP),
+        stored.get(GLOBAL_CAP),
+    )

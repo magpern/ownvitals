@@ -72,6 +72,16 @@ export const admin = {
   'flags.banner.info': 'Information',
   'flags.banner.warning': 'Varning',
   'flags.banner.remove': 'Ta bort banderollen',
+  'flags.name.ai_user_monthly_cap_microusd': 'AI-budget per konto, per månad',
+  'flags.name.ai_global_monthly_cap_microusd': 'AI-budget totalt, per månad',
+  'flags.cap.amount': '{amount} USD',
+  'flags.cap.label': 'Månadstak i USD',
+  'flags.cap.limit': 'Från 0 upp till serverinställningen, {amount}.',
+  'flags.cap.help': 'Ett sparat tak kan bara sänka serverinställningen. Taket per konto ligger på eller under totalen.',
+  'flags.cap.serverZero': 'Serverinställningen är 0, så ingen AI-förfrågan kan göras, och taket kan inte höjas här.',
+  'flags.cap.refused.above_environment': 'Det är över serverinställningen. Ett sparat tak kan bara sänka den.',
+  'flags.cap.refused.user_above_global':
+    'Taket per konto måste ligga på eller under totalen. Sänk taket per konto först.',
   'accounts.withings.healthy': 'Fungerar',
   'accounts.withings.needs_reconnect': 'Behöver anslutas igen',
   'accounts.withings.not_connected': 'Inte ansluten',
@@ -89,6 +99,8 @@ export const admin = {
   'signOut.title': 'Logga ut {email} överallt?',
   'signOut.text':
     'Alla sessioner för kontot avslutas nu. Inget annat ändras: kontot kan logga in igen.',
+  'signOut.textSelf':
+    'Alla sessioner för det här kontot avslutas nu, även den här: du loggas ut här. Inget annat ändras: kontot kan logga in igen.',
   'signOut.confirm': 'Logga ut överallt',
   'audit.title': 'Granskningslogg',
   'audit.col.when': 'När',

@@ -15,6 +15,9 @@ The database can tighten what the environment allows, never loosen it:
   no row means the environment's value. A stored ``on`` never turns on what the environment has
   off. Who may see experimental findings (the owner's household accounts only, D9) is decided
   where they are shown; this flag is the switch above that rule.
+- ``ai_user_monthly_cap_microusd`` and ``ai_global_monthly_cap_microusd`` (#528): an integer
+  amount in micro-USD that can only lower the environment's cap of the same name; the rules are in
+  ``ownvitals.flags.caps``. An invalid stored cap counts as 0 (no request can be reserved).
 - ``banner``: ``{text, level}``; absent or invalid is none. Its text is plain text: no control
   character (``Cc``), no format character (``Cf``: bidi controls, zero-width characters, the
   soft hyphen, the BOM) and no line or paragraph separator (``Zl``, ``Zp``), on the write side
@@ -38,8 +41,20 @@ Switch = Literal["off", "on"]
 BannerLevel = Literal["info", "warning"]
 
 BANNER_MAX_CHARS: Final = 280
-KEYS: Final = ("signup_mode", "experimental_findings", "ai_insights", "banner")
+USER_CAP: Final = "ai_user_monthly_cap_microusd"
+GLOBAL_CAP: Final = "ai_global_monthly_cap_microusd"
+KEYS: Final = (
+    "signup_mode",
+    "experimental_findings",
+    "ai_insights",
+    "banner",
+    USER_CAP,
+    GLOBAL_CAP,
+)
 SWITCH_KEYS: Final = ("experimental_findings", "ai_insights")
+CAP_KEYS: Final = (USER_CAP, GLOBAL_CAP)
+# The bound of the cap settings and of ``ai_reserve``'s cap arguments (50-ai.sql).
+MAX_CAP_MICROUSD: Final = 10_000_000_000_000
 
 _STRICTNESS: Final[dict[str, int]] = {"invite": 1, "closed": 2}
 _SWITCHES: Final = ("off", "on")
@@ -51,7 +66,7 @@ def _plain_text(text: str) -> bool:
     return not any(unicodedata.category(c) in _NOT_PLAIN_TEXT for c in text)
 
 
-def _invalid(key: str) -> None:
+def invalid(key: str) -> None:
     logger.warning("flag %s holds an invalid value; its stricter default applies", key)
 
 
@@ -68,7 +83,7 @@ def stricter_signup(environment: SignupMode, stored: Any) -> SignupMode:
     if stored is None:
         return environment
     if not isinstance(stored, str) or stored not in _STRICTNESS:
-        _invalid("signup_mode")
+        invalid("signup_mode")
         stored = "invite"
     return "closed" if "closed" in (stored, environment) else "invite"
 
@@ -84,7 +99,7 @@ def stricter_switch(key: str, environment_on: bool, stored: Any) -> bool:
     if stored is None:
         return environment_on
     if not isinstance(stored, str) or stored not in _SWITCHES:
-        _invalid(key)
+        invalid(key)
         return False
     return environment_on and stored == "on"
 
@@ -104,7 +119,7 @@ def banner_setting(stored: Any) -> Banner | None:
             and len(stored) == 2  # pyright: ignore[reportUnknownArgumentType]
         ):
             return Banner(text, level) if text.strip() else None  # pyright: ignore[reportArgumentType]
-    _invalid("banner")
+    invalid("banner")
     return None
 
 
@@ -127,7 +142,10 @@ def validate_for_write(key: str, value: Any) -> Any:
       (``environment_only``).
     - ``experimental_findings``, ``ai_insights``: ``off`` or ``on``.
     - ``banner``: exactly ``{text, level}``; plain text of 1 to 280 characters, level ``info`` or
-      ``warning``."""
+      ``warning``.
+    - the two AI caps: an integer from 0 to ``MAX_CAP_MICROUSD`` micro-USD (not a bool, not a
+      float). Whether it is at or below the environment and the other cap is
+      ``ownvitals.flags.caps.check_write``'s rule."""
     if key == "signup_mode":
         if value == "open":
             raise FlagRefused("environment_only")
@@ -147,4 +165,8 @@ def validate_for_write(key: str, value: Any) -> Any:
         if len(text) > BANNER_MAX_CHARS or not _plain_text(text):
             raise FlagRefused("invalid_value")
         return {"text": text, "level": level}
+    if key in CAP_KEYS:
+        if type(value) is not int or not 0 <= value <= MAX_CAP_MICROUSD:
+            raise FlagRefused("invalid_value")
+        return value
     raise FlagRefused("unknown_key")

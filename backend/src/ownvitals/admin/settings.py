@@ -17,8 +17,16 @@ read only.
   takes as no row: maint has no ``DELETE`` on ``app_settings``), so the environment's value
   applies (404 ``not_found`` when nothing was stored).
 
+The two AI monthly caps (#528, ``ownvitals.flags.caps``) are integers in micro-USD. A stored cap
+may only be at or below the environment's of the same name (422 ``above_environment``), and the
+per-user cap stays at or below the global one (422 ``user_above_global``, checked against the other
+cap as stored in the same transaction). Clearing one returns to the environment's value; the
+reader keeps the per-user cap at or below the global one in any case.
+
 The audit ``params`` of a write hold the key and what the value means (the mode or switch, a
-banner's level and length), never free text.
+banner's level and length, a cap's amount in micro-USD), never free text. A value refused by
+validation or as above the environment logs the key alone; one refused against the other cap
+logs its amount.
 """
 
 import json
@@ -34,8 +42,8 @@ from ownvitals.admin.audit import KEY_PATTERN, Target
 from ownvitals.admin.db import AdminRefused, admin_session
 from ownvitals.admin.routes import AdminActor, admin_router, require_db
 from ownvitals.config import Settings
-from ownvitals.flags import core
-from ownvitals.flags.core import FlagRefused
+from ownvitals.flags import caps, core
+from ownvitals.flags.core import GLOBAL_CAP, USER_CAP, FlagRefused
 
 router = admin_router()
 
@@ -43,6 +51,7 @@ SETTINGS = "/settings"
 MAX_VALUE_BYTES = 2048  # the app_settings_value check
 
 _ALL_SETTINGS = text("SELECT flag, value, updated_at, updated_by FROM app_settings")
+_CAPS = text("SELECT flag, value FROM app_settings WHERE flag IN (:user, :global)")
 _UPSERT = text(
     "INSERT INTO app_settings (flag, value, updated_by) VALUES (:k, CAST(:v AS jsonb), :by) "
     "ON CONFLICT (flag) DO UPDATE SET value = EXCLUDED.value, updated_at = now(), "
@@ -92,8 +101,13 @@ def _stored_valid(key: str, value: Any) -> bool:
     return True
 
 
-def _flag(key: str, settings: Settings, row: Any) -> FlagOut:
-    stored = None if row is None else row.value
+def _value(row: Any) -> Any:
+    return None if row is None else row.value
+
+
+def _flag(key: str, settings: Settings, rows: dict[str, Any]) -> FlagOut:
+    row = rows.get(key)
+    stored = _value(row)
     environment: Any
     effective: Any
     if key == "signup_mode":
@@ -104,6 +118,16 @@ def _flag(key: str, settings: Settings, row: Any) -> FlagOut:
         env_on: bool = getattr(settings, key)
         environment = "on" if env_on else "off"
         effective = "on" if core.stricter_switch(key, env_on, stored) else "off"
+        source = "database" if effective != environment else "environment"
+    elif key in core.CAP_KEYS:
+        environment = getattr(settings, key)
+        in_force = caps.effective_caps(
+            settings.ai_user_monthly_cap_microusd,
+            settings.ai_global_monthly_cap_microusd,
+            _value(rows.get(USER_CAP)),
+            _value(rows.get(GLOBAL_CAP)),
+        )
+        effective = in_force.user if key == USER_CAP else in_force.global_
         source = "database" if effective != environment else "environment"
     else:  # banner
         environment = None
@@ -124,7 +148,7 @@ def _flag(key: str, settings: Settings, row: Any) -> FlagOut:
 
 async def _view(session: AsyncSession, settings: Settings) -> SettingsOut:
     rows = {r.flag: r for r in (await session.execute(_ALL_SETTINGS)).all()}
-    return SettingsOut(flags=[_flag(k, settings, rows.get(k)) for k in core.KEYS])
+    return SettingsOut(flags=[_flag(k, settings, rows) for k in core.KEYS])
 
 
 async def _flag_view(session: AsyncSession, settings: Settings, key: str) -> FlagOut:
@@ -136,12 +160,31 @@ def _set_params(key: str, value: Any) -> dict[str, Any]:
     """The audit params of a validated write: what it means, never free text."""
     if key == "banner":
         return {"key": key, "level": value["level"], "text_length": len(value["text"])}
+    if key in core.CAP_KEYS:
+        return {"key": key, "amount_microusd": value}
     return {"key": key, "value": value}
 
 
 def _stored_bytes(value: Any) -> int:
     """The bytes ``value::text`` takes in ``app_settings``: UTF-8, as jsonb prints it."""
     return len(json.dumps(value, ensure_ascii=False, separators=(", ", ": ")).encode())
+
+
+async def _check_caps(session: AsyncSession, settings: Settings, key: str, value: int) -> None:
+    """The per-user cap stays at or below the global one, against the other cap as stored."""
+    rows = (await session.execute(_CAPS, {"user": USER_CAP, "global": GLOBAL_CAP})).all()
+    stored = {r.flag: r.value for r in rows}
+    try:
+        caps.check_against_other(
+            key,
+            value,
+            settings.ai_user_monthly_cap_microusd,
+            settings.ai_global_monthly_cap_microusd,
+            stored.get(USER_CAP),
+            stored.get(GLOBAL_CAP),
+        )
+    except FlagRefused as exc:
+        raise AdminRefused(exc.reason, 422) from None
 
 
 @router.get(SETTINGS, response_model=SettingsOut)
@@ -159,6 +202,13 @@ async def set_flag(request: Request, actor: AdminActor, key: KeyPath, body: Sett
         canonical = core.validate_for_write(key, body.value)
         if _stored_bytes(canonical) > MAX_VALUE_BYTES:
             refusal = "invalid_value"
+        elif key in core.CAP_KEYS:
+            caps.check_environment(
+                key,
+                canonical,
+                settings.ai_user_monthly_cap_microusd,
+                settings.ai_global_monthly_cap_microusd,
+            )
     except FlagRefused as exc:
         refusal = exc.reason
     params = {"key": key} if refusal is not None else _set_params(key, canonical)
@@ -172,6 +222,8 @@ async def set_flag(request: Request, actor: AdminActor, key: KeyPath, body: Sett
     ) as session:
         if refusal is not None:
             raise AdminRefused(refusal, 422)
+        if key in core.CAP_KEYS:
+            await _check_caps(session, settings, key, canonical)
         await session.execute(_UPSERT, {"k": key, "v": json.dumps(canonical), "by": actor.user_id})
         return await _flag_view(session, settings, key)
 

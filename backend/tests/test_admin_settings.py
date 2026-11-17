@@ -40,6 +40,8 @@ async def test_the_view_lists_every_flag_from_the_environment_at_first(aenv: Adm
         "experimental_findings",
         "ai_insights",
         "banner",
+        "ai_user_monthly_cap_microusd",
+        "ai_global_monthly_cap_microusd",
     ]
     assert _flag(body, "signup_mode")["effective"] == "invite"
     assert _flag(body, "experimental_findings")["effective"] == "off"

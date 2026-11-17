@@ -17,6 +17,8 @@ and no `ai_audit` row**: the row is written with the settle or release in the jo
 transaction, so a worker that lost its lease writes no row (the attempt is no longer its own);
 the reaper (`ai_settle_lost()`) charges the reservation at its full amount.
 
+Amended 2026-11-17 by #528 (the AI monthly caps in the admin area; see "Amendments").
+
 ## Context
 
 PLAN §7.4: a weekly digest and a chat assistant on Claude, "using classbeat's provider layer and
@@ -491,3 +493,47 @@ the reservation table with settle-once definer functions and the reaper's `ai_se
 conservative charge for timeouts, 5xx and crashes, and the global cap; the consent-row lock order;
 the keyed audit hashes;
 the two-layer eval suite and its thresholds.
+
+## Amendments
+
+### 2026-11-17, #528: the monthly caps can be lowered from the admin area
+
+Context: §7 made the settings the only source of the caps ("No cap is stored"). The owner asked
+for the caps on the admin page, with the environment's values as the default (issue #528).
+
+Decision:
+
+- **The settings stay the ceiling and the default.** Two stored flags in `app_settings`
+  (migration `0032_ai_cap_flags`), `ai_user_monthly_cap_microusd` and
+  `ai_global_monthly_cap_microusd`, integers in micro-USD, follow the rule of the other stored
+  flags (ADR 0003 §6, classbeat ADR 0011 §7): a stored value can only tighten the server's. The cap
+  in force is the lower of the setting and the stored value; the per-user cap in force is never
+  above the global one in force. Clearing a stored cap returns to the setting. A setting of 0 still
+  means no request can be reserved: only 0 can be stored under it.
+- **Writes** go through the admin area's flag path (`PUT`/`DELETE /api/admin/settings/{key}`):
+  admin role, TOTP within 12 hours, step-up within 5 minutes, CSRF, and the audit row in the same
+  transaction with the key, the admin and the amount (the other flags' audit rows already record
+  their value; an amount is a setting, not a user's spend). Refused: a non-integer or out-of-range
+  value (`invalid_value`, the key alone is recorded), a value above the setting
+  (`above_environment`, the key alone), a per-user cap above the global one in force or a global
+  cap below the per-user one in force (`user_above_global`).
+- **How the worker reads them (fail closed).** `budget.reserve` reads the two rows in the
+  reservation's own fenced transaction, as the app role (which may only read `app_settings`), and
+  passes the caps in force to `ai_reserve`. A failed read raises before `ai_reserve` runs, so
+  nothing is reserved and no request is sent; a stored value that does not validate counts as **0**
+  (logged by key only), never as the setting. No budget function changes and none reads
+  `app_settings`: the definer functions keep taking the caps as arguments, so their digests and
+  `ownvitals_ai`'s privileges are unchanged. The chat's paused state (`budget.month_budget`) uses
+  the same per-user cap in force.
+- Two admins writing the two caps at once can each pass the cross-check; the reader's rule (the
+  per-user cap held at the global one) keeps the cap in force consistent regardless, so no lock is
+  taken.
+
+Alternatives: the caps stored only in the database (the server settings no longer the ceiling: a
+database write could raise the owner's exposure; rejected); `ai_reserve` reading `app_settings`
+itself (a new privilege for `ownvitals_ai` and a changed pinned function for no gain; rejected);
+a cached read in the worker (a lowered cap would not apply to the next reservation; rejected).
+
+Consequences: the owner's suggested amounts (10 USD per account, 100 USD in total a month,
+`docs/dev/ai.md`) are not a code default; the settings stay 0 until the owner sets them, and the
+admin page can then only lower them. Open question 2 stays the owner's.

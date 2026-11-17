@@ -7,7 +7,8 @@ import { SETTINGS_PATH } from './adminViews'
 // `useProtected()`. The invite code is returned to the caller once and kept nowhere else.
 
 export type BannerLevel = 'info' | 'warning'
-export type FlagValue = string | { text: string; level: BannerLevel }
+/** A mode or switch, a banner, or an AI monthly cap in whole micro-USD. */
+export type FlagValue = string | number | { text: string; level: BannerLevel }
 
 function flagPath(key: string): string {
   return `${SETTINGS_PATH}/${encodeURIComponent(key)}`

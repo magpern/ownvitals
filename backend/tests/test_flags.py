@@ -4,6 +4,7 @@ stored value that does not validate falls back to ``invite`` and is logged by ke
 exists nowhere until the M8 gate. #12 adds the AI and experimental switches, the banner and the
 write-side validation; ``test_flags_db.py`` reads them from the database."""
 
+import importlib.util
 import logging
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ from typing import Any
 import pytest
 
 from ownvitals.flags import core
+
+MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations" / "versions"
 
 
 @pytest.mark.parametrize(
@@ -138,10 +141,14 @@ def test_the_write_side_refuses_what_the_read_side_would_fall_back_from(
 
 
 def test_the_keys_match_the_table_check() -> None:
-    versions = Path(__file__).resolve().parent.parent / "migrations" / "versions"
-    source = (versions / "0006_admin.py").read_text("utf-8")
-    listed = ", ".join(f"'{k}'" for k in core.KEYS)
-    assert f'SETTING_KEYS = "{listed}"' in source
+    """The latest migration that sets ``app_settings_flag`` lists exactly ``core.KEYS``."""
+    path = MIGRATIONS / "0032_ai_cap_flags.py"
+    spec = importlib.util.spec_from_file_location("migration_0032", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert ", ".join(f"'{k}'" for k in core.KEYS) == module.SETTING_KEYS
 
 
 @pytest.mark.parametrize("key", ["experimental_findings", "ai_insights", "banner"])

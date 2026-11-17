@@ -24,9 +24,24 @@ and tools are [below](#consent-and-withdrawal), the client
 - `OWNVITALS_AI_USER_MONTHLY_CAP_MICROUSD` and `OWNVITALS_AI_GLOBAL_MONTHLY_CAP_MICROUSD`: both 0
   by default (no request can be reserved) until the owner sets them (ADR 0014 open question 2).
   Settings refuse a per-user cap above the global one.
-- **The settings are the authoritative caps.** The worker passes both on every `ai_reserve`;
-  nothing in the database stores a cap, so a change applies to the next reservation. Lowering a
-  cap below what is already spent simply refuses every further request that month.
+- **The settings are the ceiling; an admin can only lower them** (#528, ADR 0014 amendment of
+  2026-11-17). The admin page's Flags card stores `ai_user_monthly_cap_microusd` and
+  `ai_global_monthly_cap_microusd` in `app_settings` (step-up, audited with the key and the
+  amount; [admin.md](admin.md)). A stored cap may be at most the setting of the same name, the
+  per-user cap stays at or below the global one, and clearing a stored cap returns to the
+  setting. With a setting of 0 the only cap that can be stored is 0, so 0 keeps its meaning.
+- **The caps in force are read on every reservation.** `budget.reserve` reads both stored caps in
+  the reservation's own fenced transaction (`flags.effective.ai_caps`) and passes the lower of
+  each and its setting, the per-user one held at or below the global one, to `ai_reserve`; no
+  budget function stores a cap, so a change applies to the next reservation. **Fail closed:** a
+  failed read raises, so nothing is reserved and no call is made; a stored value that is not an
+  integer from 0 to 10^13 counts as 0. `budget.month_budget` (the chat's paused state) uses the
+  same per-user cap in force. Lowering a cap below what is already spent simply refuses every
+  further request that month.
+- **The owner's suggested setting** (issue #528; not a code default, the defaults stay 0):
+  `OWNVITALS_AI_USER_MONTHLY_CAP_MICROUSD=10000000` (10 USD per account a month) and
+  `OWNVITALS_AI_GLOBAL_MONTHLY_CAP_MICROUSD=100000000` (100 USD in total a month). Set the server
+  settings to these; the admin page can then lower either, never raise it.
 
 Disconnecting Withings with "delete imported data" (#225) keeps `ai_spend` and
 `ai_reservations` (`KEPT` in `ownvitals.connections.purge`): billed spend stays counted, so the

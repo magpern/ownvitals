@@ -72,6 +72,16 @@ export const admin = {
   'flags.banner.info': 'Information',
   'flags.banner.warning': 'Warning',
   'flags.banner.remove': 'Remove the banner',
+  'flags.name.ai_user_monthly_cap_microusd': 'AI budget per account, monthly',
+  'flags.name.ai_global_monthly_cap_microusd': 'AI budget in total, monthly',
+  'flags.cap.amount': '{amount} USD',
+  'flags.cap.label': 'Monthly cap in USD',
+  'flags.cap.limit': 'From 0 up to the server setting, {amount}.',
+  'flags.cap.help': 'A stored cap can only lower the server setting. The cap per account stays at or below the total.',
+  'flags.cap.serverZero': "The server setting is 0, so no AI request can be made, and the cap can't be raised here.",
+  'flags.cap.refused.above_environment': 'That is above the server setting. A stored cap can only lower it.',
+  'flags.cap.refused.user_above_global':
+    'The cap per account must stay at or below the total. Lower the cap per account first.',
   'accounts.withings.healthy': 'Healthy',
   'accounts.withings.needs_reconnect': 'Needs reconnect',
   'accounts.withings.not_connected': 'Not connected',
@@ -89,6 +99,8 @@ export const admin = {
   'signOut.title': 'Sign out {email} everywhere?',
   'signOut.text':
     'Every session of this account ends now. Nothing else changes: the account can sign in again.',
+  'signOut.textSelf':
+    'Every session of this account ends now, this one too: you will be signed out here. Nothing else changes: the account can sign in again.',
   'signOut.confirm': 'Sign out all',
   'audit.title': 'Audit log',
   'audit.col.when': 'When',

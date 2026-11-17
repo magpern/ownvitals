@@ -188,6 +188,26 @@ describe('"Sign out all…"', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it("says on the admin's own row that this session ends too", async () => {
+    fakeApi({
+      'GET /api/auth/session': ADMIN,
+      'GET /api/admin/users': {
+        users: [account('u-admin', 'alex@example.com', 1, 'healthy'), account('u-sam', 'sam@example.com', 2, 'healthy')],
+        next_offset: null,
+      },
+    })
+    renderAt('/admin?tab=accounts')
+    const table = await screen.findByRole('table')
+    const [own, other] = within(table).getAllByRole('row').slice(1)
+    await userEvent.click(within(own as HTMLElement).getByRole('button', { name: 'Sign out all…' }))
+    let dialog = screen.getByRole('dialog', { name: 'Sign out alex@example.com everywhere?' })
+    expect(dialog).toHaveTextContent('this one too: you will be signed out here.')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await userEvent.click(within(other as HTMLElement).getByRole('button', { name: 'Sign out all…' }))
+    dialog = screen.getByRole('dialog', { name: 'Sign out sam@example.com everywhere?' })
+    expect(dialog).not.toHaveTextContent('this one too')
+  })
+
   it('says why when the server refuses', async () => {
     fakeApi({
       'GET /api/auth/session': ADMIN,

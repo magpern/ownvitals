@@ -22,10 +22,13 @@ The worker's flow for one request of a job (``fs`` is that job's ``fenced_sessio
    worker's maintenance calls ``settle_lost``, which settles it at the full amount once the job
    attempt is over. A second settle, or a settle after the reaper, changes nothing.
 
-The caps are the settings ``ai_user_monthly_cap_microusd`` and ``ai_global_monthly_cap_microusd``
-(both 0 until the owner sets them, ADR 0014 open question 2), passed on every reservation: the
-settings are authoritative and nothing stores a cap. Logs carry counts and outcomes, never
-amounts tied to a user, never content.
+The caps passed on every reservation are the ones in force (``ownvitals.flags.caps``, #528): the
+settings ``ai_user_monthly_cap_microusd`` and ``ai_global_monthly_cap_microusd`` (both 0 until the
+owner sets them, ADR 0014 open question 2) are the ceiling and the default, and a cap an admin
+stored in ``app_settings`` can only lower them. They are read in the reservation's own fenced
+transaction; a failed read raises, so nothing is reserved and no call is made, and an invalid
+stored cap counts as 0. Logs carry counts and outcomes, never amounts tied to a user, never
+content.
 """
 
 import logging
@@ -41,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ownvitals.config import Settings
 from ownvitals.context import UserContext, require_context
 from ownvitals.db import system_session
+from ownvitals.flags import effective
 from ownvitals.jobs.fence import FencedSession
 
 logger = logging.getLogger(__name__)
@@ -117,14 +121,15 @@ async def reserve(fs: FencedSession, amount: int, settings: Settings) -> Reserva
     holds while the call runs (and the reaper can find it if the worker dies).
     """
     _amount(amount, "amount", 1, MAX_AMOUNT)
+    caps = await effective.ai_caps(fs.db, settings)
     row = (
         await fs.db.execute(
             _RESERVE,
             {
                 "amount": amount,
                 "job_id": fs.lease.job_id,
-                "user_cap": settings.ai_user_monthly_cap_microusd,
-                "global_cap": settings.ai_global_monthly_cap_microusd,
+                "user_cap": caps.user,
+                "global_cap": caps.global_,
             },
         )
     ).scalar_one()
@@ -197,8 +202,9 @@ class MonthBudget:
 async def month_budget(
     db: AsyncSession, ctx: UserContext, settings: Settings, now: datetime
 ) -> MonthBudget:
-    """The user's budget this month. ``db`` is ``ctx``'s ``user_session``: forced RLS returns
-    only their row, and the query filters on ``ctx.user_id`` as well."""
+    """The user's budget this month against the per-user cap in force. ``db`` is ``ctx``'s
+    ``user_session``: forced RLS returns only their row, and the query filters on ``ctx.user_id``
+    as well."""
     require_context(ctx)
     month = month_start(now)
     row = (await db.execute(_MONTH, {"owner": ctx.user_id, "month": month})).first()
@@ -207,6 +213,6 @@ async def month_budget(
         month=month,
         spent=spent,
         reserved=reserved,
-        cap=settings.ai_user_monthly_cap_microusd,
+        cap=(await effective.ai_caps(db, settings)).user,
         resets_on=resets_on(now),
     )
