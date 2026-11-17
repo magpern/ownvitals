@@ -341,6 +341,26 @@ CREATE POLICY owner_isolation ON <t>
   - no new role, no new table or column grant to any role, nothing new for `ownvitals_app`;
     pinned like the others (digest, owner, `search_path`, version comment, ACL) and admitted by
     name in `20-queue.sql`.
+- **The admin page's writes** (amended 2026-11-17, issue 550): two more members of the admin
+  account family above (same file, owner, `search_path`, version comment and ACL: `EXECUTE` to
+  `ownvitals_maint` only), each refusing like the others (`bad_context` with `app.user_id` set,
+  `insufficient_privilege` without this transaction's matching `ok` row from an admin that is
+  not disabled):
+  - `admin_account_signout(p_target uuid, OUT outcome text, OUT sessions_revoked integer)`
+    ("Sign out all", action `sessions.revoke_all`, `target_user_id = p_target`): takes the
+    target's `users` row `FOR NO KEY UPDATE`, deletes every session of it and answers `ok` with
+    the count, or `not_found`. Unlike disable it takes an admin target, the acting admin's own
+    included: it leaves no lasting state (the account signs in again as before) and changes no
+    role;
+  - `admin_invite_create(p_code_hash bytea, p_expires_in interval) RETURNS timestamptz`
+    ("Invite someone", action `invite.create`, `target_user_id IS NULL`): inserts one `invites`
+    row as the operator CLI's `invite create` does, the code's SHA-256 and the expiry and no
+    `created_by`, and returns the expiry. It refuses (`bad_argument`) a hash that is not 32 bytes
+    and an expiry outside one hour to 30 days. The code is made in web and never reaches the
+    database; the audit row holds the number of days only;
+  - the family's role gains `INSERT (code_hash, expires_at)` on `invites` and nothing else (its
+    `sessions` grants were already there for disable); no new role, nothing new for
+    `ownvitals_app` or `ownvitals_maint` beyond `EXECUTE` on the two.
 - **The webhook-secret function** of ADR 0004 §4 has its own narrow owner (amended 2026-10-31,
   #49; it was `ownvitals_owner`, whose rights a bug in it would have carried: DDL, and turning
   off forced RLS on every health table). Its owner `ownvitals_webhook_secrets` is a dedicated
@@ -417,7 +437,7 @@ CREATE POLICY owner_isolation ON <t>
 | `ownvitals_ai` (M7; amended 2026-11-03, #205) | no | the AI cost cap's definer functions (ADR 0014 §7, ADR 0005 §3) | `BYPASSRLS`, member of no role; column privileges on `jobs` and the three AI tables only (ADR 0005 §3) |
 | `ownvitals_admin_accounts` (amended 2026-11-10, #314) | no | the admin account functions (§3) | the attributes of §3 (`NOBYPASSRLS`, member of no role) and exactly its privileges |
 | `ownvitals_admin_connections` (amended 2026-11-17, issue 549, #552) | no | the two admin connection-state reads of `70-admin-accounts.sql`: `admin_withings_states(uuid[])`, only in a transaction holding its `ok` row for `user.list` (no target) or `user.read` of the one account asked about, and `admin_withings_counts()`, only with an `ok` row for `overview.read`; both refuse inside a user session; executable by `ownvitals_maint` only | `NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT`, member of no role, no settings, owns only those two functions; `SELECT (owner_id, provider, status)` on `connections`, `SELECT (id, role, disabled_at)` on `users`, `SELECT (xmin, created_at, actor_id, action, target_user_id, outcome)` on `admin_audit`; nothing else |
-| `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; of `withings_apps` the non-secret columns only, and no write (amended 2026-10-31, #49); `EXECUTE` on the admin account functions only (three, amended 2026-11-10, #314; four, amended 2026-11-10, #365; with the abuse view's read and the two connection-state reads, amended 2026-11-17, issue 549); no column of `connections`; default read-only; every use audited |
+| `ownvitals_maint` | yes | the admin area (#12) | `BYPASSRLS`; column-level allowlist without health tables; of `withings_apps` the non-secret columns only, and no write (amended 2026-10-31, #49); `EXECUTE` on the admin account functions only (three, amended 2026-11-10, #314; four, amended 2026-11-10, #365; with the abuse view's read and the two connection-state reads, amended 2026-11-17, issue 549; the sign-out and the invite, amended 2026-11-17, issue 550); no column of `connections`; default read-only; every use audited |
 
 - `ownvitals_app`'s grants are an **allowlist**: `CONNECT` on its database, `USAGE` on `public`,
   `SELECT, INSERT, UPDATE, DELETE` on tables and `USAGE, SELECT` on sequences through default
