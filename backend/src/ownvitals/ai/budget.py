@@ -23,8 +23,8 @@ The worker's flow for one request of a job (``fs`` is that job's ``fenced_sessio
    attempt is over. A second settle, or a settle after the reaper, changes nothing.
 
 The caps passed on every reservation are the ones in force (``ownvitals.flags.caps``, #528): the
-settings ``ai_user_monthly_cap_microusd`` and ``ai_global_monthly_cap_microusd`` (both 0 until the
-owner sets them, ADR 0014 open question 2) are the ceiling and the default, and a cap an admin
+settings ``ai_user_monthly_cap_microusd`` and ``ai_global_monthly_cap_microusd`` (10 and 100 USD
+by default, ADR 0014 open question 2; 0 reserves nothing) are the ceiling, and a cap an admin
 stored in ``app_settings`` can only lower them. They are read in the reservation's own fenced
 transaction; a failed read raises, so nothing is reserved and no call is made, and an invalid
 stored cap counts as 0. Logs carry counts and outcomes, never amounts tied to a user, never

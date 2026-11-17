@@ -23,12 +23,14 @@ ENV_USER, ENV_GLOBAL = 10_000_000, 100_000_000
 
 
 @asynccontextmanager
-async def capped(aenv: AdminEnv, app_database_url: str) -> AsyncIterator[AdminEnv]:
-    """The same database under an environment with caps of 10 and 100 USD."""
+async def capped(
+    aenv: AdminEnv, app_database_url: str, user: int = ENV_USER, global_: int = ENV_GLOBAL
+) -> AsyncIterator[AdminEnv]:
+    """The same database under an environment with explicit caps (10 and 100 USD unless given)."""
     async with running_env(
         app_database_url,
-        ai_user_monthly_cap_microusd=ENV_USER,
-        ai_global_monthly_cap_microusd=ENV_GLOBAL,
+        ai_user_monthly_cap_microusd=user,
+        ai_global_monthly_cap_microusd=global_,
         maint_database_url=aenv.maint_url,
         database_maint_password=make_url(aenv.maint_url).password,
     ) as running:
@@ -152,14 +154,18 @@ async def test_a_cap_write_needs_the_step_up(aenv: AdminEnv, app_database_url: s
         assert await _stored(env) == {}
 
 
-async def test_with_the_environment_at_zero_only_zero_can_be_stored(aenv: AdminEnv) -> None:
-    """The default environment (both caps 0: no request can be reserved) keeps that meaning."""
-    admin = await caller(aenv)
-    response = await admin.put(f"/api/admin/settings/{GLOBAL}", {"value": 1})
-    assert (response.status_code, reason(response)) == (422, "above_environment")
-    response = await admin.put(f"/api/admin/settings/{GLOBAL}", {"value": 0})
-    assert response.status_code == 200
-    assert response.json()["effective"] == 0
+async def test_with_the_environment_at_zero_only_zero_can_be_stored(
+    aenv: AdminEnv, app_database_url: str
+) -> None:
+    """An environment with both caps set to 0 (no request can be reserved) keeps that meaning."""
+    async with capped(aenv, app_database_url, user=0, global_=0) as env:
+        admin = await caller(env)
+        for key in (GLOBAL, USER):
+            response = await admin.put(f"/api/admin/settings/{key}", {"value": 1})
+            assert (response.status_code, reason(response)) == (422, "above_environment")
+        response = await admin.put(f"/api/admin/settings/{GLOBAL}", {"value": 0})
+        assert response.status_code == 200
+        assert response.json()["effective"] == 0
 
 
 async def test_an_invalid_stored_cap_counts_as_zero(aenv: AdminEnv, app_database_url: str) -> None:
