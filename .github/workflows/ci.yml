@@ -157,6 +157,9 @@ jobs:
       - name: Release download tests
         run: scripts/test-ci-install-release.sh
 
+      - name: npm audit script tests
+        run: scripts/test-npm-audit.sh
+
       # rhysd/actionlint v1.7.12 (includes shellcheck), pinned by its index digest. Dependabot
       # does not track an image used in a `run:` step: bump the tag and digest here by hand.
       - name: actionlint
@@ -196,14 +199,15 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      # High and critical advisories fail; the moderate, dev-only ones of the ESLint chain
-      # (minimatch, PR #34) do not. frontend/ and e2e/ are both required: removing either fails
+      # High and critical advisories fail unless listed with a reason and an expiry in
+      # .npm-audit-ignore (scripts/npm-audit.sh; an expired entry fails); the moderate, dev-only
+      # ones of the ESLint chain (minimatch, PR #34) do not. frontend/ and e2e/ are both required: removing either fails
       # this step (cd fails) instead of silently skipping its audit.
       - name: npm audit
         run: |
           set -euo pipefail
-          (cd frontend && npm audit --audit-level=high)
-          (cd e2e && npm audit --audit-level=high)
+          scripts/npm-audit.sh frontend
+          scripts/npm-audit.sh e2e
 
       # Trivy fails on HIGH and CRITICAL findings that have a fix available (--ignore-unfixed):
       # unfixed ones are an accepted risk (AGENTS.md, "CI"). Exceptions go in .trivyignore with a
