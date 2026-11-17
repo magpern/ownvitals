@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { grantAdmin } from '../helpers/admin.ts'
 import {
   enrolAuthenticator,
+  expectSignedIn,
   newAccount,
   passSecondFactor,
   signInWithPassword,
@@ -26,6 +27,9 @@ test('an admin invites someone after a fresh code, then signs that account out e
   grantAdmin(admin.email) // signs the account out everywhere
   await signInWithPassword(page, admin)
   await passSecondFactor(page, authenticator)
+  // Wait for the code to be accepted: a navigation before that leaves a session without its
+  // second factor, which the app shows no admin page for.
+  await expectSignedIn(page, admin.email)
 
   await page.goto('/admin?tab=accounts')
   await expect(page.getByRole('heading', { level: 2, name: 'Accounts' })).toBeVisible()
