@@ -19,6 +19,7 @@ import './styles/shell-account.css'
 import './styles/shell-tabs.css'
 import './styles/auth.css'
 import './styles/auth-panels.css'
+import './styles/admin.css'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Missing #root element in index.html')

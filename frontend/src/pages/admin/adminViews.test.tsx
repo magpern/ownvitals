@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import { setLocale } from '../../i18n'
 import { fakeApi, reason } from '../../test/fakeApi'
 import { renderAt } from '../../test/render'
 
@@ -83,6 +84,9 @@ describe('the Jobs view', () => {
     expect(within(table).getByText('queued').closest('tr')).toHaveTextContent('12')
     expect(within(table).getByText('dead_letter').closest('tr')).toHaveTextContent('1')
     expect(screen.getByText(/no ids, kinds, owners or job input/)).toBeInTheDocument()
+    expect(screen.getByText(/ownvitals jobs replay/)).toBeInTheDocument()
+    expect(within(table).getByText('1')).toHaveAttribute('data-attn', 'true')
+    expect(within(table).getByText('12')).not.toHaveAttribute('data-attn')
     expect(document.body).not.toHaveTextContent('synthetic_secret_kind')
     expect(document.body).not.toHaveTextContent('synthetic_category')
   })
@@ -110,9 +114,9 @@ describe('the Flags view', () => {
     })
     renderAt('/admin?tab=flags')
     const signup = (await screen.findByText('Sign-up')).closest('.ov-setting')
-    expect(signup).toHaveTextContent('invite')
+    expect(signup).toHaveTextContent('Invite only')
     expect(signup).toHaveTextContent('Stored value in use.')
-    expect(screen.getByText('AI insights').closest('.ov-setting')).toHaveTextContent('off')
+    expect(screen.getByText('AI insights').closest('.ov-setting')).toHaveTextContent('Off')
     expect(screen.getByText('Experimental findings').closest('.ov-setting')).toHaveTextContent('safe default')
     expect(screen.getByText('Banner').closest('.ov-setting')).toHaveTextContent('None')
     const card = screen.getByText('Sign-up').closest('section')
@@ -120,6 +124,27 @@ describe('the Flags view', () => {
     expect(within(card as HTMLElement).queryByRole('button')).toBeNull()
     expect(screen.queryByRole('switch')).toBeNull()
     expect(document.body).not.toHaveTextContent('synthetic-admin-id')
+  })
+})
+
+describe('the Flags view in Swedish', () => {
+  it('translates the flag names, sources and known values, and shows an unknown value as sent', async () => {
+    fakeApi({
+      'GET /api/auth/session': ADMIN,
+      'GET /api/admin/settings': {
+        flags: [flagRow('signup_mode', 'database', 'invite'), flagRow('ai_insights', 'environment', false), flagRow('banner', 'environment', { text: 'Hej', level: 'info' })],
+      },
+    })
+    await setLocale('sv')
+    try {
+      renderAt('/admin?tab=flags')
+      const signup = (await screen.findByText('Registrering')).closest('.ov-setting')
+      expect(signup).toHaveTextContent('Endast inbjudan')
+      expect(screen.getByText('AI-insikter').closest('.ov-setting')).toHaveTextContent('Av')
+      expect(screen.getByText('Banderoll').closest('.ov-setting')).toHaveTextContent('info: Hej')
+    } finally {
+      await setLocale('en')
+    }
   })
 })
 
@@ -147,6 +172,33 @@ describe('the Audit log view', () => {
     expect(within(table).getByText('job.list').closest('tr')).toHaveTextContent('Failed')
     expect(screen.queryByRole('button', { name: 'Show older entries' })).toBeNull()
     expect(api.calls.filter((c) => c.path.startsWith('/api/admin/audit'))).toHaveLength(2)
+  })
+
+  it('shows the date with the time', async () => {
+    fakeApi({ 'GET /api/auth/session': ADMIN, 'GET /api/admin/audit': { rows: [auditRow(1, 'job.list', 'ok', null, null)], next_before: null } })
+    renderAt('/admin?tab=audit')
+    const row = (await screen.findByText('job.list')).closest('tr')
+    expect(row).toHaveTextContent(/2026.*\d{2}:\d{2}/)
+  })
+
+  it('retries a failed load of older entries', async () => {
+    let attempts = 0
+    fakeApi({
+      'GET /api/auth/session': ADMIN,
+      'GET /api/admin/audit': { rows: [auditRow(5, 'flag.set', 'ok', null, null)], next_before: 5 },
+      'GET /api/admin/audit?before=5': () => (++attempts === 1 ? reason(503, 'admin_unavailable') : { rows: [auditRow(4, 'job.list', 'ok', null, null)], next_before: null }),
+    })
+    renderAt('/admin?tab=audit')
+    await userEvent.click(await screen.findByRole('button', { name: 'Show older entries' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('job.list')).toBeInTheDocument()
+    expect(attempts).toBe(2)
+  })
+
+  it('offers a retry when the first load fails', async () => {
+    fakeApi({ 'GET /api/auth/session': ADMIN, 'GET /api/admin/audit': reason(503, 'admin_unavailable') })
+    renderAt('/admin?tab=audit')
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument()
   })
 
   it('shows an empty log', async () => {

@@ -17,7 +17,8 @@ export const admin = {
   'jobs.col.state': 'Tillstånd',
   'jobs.col.count': 'Jobb',
   'jobs.empty': 'Inga jobb.',
-  'jobs.note': 'Bara antal per tillstånd: inga id:n, typer, ägare eller jobbindata.',
+  'jobs.note':
+    'Bara antal per tillstånd: inga id:n, typer, ägare eller jobbindata. Ett jobb i dead-letter körs om på servern med ownvitals jobs replay, och omkörningen granskas.',
   'flags.title': 'Flaggor',
   'flags.empty': 'Inga flaggor.',
   'flags.name.signup_mode': 'Registrering',
@@ -27,6 +28,11 @@ export const admin = {
   'flags.source.environment': 'Styrs av serverns inställningar.',
   'flags.source.database': 'Det sparade värdet gäller.',
   'flags.invalid': 'Det sparade värdet är ogiltigt, så det säkra standardvärdet gäller.',
+  'flags.value.on': 'På',
+  'flags.value.off': 'Av',
+  'flags.value.open': 'Öppen',
+  'flags.value.closed': 'Stängd',
+  'flags.value.invite': 'Endast inbjudan',
   'flags.none': 'Ingen',
   'flags.note':
     'En sparad flagga kan bara strama åt det serverns inställningar tillåter. Att ändra en flagga kommer senare: det kräver en ny kod och granskas.',

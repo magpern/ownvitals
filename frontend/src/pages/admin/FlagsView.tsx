@@ -11,6 +11,12 @@ function FlagRow({ flag }: { flag: FlagView }) {
   const t = useT()
   const nameKey = `admin.flags.name.${flag.key}`
   const sourceKey = `admin.flags.source.${flag.source}`
+  // A known value is translated; anything else (a banner's text, a value added later) is shown as sent.
+  const valueLabel = (value: string | null) => {
+    if (value === null) return t('admin.flags.none')
+    const key = `admin.flags.value.${value}`
+    return isMessageKey(key) ? t(key) : value
+  }
   return (
     <div className="ov-setting">
       <div className="ov-setting__what">
@@ -20,7 +26,7 @@ function FlagRow({ flag }: { flag: FlagView }) {
           {flag.storedValid ? '' : ` ${t('admin.flags.invalid')}`}
         </p>
       </div>
-      <StatePill tone={flag.storedValid ? 'neutral' : 'attn'}>{flag.effective ?? t('admin.flags.none')}</StatePill>
+      <StatePill tone={flag.storedValid ? 'neutral' : 'attn'}>{valueLabel(flag.effective)}</StatePill>
     </div>
   )
 }

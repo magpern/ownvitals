@@ -1,11 +1,11 @@
 import { useEffect, useId, useState } from 'react'
 import { listAudit, type AuditRow } from '../../api/adminViews'
 import { errorMessage } from '../../api/messages'
-import { eventTime } from '../../components/security/SecurityActivity'
 import { Notice } from '../../components/forms'
 import { Button } from '../../components/ui/Button'
-import { StatePill } from '../../components/ui/DataState'
-import { useT } from '../../i18n'
+import { ResourceView, StatePill } from '../../components/ui/DataState'
+import { getLocale, useT } from '../../i18n'
+import { browserZone, formatDateTime } from '../../lib/format'
 
 // The audit log: when, action, target, result. The server sends more (params, request id); none
 // of it is decoded or shown. Newest first, older entries on request.
@@ -24,6 +24,7 @@ export function AuditView() {
   const [next, setNext] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cursor, setCursor] = useState<number | null>(null)
+  const [attempt, setAttempt] = useState(0)
   const [loaded, setLoaded] = useState<{ cursor: number | null } | null>(null)
   const busy = loaded === null || loaded.cursor !== cursor
 
@@ -45,17 +46,28 @@ export function AuditView() {
     return () => {
       controller.abort()
     }
-  }, [cursor])
+  }, [cursor, attempt])
+
+  const retry = () => {
+    setAttempt((n) => n + 1)
+  }
 
   return (
     <section className="ov-stack" aria-labelledby={headingId}>
       <h2 id={headingId}>{t('admin.audit.title')}</h2>
-      {error !== null ? <Notice kind="error">{error}</Notice> : null}
-      {rows === null && error === null ? (
-        <p className="ov-resource" role="status" aria-busy="true">
-          {t('common.loadingDots')}
-        </p>
+      {rows === null ? (
+        <ResourceView
+          resource={{
+            status: error === null ? 'loading' : 'error',
+            data: null,
+            error: error === null ? null : { kind: 'failed', message: error, retryAfter: null },
+            reload: retry,
+          }}
+        >
+          {() => null}
+        </ResourceView>
       ) : null}
+      {rows !== null && error !== null ? <Notice kind="error">{error}</Notice> : null}
       {rows !== null && rows.length === 0 ? <p className="ov-muted">{t('admin.audit.empty')}</p> : null}
       {rows !== null && rows.length > 0 ? (
         <div className="ov-tbl-wrap" tabIndex={0} role="region" aria-label={t('admin.audit.title')}>
@@ -71,7 +83,7 @@ export function AuditView() {
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <td className="ov-num">{eventTime(row.at)}</td>
+                  <td className="ov-num">{formatDateTime(getLocale(), row.at, browserZone())}</td>
                   <td className="ov-mono">{row.action}</td>
                   <td className={row.target === null ? 'ov-muted' : undefined}>{row.target ?? '—'}</td>
                   <td>
@@ -83,7 +95,12 @@ export function AuditView() {
           </table>
         </div>
       ) : null}
-      {rows !== null && next !== null ? (
+      {rows !== null && error !== null ? (
+        <div>
+          <Button onClick={retry}>{t('common.tryAgain')}</Button>
+        </div>
+      ) : null}
+      {rows !== null && error === null && next !== null ? (
         <div>
           <Button
             disabled={busy}

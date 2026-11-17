@@ -15,7 +15,8 @@ export const admin = {
   'jobs.col.state': 'State',
   'jobs.col.count': 'Jobs',
   'jobs.empty': 'No jobs.',
-  'jobs.note': 'Counts per state only: no ids, kinds, owners or job input.',
+  'jobs.note':
+    'Counts per state only: no ids, kinds, owners or job input. A dead-lettered job is replayed on the server with ownvitals jobs replay, and the replay is audited.',
   'flags.title': 'Flags',
   'flags.empty': 'No flags.',
   'flags.name.signup_mode': 'Sign-up',
@@ -25,6 +26,11 @@ export const admin = {
   'flags.source.environment': 'Set by the server settings.',
   'flags.source.database': 'Stored value in use.',
   'flags.invalid': 'The stored value is not valid, so the safe default applies.',
+  'flags.value.on': 'On',
+  'flags.value.off': 'Off',
+  'flags.value.open': 'Open',
+  'flags.value.closed': 'Closed',
+  'flags.value.invite': 'Invite only',
   'flags.none': 'None',
   'flags.note':
     'A stored flag can only tighten what the server settings allow. Changing a flag comes later: it will need a fresh code and will be audited.',

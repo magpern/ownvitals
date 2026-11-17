@@ -30,7 +30,9 @@ export function JobsView() {
                   {states.map((row) => (
                     <tr key={row.state}>
                       <td className="ov-mono">{row.state}</td>
-                      <td className="ov-r ov-num">{row.count}</td>
+                      <td className="ov-r ov-num" data-attn={row.state === 'dead_letter' && row.count > 0 ? 'true' : undefined}>
+                        {row.count}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
