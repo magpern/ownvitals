@@ -24,7 +24,7 @@ export function decodeJobs(raw: unknown): JobStateCount[] {
 export interface FlagView {
   key: string
   source: string
-  /** The effective value, as words: "invite", "on", "off", a banner as "level: text", or null for none. */
+  /** The effective value, as words: "invite", "on", "off", a banner as "level: text", a cap's micro-USD as digits, or null for none. */
   effective: string | null
   /** The server settings' own value, as words (issue 550: what a stored value may only tighten). */
   environment: string | null
@@ -38,6 +38,8 @@ export function flagValue(value: unknown): string | null {
   if (value === null || value === undefined) return null
   if (typeof value === 'string') return value
   if (typeof value === 'boolean') return value ? 'on' : 'off'
+  // An AI monthly cap: whole micro-USD, as digits (pages/admin/capAmount.ts shows it in USD).
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value >= 0 ? String(value) : null
   if (typeof value === 'object') {
     const banner = value as Record<string, unknown>
     if (typeof banner.text === 'string') {

@@ -23,10 +23,23 @@ export interface FlagDialogProps {
   onClose: () => void
   /** After a write went through: the caller reloads what it shows. */
   onDone: () => void
+  /** The caller's own words for a refusal it knows; otherwise the shared error text. */
+  describe?: (error: unknown) => string | undefined
   children: ReactNode
 }
 
-export function FlagDialog({ title, purpose, ready, save, reset, resetLabel, onClose, onDone, children }: FlagDialogProps) {
+export function FlagDialog({
+  title,
+  purpose,
+  ready,
+  save,
+  reset,
+  resetLabel,
+  onClose,
+  onDone,
+  describe,
+  children,
+}: FlagDialogProps) {
   const t = useT()
   const protect = useProtected()
   const titleId = useId()
@@ -40,7 +53,7 @@ export function FlagDialog({ title, purpose, ready, save, reset, resetLabel, onC
       await protect(purpose, write)
       onDone()
     } catch (caught) {
-      if (!(caught instanceof Cancelled)) setError(errorMessage(caught))
+      if (!(caught instanceof Cancelled)) setError(describe?.(caught) ?? errorMessage(caught))
       setBusy(false)
     }
   }

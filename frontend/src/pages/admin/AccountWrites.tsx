@@ -89,7 +89,18 @@ function InviteCodeDialog({ invite, onClose }: { invite: NewInvite; onClose: () 
   )
 }
 
-export function SignOutAllButton({ userId, email, onDone }: { userId: string; email: string; onDone: () => void }) {
+/** `self`: the account is the signed-in admin's own, so the dialog says this session ends too. */
+export function SignOutAllButton({
+  userId,
+  email,
+  self = false,
+  onDone,
+}: {
+  userId: string
+  email: string
+  self?: boolean
+  onDone: () => void
+}) {
   const t = useT()
   const protect = useProtected()
   const titleId = useId()
@@ -130,7 +141,7 @@ export function SignOutAllButton({ userId, email, onDone }: { userId: string; em
             <h2 id={titleId} className="ov-dialog__title">
               {t('admin.signOut.title', { email })}
             </h2>
-            <p className="ov-small ov-muted">{t('admin.signOut.text')}</p>
+            <p className="ov-small ov-muted">{t(self ? 'admin.signOut.textSelf' : 'admin.signOut.text')}</p>
             {error !== null ? <Notice kind="error">{error}</Notice> : null}
             <div className="ov-dialog__actions">
               <Button

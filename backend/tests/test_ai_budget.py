@@ -6,6 +6,7 @@ and jobs only; the model is never called (there is no model client yet).
 
 import logging
 import uuid
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
@@ -150,6 +151,89 @@ async def test_settle_refuses_an_actual_outside_its_bounds(
 async def test_settle_lost_refuses_a_limit_outside_its_bounds(jenv: JobsEnv, limit: Any) -> None:
     with pytest.raises(ValueError, match="limit"):
         await budget.settle_lost(jenv.factory, limit)
+
+
+# --- the caps an admin stored (#528) -----------------------------------------------------------
+
+
+@pytest.fixture(name="stored_caps")
+def stored_caps_fixture(ai: Connection) -> Iterator[Callable[[str, str], None]]:
+    """Store a cap flag as the superuser (JSON text); removed again after the test."""
+    keys = ["ai_user_monthly_cap_microusd", "ai_global_monthly_cap_microusd"]
+
+    def store(key: str, value: str) -> None:
+        ai.execute(
+            text(
+                "INSERT INTO app_settings (flag, value) VALUES (:k, CAST(:v AS jsonb)) "
+                "ON CONFLICT (flag) DO UPDATE SET value = EXCLUDED.value"
+            ),
+            {"k": key, "v": value},
+        )
+
+    ai.execute(text("DELETE FROM app_settings WHERE flag = ANY(:keys)"), {"keys": keys})
+    yield store
+    ai.execute(text("DELETE FROM app_settings WHERE flag = ANY(:keys)"), {"keys": keys})
+
+
+async def test_a_stored_cap_lowers_what_the_settings_allow(
+    ai: Connection, jenv: JobsEnv, stored_caps: Callable[[str, str], None]
+) -> None:
+    lease = _lease(ai)
+    settings = _settings(jenv, 1000, 5000)
+    stored_caps("ai_user_monthly_cap_microusd", "300")
+    async with fenced_session(jenv.factory, lease) as fs:
+        assert await budget.reserve(fs, 301, settings) is None
+        held = await budget.reserve(fs, 300, settings)
+    assert held is not None
+    # The global cap binds the same way, for every user.
+    stored_caps("ai_user_monthly_cap_microusd", "null")
+    stored_caps("ai_global_monthly_cap_microusd", "400")
+    other = _lease(ai)
+    async with fenced_session(jenv.factory, other) as fs:
+        assert await budget.reserve(fs, 101, settings) is None
+        assert await budget.reserve(fs, 100, settings) is not None
+    async with user_session(jenv.factory, other.ctx) as db:
+        month = await budget.month_budget(db, other.ctx, settings, datetime.now(UTC))
+    assert month.cap == 400  # the per-user cap in force follows the lower global one
+
+
+async def test_a_stored_cap_never_raises_the_settings(
+    ai: Connection, jenv: JobsEnv, stored_caps: Callable[[str, str], None]
+) -> None:
+    lease = _lease(ai)
+    stored_caps("ai_user_monthly_cap_microusd", str(BIG))
+    stored_caps("ai_global_monthly_cap_microusd", str(BIG))
+    async with fenced_session(jenv.factory, lease) as fs:
+        assert await budget.reserve(fs, 1001, _settings(jenv, 1000, 5000)) is None
+        assert await budget.reserve(fs, 1, _settings(jenv, 0, 0)) is None
+
+
+@pytest.mark.parametrize("value", ['"lots"', "-5", "1.5", "true", '{"amount": 9}'])
+async def test_an_invalid_stored_cap_refuses_every_reservation(
+    ai: Connection, jenv: JobsEnv, stored_caps: Callable[[str, str], None], value: str
+) -> None:
+    lease = _lease(ai)
+    stored_caps("ai_global_monthly_cap_microusd", value)
+    async with fenced_session(jenv.factory, lease) as fs:
+        assert await budget.reserve(fs, 1, _settings(jenv, BIG, BIG)) is None
+    assert counters(ai, "ai_spend", owner_id=lease.owner_id, month=_month()) == (0, 0)
+
+
+async def test_a_failed_read_of_the_stored_caps_reserves_nothing(
+    ai: Connection, jenv: JobsEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fail closed: when the caps cannot be read, no reservation and so no call."""
+    lease = _lease(ai)
+
+    async def broken(*args: object) -> None:
+        del args
+        raise OSError("synthetic read failure")
+
+    monkeypatch.setattr(budget.effective, "ai_caps", broken)
+    with pytest.raises(OSError, match="synthetic"):
+        async with fenced_session(jenv.factory, lease) as fs:
+            await budget.reserve(fs, 1, _settings(jenv, BIG, BIG))
+    assert counters(ai, "ai_spend", owner_id=lease.owner_id, month=_month()) == (0, 0)
 
 
 # --- the user's budget ------------------------------------------------------------------------

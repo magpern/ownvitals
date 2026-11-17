@@ -93,7 +93,7 @@ or delete rows**.
 
 **What a row holds:** the admin's id and email, the action code, the target (a user id, or a kind
 and an id as text), `params` (keys and meanings: a flag's key and value, a banner's level and
-length, a filter; never free text, a secret, a token or a health value), the outcome and reason
+length, an AI cap's amount in micro-USD, a filter; never free text, a secret, a token or a health value), the outcome and reason
 code, a random request id and an HMAC of the client IP under the rate-limit key (maint can't read
 it back).
 
@@ -126,9 +126,17 @@ request; the database tightens, never loosens:
 | `experimental_findings` | `off`, `on` | on only when `OWNVITALS_EXPERIMENTAL_FINDINGS` is on and the stored value isn't `off` (D9; who sees the tier is decided where findings are shown) |
 | `ai_insights` | `off`, `on` | on only when `OWNVITALS_AI_INSIGHTS` is on and the stored value isn't `off` (D11) |
 | `banner` | `{text, level}` | plain text of 1 to 280 characters (no control, format or separator character), `info` or `warning` |
+| `ai_user_monthly_cap_microusd` | an integer, micro-USD | the lower of `OWNVITALS_AI_USER_MONTHLY_CAP_MICROUSD` and the stored value, and never above the effective global cap (#528, `ownvitals.flags.caps`) |
+| `ai_global_monthly_cap_microusd` | an integer, micro-USD | the lower of `OWNVITALS_AI_GLOBAL_MONTHLY_CAP_MICROUSD` and the stored value |
+
+A stored AI cap above the environment's is refused (`above_environment`), as is a per-user cap
+above the effective global cap or a global cap below the effective per-user cap
+(`user_above_global`, checked against the other cap as stored in the same transaction). An invalid
+stored cap counts as 0: no request can be reserved. The worker reads both on every reservation
+([ai.md](ai.md), "Units, month and caps").
 
 No row (or the JSON `null` of a cleared flag) means the environment's value. A stored value that
-doesn't validate falls back to the stricter default (`invite`, `off`, no banner) and is logged by
+doesn't validate falls back to the stricter default (`invite`, `off`, no banner, a cap of 0) and is logged by
 key only. `GET /api/settings/public` (no sign-in) returns the banner and the effective sign-up mode,
 never the switches.
 
@@ -162,9 +170,11 @@ offered while the server settings say closed); an on/off flag the server has off
 that can't be pressed, otherwise "Change…" opens `pages/admin/FlagDialog.tsx`, which knows nothing
 about the flag (fields, Save and the optional "Use the server setting" come from the caller, so a
 later flag such as the AI monthly caps reuses it); the banner's "Change…" takes the text and the
-level, or removes it. **Accounts** (`pages/admin/AccountWrites.tsx`): "Invite someone…" shows the
+level, or removes it; the two AI monthly caps (`pages/admin/CapControl.tsx`, #528) take an
+amount in USD (at most two decimals, never above the server setting) and store micro-USD, with the
+server's `above_environment` and `user_above_global` refusals worded in the dialog. **Accounts** (`pages/admin/AccountWrites.tsx`): "Invite someone…" shows the
 new code once in a dialog and forgets it when it closes; "Sign out all…" is on each account with a
-session and asks first. Role changes and second-factor resets stay with the operator CLI. The
+session and asks first; on the signed-in admin's own row it says this session ends too. Role changes and second-factor resets stay with the operator CLI. The
 Withings pills and the writes' words are in the `admin` catalogue (en and sv). Tests:
 `npx vitest run src/pages/admin`, backend `tests/test_admin_writes.py`, e2e
 `e2e/specs/admin-writes.spec.ts`.

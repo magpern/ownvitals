@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { listAdminAccounts, type AdminAccount } from '../api/admin'
+import { useSession } from '../auth/SessionContext'
 import { errorMessage } from '../api/messages'
 import { Notice } from '../components/forms'
 import { StatePill } from '../components/ui/DataState'
@@ -16,8 +17,10 @@ import { SessionAnomalies } from './admin/SessionAnomalies'
 // 548 adds the tabs and the read-only Jobs, Flags and Audit log (pages/admin/). Issue 549 adds each
 // account's Withings state here, the Overview tiles and the Withings app card. Issue 550 adds the
 // writes: "Invite someone…", "Sign out all…" per account with a session (pages/admin/AccountWrites)
-// and the flag changes (pages/admin/FlagControls), each behind the step-up dialog. The page stays on
-// the English allowlist; the Withings pills and the writes' words are in the `admin` catalogue.
+// and the flag changes (pages/admin/FlagControls), each behind the step-up dialog. The AI monthly
+// caps join the flags (pages/admin/CapControl); "Sign out all…" on the admin's own row says it ends
+// this session too. The page stays on the English allowlist; the Withings pills and the writes'
+// words are in the `admin` catalogue.
 
 function factor(account: AdminAccount) {
   if (account.secondFactor === 'on') return <StatePill tone="ok">On</StatePill>
@@ -68,6 +71,7 @@ export function AdminPage() {
 
 function Accounts() {
   const headingId = useId()
+  const selfId = useSession().session?.user?.id ?? null
   const [rows, setRows] = useState<AdminAccount[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loads, setLoads] = useState(0)
@@ -133,7 +137,12 @@ function Accounts() {
                   <td className="ov-r ov-num">{account.sessions}</td>
                   <td>
                     {account.sessions > 0 ? (
-                      <SignOutAllButton userId={account.id} email={account.email} onDone={reload} />
+                      <SignOutAllButton
+                        userId={account.id}
+                        email={account.email}
+                        self={account.id === selfId}
+                        onDone={reload}
+                      />
                     ) : null}
                   </td>
                 </tr>

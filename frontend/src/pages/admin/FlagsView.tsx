@@ -7,19 +7,26 @@ import { Cancelled, useProtected } from '../../components/StepUp'
 import { Card } from '../../components/ui/Card'
 import { ResourceView, StatePill } from '../../components/ui/DataState'
 import { isMessageKey, useT } from '../../i18n'
+import { CAP_KEYS, CapControl, useUsd } from './CapControl'
+import { microFromFlag } from './capAmount'
 import { BannerControl, SignupChoice, SWITCH_KEYS, SwitchControl, type ControlProps } from './FlagControls'
 
 // Flags: what is in force, where it comes from, and the controls that tighten it (issue 550).
 // Each change needs a code from the last 5 minutes (the shared step-up dialog) and is audited.
+// The AI monthly caps (pages/admin/CapControl) are shown and typed in USD.
 
 function FlagRow({ flag, write, busy, onChanged }: Omit<ControlProps, 'name'>) {
   const t = useT()
+  const usd = useUsd()
   const nameKey = `admin.flags.name.${flag.key}`
   const sourceKey = `admin.flags.source.${flag.source}`
   const name = isMessageKey(nameKey) ? t(nameKey) : flag.key
   // A known value is translated; anything else (a banner's text, a value added later) is shown as sent.
+  const isCap = CAP_KEYS.has(flag.key)
   const valueLabel = (value: string | null) => {
     if (value === null) return t('admin.flags.none')
+    const micro = isCap ? microFromFlag(value) : null
+    if (micro !== null) return usd(micro)
     const key = `admin.flags.value.${value}`
     return isMessageKey(key) ? t(key) : value
   }
@@ -29,11 +36,13 @@ function FlagRow({ flag, write, busy, onChanged }: Omit<ControlProps, 'name'>) {
   if (flag.key === 'signup_mode') control = <SignupChoice {...props} />
   else if (isSwitch) control = <SwitchControl {...props} />
   else if (flag.key === 'banner') control = <BannerControl {...props} />
+  else if (isCap) control = <CapControl {...props} />
   const help = [
     flag.key === 'signup_mode' ? t('admin.flags.signup.help') : `${valueLabel(flag.effective)}.`,
     isMessageKey(sourceKey) ? t(sourceKey) : flag.source,
   ]
   if (isSwitch && flag.environment !== 'on') help.push(t('admin.flags.environmentOff'))
+  if (isCap) help.push(flag.environment === '0' ? t('admin.flags.cap.serverZero') : t('admin.flags.cap.help'))
   if (!flag.storedValid) help.push(t('admin.flags.invalid'))
   return (
     <div className="ov-setting">

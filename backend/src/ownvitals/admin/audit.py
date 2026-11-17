@@ -132,13 +132,15 @@ class UserDeleteParams(Params):
 
 class SettingSetParams(Params):
     """A flag write: the key and what the value means, never free text. A banner's text stays in
-    ``app_settings`` (only its level and length are logged); a refused value logs the key
-    alone."""
+    ``app_settings`` (only its level and length are logged); an AI cap's amount is logged (a
+    setting, not a user's spend); a value refused by validation logs the key alone."""
 
     key: Annotated[str, StringConstraints(pattern=KEY_PATTERN)]
     value: Literal["invite", "closed", "off", "on"] | None = None
     level: Literal["info", "warning"] | None = None
     text_length: Annotated[int, Field(ge=0, le=100_000)] | None = None
+    # An AI monthly cap (#528): the amount stored, in micro-USD (the settings' own bound).
+    amount_microusd: Annotated[int, Field(strict=True, ge=0, le=10_000_000_000_000)] | None = None
 
 
 class InviteCreateParams(Params):

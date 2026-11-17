@@ -19,7 +19,7 @@ from dbtools import (
 from jobtools import ensure_user
 from ownvitals.derived.tables import user_profiles
 
-HEAD = "0031_users_synthetic"
+HEAD = "0032_ai_cap_flags"
 
 
 def test_the_revisions_form_one_line() -> None:
@@ -28,6 +28,7 @@ def test_the_revisions_form_one_line() -> None:
     assert script.get_base() == "0001_baseline"
     assert [r.revision for r in script.walk_revisions()] == [
         HEAD,
+        "0031_users_synthetic",
         "0030_session_anomaly",
         "0029_email_prefs",
         "0028_chart_range_7d",
