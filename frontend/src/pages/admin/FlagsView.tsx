@@ -5,7 +5,7 @@ import { ResourceView, StatePill } from '../../components/ui/DataState'
 import { isMessageKey, useT } from '../../i18n'
 
 // Flags: what is in force and where it comes from. Read-only: the change controls come with the
-// step-up writes (#546 part 3), so nothing here is a button.
+// step-up writes (issue 546 part 3), so nothing here is a button.
 
 function FlagRow({ flag }: { flag: FlagView }) {
   const t = useT()

@@ -8,7 +8,7 @@ import { JobsView } from './JobsView'
 
 // The body of the tabs. Overview is the whole page of the mock-up: the tiles, Accounts, Jobs, the
 // Withings app, Flags and the Audit log, each the same component its own tab shows. The tiles and
-// the Withings app wait for their data (#549); Accounts is rendered by the page and passed in.
+// the Withings app wait for their data (issue 549); Accounts is rendered by the page and passed in.
 
 export function AdminSection({ tab }: { tab: Exclude<AdminTab, 'accounts' | 'overview'> }) {
   switch (tab) {
