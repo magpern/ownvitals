@@ -233,9 +233,12 @@ def test_the_reported_inference_geo_is_kept_and_bounded() -> None:
     for geo in ("global", "us"):
         reply = parse_reply(_answer(usage=base | {"inference_geo": geo}))
         assert reply.usage.inference_geo == geo
-    for bad in (1, ["global"], {"geo": "global"}, "g" * 17):
-        with pytest.raises(BadResponse, match="usage"):
-            parse_reply(_answer(usage=base | {"inference_geo": bad}))
+    # Malformed: read as absent (charged at 1.1x), never a BadResponse charged at the 1x
+    # reservation with valid token counts (#556).
+    for bad in (1, True, ["global"], {"geo": "global"}, "g" * 17, "global" + " " * 11):
+        reply = parse_reply(_answer(usage=base | {"inference_geo": bad}))
+        assert reply.usage.inference_geo is None, bad
+        assert (reply.usage.input_tokens, reply.usage.output_tokens) == (5, 7)
 
 
 @pytest.mark.parametrize(

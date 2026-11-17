@@ -12,11 +12,12 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 
-from fakemodel import API_KEY, CONNECT, PROTOCOL_ERROR, READ_ERROR, TIMEOUT, status
+from fakemodel import API_KEY, CONNECT, PROTOCOL_ERROR, READ_ERROR, TIMEOUT, Seen, status
 from fakemodel import text as answer
 from ownvitals.ai.client import MAX_ATTEMPTS
 from ownvitals.ai.gates import ModelFailed, ModelRefused
-from ownvitals.ai.requests import Message, Text
+from ownvitals.ai.pricing import TOOL_ALLOWANCE_TOKENS
+from ownvitals.ai.requests import MAX_TOKENS, Message, Text
 from ownvitals.jobs import RunStopped
 from test_ai_client_env import (  # noqa: F401 - fixtures
     PRICES,
@@ -192,7 +193,7 @@ async def test_all_locks_open_one_call_settled_at_its_cost(aicall: AiCall) -> No
     assert seen.json["inference_geo"] == "global"  # the geo the prices are for (#529)
 
 
-@pytest.mark.parametrize("geo", ["us", None])
+@pytest.mark.parametrize("geo", ["us", None, 1, ["global"], "g" * 17])
 async def test_a_non_global_answer_settles_at_the_us_only_price(
     aicall: AiCall, geo: str | None
 ) -> None:
@@ -307,6 +308,45 @@ async def test_an_overrun_is_charged_in_full_and_recorded(aicall: AiCall) -> Non
     assert state == "settled"
     assert actual > amount
     assert aicall.audit()[0].settlement == "overrun"
+
+
+async def test_a_non_global_answer_above_the_1x_bound_is_an_overrun_charged_in_full(
+    aicall: AiCall,
+) -> None:
+    # Token counts exactly at the 1x bound (input at the highest input price, output at
+    # max_tokens): at 1x the bound holds, at the US-only 1.1x it is exceeded (#556).
+    exact: list[int] = []
+
+    async def at_the_bound(seen: Seen) -> None:
+        tokens = len(seen.body) + TOOL_ALLOWANCE_TOKENS
+        price = PRICES["synthetic-model-1"]
+        exact.append(tokens * price.cache_write + MAX_TOKENS["chat"] * price.output)
+        code, body = answer("Synthetic answer.", input_tokens=0, output_tokens=MAX_TOKENS["chat"])
+        body["usage"] |= {"cache_creation_input_tokens": tokens, "inference_geo": "us"}
+        aicall.fake.script = [(code, body)]
+
+    aicall.fake.before = at_the_bound
+    await aicall.call()
+    [bound_1x] = [-(-e // 1_000_000) for e in exact]
+    cost = -(-(exact[0] * 11) // 10_000_000)
+    [(state, amount, actual)] = aicall.reservations()
+    assert amount == bound_1x  # the reservation is the 1x bound
+    assert (state, actual) == ("settled", cost)
+    assert actual > amount
+    [row] = aicall.audit()
+    assert (row.settlement, row.cost_microusd) == ("overrun", cost)
+    month = aicall.sql("SELECT month FROM ai_reservations WHERE owner_id = :o", o=aicall.owner)
+    month = month.scalar_one()
+    user = aicall.sql(
+        "SELECT reserved, spent FROM ai_spend WHERE owner_id = :o AND month = :m",
+        o=aicall.owner,
+        m=month,
+    ).one()
+    total = aicall.sql(
+        "SELECT reserved, spent FROM ai_spend_global WHERE month = :m", m=month
+    ).one()
+    assert tuple(user) == (0, cost)  # charged in full against the user's cap
+    assert tuple(total) == (0, cost)  # and the global one
 
 
 async def test_a_lost_lease_leaves_the_reservation_to_the_reaper(
