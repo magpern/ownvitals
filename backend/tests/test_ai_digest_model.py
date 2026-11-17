@@ -17,6 +17,7 @@ from ownvitals.ai.tools_model import TOOLS
 from ownvitals.views.catalog import NERVE_KEYS
 
 SYNTHETIC = True
+BODY_KEYS = {"model", "max_tokens", "inference_geo", "system", "tools", "messages"}
 
 
 @pytest.mark.parametrize(
@@ -64,7 +65,7 @@ def test_the_request_is_one_fixed_user_message_of_dates_and_tool_names() -> None
     assert body["system"] == r.SYSTEM_PROMPT
     raw = r.serialize(body)
     r.check_body(raw, ["synthetic-secret"])
-    assert set(json.loads(raw)) == {"model", "max_tokens", "system", "tools", "messages"}
+    assert set(json.loads(raw)) == BODY_KEYS
 
 
 def test_the_nerve_metrics_are_the_nerve_pages() -> None:

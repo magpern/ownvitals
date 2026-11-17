@@ -169,7 +169,15 @@ async def test_digest_privacy(chat: ChatEnv) -> None:
         body = seen[0].json
         assert body["system"] == SYSTEM_PROMPT
         assert body["max_tokens"] == 2048
-        assert set(body) == {"model", "max_tokens", "system", "tools", "messages"}
+        assert set(body) == {
+            "model",
+            "max_tokens",
+            "inference_geo",
+            "system",
+            "tools",
+            "messages",
+        }
+        assert body["inference_geo"] == "global"  # a constant, no user data (#529)
         assert len(body["messages"]) == 1  # no conversation history
         assert not _UUID.search(json.dumps(body)), "an identifier in the request"
         assert PLANTED_MESSAGE not in _blob(seen)  # the chat history is not a digest input

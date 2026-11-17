@@ -11,9 +11,11 @@ Every part is checked against a closed shape before it is serialized: a tool cal
 tool and is echoed back with its *validated* arguments only (closed sets; anything else becomes
 ``{}``); a tool result must validate as that tool's output model or as ``ToolError``, the
 allowlisted schemas of #206; tool-call ids are ours (``call_<n>``), never the provider's. The body
-holds exactly ``model``, ``max_tokens``, ``system``, ``tools`` and ``messages``: no ``metadata``,
-no user id or any other identifier. ``check_body`` then scans the serialized bytes and refuses a
-body with a UUID, an email address or any of the secret values it is handed.
+holds exactly ``model``, ``max_tokens``, ``inference_geo`` (always ``"global"``, the geo the
+pricing table is for: a workspace that does not allow it refuses the request with a 400 rather
+than bill it at the US-only 1.1x; ``ai.pricing``), ``system``, ``tools`` and ``messages``: no
+``metadata``, no user id or any other identifier. ``check_body`` then scans the serialized bytes
+and refuses a body with a UUID, an email address or any of the secret values it is handed.
 """
 
 import json
@@ -24,6 +26,7 @@ from typing import Any, Final, Literal
 
 from pydantic import ValidationError
 
+from ownvitals.ai.pricing import GLOBAL_GEO
 from ownvitals.ai.tools_model import (
     MAX_TOOL_CALLS_PER_TURN,
     RESULT_MAX_BYTES,
@@ -69,7 +72,9 @@ _UUID: Final = re.compile(
     r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}"
 )
 _EMAIL: Final = re.compile(r"[^\s@\"]+@[^\s@\"]+\.[A-Za-z]{2,}")
-_BODY_KEYS: Final = frozenset({"model", "max_tokens", "system", "tools", "messages"})
+_BODY_KEYS: Final = frozenset(
+    {"model", "max_tokens", "inference_geo", "system", "tools", "messages"}
+)
 
 
 class RequestRefused(ValueError):
@@ -210,6 +215,7 @@ def build_request(model: str, kind: Kind, messages: Sequence[Message]) -> dict[s
     body = {
         "model": check_model(model),
         "max_tokens": max_tokens,
+        "inference_geo": GLOBAL_GEO,
         "system": SYSTEM_PROMPT,
         "tools": definitions(),
         "messages": _messages(messages),

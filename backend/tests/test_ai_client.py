@@ -189,6 +189,25 @@ async def test_all_locks_open_one_call_settled_at_its_cost(aicall: AiCall) -> No
         200,
     )
     assert row.job_id == aicall.job.lease.job_id
+    assert seen.json["inference_geo"] == "global"  # the geo the prices are for (#529)
+
+
+@pytest.mark.parametrize("geo", ["us", None])
+async def test_a_non_global_answer_settles_at_the_us_only_price(
+    aicall: AiCall, geo: str | None
+) -> None:
+    # The request asked for global inference; an answer reporting another geo, or none, is
+    # settled at 1.1x so the caps never count less than the bill (#529).
+    code, body = answer("Synthetic answer.", input_tokens=1000, output_tokens=100)
+    body["usage"]["inference_geo"] = geo
+    aicall.fake.script = [(code, body)]
+    await aicall.call()
+    exact = 1000 * PRICES["synthetic-model-1"].input + 100 * 15_000_000
+    cost = -(-(exact * 11) // 10_000_000)
+    assert cost > -(-exact // 1_000_000)
+    [(state, _, actual)] = aicall.reservations()
+    assert (state, actual) == ("settled", cost)
+    assert aicall.audit()[0].cost_microusd == cost
 
 
 @pytest.mark.parametrize("step", [status(429, "1"), status(529), CONNECT])

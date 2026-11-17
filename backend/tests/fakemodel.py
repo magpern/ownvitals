@@ -34,8 +34,9 @@ class Seen:
         return json.loads(self.body)
 
 
-def usage(input_tokens: int = 100, output_tokens: int = 20) -> dict[str, int]:
-    return {"input_tokens": input_tokens, "output_tokens": output_tokens}
+def usage(input_tokens: int = 100, output_tokens: int = 20) -> dict[str, int | str]:
+    # The provider reports where inference ran; global, as every request asks for.
+    return {"input_tokens": input_tokens, "output_tokens": output_tokens, "inference_geo": "global"}
 
 
 def message(content: list[dict[str, Any]], stop: str, **counts: int) -> dict[str, Any]:

@@ -29,11 +29,15 @@ def _assistant(text: str = "synthetic answer") -> Message:
 
 def test_the_body_holds_exactly_the_fixed_fields_and_no_identifier() -> None:
     body = r.build_request(MODEL, "chat", [_user()])
-    assert set(body) == {"model", "max_tokens", "system", "tools", "messages"}
+    assert set(body) == {"model", "max_tokens", "inference_geo", "system", "tools", "messages"}
     assert "metadata" not in json.dumps(body)
     assert body["system"] == r.SYSTEM_PROMPT
     assert body["max_tokens"] == 1024
     assert r.build_request(MODEL, "digest", [_user()])["max_tokens"] == 2048
+    # Global inference always (#529): the geo the pricing table is for. Left out, a workspace
+    # default of "us" would apply and bill 1.1x; sent, a workspace without it answers 400.
+    assert body["inference_geo"] == "global"
+    assert r.build_request(MODEL, "digest", [_user()])["inference_geo"] == "global"
     assert [t["name"] for t in body["tools"]] == list(TOOLS)
     assert body["messages"] == [
         {"role": "user", "content": [{"type": "text", "text": "synthetic question"}]}
@@ -221,6 +225,17 @@ def test_an_answer_keeps_text_and_tool_requests_only() -> None:
         7,
         2,
     )
+    assert reply.usage.inference_geo is None  # not reported: usage_cost charges it at 1.1x
+
+
+def test_the_reported_inference_geo_is_kept_and_bounded() -> None:
+    base = {"input_tokens": 5, "output_tokens": 7}
+    for geo in ("global", "us"):
+        reply = parse_reply(_answer(usage=base | {"inference_geo": geo}))
+        assert reply.usage.inference_geo == geo
+    for bad in (1, ["global"], {"geo": "global"}, "g" * 17):
+        with pytest.raises(BadResponse, match="usage"):
+            parse_reply(_answer(usage=base | {"inference_geo": bad}))
 
 
 @pytest.mark.parametrize(
