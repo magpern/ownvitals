@@ -34,25 +34,44 @@ function auditRow(id: number, action: string, outcome: string, target_kind: stri
   }
 }
 
+const OVERVIEW = {
+  'GET /api/admin/users': { users: [], next_offset: null },
+  'GET /api/admin/jobs': JOBS,
+  'GET /api/admin/settings': { flags: [flagRow('signup_mode', 'database', 'invite')] },
+  'GET /api/admin/audit': { rows: [auditRow(5, 'flag.set', 'ok', 'setting', 'signup_mode')], next_before: null },
+}
+
 describe('the admin tabs', () => {
-  it('lists the six tabs, marks the current one and shows "Coming later" on Overview', async () => {
-    fakeApi({ 'GET /api/auth/session': ADMIN })
+  it('lists the six tabs and marks the current one', async () => {
+    fakeApi({ 'GET /api/auth/session': ADMIN, ...OVERVIEW })
     renderAt('/admin')
     const nav = await screen.findByRole('navigation', { name: 'Admin' })
     expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual([
       'Overview', 'Accounts', 'Jobs', 'Withings app', 'Flags', 'Audit log',
     ])
     expect(within(nav).getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getAllByText('Coming later').length).toBeGreaterThan(0)
     expect(screen.queryByText('The admin pages come later.')).toBeNull()
   })
 
-  it('moves between tabs through the address', async () => {
+  it('shows the whole page on Overview: tiles and Withings app as Coming later, then every section', async () => {
+    fakeApi({ 'GET /api/auth/session': ADMIN, ...OVERVIEW })
+    renderAt('/admin')
+    for (const name of ['Accounts', 'Jobs', 'Flags', 'Audit log']) {
+      expect(await screen.findByRole('heading', { level: 2, name })).toBeInTheDocument()
+    }
+    expect(screen.getAllByText('Coming later')).toHaveLength(2)
+    expect(screen.getByText('queued')).toBeInTheDocument()
+    expect(screen.getByText('Sign-up')).toBeInTheDocument()
+    expect(await screen.findByText('flag.set')).toBeInTheDocument()
+  })
+
+  it('shows one section on the other tabs', async () => {
     fakeApi({ 'GET /api/auth/session': ADMIN, 'GET /api/admin/jobs': JOBS })
     renderAt('/admin')
     await userEvent.click(await screen.findByRole('link', { name: 'Jobs' }))
     expect(await screen.findByRole('table')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Jobs' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByRole('heading', { level: 2, name: 'Flags' })).toBeNull()
   })
 })
 

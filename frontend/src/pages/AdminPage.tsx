@@ -5,7 +5,7 @@ import { Notice } from '../components/forms'
 import { DataState, StatePill } from '../components/ui/DataState'
 import { Icon } from '../components/ui/Icon'
 import { signedInAt } from './SecurityPage'
-import { AdminSection } from './admin/AdminSections'
+import { AdminSection, Overview } from './admin/AdminSections'
 import { AdminTabs, useAdminTab } from './admin/AdminTabs'
 import { SessionAnomalies } from './admin/SessionAnomalies'
 
@@ -25,6 +25,12 @@ function role(account: AdminAccount): string {
 
 export function AdminPage() {
   const tab = useAdminTab()
+  const accounts = (
+    <>
+      <Accounts />
+      <SessionAnomalies />
+    </>
+  )
   return (
     <div className="ov-stack" data-gap="lg">
       <p className="ov-admin-band" role="note">
@@ -38,14 +44,9 @@ export function AdminPage() {
         <span>Authenticator valid 12 h · changes need a code from the last 5 min</span>
       </p>
       <AdminTabs active={tab} />
-      {tab === 'accounts' ? (
-        <>
-          <Accounts />
-          <SessionAnomalies />
-        </>
-      ) : (
-        <AdminSection tab={tab} />
-      )}
+      {tab === 'overview' ? <Overview accounts={accounts} /> : null}
+      {tab === 'accounts' ? accounts : null}
+      {tab !== 'overview' && tab !== 'accounts' ? <AdminSection tab={tab} /> : null}
     </div>
   )
 }
