@@ -334,7 +334,7 @@ class _Client:
 def faked(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     seen: dict[str, Any] = {}
 
-    async def materials(job: Any, connection_id: UUID) -> tuple[Any, str]:
+    async def materials(job: Any, connection_id: UUID, **_options: Any) -> tuple[Any, str]:
         seen["materials"] = connection_id
 
         class _Account:

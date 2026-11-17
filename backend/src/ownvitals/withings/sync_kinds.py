@@ -19,6 +19,7 @@ from ownvitals.jobs import Complete, JobFailure, JobKind, KindRegistry
 from ownvitals.jobs.run import JobRun
 from ownvitals.jobs.withings import ConnectInput, StreamInput
 from ownvitals.withings.client import WithingsApp, WithingsClient
+from ownvitals.withings.fresh_token import fresh_access_token
 from ownvitals.withings.sync import execute_backfill, execute_sync
 from ownvitals.withings.sync_connect import execute_connect, execute_poll
 
@@ -37,9 +38,13 @@ def register_sync_kinds(registry: KindRegistry) -> None:
             registry.register(JobKind(name, model, handler))
 
 
-async def open_materials(job: JobRun, connection_id: UUID) -> tuple[Account, WithingsApp]:
+async def open_materials(
+    job: JobRun, connection_id: UUID, *, refresh: bool = True
+) -> tuple[Account, WithingsApp]:
     """The owner's grant and the app's client, read in the job's context. A missing key, a
-    connection that is not usable or a decrypt failure is that job category."""
+    connection that is not usable or a decrypt failure is that job category. The access token
+    is refreshed first when it is about to expire (``refresh``; the recovery job passes False,
+    it runs the refresh itself)."""
     from ownvitals.config import Settings
     from ownvitals.connections.errors import ConnectionFailure
     from ownvitals.connections.providers.app_secret import open_client_secret
@@ -68,8 +73,13 @@ async def open_materials(job: JobRun, connection_id: UUID) -> tuple[Account, Wit
     if isinstance(raw, str):
         raw = [part for part in raw.split(",") if part]
     scopes = tuple(str(item) for item in raw) if isinstance(raw, list | tuple) else ()
-    account = Account(connection_id, int(view.public["app_id"]), scopes, "UTC", view.access_token)
-    return account, WithingsApp(secret.client_id, secret.secret)
+    app = WithingsApp(secret.client_id, secret.secret)
+    token = view.access_token
+    if refresh:
+        token = await fresh_access_token(
+            job, ring, connection_id, app, token=token, expires_at=view.access_expires_at
+        )
+    return Account(connection_id, int(view.public["app_id"]), scopes, "UTC", token), app
 
 
 ECG_STREAM = "ecg"
