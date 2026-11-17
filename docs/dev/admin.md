@@ -135,3 +135,15 @@ With the database of [backend.md](backend.md) and its roles:
 ```bash
 uvx uv@0.13.6 run pytest -q tests/test_admin_*.py tests/test_maint_privileges.py tests/test_flags*.py
 ```
+
+## Frontend (issue 548)
+
+`/admin?tab=overview|accounts|jobs|withings|flags|audit` (`pages/admin/AdminTabs.tsx`; the tab is
+in the address, an unknown value is Overview). Read-only views on the endpoints above, decoded in
+`src/api/adminViews.ts`: **Jobs** shows the state counts of `GET /api/admin/jobs` only (the
+failures list, with its kinds, is never decoded); **Flags** shows `GET /api/admin/settings` as
+effective value and source, with no controls (the step-up writes are #546 part 3); **Audit log**
+shows when, action, target and result of `GET /api/admin/audit`, never params or the request id.
+Overview is the whole page (tiles and Withings app as "Coming later" rows until #546 part 2, then Accounts, Jobs, Flags, Audit log side by side on wide screens). The new strings are the
+`admin` catalogue area (en and sv); `pages/AdminPage.tsx` itself stays on the English allowlist.
+Tests: `npx vitest run src/pages/admin src/pages/AdminPage.test.tsx`.

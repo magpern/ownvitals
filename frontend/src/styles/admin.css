@@ -1,0 +1,15 @@
+/* The Admin screen's layout (docs/design/mockups/html/Admin.html). Tokens only. */
+
+/* Two admin sections side by side on wide screens (the Admin mock-up's `.grid.g2`), stacked on a phone. */
+.ov-admin-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: var(--ov-space-5);
+  align-items: start;
+}
+
+/* A job count that needs a look: a dead-lettered job (the mock-up's attention colour). */
+.ov-tbl td[data-attn='true'] {
+  color: var(--ov-attn);
+  font-weight: var(--ov-weight-semibold);
+}
