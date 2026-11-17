@@ -59,6 +59,7 @@ async def settle_and_audit(
                 output_tokens=usage.output_tokens,
                 cache_write_tokens=usage.cache_write_tokens,
                 cache_read_tokens=usage.cache_read_tokens,
+                inference_geo=usage.inference_geo,
                 prices=prices,
             ),
         )

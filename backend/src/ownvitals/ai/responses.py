@@ -4,9 +4,11 @@ The answer is untrusted. Only two kinds of content block are kept: ``text`` (bou
 text; the UI renders it as plain text) and ``tool_use`` (a request to run a read-only tool,
 which the turn loop validates against the tool's closed arguments before anything runs). Every
 other block is dropped. The usage must be four non-negative integers, or the answer is
-``BadResponse`` and the call is charged at its reserved amount. The model's output is a
-proposal: nothing here, and nothing that reads a ``Reply``, acts on it beyond running a
-read-only tool for the same user and storing the text in that user's conversation.
+``BadResponse`` and the call is charged at its reserved amount; ``usage.inference_geo``, when
+present, must be a short string (it only sets the price: ``ai.pricing.usage_cost``). The
+model's output is a proposal: nothing here, and nothing that reads a ``Reply``, acts on it
+beyond running a read-only tool for the same user and storing the text in that user's
+conversation.
 """
 
 import json
@@ -16,6 +18,7 @@ from typing import Any, Final
 from ownvitals.ai.requests import TEXT_MAX_CHARS
 
 RESPONSE_MAX_BYTES: Final = 1024 * 1024
+GEO_MAX_CHARS: Final = 16
 TOOL_USES_MAX: Final = 16  # more in one answer is malformed (the turn allows 8 in all)
 _STOP_REASONS: Final = frozenset(
     {"end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal"}
@@ -32,6 +35,7 @@ class Usage:
     output_tokens: int
     cache_write_tokens: int = 0
     cache_read_tokens: int = 0
+    inference_geo: str | None = None  # where the provider says inference ran; None if absent
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +67,15 @@ def _count(usage: dict[str, Any], key: str, required: bool) -> int:
     return value
 
 
+def _geo(usage: dict[str, Any]) -> str | None:
+    value = usage.get("inference_geo")
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > GEO_MAX_CHARS:
+        raise BadResponse("usage")
+    return value
+
+
 def usage_of(payload: object) -> Usage:
     """The usage block of a reply."""
     if not isinstance(payload, dict) or not isinstance(payload.get("usage"), dict):  # pyright: ignore[reportUnknownMemberType]
@@ -73,6 +86,7 @@ def usage_of(payload: object) -> Usage:
         output_tokens=_count(usage, "output_tokens", True),
         cache_write_tokens=_count(usage, "cache_creation_input_tokens", False),
         cache_read_tokens=_count(usage, "cache_read_input_tokens", False),
+        inference_geo=_geo(usage),
     )
 
 

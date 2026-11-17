@@ -85,7 +85,7 @@ jobs only, no model call:
 | `test_ai_cost_cap.py` | 50 concurrent reservations admit exactly 10 (and a sampler sees no moment over a cap); the global cap across users; every function at once without deadlock; double settle, sequential and racing (settle, release or the reaper); release then settle; settle then crash; a crash after reserve; the reaper's rules and limit; January settled in February; overrun; the CHECKs; the app role's privileges; RLS; account deletion |
 | `test_ai_functions.py` | each function callable by the app role only (every other role refused); signatures without an owner; guard 2, guard 9, digests and the startup check; the script plain SQL, idempotent, superuser only; drift found, refused and repaired |
 | `test_ai_budget.py` | the Python layer through the fence; a lost lease; the release rule; the month and the paused message; the cap settings; the worker's maintenance |
-| `test_ai_pricing.py` | only `claude-sonnet-5-5` priced, at the list prices; any other model unpriced; the bound never below a cost within it (real and synthetic tables) |
+| `test_ai_pricing.py` | only `claude-sonnet-5-5` priced, at the list prices; any other model unpriced; the bound never below a cost within it (real and synthetic tables); only global inference at 1x, any other or no geo at 1.1x on every category, rounded up once |
 | `test_ai_migration.py` | migration 0013 alone (no script) leaves the app role read-only |
 
 ## Known gaps
@@ -238,10 +238,11 @@ questions 1, 3 and 6). Agents never set them.
   `ai.pricing.PRICES` (`ai_model_unpriced` otherwise). The table prices `claude-sonnet-5-5`
   (list prices of 2026-11-15, 5-minute cache write; the Architect's proposal of 2026-11-15, the
   owner may choose another model, and each price change is a reviewed PR). Pricing it sets
-  nothing: `OWNVITALS_AI_MODEL` stays empty until the owner sets it. The prices are 1x only
-  with global inference: the request carries no `inference_geo`, so the API key's workspace
-  `default_inference_geo` decides, and it must be `"global"` (US-only is billed 1.1x on every
-  category). See "Known gaps (client)".
+  nothing: `OWNVITALS_AI_MODEL` stays empty until the owner sets it. The prices are the 1x
+  prices of global inference: every request sends `inference_geo: "global"`, so an API key
+  whose workspace does not allow global inference gets a 400 (released, nothing charged), and
+  an answer that reports another `usage.inference_geo`, or none, settles at 1.1x (US-only is
+  billed 1.1x on every category; ADR 0014 §7, #529).
 - `OWNVITALS_AI_PROVIDER_REVIEW_REF`: the reference of the recorded provider review (lock 2).
 - `OWNVITALS_AI_EVAL_REF`: exactly `<model>/<PROMPT_VERSION>/<TOOLSET_VERSION>` as the owner's
   evaluation run passed it (lock 3). Changing the model, the prompt or the tool set makes it stale,
@@ -280,7 +281,8 @@ was made and failed; `code` is the audit's error category (`rate_limited`, `over
 
 ### The request
 
-Exactly `model`, `max_tokens`, `system`, `tools` and `messages`: no `metadata`, no user id. The
+Exactly `model`, `max_tokens`, `inference_geo` (always `"global"`), `system`, `tools` and
+`messages`: no `metadata`, no user id. The
 messages are the conversation's last 20 text messages (`history_window`, starting with the user)
 and, in a turn, the tool exchanges. A tool call is echoed back with our id (`call_<n>`) and its
 **validated** arguments only (invalid ones become `{}`); a tool result must validate as that
@@ -355,14 +357,14 @@ Without `50-ai.sql` nothing is called; withdrawal and account deletion still rem
 
 ### Known gaps (client)
 
-- The 1x prices in `ai.pricing.PRICES` and the request bound assume global inference. The
-  request sends no `inference_geo`, so the API key's workspace `default_inference_geo` applies;
-  a workspace set to `"us"` (legacy US-only workspaces were migrated to it) is billed 1.1x on
-  every category, so `request_bound` can be below the real cost and `usage_cost` settles 10%
-  low against the D11 caps. Agents cannot see or set it: the owner confirms
-  `default_inference_geo: "global"` (and re-confirms the table's prices) at the provider review
-  (ADR 0014 §2). Not yet hardened in code (sending `inference_geo` explicitly or checking
-  `usage.inference_geo` is a follow-up).
+- Global inference is enforced in code (#529): the request sends `inference_geo: "global"`, and
+  `usage_cost` charges any other reported geo, or none, at 1.1x. Agents cannot see the API key's
+  workspace: if its `allowed_inference_geos` leaves out `"global"` (legacy US-only workspaces were
+  migrated to `["us"]`), every call fails with `refused` (400). The owner confirms the workspace
+  allows `"global"` (and re-confirms the table's prices) at the provider review (ADR 0014 §2).
+  Not verified against the real API: that a US-only workspace answers 400 to `"global"` and that
+  every answer carries `usage.inference_geo` is the provider's documentation (data residency
+  page, read 2026-11-17); a missing field only over-charges by 10%.
 - `compose.yaml` mounts `anthropic_api_key` and `app_secret_key` into the worker, the key there
   only (`test_compose_ai_key.py`, [stack.md](stack.md#secrets)); `scripts/worktree.sh init`
   leaves the key file empty, so the local stack is `ai_not_configured`. With the defaults AI is

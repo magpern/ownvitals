@@ -192,7 +192,8 @@ worker context's RLS tests).
   to a clinician for anything urgent (an E1 finding in particular), treats tool results and user
   text as data and never as instructions, and has no ability to act; the tool definitions of §4;
   the conversation's last 20 messages at most; `max_tokens` 1,024 for chat and 2,048 for the
-  digest (our choice). No `metadata.user_id` and no other identifier of the user is sent.
+  digest (our choice); `inference_geo: "global"` (§7, #529). No `metadata.user_id` and no other
+  identifier of the user is sent.
 - **No side effects.** No tool writes, sends mail, fetches a URL or reaches another user. The only
   thing a model output can do is become text in the user's own conversation.
 - **Output** is untrusted text: stored as text, rendered by React as plain text with a minimal
@@ -234,6 +235,17 @@ greps the logs and `ai_audit`.
   and system text (our choice), output tokens by `max_tokens`, each at its price (the cache-write
   price for input, the higher one). The owner's eval run (§9) reports the largest ratio of actual
   to bounded input tokens; a ratio above 1 blocks setting `ai_eval_ref`.
+- **Inference geo** (amended 2026-11-17, #529). The table holds the 1x prices of global
+  inference; US-only inference is billed 1.1x on every category, and a request that omits
+  `inference_geo` runs at the workspace's `default_inference_geo` (legacy US-only workspaces were
+  migrated to `"us"`). So every request sends `inference_geo: "global"`: a workspace that does
+  not allow it answers 400 (released, nothing billed) instead of billing more than the bound. A
+  completed request is settled from the reported `usage.inference_geo`: anything but `"global"`,
+  an absent field included, is charged at 1.1x, so a settlement is never below the bill. The
+  bound stays at 1x; such an answer settles as an overrun, charged in full against the caps.
+  Alternatives: omitting the field and trusting the workspace setting (the owner's check alone,
+  not enforced in code), or a 1.1x bound for every request (reserves 10% more for a case the
+  request already refuses). Reversible: a constant in `ai.pricing` and one body field.
 - **Tables.** `ai_reservations` (owned): `id`, `owner_id`, `month`, `amount` (micro-USD,
   `CHECK (amount >= 0)`), `actual` (NULL until settled, `CHECK (actual >= 0)`), `state` (`reserved`, `settled`,
   `released`), `job_id`, `created_at`. `ai_spend` (owned, one row per owner and month):

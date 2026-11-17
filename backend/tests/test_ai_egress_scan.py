@@ -37,6 +37,7 @@ from test_ai_tools_plant import (  # noqa: F401 - fixture
 from viewtools import NOW
 
 SYNTHETIC = True
+BODY_KEYS = {"model", "max_tokens", "inference_geo", "system", "tools", "messages"}
 _UUID = re.compile(r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}", re.I)
 _EMAIL = re.compile(r"[^\s@\"]+@[^\s@\"]+\.[a-z]{2,}", re.I)
 
@@ -126,7 +127,7 @@ async def test_no_request_body_holds_a_secret_id_or_sample(
         assert not _UUID.search(body)
         assert not _EMAIL.search(body)
         payload = seen.json
-        assert set(payload) == {"model", "max_tokens", "system", "tools", "messages"}
+        assert set(payload) == BODY_KEYS
         for key in ("samples", "signal", "metadata", "user_id"):
             assert f'"{key}"' not in body
         assert seen.headers["x-api-key"] == API_KEY
