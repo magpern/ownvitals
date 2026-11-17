@@ -29,6 +29,11 @@ async function confirmWithCode(page: Page, authenticator: Authenticator): Promis
 }
 
 test('a password account links Google, signs in with it, and unlinks it', async ({ page }) => {
+  // Four codes of one authenticator (enrolment, link, sign-in, unlink). The server refuses a step
+  // that was already used, so `Authenticator.next()` waits for the clock: the sign-in and unlink
+  // codes can each wait up to 30 s. That alone can pass the default 60 s, so size the budget for
+  // it (issue 553); the page's own waits keep their 10 s.
+  test.setTimeout(150_000)
   const account = newAccount('link')
   await signUpAndConfirm(page, account, createInvite())
   await signInWithPassword(page, account)

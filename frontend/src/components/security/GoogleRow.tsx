@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import { codeText } from '../../api/codes'
 import { getIdentities, startOAuthLink, unlinkIdentity, type Identities } from '../../api/identities'
 import { errorMessage, oauthOutcomeMessage, providerName } from '../../api/messages'
@@ -38,7 +38,10 @@ export function GoogleRow() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
+  // A layout effect, not a passive one: the outcome is painted on this commit and the address is
+  // cleared before the browser (or a test waiting for the notice) can look again. A passive effect
+  // runs later, so the notice could be seen while `?oauth=` was still in the address.
+  useLayoutEffect(() => {
     if (query.has('oauth')) navigate(pathname, { replace: true })
   }, [query, pathname, navigate])
 
