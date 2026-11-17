@@ -145,7 +145,7 @@ def validate_for_write(key: str, value: Any) -> Any:
       ``warning``.
     - the two AI caps: an integer from 0 to ``MAX_CAP_MICROUSD`` micro-USD (not a bool, not a
       float). Whether it is at or below the environment and the other cap is
-      ``ownvitals.flags.caps.check_write``'s rule."""
+      the rule of ``ownvitals.flags.caps.check_environment`` and ``check_against_other``."""
     if key == "signup_mode":
         if value == "open":
             raise FlagRefused("environment_only")
