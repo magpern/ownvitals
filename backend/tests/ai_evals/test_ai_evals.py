@@ -192,7 +192,15 @@ async def test_privacy(chat: ChatEnv) -> None:
         _, seen, _ = await turns.turn(a.ctx, "synthetic question", [answer("Synthetic.")])
         body = seen[0].json
         assert body["system"] == SYSTEM_PROMPT
-        assert set(body) == {"model", "max_tokens", "system", "tools", "messages"}
+        assert set(body) == {
+            "model",
+            "max_tokens",
+            "inference_geo",
+            "system",
+            "tools",
+            "messages",
+        }
+        assert body["inference_geo"] == "global"  # a constant, no user data (#529)
         assert not _UUID.search(json.dumps(body)), "an identifier in the request"
         assert a.email not in _blob(seen)
 
